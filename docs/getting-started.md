@@ -33,12 +33,21 @@ The app runs against the committed sample session-kit catalogs under
 `samples/quest-session-kit/` and the public runtime-config profiles under
 `samples/oscillator-config/`.
 
+The repo-local session-kit sample is now the preferred default source. It
+currently contains one public Quest target, `LslTwin`, plus one scene-matched
+runtime baseline. That keeps older internal APK and profile variants out of the
+public operator shell unless you explicitly point it at another catalog root.
+
 If `adb` is available, the Windows shell will use it automatically for:
 
 - USB probe and Wi-Fi ADB bootstrap
 - direct APK install from the selected file path
 - device profile application and explicit CPU/GPU level updates
 - app launch and headset status polling
+
+The shell does not auto-select a target on startup anymore. It waits for an
+explicit headset snapshot. If the current foreground app is not in the public
+catalog, the target remains empty until you choose one manually.
 
 ## CLI Tool
 

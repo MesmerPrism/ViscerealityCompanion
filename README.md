@@ -11,7 +11,7 @@ surface around that workflow:
 
 - WPF desktop app for Quest connection, install, launch, monitoring, and runtime-config staging
 - CLI for scriptable ADB, LSL, and twin command workflows
-- Quest Session Kit sample catalogs, hotload presets, and device profiles
+- repo-local `LslTwin` sample catalog, scene-matched hotload baseline, and device profiles
 - public runtime-config editor that mirrors the Astral inspector layout
 - Pages docs and release automation
 - Windows packaging scaffolding for a single branded launcher install path
@@ -32,6 +32,16 @@ surface around that workflow:
 
 The current research mode is intentionally remote-first: the desktop app is the
 control surface, and the APK is treated as the participant-facing runtime.
+
+## Verified Operator Path
+
+Verified on March 25, 2026 against a live Quest reachable over Wi-Fi ADB:
+
+- the app starts with no selected target until `Refresh Device Snapshot` runs
+- Quest Home leaves the target empty, while a known app can still be selected manually in `Quest Library`
+- selecting `LslTwin` and launching it from the GUI succeeded
+- applying Quest performance levels from the GUI updated the live headset to `CPU 2 / GPU 2`
+- `Twin Monitor` stayed stable and tracked `188` reported headset values from `quest_twin_state`
 
 ## Install Or Build
 

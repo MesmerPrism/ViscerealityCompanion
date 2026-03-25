@@ -35,9 +35,14 @@ the headset.
 In the app:
 
 - open `Start Here` or `Quest Library`
-- select the supplied app target
+- run `Refresh Device Snapshot` first if you want the app to adopt a known
+  foreground target automatically
+- if Quest Home or another non-catalog app is foreground, select the supplied
+  target manually
 - confirm the bundle, runtime preset, and device profile
 - browse to the APK file if it is not already staged in the catalog
+
+In the committed public sample catalog, that target is currently `LslTwin`.
 
 ## 3. Install And Launch
 
@@ -102,8 +107,8 @@ viscereality twin send twin-pause
 The app auto-discovers catalogs in this order:
 
 1. `VISCEREALITY_QUEST_SESSION_KIT_ROOT` environment variable
-2. `~/source/repos/AstralKarateDojo/QuestSessionKit/`
+2. `samples/quest-session-kit/` relative to the repo root
 3. `samples/quest-session-kit/` next to the executable
-4. `samples/quest-session-kit/` relative to the repo root
+4. `~/source/repos/AstralKarateDojo/QuestSessionKit/`
 
 Override with the `--root` flag in the CLI or set the environment variable.
