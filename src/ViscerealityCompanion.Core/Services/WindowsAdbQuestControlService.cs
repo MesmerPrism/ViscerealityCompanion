@@ -201,12 +201,18 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         var install = await RunAdbAsync(["-s", selector, "install", "-r", "-d", "-g", apkPath], cancellationToken).ConfigureAwait(false);
         var verify = await RunShellAsync(selector, $"pm path {AdbShellSupport.Quote(target.PackageId)}", cancellationToken).ConfigureAwait(false);
+        var installSucceeded = install.CombinedOutput.Contains("Success", StringComparison.OrdinalIgnoreCase);
+        var packagePresent = verify.StdOut.Contains("package:", StringComparison.OrdinalIgnoreCase);
 
-        if (install.ExitCode == 0 && verify.StdOut.Contains("package:", StringComparison.OrdinalIgnoreCase))
+        if (packagePresent || (install.ExitCode == 0 && installSucceeded))
         {
+            var detail = packagePresent
+                ? AdbShellSupport.Collapse($"{install.CombinedOutput} {verify.CombinedOutput}")
+                : AdbShellSupport.Collapse(install.CombinedOutput);
+
             return Success(
                 $"Installed {target.Label}.",
-                AdbShellSupport.Collapse(install.CombinedOutput),
+                detail,
                 packageId: target.PackageId);
         }
 
@@ -372,31 +378,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     public async Task<OperationOutcome> QueryForegroundAsync(CancellationToken cancellationToken = default)
     {
         var selector = GetRequiredSelector();
-        var activityOutput = await RunShellAsync(selector, "dumpsys activity activities", cancellationToken).ConfigureAwait(false);
-        var snapshot = activityOutput.ExitCode == 0
-            ? AdbShellSupport.ParseForegroundSnapshot(activityOutput.StdOut)
-            : null;
-
-        AdbCommandResult? windowOutput = null;
-        if (snapshot is null)
+        var (windowOutput, snapshot) = await QueryForegroundSnapshotAsync(selector, cancellationToken).ConfigureAwait(false);
+        if (snapshot is null && windowOutput.ExitCode != 0)
         {
-            windowOutput = await RunShellAsync(selector, "dumpsys window windows", cancellationToken).ConfigureAwait(false);
-            snapshot = windowOutput.ExitCode == 0
-                ? AdbShellSupport.ParseForegroundSnapshot(windowOutput.StdOut)
-                : null;
+            return Failure("Foreground query failed.", windowOutput.CombinedOutput);
         }
-
-        if (snapshot is null && activityOutput.ExitCode != 0 && (windowOutput is null || windowOutput.ExitCode != 0))
-        {
-            return Failure("Foreground query failed.", activityOutput.CombinedOutput);
-        }
-
-        var rawOutput = snapshot is not null
-            ? activityOutput.StdOut
-            : windowOutput?.StdOut ?? activityOutput.StdOut;
 
         return snapshot is null
-            ? new OperationOutcome(OperationOutcomeKind.Warning, "Foreground package could not be parsed.", AdbShellSupport.Collapse(rawOutput))
+            ? new OperationOutcome(OperationOutcomeKind.Warning, "Foreground package could not be parsed.", AdbShellSupport.Collapse(windowOutput.StdOut))
             : new OperationOutcome(OperationOutcomeKind.Success, $"Foreground package is {snapshot.PackageId}.", AdbShellSupport.Collapse(snapshot.PrimaryComponent), PackageId: snapshot.PackageId, Items: snapshot.VisibleComponents);
     }
 
@@ -432,18 +421,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             var batteryLevel = batteryOutput.ExitCode == 0 ? AdbShellSupport.ParseBatteryLevel(batteryOutput.StdOut) : null;
             var cpuLevel = ParseOptionalInt(await TryReadShellValueAsync(selector, "getprop debug.oculus.cpuLevel", cancellationToken).ConfigureAwait(false));
             var gpuLevel = ParseOptionalInt(await TryReadShellValueAsync(selector, "getprop debug.oculus.gpuLevel", cancellationToken).ConfigureAwait(false));
-            var activityOutput = await RunShellAsync(selector, "dumpsys activity activities", cancellationToken).ConfigureAwait(false);
-            var foregroundSnapshot = activityOutput.ExitCode == 0
-                ? AdbShellSupport.ParseForegroundSnapshot(activityOutput.StdOut)
-                : null;
-
-            if (foregroundSnapshot is null)
-            {
-                var windowOutput = await RunShellAsync(selector, "dumpsys window windows", cancellationToken).ConfigureAwait(false);
-                foregroundSnapshot = windowOutput.ExitCode == 0
-                    ? AdbShellSupport.ParseForegroundSnapshot(windowOutput.StdOut)
-                    : null;
-            }
+            var (_, foregroundSnapshot) = await QueryForegroundSnapshotAsync(selector, cancellationToken).ConfigureAwait(false);
 
             var foregroundPackage = foregroundSnapshot?.PackageId ?? string.Empty;
             var foregroundComponent = foregroundSnapshot?.PrimaryComponent ?? string.Empty;
@@ -657,6 +635,18 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     {
         var result = await RunShellAsync(selector, command, cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0 ? result.StdOut.Trim() : string.Empty;
+    }
+
+    private async Task<(AdbCommandResult Output, AdbShellSupport.ForegroundAppSnapshot? Snapshot)> QueryForegroundSnapshotAsync(
+        string selector,
+        CancellationToken cancellationToken)
+    {
+        var windowOutput = await RunShellAsync(selector, "dumpsys window windows", cancellationToken).ConfigureAwait(false);
+        var snapshot = windowOutput.ExitCode == 0
+            ? AdbShellSupport.ParseForegroundSnapshot(windowOutput.StdOut)
+            : null;
+
+        return (windowOutput, snapshot);
     }
 
     private async Task<AdbCommandResult> RunShellAsync(string selector, string command, CancellationToken cancellationToken)

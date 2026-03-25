@@ -12,7 +12,8 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
         new(
             "metadata",
             "Profile Metadata",
-            "Session-kit metadata travels in the CSV itself so staged profiles stay traceable on-device.",
+            "Session metadata stays in the CSV so staged profiles remain traceable across Quest Session Kit runs.",
+            RuntimeConfigInspectorPane.Setup,
             [
                 Text("hotload_profile_id", "Profile Id", "Stable profile identifier stored in the hotload file.", string.Empty),
                 Text("hotload_profile_version", "Profile Version", "Human-readable profile version tag.", string.Empty),
@@ -20,34 +21,77 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
                 Toggle("hotload_profile_lock", "Profile Lock", "When enabled, the runtime rejects later hash drift for the active study session.", false)
             ]),
         new(
-            "timing",
-            "Simulation Timing",
-            "These keys shape the public runtime timing envelope without exposing the private coupling job implementation.",
+            "showcase",
+            "Showcase Routing",
+            "These are the public scene-routing keys owned by RuntimeBiofeedbackShowcaseRouter and the LSL inlet defaults.",
+            RuntimeConfigInspectorPane.Setup,
             [
-                Toggle("internal_tick_lock_60hz", "Lock 60 Hz", "Keep the internal update loop pinned to 60 Hz.", true),
-                Text("internal_tick_rate_hz", "Tick Rate Hz", "Requested internal simulation tick rate.", "60"),
-                Toggle("internal_tick_use_xr_refresh_rate", "Use XR Refresh", "When enabled, runtime timing tracks the active XR display refresh rate.", false),
-                Text("internal_tick_xr_probe_interval_seconds", "XR Probe Interval", "How often the runtime re-queries XR refresh rate.", "1.0"),
-                Text("internal_tick_max_catchup", "Max Catch-Up", "Maximum backlog catch-up steps per frame.", "1"),
-                Text("internal_tick_drop_backlog_seconds", "Drop Backlog Seconds", "Backlog threshold after which extra delayed time is discarded.", "0.25"),
-                Text("internal_simulation_time_scale", "Simulation Time Scale", "Public simulation speed multiplier.", "1.0"),
-                Text("internal_non_coupling_decimation", "Non-Coupling Decimation", "Public decimation knob for non-coupling work.", "1")
+                Choice("showcase_breathing_mode", "Breathing Mode", "0 Controller State, 1 Controller Volume, 2 Polar Volume, 3 Headset Motion, 4 Mock, 5 LSL Belt.", "0", ["0", "1", "2", "3", "4", "5"]),
+                Choice("showcase_heartbeat_mode", "Heartbeat Mode", "0 Polar H10, 1 Mock, 2 Headset Motion.", "1", ["0", "1", "2"]),
+                Toggle("showcase_adaptive_pacer_enabled", "Adaptive Pacer Enabled", "Enable the runtime adaptive breathing pacer.", false),
+                Text("showcase_lsl_in_stream_name", "LSL In Stream Name", "Default inbound biofeedback LSL stream name.", "quest_biofeedback_in"),
+                Text("showcase_lsl_in_stream_type", "LSL In Stream Type", "Default inbound biofeedback LSL stream type.", "quest.biofeedback"),
+                Toggle("showcase_lsl_in_auto_connect", "LSL Auto Connect", "Attempt automatic inbound LSL connect on start.", false),
+                Toggle("showcase_lsl_in_auto_reconnect", "LSL Auto Reconnect", "Reconnect when the inbound LSL stream disappears.", true),
+                Text("showcase_lsl_in_default_channel", "LSL Default Channel", "Default channel index consumed by the LSL breathing source.", "0")
+            ]),
+        new(
+            "twin",
+            "Twin Link",
+            "Twin direction and apply policy stay public even though the live headset-side coupling runtime remains private.",
+            RuntimeConfigInspectorPane.Setup,
+            [
+                Choice("twin_sync_mode", "Twin Sync Mode", "0 APK -> Playmode, 1 Auto, 2 Playmode -> APK.", "1", ["0", "1", "2"]),
+                Toggle("twin_auto_first_sync_apk_priority", "Prefer Remote First Sync", "In Auto mode, prefer the Quest snapshot on first sync.", true),
+                Toggle("twin_parameter_apply_enabled", "Twin Parameter Apply", "Allow incoming twin parameter and routing application.", true),
+                Toggle("twin_signal_mirror_enabled", "Twin Signal Mirror", "Allow incoming twin signal mirroring into the local registry.", true)
+            ]),
+        new(
+            "study",
+            "Study / HUD",
+            "Study-mode keys suppress debugging overhead and control which HUD or runtime pages remain visible during research sessions.",
+            RuntimeConfigInspectorPane.Setup,
+            [
+                Toggle("study_runtime_logging_enabled", "Runtime Logging", "Enable runtime logging in the headset app.", false),
+                Toggle("study_enable_terminal_command_menu", "Terminal Command Menu", "Expose the in-headset terminal command menu.", false),
+                Toggle("study_include_engine_runtime_debug_page", "Engine Debug Page", "Include the engine-runtime debug HUD page.", false),
+                Toggle("study_include_runtime_events_page", "Runtime Events Page", "Include the runtime events HUD page.", false),
+                Toggle("study_echo_runtime_events_to_console", "Echo Events To Console", "Mirror runtime events into the Unity or adb console.", false),
+                Toggle("study_log_runtime_hotload_console", "Hotload Console Logging", "Log hotload file activity to the console.", false),
+                Toggle("study_log_runtime_hotload_applied_entries", "Log Applied Entries", "Log per-entry hotload application results.", false),
+                Toggle("study_watch_hotload_file_changes", "Watch Hotload Files", "Keep watching the control file for new staged profile changes.", false)
             ]),
         new(
             "performance",
-            "Quest Performance Hints",
-            "These are the in-app performance-hint keys exposed by RuntimeHotloadBindingTarget.",
+            "Quest Performance",
+            "These keys line up with the public RuntimeHotloadBindingTarget performance surface used for Quest study and profiling passes.",
+            RuntimeConfigInspectorPane.Parameters,
             [
                 Toggle("performance_hints_enabled", "Performance Hints Enabled", "Allow the app runtime to reapply Quest CPU/GPU hint levels.", true),
                 Choice("performance_hint_cpu_level", "CPU Hint Level", "Quest CPU hint level (0..4).", "2", ["0", "1", "2", "3", "4"]),
                 Choice("performance_hint_gpu_level", "GPU Hint Level", "Quest GPU hint level (0..4).", "2", ["0", "1", "2", "3", "4"]),
-                Toggle("performance_hint_write_direct_levels", "Write Direct Levels", "Also write direct OVRManager cpuLevel/gpuLevel after suggested hints.", true),
+                Toggle("performance_hint_write_direct_levels", "Write Direct Levels", "Also write direct OVRManager cpuLevel and gpuLevel after suggested hints.", true),
                 Text("performance_hint_reapply_seconds", "Hint Reapply Seconds", "Reapply cadence for Quest performance hints.", "2.0")
             ]),
         new(
+            "display",
+            "Display + Foveation",
+            "Display refresh and foveation remain public because they are runtime policy rather than part of the private coupling implementation.",
+            RuntimeConfigInspectorPane.Parameters,
+            [
+                Toggle("display_refresh_request_enabled", "Display Refresh Request", "Allow the runtime to request a specific display refresh rate.", false),
+                Text("display_refresh_request_hz", "Display Refresh Hz", "Requested display refresh rate.", "72.0"),
+                Text("display_refresh_request_reapply_seconds", "Refresh Reapply Seconds", "How often the request is re-applied.", "5.0"),
+                Toggle("quest_foveation_enabled", "Foveation Enabled", "Allow the runtime to manage Quest foveation settings.", false),
+                Choice("quest_foveation_level", "Foveation Level", "Quest foveation level (0..4).", "1", ["0", "1", "2", "3", "4"]),
+                Toggle("quest_foveation_dynamic", "Dynamic Foveation", "Enable dynamic foveation in runtime policy.", false),
+                Text("quest_foveation_reapply_seconds", "Foveation Reapply Seconds", "How often the foveation request is refreshed.", "2.0")
+            ]),
+        new(
             "render",
-            "Render And Transparency",
-            "Public rendering and overdraw settings that matter for profiling and study reproducibility.",
+            "Render + Transparency",
+            "Public rendering and transparency keys matter for profiling, study reproducibility, and what the operator can safely tune from Windows.",
+            RuntimeConfigInspectorPane.Parameters,
             [
                 Choice("render_overdraw_footprint_mode", "Overdraw Footprint Mode", "0 = quad radial clip, 1 = disc polygon.", "1", ["0", "1"]),
                 Text("render_overdraw_disc_segments", "Disc Segments", "Polygon detail for disc overdraw mode.", "12"),
@@ -60,22 +104,10 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
                 Text("render_transparency_sort_interval_frames", "Sort Interval Frames", "How often transparency sorting is recomputed.", "1")
             ]),
         new(
-            "display",
-            "Display And Foveation",
-            "Display refresh and foveation keys stay public because they are runtime policy, not the private dynamics implementation.",
-            [
-                Toggle("display_refresh_request_enabled", "Display Refresh Request", "Allow the runtime to request a specific display refresh rate.", false),
-                Text("display_refresh_request_hz", "Display Refresh Hz", "Requested display refresh rate.", "72.0"),
-                Text("display_refresh_request_reapply_seconds", "Refresh Reapply Seconds", "How often the request is re-applied.", "5.0"),
-                Toggle("quest_foveation_enabled", "Foveation Enabled", "Allow the runtime to manage Quest foveation settings.", false),
-                Choice("quest_foveation_level", "Foveation Level", "Quest foveation level (0..4).", "1", ["0", "1", "2", "3", "4"]),
-                Toggle("quest_foveation_dynamic", "Dynamic Foveation", "Enable dynamic foveation in runtime policy.", false),
-                Text("quest_foveation_reapply_seconds", "Foveation Reapply Seconds", "How often the foveation request is refreshed.", "2.0")
-            ]),
-        new(
             "unity",
-            "Unity Runtime Policy",
-            "These keys expose the Unity-side runtime policy surface used by the Astral scene.",
+            "Unity Runtime",
+            "These keys expose the Unity-side runtime policy surface used by the Astral scene and keep it available from the operator app.",
+            RuntimeConfigInspectorPane.Parameters,
             [
                 Toggle("unity_run_in_background_enabled", "Run In Background Gate", "Enable or disable background-run policy writes.", false),
                 Toggle("unity_run_in_background", "Run In Background", "Requested Unity run-in-background value.", true),
@@ -89,47 +121,25 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
                 Text("unity_settings_reapply_seconds", "Unity Reapply Seconds", "How often Unity runtime policy is refreshed.", "2.0")
             ]),
         new(
-            "study",
-            "Study Mode",
-            "Study-mode keys suppress debugging overhead during research sessions.",
+            "timing",
+            "Simulation Timing",
+            "These keys shape the public runtime timing envelope without exposing the private coupling job implementation.",
+            RuntimeConfigInspectorPane.Coupling,
             [
-                Toggle("study_runtime_logging_enabled", "Runtime Logging", "Enable runtime logging in the headset app.", false),
-                Toggle("study_enable_terminal_command_menu", "Terminal Command Menu", "Expose the in-headset terminal command menu.", false),
-                Toggle("study_include_engine_runtime_debug_page", "Engine Debug Page", "Include the engine-runtime debug HUD page.", false),
-                Toggle("study_include_runtime_events_page", "Runtime Events Page", "Include the runtime events HUD page.", false),
-                Toggle("study_echo_runtime_events_to_console", "Echo Events To Console", "Mirror runtime events into the Unity/adb console.", false),
-                Toggle("study_log_runtime_hotload_console", "Hotload Console Logging", "Log hotload file activity to the console.", false),
-                Toggle("study_log_runtime_hotload_applied_entries", "Log Applied Entries", "Log per-entry hotload application results.", false),
-                Toggle("study_watch_hotload_file_changes", "Watch Hotload Files", "Keep watching the control file for new staged profile changes.", false)
-            ]),
-        new(
-            "showcase",
-            "Showcase Routing",
-            "These are the concrete scene-routing keys owned by RuntimeBiofeedbackShowcaseRouter and the LSL inlet defaults.",
-            [
-                Choice("showcase_breathing_mode", "Breathing Mode", "0 Controller State, 1 Controller Volume, 2 Polar Volume, 3 Headset Motion, 4 Mock, 5 LSL Belt.", "0", ["0", "1", "2", "3", "4", "5"]),
-                Choice("showcase_heartbeat_mode", "Heartbeat Mode", "0 Polar H10, 1 Mock, 2 Headset Motion.", "1", ["0", "1", "2"]),
-                Toggle("showcase_adaptive_pacer_enabled", "Adaptive Pacer Enabled", "Enable the runtime adaptive breathing pacer.", false),
-                Text("showcase_lsl_in_stream_name", "LSL In Stream Name", "Default inbound biofeedback LSL stream name.", "quest_biofeedback_in"),
-                Text("showcase_lsl_in_stream_type", "LSL In Stream Type", "Default inbound biofeedback LSL stream type.", "quest.biofeedback"),
-                Toggle("showcase_lsl_in_auto_connect", "LSL Auto Connect", "Attempt automatic inbound LSL connect on start.", false),
-                Toggle("showcase_lsl_in_auto_reconnect", "LSL Auto Reconnect", "Reconnect when the inbound LSL stream disappears.", true),
-                Text("showcase_lsl_in_default_channel", "LSL Default Channel", "Default channel index consumed by the LSL breathing source.", "0")
-            ]),
-        new(
-            "twin",
-            "Twin Policy",
-            "Twin-direction policy stays public even though the live outbound transport remains excluded from this repo.",
-            [
-                Choice("twin_sync_mode", "Twin Sync Mode", "0 APK -> Playmode, 1 Auto, 2 Playmode -> APK.", "1", ["0", "1", "2"]),
-                Toggle("twin_auto_first_sync_apk_priority", "Prefer Remote First Sync", "In Auto mode, prefer the Quest snapshot on first sync.", true),
-                Toggle("twin_parameter_apply_enabled", "Twin Parameter Apply", "Allow incoming twin parameter/routing application.", true),
-                Toggle("twin_signal_mirror_enabled", "Twin Signal Mirror", "Allow incoming twin signal mirroring into the local registry.", true)
+                Toggle("internal_tick_lock_60hz", "Lock 60 Hz", "Keep the internal update loop pinned to 60 Hz.", true),
+                Text("internal_tick_rate_hz", "Tick Rate Hz", "Requested internal simulation tick rate.", "60"),
+                Toggle("internal_tick_use_xr_refresh_rate", "Use XR Refresh", "When enabled, runtime timing tracks the active XR display refresh rate.", false),
+                Text("internal_tick_xr_probe_interval_seconds", "XR Probe Interval", "How often the runtime re-queries XR refresh rate.", "1.0"),
+                Text("internal_tick_max_catchup", "Max Catch-Up", "Maximum backlog catch-up steps per frame.", "1"),
+                Text("internal_tick_drop_backlog_seconds", "Drop Backlog Seconds", "Backlog threshold after which extra delayed time is discarded.", "0.25"),
+                Text("internal_simulation_time_scale", "Simulation Time Scale", "Public simulation speed multiplier.", "1.0"),
+                Text("internal_non_coupling_decimation", "Non-Coupling Decimation", "Public decimation knob for non-coupling work.", "1")
             ]),
         new(
             "advanced",
-            "Advanced Runtime JSON",
-            "The full serialized runtime-config bridge key is public. Only the actual coupling jobs remain private.",
+            "Runtime JSON Bridge",
+            "The serialized runtime-config bridge key remains public. Only the actual coupling jobs and their live orchestration stay private.",
+            RuntimeConfigInspectorPane.Coupling,
             [
                 Multiline("showcase_active_runtime_config_json", "Active Runtime Config JSON", "Serialized runtime-config payload mirrored by ParticleEngineRuntimeConfigHotloadBridge.", string.Empty)
             ])
@@ -142,10 +152,22 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
     private string _selectedProfileSummary = "No runtime config selected.";
     private string _lastExportPath = "No runtime config export written yet.";
     private RuntimeConfigProfile? _selectedProfile;
+    private readonly ObservableCollection<RuntimeConfigSectionViewModel> _setupSections = new();
+    private readonly ObservableCollection<RuntimeConfigSectionViewModel> _parameterSections = new();
+    private readonly ObservableCollection<RuntimeConfigSectionViewModel> _couplingSections = new();
+    private readonly ObservableCollection<RuntimeConfigSectionViewModel> _allSections = new();
 
     public ObservableCollection<RuntimeConfigProfile> Profiles { get; } = new();
 
     public ObservableCollection<RuntimeConfigSectionViewModel> Sections { get; } = new();
+
+    public ObservableCollection<RuntimeConfigSectionViewModel> SetupSections => _setupSections;
+
+    public ObservableCollection<RuntimeConfigSectionViewModel> ParameterSections => _parameterSections;
+
+    public ObservableCollection<RuntimeConfigSectionViewModel> CouplingSections => _couplingSections;
+
+    public ObservableCollection<RuntimeConfigSectionViewModel> AllSections => _allSections;
 
     public string CatalogStatus
     {
@@ -212,6 +234,10 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
             if (SelectedProfile is null)
             {
                 Sections.Clear();
+                _setupSections.Clear();
+                _parameterSections.Clear();
+                _couplingSections.Clear();
+                _allSections.Clear();
                 SelectedProfileSummary = "No runtime config profiles are available.";
             }
         }).ConfigureAwait(false);
@@ -313,6 +339,10 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
     private void RebuildSections()
     {
         Sections.Clear();
+        _setupSections.Clear();
+        _parameterSections.Clear();
+        _couplingSections.Clear();
+        _allSections.Clear();
 
         if (SelectedProfile is null)
         {
@@ -326,6 +356,8 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
             entryLookup[entry.Key] = entry;
         }
 
+        var builtSections = new List<(RuntimeConfigInspectorPane Pane, RuntimeConfigSectionViewModel Section)>();
+
         foreach (var section in SectionDefinitions)
         {
             var rows = new List<ConfigSettingRowViewModel>();
@@ -337,7 +369,9 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
                 entryLookup.Remove(setting.Key);
             }
 
-            Sections.Add(new RuntimeConfigSectionViewModel(section.Id, section.Title, section.Description, rows));
+            var sectionViewModel = new RuntimeConfigSectionViewModel(section.Id, section.Title, section.Description, rows);
+            Sections.Add(sectionViewModel);
+            builtSections.Add((section.Pane, sectionViewModel));
         }
 
         if (entryLookup.Count > 0)
@@ -351,11 +385,31 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
                 .Cast<ConfigSettingRowViewModel>()
                 .ToArray();
 
-            Sections.Add(new RuntimeConfigSectionViewModel(
+            var additionalSection = new RuntimeConfigSectionViewModel(
                 "additional",
                 "Additional Keys",
                 "Keys outside the current public schema stay editable and are preserved on export.",
-                additionalRows));
+                additionalRows);
+
+            Sections.Add(additionalSection);
+            builtSections.Add((RuntimeConfigInspectorPane.Coupling, additionalSection));
+        }
+
+        foreach (var entry in builtSections)
+        {
+            _allSections.Add(entry.Section);
+            switch (entry.Pane)
+            {
+                case RuntimeConfigInspectorPane.Setup:
+                    _setupSections.Add(entry.Section);
+                    break;
+                case RuntimeConfigInspectorPane.Parameters:
+                    _parameterSections.Add(entry.Section);
+                    break;
+                case RuntimeConfigInspectorPane.Coupling:
+                    _couplingSections.Add(entry.Section);
+                    break;
+            }
         }
 
         SelectedProfileSummary =
@@ -470,6 +524,7 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
         string Id,
         string Title,
         string Description,
+        RuntimeConfigInspectorPane Pane,
         IReadOnlyList<RuntimeSettingDefinition> Settings);
 
     private sealed record RuntimeSettingDefinition(
@@ -486,6 +541,13 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
         Toggle,
         Choice,
         Multiline
+    }
+
+    private enum RuntimeConfigInspectorPane
+    {
+        Setup,
+        Parameters,
+        Coupling
     }
 }
 

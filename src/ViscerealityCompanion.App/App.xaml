@@ -3,47 +3,69 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <FontFamily x:Key="UiFont">Bahnschrift</FontFamily>
+        <FontFamily x:Key="UiFont">Bahnschrift Condensed</FontFamily>
         <FontFamily x:Key="MonoFont">Consolas</FontFamily>
 
-        <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F2ECE2" />
-        <SolidColorBrush x:Key="PanelBrush" Color="#FFFDF9" />
-        <SolidColorBrush x:Key="PanelAltBrush" Color="#ECE1D3" />
-        <SolidColorBrush x:Key="LineBrush" Color="#CDBEAC" />
-        <SolidColorBrush x:Key="InkBrush" Color="#221B17" />
-        <SolidColorBrush x:Key="MutedBrush" Color="#6F655B" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#9E2E18" />
-        <SolidColorBrush x:Key="AccentSoftBrush" Color="#F2D5CF" />
+        <Color x:Key="AppPaperColor">#FFFDF9</Color>
+        <Color x:Key="SurfaceLightColor">#F6F1E9</Color>
+        <Color x:Key="SurfaceTintColor">#FBF7EF</Color>
+        <Color x:Key="CarbonColor">#1F2226</Color>
+        <Color x:Key="GraphiteColor">#5B636F</Color>
+        <Color x:Key="PanelEdgeColor">#D7CFC4</Color>
+        <Color x:Key="FocusBlueColor">#258ACB</Color>
+        <Color x:Key="SignalRedColor">#C94E3A</Color>
+        <Color x:Key="SignalRedSoftColor">#FFE7E1</Color>
+        <Color x:Key="HazardYellowColor">#9E7714</Color>
+        <Color x:Key="HazardYellowSoftColor">#F6EFD5</Color>
+        <Color x:Key="TelemetryGreenColor">#628F37</Color>
+        <Color x:Key="TelemetryGreenSoftColor">#EAF2E2</Color>
+        <Color x:Key="FailureColor">#B84C4C</Color>
+        <Color x:Key="FailureSoftColor">#FBE5E5</Color>
+        <Color x:Key="InfoSoftColor">#E7F3FA</Color>
 
-        <!-- Status indicator colors -->
-        <SolidColorBrush x:Key="StatusSuccessBrush" Color="#3A9D5C" />
-        <SolidColorBrush x:Key="StatusSuccessSoftBrush" Color="#D4EDDA" />
-        <SolidColorBrush x:Key="StatusWarningBrush" Color="#CCA02E" />
-        <SolidColorBrush x:Key="StatusWarningSoftBrush" Color="#FFF3CD" />
-        <SolidColorBrush x:Key="StatusFailureBrush" Color="#B84C4C" />
-        <SolidColorBrush x:Key="StatusFailureSoftBrush" Color="#F8D7DA" />
-        <SolidColorBrush x:Key="StatusInfoBrush" Color="#2D6A9F" />
-        <SolidColorBrush x:Key="StatusInfoSoftBrush" Color="#D1ECF1" />
+        <SolidColorBrush x:Key="AppBackgroundBrush" Color="{StaticResource AppPaperColor}" />
+        <SolidColorBrush x:Key="PanelBrush" Color="{StaticResource AppPaperColor}" />
+        <SolidColorBrush x:Key="PanelAltBrush" Color="{StaticResource SurfaceTintColor}" />
+        <SolidColorBrush x:Key="LineBrush" Color="{StaticResource PanelEdgeColor}" />
+        <SolidColorBrush x:Key="InkBrush" Color="{StaticResource CarbonColor}" />
+        <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource GraphiteColor}" />
+        <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource SignalRedColor}" />
+        <SolidColorBrush x:Key="AccentSoftBrush" Color="{StaticResource SignalRedSoftColor}" />
+        <SolidColorBrush x:Key="FocusBlueBrush" Color="{StaticResource FocusBlueColor}" />
+        <SolidColorBrush x:Key="SurfaceLightBrush" Color="{StaticResource SurfaceLightColor}" />
+        <SolidColorBrush x:Key="SurfaceTintBrush" Color="{StaticResource SurfaceTintColor}" />
+
+        <SolidColorBrush x:Key="StatusSuccessBrush" Color="{StaticResource TelemetryGreenColor}" />
+        <SolidColorBrush x:Key="StatusSuccessSoftBrush" Color="{StaticResource TelemetryGreenSoftColor}" />
+        <SolidColorBrush x:Key="StatusWarningBrush" Color="{StaticResource HazardYellowColor}" />
+        <SolidColorBrush x:Key="StatusWarningSoftBrush" Color="{StaticResource HazardYellowSoftColor}" />
+        <SolidColorBrush x:Key="StatusFailureBrush" Color="{StaticResource FailureColor}" />
+        <SolidColorBrush x:Key="StatusFailureSoftBrush" Color="{StaticResource FailureSoftColor}" />
+        <SolidColorBrush x:Key="StatusInfoBrush" Color="{StaticResource FocusBlueColor}" />
+        <SolidColorBrush x:Key="StatusInfoSoftBrush" Color="{StaticResource InfoSoftColor}" />
 
         <Style TargetType="Window">
             <Setter Property="Background" Value="{StaticResource AppBackgroundBrush}" />
             <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
         </Style>
 
         <Style x:Key="PanelBorderStyle" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource PanelBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="10" />
             <Setter Property="Padding" Value="16" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
         </Style>
 
         <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="18" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="Bold" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Margin" Value="0,0,0,8" />
         </Style>
 
         <Style x:Key="SectionCaptionStyle" TargetType="TextBlock">
@@ -56,10 +78,52 @@
         <Style TargetType="Button">
             <Setter Property="Margin" Value="0,0,8,8" />
             <Setter Property="Padding" Value="12,8" />
-            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"
+                                              TextElement.FontFamily="{TemplateBinding FontFamily}"
+                                              TextElement.FontSize="{TemplateBinding FontSize}"
+                                              TextElement.FontWeight="{TemplateBinding FontWeight}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceLightBrush}" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceLightBrush}" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource LineBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource LineBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="TextBox">
@@ -68,6 +132,32 @@
             <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceLightBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource LineBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="ComboBox">
@@ -76,6 +166,154 @@
             <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="MinHeight" Value="34" />
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style TargetType="ProgressBar">
+            <Setter Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource FocusBlueBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5"
+                                SnapsToDevicePixels="True">
+                            <Grid x:Name="PART_Track"
+                                  Background="Transparent"
+                                  ClipToBounds="True">
+                                <Border x:Name="PART_Indicator"
+                                        HorizontalAlignment="Left"
+                                        Background="{TemplateBinding Foreground}"
+                                        CornerRadius="4" />
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+
+        <Style TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Chrome"
+                                Background="Transparent"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceLightBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="{StaticResource AppBackgroundBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0,6,0,10" />
+            <Setter Property="Margin" Value="0,0,18,0" />
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Grid Margin="{TemplateBinding Margin}" SnapsToDevicePixels="True">
+                            <TextBlock x:Name="HeaderText"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Margin="{TemplateBinding Padding}"
+                                       FontFamily="{TemplateBinding FontFamily}"
+                                       FontSize="{TemplateBinding FontSize}"
+                                       FontWeight="{TemplateBinding FontWeight}"
+                                       Foreground="{TemplateBinding Foreground}"
+                                       Text="{TemplateBinding Header}" />
+                            <Border x:Name="Rule"
+                                    Height="2"
+                                    VerticalAlignment="Bottom"
+                                    Background="Transparent"
+                                    CornerRadius="1" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                                <Setter Property="FontWeight" Value="Bold" />
+                                <Setter TargetName="Rule" Property="Background" Value="{StaticResource FocusBlueBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource LineBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="GridLinesVisibility" Value="Horizontal" />
+            <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="VerticalGridLinesBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="HeadersVisibility" Value="Column" />
+            <Setter Property="RowBackground" Value="{StaticResource PanelBrush}" />
+            <Setter Property="AlternatingRowBackground" Value="{StaticResource SurfaceTintBrush}" />
+            <Setter Property="ColumnHeaderStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+                        <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+                        <Setter Property="BorderThickness" Value="0,0,0,1" />
+                        <Setter Property="Padding" Value="10,8" />
+                        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                        <Setter Property="FontWeight" Value="Bold" />
+                    </Style>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Application.Resources>
 </Application>

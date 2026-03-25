@@ -268,7 +268,9 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         var payloads = reading.SampleValues is { Count: > 0 }
             ? reading.SampleValues
             : string.IsNullOrWhiteSpace(reading.TextValue)
-                ? []
+                ? string.IsNullOrWhiteSpace(reading.Detail)
+                    ? []
+                    : [reading.Detail]
                 : [reading.TextValue];
 
         if (payloads.Count == 0)
