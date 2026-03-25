@@ -3,7 +3,7 @@ bin/
 obj/
 out/
 artifacts/
-site/
+/site/
 node_modules/
 TestResults/
 src/ViscerealityCompanion.App.Package/AppPackages/
