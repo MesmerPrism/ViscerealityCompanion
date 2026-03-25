@@ -150,7 +150,7 @@ public sealed class PreviewQuestControlService : IQuestControlService
             BatteryLevel: 76,
             CpuLevel: 2,
             GpuLevel: 2,
-            ForegroundPackageId: target?.PackageId ?? "org.aliusresearch.viscereality.preview",
+            ForegroundPackageId: target?.PackageId ?? "com.Viscereality.LslTwin",
             IsTargetInstalled: target is not null,
             IsTargetRunning: target is not null,
             IsTargetForeground: target is not null,

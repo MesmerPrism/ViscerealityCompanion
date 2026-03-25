@@ -17,7 +17,7 @@ public sealed class OscillatorConfigCatalogLoaderTests
 
             Assert.Equal("Repo sample oscillator configs", catalog.Source.Label);
             Assert.Single(catalog.Profiles);
-            Assert.True(catalog.Profiles[0].MatchesPackage("org.aliusresearch.viscereality.preview"));
+            Assert.True(catalog.Profiles[0].MatchesPackage("com.Viscereality.LslTwin"));
             Assert.Equal(2, catalog.Profiles[0].Document.Dimensions.OscillatorDimensionCount);
             Assert.Equal(OscillatorCouplingDriver.Coherence, catalog.Profiles[0].Document.Coupling.NeighborDistance1.Driver);
             Assert.Equal("#BB5522", catalog.Profiles[0].Document.Color.Gradient.Stops[1].Color);
@@ -38,7 +38,7 @@ public sealed class OscillatorConfigCatalogLoaderTests
             "Studio Baseline",
             "studio-baseline.json",
             "Public sample profile.",
-            ["org.aliusresearch.viscereality.preview"],
+            ["com.Viscereality.LslTwin"],
             new OscillatorConfigDocument(
                 "1.0",
                 new StretchSettings(false, new CurveDefinition([new CurvePoint(0f, 0f), new CurvePoint(1f, 1f)]), new CurveDefinition([new CurvePoint(0f, 0f), new CurvePoint(1f, 1f)])),
@@ -104,7 +104,7 @@ public sealed class OscillatorConfigCatalogLoaderTests
                   "label": "Studio Baseline",
                   "file": "studio-baseline.json",
                   "description": "Public sample profile.",
-                  "packageIds": [ "org.aliusresearch.viscereality.preview" ]
+                  "packageIds": [ "com.Viscereality.LslTwin" ]
                 }
               ]
             }

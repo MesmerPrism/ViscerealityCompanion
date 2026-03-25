@@ -7,8 +7,10 @@ companion and the Windows shell:
 - `HotloadProfiles/profiles.json`
 - `DeviceProfiles/profiles.json`
 
-The committed files are safe placeholders only. Replace or extend them locally
-when you wire the shell to real Quest payloads.
+The committed files are curated public defaults for the current `LslTwin`
+operator flow. The repo now defaults to this local session-kit mirror before it
+falls back to any broader AstralKarateDojo workspace on the same machine.
 
-The sample device profiles now include Quest CPU/GPU level properties so the
-Windows app can demonstrate remote performance tuning once `adb` is available.
+Only the current `LslTwin` app target and one scene-matched hotload baseline
+ship here, so stale APK or profile entries from older internal experiments do
+not leak into the public operator shell by default.

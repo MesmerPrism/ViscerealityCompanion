@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
@@ -10,6 +11,16 @@ namespace ViscerealityCompanion.App.ViewModels;
 
 public sealed class MainWindowViewModel : ObservableObject, IDisposable
 {
+    private static readonly TwinInspectorScope[] TwinInspectorScopeCatalog =
+    [
+        new("routing", "Routing + Inputs", "Showcase routing, mode selection, and active config handoff from the Viscereality scene."),
+        new("headset", "Headset Policy", "Quest CPU/GPU, display refresh, and foveation values that shape device-side behavior."),
+        new("runtime", "APK Runtime", "Unity runtime, study/HUD, and rendering values currently reported by the APK."),
+        new("twin", "Twin + Timing", "Twin apply policy, runtime timing, and runtime-config bridge values."),
+        new("state", "App State", "Foreground package, runtime state, and session metadata coming back from quest_twin_state."),
+        new("all", "All Public Keys", "Every requested or reported key currently visible to the public twin bridge.")
+    ];
+
     private readonly QuestSessionKitCatalogLoader _catalogLoader = new();
     private AppSessionState _sessionState;
     private readonly IQuestControlService _questService;
@@ -51,7 +62,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _headsetVisibleActivities = "Visible activities n/a";
     private string _headsetActivityLabel = "Headset activity unknown";
     private string _headsetActivityDetail = "No live headset activity is available yet.";
-    private string _headsetTargetStatusLabel = "No target status yet.";
+    private string _headsetTargetStatusLabel = "Waiting for headset check.";
     private string _deviceSnapshotAgeLabel = "Device snapshot pending.";
     private string _hzdbStatusSummary = "hzdb has not been queried yet.";
     private string _hzdbStatusDetail = "Use Refresh Device Snapshot to collect extra device details when hzdb is available.";
@@ -86,10 +97,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string? _activeForegroundPackageId;
     private string? _activeForegroundComponent;
     private string? _liveTwinPublisherPackageId;
+    private IReadOnlyList<TwinSettingsDelta> _latestTwinDeltas = Array.Empty<TwinSettingsDelta>();
+    private TwinInspectorScope? _selectedTwinInspectorScope;
+    private TwinInspectorRow? _selectedTwinInspectorRow;
     private QuestAppTarget? _selectedApp;
     private QuestBundle? _selectedBundle;
     private HotloadProfile? _selectedHotloadProfile;
     private DeviceProfile? _selectedDeviceProfile;
+    private readonly DispatcherTimer? _twinRefreshTimer;
+    private bool _twinRefreshPending;
+    private OperationOutcomeKind _twinBridgeLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _twinPublisherLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _twinAppStateLevel = OperationOutcomeKind.Preview;
 
     public MainWindowViewModel()
     {
@@ -104,6 +123,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _twinBridgeSummary = _twinBridge.Status.Summary;
         _twinBridgeDetail = _twinBridge.Status.Detail;
         _runtimeConfig.PropertyChanged += OnRuntimeConfigPropertyChanged;
+        foreach (var scope in TwinInspectorScopeCatalog)
+        {
+            TwinInspectorScopes.Add(scope);
+        }
+
+        _selectedTwinInspectorScope = TwinInspectorScopes.FirstOrDefault();
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is not null)
+        {
+            _twinRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(180)
+            };
+            _twinRefreshTimer.Tick += OnTwinRefreshTimerTick;
+        }
 
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
@@ -151,6 +185,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public ObservableCollection<KeyValueStatusRow> TwinReportedState { get; } = new();
 
     public ObservableCollection<TwinStateEvent> TwinLiveEvents { get; } = new();
+
+    public ObservableCollection<TwinInspectorScope> TwinInspectorScopes { get; } = new();
+
+    public ObservableCollection<TwinInspectorRow> TwinInspectorRows { get; } = new();
 
     public ObservableCollection<ActionChoice<QuestUtilityAction>> UtilityActions { get; } = new(
     [
@@ -485,6 +523,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _isQuestConnected, value);
     }
 
+    public string ConnectionStatusLabel
+        => IsQuestConnected ? "Quest connected" : "Quest disconnected";
+
     public int BatteryPercent
     {
         get => _batteryPercent;
@@ -560,6 +601,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(SelectedAppSummary));
                 OnPropertyChanged(nameof(SelectedAppCapabilitySummary));
                 OnPropertyChanged(nameof(SelectedAppCommunicationSummary));
+                OnPropertyChanged(nameof(TargetSelectionHeadline));
+                OnPropertyChanged(nameof(TargetSelectionDetail));
                 OnPropertyChanged(nameof(RuntimeConfigPublishChannelSummary));
             }
         }
@@ -594,19 +637,73 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string MonitorRateLabel => $"{MonitorSampleRateHz:0} Hz";
 
+    public OperationOutcomeKind LiveSignalLevel
+    {
+        get
+        {
+            if (MonitorSummary.Contains("failed", StringComparison.OrdinalIgnoreCase))
+            {
+                return OperationOutcomeKind.Failure;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId) || MonitorSampleRateHz > 0.1f)
+            {
+                return OperationOutcomeKind.Success;
+            }
+
+            return IsQuestConnected ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview;
+        }
+    }
+
+    public string LiveSignalHeadline
+        => !string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId)
+            ? "Twin-state reporting live."
+            : MonitorSampleRateHz > 0.1f
+                ? $"Monitor stream live at {MonitorSampleRateHz:0} Hz."
+                : "Waiting for live runtime signal.";
+
+    public string LiveSignalDetail
+        => !string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId)
+            ? $"{LiveTwinPublisherLabel} {LastTwinStateTimestampLabel}"
+            : MonitorSampleRateHz > 0.1f
+                ? $"{MonitorSummary} {MonitorDetail}"
+                : $"{TwinBridgeSummary} {MonitorSummary}";
+
+    public string OnDeviceStatusDetail
+        => IsForegroundMismatch
+            ? ForegroundMismatchLabel
+            : string.IsNullOrWhiteSpace(_activeForegroundPackageId)
+                ? HeadsetActivityDetail
+                : $"{HeadsetForegroundPackage}. {HeadsetActivityDetail}";
+
+    public string SessionHealthSummary
+        => IsQuestConnected
+            ? $"{HeadsetActivityLabel}. {DeviceSnapshotAgeLabel}"
+            : "Reconnect the Quest before install, launch, or snapshot actions.";
+
+    public string TargetSelectionHeadline
+        => SelectedApp is null
+            ? "Selected target: waiting for headset check."
+            : $"Selected target: {SelectedApp.Label}";
+
+    public string TargetSelectionDetail
+        => SelectedApp is null
+            ? "Refresh Device Snapshot to adopt the current headset app automatically, or choose one manually in Quest Library."
+            : $"{SelectedApp.PackageId}. Install, launch, preset staging, and publish actions use this target until you change it.";
+
     public string SelectedAppSummary
         => SelectedApp is null
-            ? "No app selected."
+            ? "No target selected yet. Waiting for a headset snapshot or manual selection."
             : $"{SelectedApp.Label} ({SelectedApp.PackageId}) — {SelectedApp.Description}";
 
     public string SelectedAppCapabilitySummary
         => SelectedApp is null
-            ? "No target selected, so APK capability detection is unavailable."
+            ? "Refresh Device Snapshot to adopt the current headset app automatically, or choose one manually from Quest Library."
             : BuildSelectedAppCapabilitySummary(SelectedApp);
 
     public string SelectedAppCommunicationSummary
         => SelectedApp is null
-            ? "Select an APK target to see whether it supports install/launch only, runtime publish, or live twin-state reporting."
+            ? "No communication path is selected yet because there is no target APK."
             : BuildSelectedAppCommunicationSummary(SelectedApp);
 
     public string RemoteControlModeSummary
@@ -616,12 +713,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string SelectedHotloadProfileSummary
         => SelectedHotloadProfile is null
-            ? "No runtime preset selected."
+            ? SelectedApp is null
+                ? "No runtime preset selected because no target app is selected yet."
+                : "No runtime preset selected."
             : $"{SelectedHotloadProfile.Label} ({SelectedHotloadProfile.Channel}/{SelectedHotloadProfile.Version}) — {SelectedHotloadProfile.Description}";
 
     public string RuntimeConfigPublishSummary
         => SelectedApp is null
-            ? "Select a target app first. Install, launch, preset staging, and runtime-config publish actions always use the selected target."
+            ? "No target selected yet. Refresh Device Snapshot to adopt the current headset app automatically, or choose one manually before install, launch, preset staging, or Publish over Twin."
             : $"Selected target: {SelectedApp.Label} ({SelectedApp.PackageId}). Install, launch, preset staging, and Publish over Twin actions use this target even when another app is currently foreground on the headset.";
 
     public string RuntimeConfigDeviceModeSummary
@@ -673,8 +772,120 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string RemoteControlSelectionSummary
         => SelectedApp is null
-            ? "No selected target. Device Snapshot can still query the headset, but publish and launch actions require an APK target."
+            ? "No selected target yet. Monitoring can still query the headset; Refresh Device Snapshot will adopt the current headset app automatically, or you can choose one manually in Quest Library."
             : $"Selected target: {SelectedApp.Label}. Device Snapshot shows on-demand headset state; In-App Twin State shows live LSL state from the active publisher, which may be a different APK.";
+
+    public TwinInspectorScope? SelectedTwinInspectorScope
+    {
+        get => _selectedTwinInspectorScope;
+        set
+        {
+            if (SetProperty(ref _selectedTwinInspectorScope, value))
+            {
+                RefreshTwinInspectorRows();
+            }
+        }
+    }
+
+    public TwinInspectorRow? SelectedTwinInspectorRow
+    {
+        get => _selectedTwinInspectorRow;
+        set
+        {
+            if (SetProperty(ref _selectedTwinInspectorRow, value))
+            {
+                OnPropertyChanged(nameof(TwinInspectorSelectionHeadline));
+                OnPropertyChanged(nameof(TwinInspectorSelectionRequested));
+                OnPropertyChanged(nameof(TwinInspectorSelectionReported));
+                OnPropertyChanged(nameof(TwinInspectorSelectionSource));
+                OnPropertyChanged(nameof(TwinInspectorSelectionDetail));
+            }
+        }
+    }
+
+    public OperationOutcomeKind TwinBridgeLevel
+    {
+        get => _twinBridgeLevel;
+        private set => SetProperty(ref _twinBridgeLevel, value);
+    }
+
+    public OperationOutcomeKind TwinPublisherLevel
+    {
+        get => _twinPublisherLevel;
+        private set => SetProperty(ref _twinPublisherLevel, value);
+    }
+
+    public OperationOutcomeKind TwinAppStateLevel
+    {
+        get => _twinAppStateLevel;
+        private set => SetProperty(ref _twinAppStateLevel, value);
+    }
+
+    public string TwinInspectorScopeSummary
+    {
+        get
+        {
+            var scopeLabel = SelectedTwinInspectorScope?.Label ?? "Focused";
+            if (TwinInspectorRows.Count == 0)
+            {
+                return $"No {scopeLabel.ToLowerInvariant()} values are visible yet. Wait for quest_twin_state or publish a runtime snapshot first.";
+            }
+
+            var reportedCount = TwinInspectorRows.Count(row => row.HasReported);
+            var comparableCount = TwinInspectorRows.Count(row => row.HasRequested && row.HasReported);
+            var matchedCount = TwinInspectorRows.Count(row => row.Matches);
+            return $"{scopeLabel}: {TwinInspectorRows.Count} key(s), {reportedCount} reported, {comparableCount} comparable, {matchedCount} matched.";
+        }
+    }
+
+    public string TwinInspectorMatchLabel
+    {
+        get
+        {
+            var comparableCount = TwinInspectorRows.Count(row => row.HasRequested && row.HasReported);
+            if (comparableCount == 0)
+            {
+                return "No comparable keys yet.";
+            }
+
+            var matchedCount = TwinInspectorRows.Count(row => row.Matches);
+            return $"{matchedCount} / {comparableCount} matched";
+        }
+    }
+
+    public double TwinInspectorMatchPercent
+    {
+        get
+        {
+            var comparableCount = TwinInspectorRows.Count(row => row.HasRequested && row.HasReported);
+            if (comparableCount == 0)
+            {
+                return 0;
+            }
+
+            var matchedCount = TwinInspectorRows.Count(row => row.Matches);
+            return (matchedCount * 100d) / comparableCount;
+        }
+    }
+
+    public string TwinInspectorSelectionHeadline
+        => SelectedTwinInspectorRow?.Key ?? "Select a tracked value.";
+
+    public string TwinInspectorSelectionRequested
+        => SelectedTwinInspectorRow?.Requested ?? "No requested value staged for the selected row.";
+
+    public string TwinInspectorSelectionReported
+        => SelectedTwinInspectorRow?.Reported ?? "The APK has not reported a value for the selected row yet.";
+
+    public string TwinInspectorSelectionSource
+        => SelectedTwinInspectorRow is null
+            ? "Choose a row from the focused list to inspect requested, reported, and source context."
+            : $"{SelectedTwinInspectorRow.ScopeLabel} • {SelectedTwinInspectorRow.Source}";
+
+    public string TwinInspectorSelectionDetail
+        => SelectedTwinInspectorRow is null
+            ? "The focused list is intentionally trimmed to one inspector section at a time so the page stays readable even when the APK reports hundreds of values."
+            : SelectedTwinInspectorRow.StatusLabel;
 
     public string RemoteControlLiveContextSummary
         => string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId)
@@ -692,7 +903,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         EnsureTwinBridgeMonitoringStarted();
         await RefreshCatalogAsync().ConfigureAwait(false);
         await RestartMonitorAsync().ConfigureAwait(false);
-        await RefreshHeadsetStatusAsync().ConfigureAwait(false);
     }
 
     public void Dispose()
@@ -706,6 +916,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             lslBridge.StateChanged -= OnTwinBridgeStateChanged;
         }
 
+        if (_twinRefreshTimer is not null)
+        {
+            _twinRefreshTimer.Tick -= OnTwinRefreshTimerTick;
+            _twinRefreshTimer.Stop();
+        }
+
         (_twinBridge as IDisposable)?.Dispose();
     }
 
@@ -716,6 +932,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             var rootPath = ResolveCatalogRoot();
             var catalog = await _catalogLoader.LoadAsync(rootPath).ConfigureAwait(false);
             await _runtimeConfig.LoadAsync(rootPath, catalog.HotloadProfiles).ConfigureAwait(false);
+            var previousPackageId = await DispatchAsync(() => SelectedApp?.PackageId).ConfigureAwait(false);
+            var previousBundleId = await DispatchAsync(() => SelectedBundle?.Id).ConfigureAwait(false);
+            var previousDeviceProfileId = await DispatchAsync(() => SelectedDeviceProfile?.Id).ConfigureAwait(false);
 
             await DispatchAsync(() =>
             {
@@ -743,9 +962,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 CatalogSourcePath = catalog.Source.RootPath;
 
                 _hotloadProfiles = catalog.HotloadProfiles;
-                SelectedApp ??= Apps.FirstOrDefault();
-                SelectedBundle ??= Bundles.FirstOrDefault();
-                SelectedDeviceProfile ??= DeviceProfiles.FirstOrDefault();
+                SelectedApp = Apps.FirstOrDefault(app => string.Equals(app.PackageId, previousPackageId, StringComparison.OrdinalIgnoreCase));
+                SelectedBundle = Bundles.FirstOrDefault(bundle => string.Equals(bundle.Id, previousBundleId, StringComparison.OrdinalIgnoreCase));
+                SelectedDeviceProfile = DeviceProfiles.FirstOrDefault(profile => string.Equals(profile.Id, previousDeviceProfileId, StringComparison.OrdinalIgnoreCase))
+                    ?? DeviceProfiles.FirstOrDefault();
                 RefreshAvailableHotloadProfiles();
                 RefreshRuntimeConfigProfileSelection();
 
@@ -765,9 +985,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RefreshAvailableHotloadProfiles()
     {
-        var matching = SelectedApp is null
-            ? _hotloadProfiles
-            : _hotloadProfiles.Where(profile => profile.MatchesPackage(SelectedApp.PackageId)).ToArray();
+        if (SelectedApp is null)
+        {
+            AvailableHotloadProfiles.Clear();
+            SelectedHotloadProfile = null;
+            return;
+        }
+
+        var matching = _hotloadProfiles
+            .Where(profile => profile.MatchesPackage(SelectedApp.PackageId))
+            .ToArray();
 
         AvailableHotloadProfiles.Clear();
         foreach (var profile in matching)
@@ -1092,13 +1319,20 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             DeviceSnapshotAgeLabel = $"Last device snapshot {DateTimeOffset.Now:HH:mm:ss}. Device probes run only on request.";
             HzdbStatusSummary = hzdbOutcome.Summary;
             HzdbStatusDetail = hzdbOutcome.Detail;
+            var adoptedDetectedTarget = TryAdoptDetectedTarget(status.ForegroundPackageId);
 
             var activityStatus = DescribeHeadsetActivity(status);
             HeadsetActivityLabel = activityStatus.Label;
             HeadsetActivityDetail = activityStatus.Detail;
             HeadsetActivityLevel = activityStatus.Level;
             HeadsetTargetStatusLabel = SelectedApp is null
-                ? "No target app selected."
+                ? !status.IsConnected
+                    ? "Waiting for headset check."
+                    : string.IsNullOrWhiteSpace(status.ForegroundPackageId)
+                        ? "Waiting for current headset app."
+                        : $"{status.ForegroundPackageId} is active, but not in the Quest library yet."
+                : adoptedDetectedTarget
+                    ? $"{SelectedApp.Label} is foreground."
                 : status.IsTargetForeground
                     ? $"{SelectedApp.Label} is foreground."
                     : status.IsTargetRunning
@@ -1109,6 +1343,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
             TargetStatusLevel = SelectedApp is null
                 ? OperationOutcomeKind.Preview
+                : adoptedDetectedTarget
+                    ? OperationOutcomeKind.Success
                 : status.IsTargetForeground
                     ? OperationOutcomeKind.Success
                     : status.IsTargetRunning
@@ -1151,6 +1387,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                         MonitorDetail = reading.Detail;
                         MonitorValue = reading.Value ?? 0f;
                         MonitorSampleRateHz = reading.SampleRateHz;
+                        NotifyOverviewStateChanged();
                     }).ConfigureAwait(false);
                 }
             }
@@ -1163,6 +1400,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 {
                     MonitorSummary = "LSL monitor failed.";
                     MonitorDetail = ex.Message;
+                    NotifyOverviewStateChanged();
                     AppendLog(OperatorLogLevel.Failure, "LSL monitor failed.", ex.Message);
                 }).ConfigureAwait(false);
             }
@@ -1311,16 +1549,25 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         if (_twinBridge is not LslTwinModeBridge lslBridge)
         {
+            _latestTwinDeltas = Array.Empty<TwinSettingsDelta>();
             TwinReportedState.Clear();
             TwinLiveEvents.Clear();
+            TwinInspectorRows.Clear();
+            SelectedTwinInspectorRow = null;
             TwinAppStateSummary = _twinBridge.Status.Summary;
             TwinAppStateDetail = _twinBridge.Status.Detail;
+            TwinAppStateLevel = OperationOutcomeKind.Preview;
             LiveTwinPublisherLabel = "Twin publisher unavailable.";
             LiveTwinPublisherDetail = _twinBridge.Status.Detail;
+            TwinPublisherLevel = OperationOutcomeKind.Preview;
             _liveTwinPublisherPackageId = null;
             LastTwinStateTimestampLabel = "No live app-state timestamp yet.";
             SettingsDelta.Clear();
+            OnPropertyChanged(nameof(TwinInspectorScopeSummary));
+            OnPropertyChanged(nameof(TwinInspectorMatchLabel));
+            OnPropertyChanged(nameof(TwinInspectorMatchPercent));
             RefreshRuntimeContextLabels();
+            NotifyOverviewStateChanged();
             return;
         }
 
@@ -1330,8 +1577,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var deltas = lslBridge.ComputeSettingsDelta();
         var liveEvents = lslBridge.StateEvents
             .OrderByDescending(stateEvent => stateEvent.Timestamp)
-            .Take(40)
+            .Take(24)
             .ToArray();
+        _latestTwinDeltas = deltas;
 
         TwinReportedState.Clear();
         foreach (var entry in reportedSettings)
@@ -1352,10 +1600,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         _runtimeConfig.ApplyTwinDelta(deltas);
+        RefreshTwinInspectorRows();
         TwinAppStateSummary = DescribeTwinAppState(reportedSettings);
         TwinAppStateDetail = reportedSettings.Length == 0
             ? "No live quest_twin_state values have been reported yet from the APK."
             : $"Reported {reportedSettings.Length} value(s); requested/reported matches {deltas.Count(delta => delta.Matches)}/{deltas.Count}.";
+        TwinAppStateLevel = reportedSettings.Length == 0
+            ? OperationOutcomeKind.Preview
+            : OperationOutcomeKind.Success;
         var publisherContext = DescribeTwinPublisher(reportedSettings);
         var hasLiveStateActivity = lslBridge.LastStateReceivedAt is not null || liveEvents.Length > 0;
         if (hasLiveStateActivity && publisherContext.PackageId is null && !string.IsNullOrWhiteSpace(_activeForegroundPackageId))
@@ -1369,11 +1621,17 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _liveTwinPublisherPackageId = publisherContext.PackageId;
         LiveTwinPublisherLabel = publisherContext.Label;
         LiveTwinPublisherDetail = publisherContext.Detail;
+        TwinPublisherLevel = hasLiveStateActivity
+            ? string.IsNullOrWhiteSpace(publisherContext.PackageId)
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Success
+            : OperationOutcomeKind.Preview;
         LastTwinStateTimestampLabel = lslBridge.LastStateReceivedAt is null
             ? "No live LSL app-state timestamp yet."
             : $"Last app-state frame {lslBridge.LastStateReceivedAt.Value:HH:mm:ss}.";
         RefreshRuntimeContextLabels();
         RefreshTwinBridgeStatus(deltas);
+        NotifyOverviewStateChanged();
     }
 
     private async Task ApplyOutcomeAsync(
@@ -1397,6 +1655,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             TwinBridgeSummary = _twinBridge.Status.Summary;
             TwinBridgeDetail = _twinBridge.Status.Detail;
+            TwinBridgeLevel = OperationOutcomeKind.Preview;
+            NotifyOverviewStateChanged();
             return;
         }
 
@@ -1412,6 +1672,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             TwinBridgeDetail = selectedSupportsTwin
                 ? "No runtime-config snapshot or twin command has been sent yet."
                 : "The selected app supports runtime editing, but requested/reported setting diffs only appear when a twin-enabled headset app publishes `quest_twin_state`.";
+            TwinBridgeLevel = selectedSupportsTwin ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning;
+            NotifyOverviewStateChanged();
             return;
         }
 
@@ -1421,12 +1683,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             TwinBridgeDetail = selectedSupportsTwin
                 ? $"{requestedCount} requested setting(s) are staged locally, but the headset has not reported any `quest_twin_state` values yet. Active headset state: {HeadsetActivityLabel}."
                 : $"{requestedCount} requested setting(s) are staged locally, but the selected app is not marked as twin-enabled. Switch to a twin-capable app such as LslTwin to get requested/reported tracking.";
+            TwinBridgeLevel = OperationOutcomeKind.Warning;
+            NotifyOverviewStateChanged();
             return;
         }
 
         var matchedCount = deltas.Count(delta => delta.Matches);
         TwinBridgeSummary = $"Tracking {reportedCount} headset setting(s).";
         TwinBridgeDetail = $"Requested {requestedCount}, reported {reportedCount}, matched {matchedCount}. Active headset state: {HeadsetActivityLabel}.";
+        TwinBridgeLevel = matchedCount == deltas.Count && deltas.Count > 0
+            ? OperationOutcomeKind.Success
+            : OperationOutcomeKind.Warning;
+        NotifyOverviewStateChanged();
     }
 
     private async Task<OperationOutcome> QueryHzdbSnapshotAsync(CancellationToken cancellationToken)
@@ -1470,7 +1738,37 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return;
         }
 
-        _ = dispatcher.InvokeAsync(RefreshLiveTwinState);
+        _ = dispatcher.InvokeAsync(() =>
+        {
+            _twinRefreshPending = true;
+            if (_twinRefreshTimer is null)
+            {
+                RefreshLiveTwinState();
+                _twinRefreshPending = false;
+                return;
+            }
+
+            if (!_twinRefreshTimer.IsEnabled)
+            {
+                _twinRefreshTimer.Start();
+            }
+        });
+    }
+
+    private void OnTwinRefreshTimerTick(object? sender, EventArgs e)
+    {
+        if (!_twinRefreshPending)
+        {
+            _twinRefreshTimer?.Stop();
+            return;
+        }
+
+        _twinRefreshPending = false;
+        RefreshLiveTwinState();
+        if (!_twinRefreshPending)
+        {
+            _twinRefreshTimer?.Stop();
+        }
     }
 
     private void EnsureTwinBridgeMonitoringStarted()
@@ -1545,6 +1843,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(TwinTrackingCoverageSummary));
         OnPropertyChanged(nameof(RemoteControlSelectionSummary));
         OnPropertyChanged(nameof(RemoteControlLiveContextSummary));
+        NotifyOverviewStateChanged();
 
         if (!IsQuestConnected)
         {
@@ -1594,6 +1893,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             : livePublisherMatchesForeground
                 ? $"Selected target is {SelectedApp.Label}, while the headset foreground and live LSL publisher are {livePublisherLabel}. Install, launch, preset staging, and Publish over Twin actions still target {SelectedApp.Label}; live runtime state reflects {livePublisherLabel} until you switch apps or change the selected target."
                 : $"Selected target is {SelectedApp.Label}, but the current foreground app is {foregroundLabel}. Install, launch, preset staging, and Publish over Twin actions still target {SelectedApp.Label}. Live runtime state follows whichever APK is publishing quest_twin_state.";
+    }
+
+    private void NotifyOverviewStateChanged()
+    {
+        OnPropertyChanged(nameof(ConnectionStatusLabel));
+        OnPropertyChanged(nameof(LiveSignalLevel));
+        OnPropertyChanged(nameof(LiveSignalHeadline));
+        OnPropertyChanged(nameof(LiveSignalDetail));
+        OnPropertyChanged(nameof(OnDeviceStatusDetail));
+        OnPropertyChanged(nameof(SessionHealthSummary));
     }
 
     private (string Label, string Detail, string? PackageId) DescribeTwinPublisher(IReadOnlyList<KeyValuePair<string, string>> reportedSettings)
@@ -1651,6 +1960,27 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private static string? FindReportedValue(IReadOnlyList<KeyValuePair<string, string>> entries, params string[] keys)
         => entries.FirstOrDefault(entry => keys.Any(key => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase))).Value;
+
+    private bool TryAdoptDetectedTarget(string? packageId)
+    {
+        if (SelectedApp is not null || string.IsNullOrWhiteSpace(packageId))
+        {
+            return false;
+        }
+
+        var knownApp = Apps.FirstOrDefault(app => string.Equals(app.PackageId, packageId, StringComparison.OrdinalIgnoreCase));
+        if (knownApp is null)
+        {
+            return false;
+        }
+
+        SelectedApp = knownApp;
+        AppendLog(
+            OperatorLogLevel.Info,
+            "Selected target adopted from headset state.",
+            $"{knownApp.Label} became the selected target because it is the current foreground app on the headset.");
+        return true;
+    }
 
     private string DescribeAppIdentity(string? packageId, string? component)
     {
@@ -1758,10 +2088,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private static string ClassifyTwinStateSource(string key)
         => key switch
         {
+            "hotload_profile_id" => "App state",
+            "hotload_profile_version" => "App state",
+            "hotload_profile_channel" => "App state",
             var value when value.StartsWith("internal_", StringComparison.OrdinalIgnoreCase) => "App config",
             var value when value.StartsWith("performance_", StringComparison.OrdinalIgnoreCase) => "App config",
             var value when value.StartsWith("render_", StringComparison.OrdinalIgnoreCase) => "App config",
             var value when value.StartsWith("display_", StringComparison.OrdinalIgnoreCase) => "App config",
+            var value when value.StartsWith("quest_foveation_", StringComparison.OrdinalIgnoreCase) => "Headset policy",
             var value when value.StartsWith("unity_", StringComparison.OrdinalIgnoreCase) => "App config",
             var value when value.StartsWith("study_", StringComparison.OrdinalIgnoreCase) => "App config",
             var value when value.StartsWith("showcase_", StringComparison.OrdinalIgnoreCase) => "App config",
@@ -1770,6 +2104,134 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             var value when value.StartsWith("session.", StringComparison.OrdinalIgnoreCase) => "App state",
             var value when value.StartsWith("runtime.", StringComparison.OrdinalIgnoreCase) => "App state",
             _ => "APK telemetry"
+        };
+
+    private void RefreshTwinInspectorRows()
+    {
+        var scopeId = SelectedTwinInspectorScope?.Id ?? "routing";
+        var previousKey = SelectedTwinInspectorRow?.Key;
+        var rows = _latestTwinDeltas
+            .Where(delta => TwinScopeMatches(scopeId, delta.Key))
+            .OrderBy(delta => GetTwinScopeSortWeight(delta.Key))
+            .ThenBy(delta => delta.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(BuildTwinInspectorRow)
+            .ToArray();
+
+        TwinInspectorRows.Clear();
+        foreach (var row in rows)
+        {
+            TwinInspectorRows.Add(row);
+        }
+
+        SelectedTwinInspectorRow = rows.FirstOrDefault(row => string.Equals(row.Key, previousKey, StringComparison.OrdinalIgnoreCase))
+            ?? rows.FirstOrDefault();
+
+        OnPropertyChanged(nameof(TwinInspectorScopeSummary));
+        OnPropertyChanged(nameof(TwinInspectorMatchLabel));
+        OnPropertyChanged(nameof(TwinInspectorMatchPercent));
+        OnPropertyChanged(nameof(TwinInspectorSelectionHeadline));
+        OnPropertyChanged(nameof(TwinInspectorSelectionRequested));
+        OnPropertyChanged(nameof(TwinInspectorSelectionReported));
+        OnPropertyChanged(nameof(TwinInspectorSelectionSource));
+        OnPropertyChanged(nameof(TwinInspectorSelectionDetail));
+    }
+
+    private TwinInspectorRow BuildTwinInspectorRow(TwinSettingsDelta delta)
+    {
+        var scopeId = GetTwinScopeId(delta.Key);
+        var scopeLabel = TwinInspectorScopeCatalog.FirstOrDefault(scope => string.Equals(scope.Id, scopeId, StringComparison.OrdinalIgnoreCase))?.Label
+            ?? "App State";
+        var hasRequested = delta.Requested is not null;
+        var hasReported = delta.Reported is not null;
+        var requested = delta.Requested ?? "Not staged";
+        var reported = delta.Reported ?? "Not reported";
+        var (statusLabel, statusLevel) = hasRequested switch
+        {
+            true when !hasReported => ("Requested by Windows, but not yet reported back by the APK.", OperationOutcomeKind.Warning),
+            false when hasReported => ("Reported live by the APK. No operator-side requested value is currently staged for comparison.", OperationOutcomeKind.Preview),
+            true when delta.Matches => ("Requested and reported values match.", OperationOutcomeKind.Success),
+            true when hasReported => ("Requested and reported values differ. Review before publishing another change.", OperationOutcomeKind.Warning),
+            _ => ("No requested or reported value is available for this key yet.", OperationOutcomeKind.Preview)
+        };
+
+        return new TwinInspectorRow(
+            delta.Key,
+            scopeId,
+            scopeLabel,
+            ClassifyTwinStateSource(delta.Key),
+            requested,
+            reported,
+            hasRequested,
+            hasReported,
+            delta.Matches,
+            statusLabel,
+            statusLevel);
+    }
+
+    private static bool TwinScopeMatches(string scopeId, string key)
+        => scopeId switch
+        {
+            "routing" => string.Equals(GetTwinScopeId(key), "routing", StringComparison.OrdinalIgnoreCase),
+            "headset" => string.Equals(GetTwinScopeId(key), "headset", StringComparison.OrdinalIgnoreCase),
+            "runtime" => string.Equals(GetTwinScopeId(key), "runtime", StringComparison.OrdinalIgnoreCase),
+            "twin" => string.Equals(GetTwinScopeId(key), "twin", StringComparison.OrdinalIgnoreCase),
+            "state" => string.Equals(GetTwinScopeId(key), "state", StringComparison.OrdinalIgnoreCase),
+            _ => true
+        };
+
+    private static string GetTwinScopeId(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return "state";
+        }
+
+        if (string.Equals(key, "showcase_active_runtime_config_json", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("internal_", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("twin_", StringComparison.OrdinalIgnoreCase))
+        {
+            return "twin";
+        }
+
+        if (key.StartsWith("performance_", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("display_", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("quest_foveation_", StringComparison.OrdinalIgnoreCase))
+        {
+            return "headset";
+        }
+
+        if (key.StartsWith("render_", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("unity_", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("study_", StringComparison.OrdinalIgnoreCase))
+        {
+            return "runtime";
+        }
+
+        if (key.StartsWith("showcase_", StringComparison.OrdinalIgnoreCase))
+        {
+            return "routing";
+        }
+
+        if (key.StartsWith("app.", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("session.", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("runtime.", StringComparison.OrdinalIgnoreCase) ||
+            key.StartsWith("hotload_profile_", StringComparison.OrdinalIgnoreCase))
+        {
+            return "state";
+        }
+
+        return "state";
+    }
+
+    private static int GetTwinScopeSortWeight(string key)
+        => GetTwinScopeId(key) switch
+        {
+            "routing" => 0,
+            "headset" => 1,
+            "runtime" => 2,
+            "twin" => 3,
+            "state" => 4,
+            _ => 5
         };
 
     private static string TrimStatusDetail(string detail)
@@ -1895,14 +2357,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         var candidates = new[]
         {
             Environment.GetEnvironmentVariable("VISCEREALITY_QUEST_SESSION_KIT_ROOT"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit")),
+            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "source",
                 "repos",
                 "AstralKarateDojo",
                 "QuestSessionKit"),
-            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit"))
         };
 
         return candidates
@@ -1947,4 +2409,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public sealed record ActionChoice<T>(string Label, string Description, T Value);
 
     public sealed record KeyValueStatusRow(string Key, string Value, string Source);
+
+    public sealed record TwinInspectorScope(string Id, string Label, string Description);
+
+    public sealed record TwinInspectorRow(
+        string Key,
+        string ScopeId,
+        string ScopeLabel,
+        string Source,
+        string Requested,
+        string Reported,
+        bool HasRequested,
+        bool HasReported,
+        bool Matches,
+        string StatusLabel,
+        OperationOutcomeKind StatusLevel);
 }
