@@ -47,9 +47,10 @@ This is the detailed study-build workspace:
 The runtime-config editor follows the Astral inspector structure as closely as
 possible from the desktop side:
 
-- `Setup`
-- `Parameters`
-- `Coupling`
+- `Session + Inputs`
+- `Headset`
+- `APK Runtime`
+- `Twin + Timing`
 - `All`
 
 That makes it usable both as a tracking surface and as the place where desktop
@@ -65,7 +66,9 @@ contract:
 - remote-only research control stays enabled by default
 - the desktop app owns trigger commands and tracked settings
 - the APK reports state
-- `Twin Monitor` focuses on requested vs reported comparisons rather than on-device editing
+- `Twin Monitor` uses a focused inspector so large live state snapshots stay readable instead of becoming one giant raw grid
+
+![Twin Monitor tab](assets/operator-shell-twin-monitor.png)
 
 ## LSL Monitor
 

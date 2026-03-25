@@ -18,21 +18,25 @@ Astral scene, not like a generic spreadsheet of keys.
 
 The editor is grouped into:
 
-- `Setup`
-- `Parameters`
-- `Coupling`
+- `Session + Inputs`
+- `Headset`
+- `APK Runtime`
+- `Twin + Timing`
 - `All`
 
-That structure keeps the first-pass operator flow readable while still letting
-you drop to the full key surface when needed.
+That split keeps Quest device policy separate from APK-side runtime policy while
+still leaving the full public key surface available when needed.
 
 ## How To Use It
 
 1. Open `Runtime Config`.
 2. Pick the staged profile you want to track.
-3. Stay in `Setup` first, then move into `Parameters`.
-4. Use `Coupling` when you need the coupling-facing config surface without mixing it into every other field.
+3. Stay in `Session + Inputs` first, then move into `Headset` or `APK Runtime`.
+4. Use `Twin + Timing` when you need sync policy, runtime timing, or the runtime-config JSON bridge without mixing those controls into every other field.
 5. Use `All` only when you need the complete document view.
+
+The public `LslTwin` sample now auto-selects the `Viscereality Scene Baseline`
+profile when that app is selected in the library.
 
 ## Current Session Behavior
 

@@ -37,6 +37,10 @@ Use the app to confirm:
 - foreground package and visible activities
 - whether the expected package is still running in front
 
+If the current foreground app is outside the public catalog, the operator app
+keeps the selected target empty. That prevents a false warning state from
+appearing before you have chosen the real study APK.
+
 ### Lightweight monitor stream
 
 `LSL Monitor` is for fast transport confirmation:
@@ -54,11 +58,18 @@ you the quickest live check.
 
 - bridge status
 - live publisher detection
-- requested vs reported values
-- raw twin events
+- focused requested/reported inspection by section
+- recent twin events without rendering every live value at once
 
 Use this page when you need to verify whether the headset is reporting the
 state you expect, not just whether the basic monitor stream is alive.
+
+![Twin Monitor tab](assets/operator-shell-twin-monitor.png)
+
+On March 25, 2026, this flow was verified live against `LslTwin` over Wi-Fi
+ADB. The Windows app launched the Quest build, applied `CPU 2 / GPU 2`, and
+tracked `188` reported headset values over `quest_twin_state` without the tab
+crashing.
 
 ## What The Operator Can Control Today
 
