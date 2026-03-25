@@ -1,0 +1,17 @@
+.vs/
+bin/
+obj/
+out/
+artifacts/
+site/
+node_modules/
+TestResults/
+
+session/
+*.user
+*.suo
+*.cache
+
+src/ViscerealityCompanion.Private/
+tests/ViscerealityCompanion.Private.Tests/
+private/

@@ -1,0 +1,375 @@
+{
+  "schemaVersion": "1.0",
+  "stretch": {
+    "useSphereDeformation": false,
+    "oblatenessByRadiusCurve": {
+      "keys": [
+        { "time": 0.0, "value": 1.0 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    },
+    "axisProfileCurve": {
+      "keys": [
+        { "time": 0.0, "value": 1.0 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    }
+  },
+  "dimensions": {
+    "oscillatorDimensionCount": 3,
+    "crossCouplingMatrix": [
+      [ 0.0, 0.15, 0.05 ],
+      [ 0.15, 0.0, 0.1 ],
+      [ 0.05, 0.1, 0.0 ]
+    ],
+    "crossCouplingStrength": 0.85,
+    "routing": {
+      "colorDimensionIndex": 0,
+      "sizeDimensionIndex": 1,
+      "rotationDimensionIndex": 2,
+      "orbitDimensionIndex": 2,
+      "pairDimensionIndex": 1,
+      "waveDimensionIndex": 0,
+      "animationDimensionIndex": 2,
+      "transparencyDimensionIndex": 0,
+      "saturationDimensionIndex": 1,
+      "brightnessDimensionIndex": 2
+    }
+  },
+  "naturalFrequency": {
+    "hzLimits": {
+      "minimum": 0.05,
+      "maximum": 0.22
+    },
+    "noiseScale": 0.8,
+    "noiseOffset": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "noiseSeed": 11
+  },
+  "debug": {
+    "debugLogDriverMixes": false,
+    "debugLogIntervalSeconds": 1.0
+  },
+  "bandGap": {
+    "gapBlackHalfWidth": 0.35,
+    "gapCenterBlack": 1.0
+  },
+  "sphere": {
+    "sphereDataId": "fibonacci-512",
+    "layout": "Fibonacci",
+    "oscillatorCount": 512,
+    "radiusLimits": {
+      "minimum": 0.85,
+      "maximum": 1.2
+    }
+  },
+  "driverOverrides": {
+    "manualOverrideCoherence": false,
+    "manualCoherence01": 0.62,
+    "manualOverrideHeartbeatPulse": false,
+    "manualHeartbeatPulse01": 0.3,
+    "manualOverrideBreathing": false,
+    "manualBreath01": 0.5
+  },
+  "color": {
+    "gradient": {
+      "stops": [
+        { "position": 0.0, "color": "#111111" },
+        { "position": 0.45, "color": "#B74A2A" },
+        { "position": 1.0, "color": "#F4DFC7" }
+      ]
+    },
+    "cycleMultiplier": 1,
+    "driverCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.0 },
+        { "time": 0.5, "value": 1.0 },
+        { "time": 1.0, "value": 0.0 }
+      ]
+    },
+    "usePerOscillatorPhase": true,
+    "externalDriverWeights": {
+      "x": 1.0,
+      "y": 0.0,
+      "z": 0.0
+    }
+  },
+  "size": {
+    "usePercentSize": true,
+    "limits": {
+      "minimum": 0.01,
+      "maximum": 0.018
+    },
+    "envelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.2 },
+        { "time": 0.5, "value": 1.0 },
+        { "time": 1.0, "value": 0.2 }
+      ]
+    },
+    "usePerOscillatorPhase": true,
+    "externalDriverWeights": {
+      "x": 0.6,
+      "y": 0.3,
+      "z": 0.1
+    },
+    "cycleMultiplier": 1
+  },
+  "depthWave": {
+    "percentLimits": {
+      "minimum": 0.05,
+      "maximum": 0.14
+    },
+    "envelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.0 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    },
+    "usePerOscillatorPhase": true,
+    "externalDriverWeights": {
+      "x": 0.7,
+      "y": 0.2,
+      "z": 0.1
+    },
+    "cycleMultiplier": 1
+  },
+  "transparency": {
+    "limits": {
+      "minimum": 0.7,
+      "maximum": 1.0
+    },
+    "envelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 1.0 },
+        { "time": 1.0, "value": 0.6 }
+      ]
+    },
+    "usePerOscillatorPhase": false,
+    "externalDriverWeights": {
+      "x": 0.5,
+      "y": 0.35,
+      "z": 0.15
+    },
+    "cycleMultiplier": 1
+  },
+  "saturation": {
+    "limits": {
+      "minimum": 0.85,
+      "maximum": 1.15
+    },
+    "envelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.25 },
+        { "time": 1.0, "value": 0.9 }
+      ]
+    },
+    "usePerOscillatorPhase": false,
+    "externalDriverWeights": {
+      "x": 0.35,
+      "y": 0.55,
+      "z": 0.1
+    },
+    "cycleMultiplier": 1
+  },
+  "brightness": {
+    "limits": {
+      "minimum": 0.9,
+      "maximum": 1.2
+    },
+    "envelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.35 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    },
+    "usePerOscillatorPhase": false,
+    "externalDriverWeights": {
+      "x": 0.4,
+      "y": 0.45,
+      "z": 0.15
+    },
+    "cycleMultiplier": 1
+  },
+  "spinSpeed": {
+    "limits": {
+      "minimum": 0.2,
+      "maximum": 0.8
+    },
+    "envelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.15 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    },
+    "usePerOscillatorPhase": false,
+    "externalDriverWeights": {
+      "x": 0.6,
+      "y": 0.2,
+      "z": 0.2
+    },
+    "cycleMultiplier": 1
+  },
+  "orbit": {
+    "orbitRadiusUsePerOscillatorPhase": false,
+    "orbitRadiusExternalDriverWeights": {
+      "x": 0.65,
+      "y": 0.2,
+      "z": 0.15
+    },
+    "orbitRadiusDriverCycleMultiplier": 1,
+    "orbitAngleUsePerOscillatorPhase": true,
+    "orbitAngleExternalDriverWeights": {
+      "x": 1.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "orbitAngleDriverCycleMultiplier": 1,
+    "dualSpinAnimation": false,
+    "orbitRadiusMultiplierLimits": {
+      "minimum": 0.0,
+      "maximum": 0.05
+    },
+    "orbitAngleLimits": {
+      "minimum": 0.0,
+      "maximum": 6.2831855
+    },
+    "orbitRadiusEnvelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.0 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    },
+    "orbitAngleEnvelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.0 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    }
+  },
+  "pairOffset": {
+    "pairOffsetUsePerOscillatorPhase": false,
+    "pairOffsetExternalDriverWeights": {
+      "x": 0.55,
+      "y": 0.35,
+      "z": 0.1
+    },
+    "pairOffsetDriverCycleMultiplier": 1,
+    "pairOffsetMultiplierLimits": {
+      "minimum": 0.0,
+      "maximum": 0.8
+    },
+    "pairOffsetEnvelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.0 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    },
+    "pairOffsetAngleLimits": {
+      "minimum": 0.0,
+      "maximum": 6.2831855
+    },
+    "pairOffsetAngleEnvelopeCurve": {
+      "keys": [
+        { "time": 0.0, "value": 0.0 },
+        { "time": 1.0, "value": 1.0 }
+      ]
+    },
+    "pairOffsetAngleUsePerOscillatorPhase": false,
+    "pairOffsetAngleExternalDriverWeights": {
+      "x": 0.5,
+      "y": 0.25,
+      "z": 0.25
+    },
+    "pairOffsetAngleDriverCycleMultiplier": 1
+  },
+  "animationPhase": {
+    "usePerOscillatorPhase": false,
+    "externalDriverWeights": {
+      "x": 0.5,
+      "y": 0.35,
+      "z": 0.15
+    },
+    "cycleMultiplier": 1,
+    "curve": {
+      "keys": [
+        { "time": 0.0, "value": 0.0 },
+        { "time": 0.5, "value": 1.0 },
+        { "time": 1.0, "value": 0.0 }
+      ]
+    }
+  },
+  "coupling": {
+    "baseCouplingStrength": 0.45,
+    "maxNeighborTier": 2,
+    "neighborDistance1": {
+      "limits": {
+        "minimum": -0.6,
+        "maximum": 0.8
+      },
+      "driver": "radiusProgress",
+      "curve": {
+        "keys": [
+          { "time": 0.0, "value": 0.1 },
+          { "time": 1.0, "value": 1.0 }
+        ]
+      }
+    },
+    "neighborDistance2": {
+      "limits": {
+        "minimum": -0.3,
+        "maximum": 0.5
+      },
+      "driver": "coherence",
+      "curve": {
+        "keys": [
+          { "time": 0.0, "value": 0.0 },
+          { "time": 1.0, "value": 1.0 }
+        ]
+      }
+    },
+    "neighborDistance3": {
+      "limits": {
+        "minimum": -0.15,
+        "maximum": 0.3
+      },
+      "driver": "heartbeatPulse",
+      "curve": {
+        "keys": [
+          { "time": 0.0, "value": 0.2 },
+          { "time": 1.0, "value": 0.9 }
+        ]
+      }
+    },
+    "smallWorld": {
+      "enabled": true,
+      "limits": {
+        "minimum": -0.2,
+        "maximum": 0.35
+      },
+      "driver": "coherence",
+      "curve": {
+        "keys": [
+          { "time": 0.0, "value": 0.0 },
+          { "time": 1.0, "value": 1.0 }
+        ]
+      }
+    },
+    "naturalFrequencyMultiplier": {
+      "limits": {
+        "minimum": 0.7,
+        "maximum": 0.95
+      },
+      "driver": "radiusProgress",
+      "curve": {
+        "keys": [
+          { "time": 0.0, "value": 0.0 },
+          { "time": 1.0, "value": 1.0 }
+        ]
+      }
+    }
+  }
+}

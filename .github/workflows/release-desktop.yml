@@ -1,0 +1,68 @@
+name: release-desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore ViscerealityCompanion.sln
+
+      - name: Build
+        run: dotnet build ViscerealityCompanion.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test ViscerealityCompanion.sln --configuration Release --no-build
+
+      - name: Publish app
+        run: >
+          dotnet publish src/ViscerealityCompanion.App/ViscerealityCompanion.App.csproj
+          --configuration Release
+          --runtime win-x64
+          -p:PublishSingleFile=true
+          -p:SelfContained=true
+          --output artifacts/app-win-x64
+
+      - name: Publish CLI
+        run: >
+          dotnet publish src/ViscerealityCompanion.Cli/ViscerealityCompanion.Cli.csproj
+          --configuration Release
+          --runtime win-x64
+          -p:PublishSingleFile=true
+          -p:SelfContained=true
+          --output artifacts/cli-win-x64
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts\release | Out-Null
+          Compress-Archive -Path artifacts\app-win-x64\* -DestinationPath artifacts\release\ViscerealityCompanion-win-x64.zip
+          Compress-Archive -Path artifacts\cli-win-x64\* -DestinationPath artifacts\release\viscereality-cli-win-x64.zip
+          $hashes = @()
+          Get-ChildItem artifacts\release\*.zip | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $hashes += "$hash  $($_.Name)"
+          }
+          $hashes | Set-Content artifacts\release\SHA256SUMS.txt
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/release/ViscerealityCompanion-win-x64.zip
+            artifacts/release/viscereality-cli-win-x64.zip
+            artifacts/release/SHA256SUMS.txt

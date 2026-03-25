@@ -1,0 +1,128 @@
+:root {
+    --paper: #f2ece2;
+    --panel: #fffdf9;
+    --line: #cdbdac;
+    --ink: #221b17;
+    --muted: #6f655b;
+    --accent: #9e2e18;
+    --accent-soft: #f2d5cf;
+    --max-width: 1120px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Bahnschrift, "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.6;
+}
+
+a {
+    color: var(--accent);
+}
+
+header {
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+}
+
+.shell {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.hero {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: 1.3fr 1fr;
+}
+
+.hero h1 {
+    margin: 0;
+    font-size: 2.4rem;
+}
+
+.hero p {
+    margin: 0;
+    color: var(--muted);
+}
+
+.hero-note {
+    border: 1px solid var(--line);
+    background: var(--accent-soft);
+    padding: 16px;
+}
+
+main {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 24px;
+}
+
+nav {
+    align-self: start;
+    position: sticky;
+    top: 16px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 16px;
+}
+
+nav h2 {
+    margin-top: 0;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+}
+
+nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+nav li + li {
+    margin-top: 8px;
+}
+
+article {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 24px 28px;
+}
+
+article h1:first-child {
+    margin-top: 0;
+}
+
+pre {
+    overflow-x: auto;
+    background: #f7f1e8;
+    border: 1px solid var(--line);
+    padding: 14px;
+}
+
+code,
+pre {
+    font-family: Consolas, "Courier New", monospace;
+}
+
+@media (max-width: 900px) {
+    .hero,
+    main {
+        grid-template-columns: 1fr;
+    }
+
+    nav {
+        position: static;
+    }
+}

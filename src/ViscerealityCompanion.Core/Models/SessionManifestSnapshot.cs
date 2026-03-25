@@ -1,0 +1,25 @@
+namespace ViscerealityCompanion.Core.Models;
+
+public sealed record SessionManifestSnapshot(
+    string CatalogSourceLabel,
+    string? CatalogRootPath,
+    string EndpointDraft,
+    string? ActiveEndpoint,
+    string? SelectedAppId,
+    string? SelectedBundleId,
+    string? SelectedHotloadProfileId,
+    string? SelectedRuntimeConfigId,
+    string? SelectedDeviceProfileId,
+    string ConnectionSummary,
+    string RuntimeConfigSummary,
+    bool RemoteOnlyControlEnabled,
+    string MonitorSummary,
+    string MonitorDetail,
+    float? MonitorValue,
+    float MonitorSampleRateHz,
+    string TwinSummary,
+    string TwinDetail,
+    string LastActionLabel,
+    string LastActionDetail,
+    string? BrowserUrl,
+    IReadOnlyList<OperatorLogEntry> RecentLogs);

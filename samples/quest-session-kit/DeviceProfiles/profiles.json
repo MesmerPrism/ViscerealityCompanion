@@ -1,0 +1,26 @@
+{
+  "profiles": [
+    {
+      "id": "research-balanced",
+      "label": "Research Balanced",
+      "description": "Balanced Quest device profile with moderate CPU and GPU levels for remote-operated sessions.",
+      "props": {
+        "debug.oculus.cpuLevel": "2",
+        "debug.oculus.gpuLevel": "2",
+        "debug.viscereality.profile": "balanced",
+        "debug.viscereality.monitor": "enabled"
+      }
+    },
+    {
+      "id": "research-high-fidelity",
+      "label": "Research High Fidelity",
+      "description": "Higher Quest performance levels for supervised research sessions with remote-only control.",
+      "props": {
+        "debug.oculus.cpuLevel": "4",
+        "debug.oculus.gpuLevel": "4",
+        "debug.viscereality.profile": "high-fidelity",
+        "debug.viscereality.monitor": "elevated"
+      }
+    }
+  ]
+}

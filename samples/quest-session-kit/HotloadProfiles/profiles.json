@@ -1,0 +1,25 @@
+{
+  "defaultPackageIds": [
+    "org.aliusresearch.viscereality.preview"
+  ],
+  "profiles": [
+    {
+      "id": "session-default",
+      "label": "Session Default",
+      "file": "session-default.csv",
+      "version": "1.0",
+      "channel": "preview",
+      "studyLock": false,
+      "description": "Public placeholder runtime preset aligned with the Quest Session Kit profile contract."
+    },
+    {
+      "id": "session-twin",
+      "label": "Twin Mode Preview",
+      "file": "session-twin.csv",
+      "version": "1.0",
+      "channel": "preview",
+      "studyLock": true,
+      "description": "Public placeholder preset for the twin-mode flow. The private broadcast path is intentionally excluded."
+    }
+  ]
+}

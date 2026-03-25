@@ -1,0 +1,79 @@
+{
+  "apps": [
+    {
+      "id": "viscereality-preview",
+      "label": "Viscereality Preview",
+      "packageId": "org.aliusresearch.viscereality.preview",
+      "apkFile": "viscereality-preview.apk",
+      "launchComponent": "",
+      "browserPackageId": "com.oculus.browser",
+      "description": "Public placeholder target for the main Quest-side runtime.",
+      "tags": [
+        "viscereality",
+        "runtime"
+      ]
+    },
+    {
+      "id": "viscereality-twin",
+      "label": "Viscereality Twin",
+      "packageId": "org.aliusresearch.viscereality.twin",
+      "apkFile": "viscereality-twin.apk",
+      "launchComponent": "",
+      "browserPackageId": "com.oculus.browser",
+      "description": "Twin-mode Quest runtime. On-device control is disabled; all parameters arrive via the companion LSL bridge.",
+      "tags": [
+        "viscereality",
+        "runtime",
+        "twin"
+      ]
+    },
+    {
+      "id": "viscereality-lsl-relay",
+      "label": "Viscereality LSL Relay",
+      "packageId": "org.aliusresearch.viscereality.lslrelay",
+      "apkFile": "viscereality-lslrelay.apk",
+      "launchComponent": "",
+      "browserPackageId": "com.oculus.browser",
+      "description": "Lightweight LSL relay that forwards Quest telemetry to the desktop companion for monitoring.",
+      "tags": [
+        "viscereality",
+        "lsl",
+        "telemetry"
+      ]
+    },
+    {
+      "id": "quest-browser",
+      "label": "Quest Browser",
+      "packageId": "com.oculus.browser",
+      "apkFile": "quest-browser-placeholder.apk",
+      "launchComponent": "",
+      "browserPackageId": "com.oculus.browser",
+      "description": "Browser target used by the remote open-URL workflow.",
+      "tags": [
+        "browser",
+        "utility"
+      ]
+    }
+  ],
+  "bundles": [
+    {
+      "id": "preview-stack",
+      "label": "Preview Stack",
+      "description": "Ordered install bundle for the public preview workspace.",
+      "appIds": [
+        "quest-browser",
+        "viscereality-preview"
+      ]
+    },
+    {
+      "id": "twin-stack",
+      "label": "Twin Stack",
+      "description": "Full twin-mode deployment: relay for telemetry, twin runtime for remote control.",
+      "appIds": [
+        "quest-browser",
+        "viscereality-lsl-relay",
+        "viscereality-twin"
+      ]
+    }
+  ]
+}
