@@ -49,9 +49,16 @@ public class ConfigHotloadTests
         await _device.Shell($"monkey -p {KarateBioPackage} -c android.intent.category.LAUNCHER 1");
         await Task.Delay(5000);
 
-        // Verify app is running
-        var fgOutput = await _device.Shell("dumpsys activity activities");
-        Assert.Contains(KarateBioPackage, fgOutput);
+        // Verify app is running using the same package/window checks as QSK.
+        var pidOutput = (await _device.Shell($"pidof {KarateBioPackage}")).Trim();
+        if (string.IsNullOrWhiteSpace(pidOutput))
+        {
+            var windowOutput = await _device.Shell("dumpsys window windows");
+            Assert.Contains(KarateBioPackage, windowOutput);
+            return;
+        }
+
+        Assert.False(string.IsNullOrWhiteSpace(pidOutput));
     }
 
     [Fact]
