@@ -19,3 +19,27 @@ public sealed record HeadsetAppStatus(
     IReadOnlyList<TwinSettingsDelta>? SettingsDelta = null,
     string? ForegroundComponent = null,
     IReadOnlyList<string>? VisibleActivityComponents = null);
+
+public sealed record InstalledAppStatus(
+    string PackageId,
+    bool IsInstalled,
+    string VersionName,
+    string VersionCode,
+    string InstalledSha256,
+    string InstalledPath,
+    string Summary,
+    string Detail);
+
+public sealed record DevicePropertyStatus(
+    string Key,
+    string ExpectedValue,
+    string ReportedValue,
+    bool Matches);
+
+public sealed record DeviceProfileStatus(
+    string ProfileId,
+    string Label,
+    bool IsActive,
+    string Summary,
+    string Detail,
+    IReadOnlyList<DevicePropertyStatus> Properties);

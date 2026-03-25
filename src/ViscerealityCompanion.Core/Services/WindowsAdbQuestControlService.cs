@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using ViscerealityCompanion.Core.Models;
 
@@ -389,6 +390,192 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             : new OperationOutcome(OperationOutcomeKind.Success, $"Foreground package is {snapshot.PackageId}.", AdbShellSupport.Collapse(snapshot.PrimaryComponent), PackageId: snapshot.PackageId, Items: snapshot.VisibleComponents);
     }
 
+    public async Task<InstalledAppStatus> QueryInstalledAppAsync(
+        QuestAppTarget target,
+        CancellationToken cancellationToken = default)
+    {
+        var selector = GetActiveSelector();
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return new InstalledAppStatus(
+                target.PackageId,
+                IsInstalled: false,
+                VersionName: string.Empty,
+                VersionCode: string.Empty,
+                InstalledSha256: string.Empty,
+                InstalledPath: string.Empty,
+                Summary: "No active ADB session.",
+                Detail: "Connect to a Quest before checking the installed study build.");
+        }
+
+        try
+        {
+            var installOutput = await RunShellAsync(selector, $"pm path {AdbShellSupport.Quote(target.PackageId)}", cancellationToken).ConfigureAwait(false);
+            if (!installOutput.StdOut.Contains("package:", StringComparison.OrdinalIgnoreCase))
+            {
+                return new InstalledAppStatus(
+                    target.PackageId,
+                    IsInstalled: false,
+                    VersionName: string.Empty,
+                    VersionCode: string.Empty,
+                    InstalledSha256: string.Empty,
+                    InstalledPath: string.Empty,
+                    Summary: $"{target.Label} is not installed.",
+                    Detail: AdbShellSupport.Collapse(installOutput.CombinedOutput));
+            }
+
+            var packagePath = installOutput.StdOut
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(line => line.StartsWith("package:", StringComparison.OrdinalIgnoreCase) ? line["package:".Length..].Trim() : string.Empty)
+                .FirstOrDefault(line => !string.IsNullOrWhiteSpace(line))
+                ?? string.Empty;
+
+            var packageDump = await RunShellAsync(selector, $"dumpsys package {AdbShellSupport.Quote(target.PackageId)}", cancellationToken).ConfigureAwait(false);
+            var versionName = ParseDumpsysValue(packageDump.StdOut, "versionName");
+            var versionCode = ParseVersionCode(packageDump.StdOut);
+            var installedSha256 = string.Empty;
+            var detail = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(packagePath))
+            {
+                var tempPath = Path.Combine(
+                    Path.GetTempPath(),
+                    "ViscerealityCompanion",
+                    "package-hash",
+                    $"{SanitizeFileToken(target.PackageId)}.apk");
+                Directory.CreateDirectory(Path.GetDirectoryName(tempPath)!);
+
+                try
+                {
+                    var pull = await RunAdbAsync(["-s", selector, "pull", packagePath, tempPath], cancellationToken).ConfigureAwait(false);
+                    if (pull.ExitCode == 0 && File.Exists(tempPath))
+                    {
+                        await using var stream = File.OpenRead(tempPath);
+                        using var sha256 = SHA256.Create();
+                        var hash = await sha256.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
+                        installedSha256 = Convert.ToHexString(hash);
+                    }
+                    else
+                    {
+                        detail.Add($"Could not pull {packagePath} to compute a build hash.");
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (File.Exists(tempPath))
+                        {
+                            File.Delete(tempPath);
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(installedSha256))
+            {
+                detail.Add("Installed package hash unavailable.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(versionName))
+            {
+                detail.Add($"versionName={versionName}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(versionCode))
+            {
+                detail.Add($"versionCode={versionCode}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(packagePath))
+            {
+                detail.Add($"path={packagePath}");
+            }
+
+            return new InstalledAppStatus(
+                target.PackageId,
+                IsInstalled: true,
+                VersionName: versionName,
+                VersionCode: versionCode,
+                InstalledSha256: installedSha256,
+                InstalledPath: packagePath,
+                Summary: $"{target.Label} is installed on the headset.",
+                Detail: string.Join("; ", detail));
+        }
+        catch (Exception ex)
+        {
+            return new InstalledAppStatus(
+                target.PackageId,
+                IsInstalled: false,
+                VersionName: string.Empty,
+                VersionCode: string.Empty,
+                InstalledSha256: string.Empty,
+                InstalledPath: string.Empty,
+                Summary: $"Installed-build check failed for {target.Label}.",
+                Detail: ex.Message);
+        }
+    }
+
+    public async Task<DeviceProfileStatus> QueryDeviceProfileStatusAsync(
+        DeviceProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        var selector = GetActiveSelector();
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return new DeviceProfileStatus(
+                profile.Id,
+                profile.Label,
+                IsActive: false,
+                Summary: "No active ADB session.",
+                Detail: "Connect to a Quest before checking the pinned device profile.",
+                Properties: profile.Properties
+                    .Select(pair => new DevicePropertyStatus(pair.Key, pair.Value, string.Empty, Matches: false))
+                    .ToArray());
+        }
+
+        try
+        {
+            var checks = new List<DevicePropertyStatus>(profile.Properties.Count);
+            foreach (var pair in profile.Properties)
+            {
+                var reported = await TryReadShellValueAsync(selector, $"getprop {AdbShellSupport.Quote(pair.Key)}", cancellationToken).ConfigureAwait(false);
+                checks.Add(new DevicePropertyStatus(
+                    pair.Key,
+                    pair.Value,
+                    reported,
+                    string.Equals(pair.Value, reported, StringComparison.Ordinal)));
+            }
+
+            var isActive = checks.Count > 0 && checks.All(check => check.Matches);
+            var matchedCount = checks.Count(check => check.Matches);
+            return new DeviceProfileStatus(
+                profile.Id,
+                profile.Label,
+                isActive,
+                isActive
+                    ? $"{profile.Label} is active on the headset."
+                    : $"{profile.Label} is not fully active on the headset.",
+                $"Matched {matchedCount}/{checks.Count} pinned device properties.",
+                checks);
+        }
+        catch (Exception ex)
+        {
+            return new DeviceProfileStatus(
+                profile.Id,
+                profile.Label,
+                IsActive: false,
+                Summary: $"Device-profile check failed for {profile.Label}.",
+                Detail: ex.Message,
+                Properties: profile.Properties
+                    .Select(pair => new DevicePropertyStatus(pair.Key, pair.Value, string.Empty, Matches: false))
+                    .ToArray());
+        }
+    }
+
     public async Task<HeadsetAppStatus> QueryHeadsetStatusAsync(
         QuestAppTarget? target,
         bool remoteOnlyControlEnabled,
@@ -708,6 +895,52 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     private static int? ParseOptionalInt(string value)
         => int.TryParse(value, out var parsed) ? parsed : null;
+
+    private static string ParseDumpsysValue(string dumpsysOutput, string key)
+    {
+        if (string.IsNullOrWhiteSpace(dumpsysOutput) || string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        foreach (var rawLine in dumpsysOutput.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var token = $"{key}=";
+            var index = rawLine.IndexOf(token, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+            {
+                continue;
+            }
+
+            return rawLine[(index + token.Length)..].Trim();
+        }
+
+        return string.Empty;
+    }
+
+    private static string ParseVersionCode(string dumpsysOutput)
+    {
+        var raw = ParseDumpsysValue(dumpsysOutput, "versionCode");
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var spaceIndex = raw.IndexOf(' ');
+        return spaceIndex > 0 ? raw[..spaceIndex].Trim() : raw.Trim();
+    }
+
+    private static string SanitizeFileToken(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            builder.Append(invalid.Contains(character) ? '_' : character);
+        }
+
+        return builder.ToString();
+    }
 
     private static OperationOutcome Success(
         string summary,

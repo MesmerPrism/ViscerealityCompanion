@@ -71,6 +71,15 @@ ADB. The Windows app launched the Quest build, applied `CPU 2 / GPU 2`, and
 tracked `188` reported headset values over `quest_twin_state` without the tab
 crashing.
 
+For study-specific windows such as the Sussex shell, the same twin-state stream
+is reduced to a much narrower monitor:
+
+- pinned build verification
+- pinned device-profile verification
+- LSL routing and connectivity
+- controller breathing, heartbeat, and coherence values
+- only the study trigger buttons that are actually allowed
+
 ## What The Operator Can Control Today
 
 - connect the Quest
@@ -86,3 +95,8 @@ crashing.
 The first working mode does not depend on the APK exposing its own control UI.
 That is deliberate. The operator flow is meant to work even when the headset
 user should only wear the device and follow the study instructions.
+
+Some study-shell controls still depend on new scene-side telemetry. For
+example, the Sussex shell already reserves space for recenter drift distance
+and particle visibility, but the public APK must publish those signals before
+the window can do more than report that they are not exposed yet.

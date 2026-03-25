@@ -10,6 +10,7 @@ AstralKarateDojo internals into the public tree. Instead, it ships the Windows
 surface around that workflow:
 
 - WPF desktop app for Quest connection, install, launch, monitoring, and runtime-config staging
+- reusable study-shell windows for simplified experiment-specific operator flows
 - CLI for scriptable ADB, LSL, and twin command workflows
 - repo-local `LslTwin` sample catalog, scene-matched hotload baseline, and device profiles
 - public runtime-config editor that mirrors the Astral inspector layout
@@ -42,6 +43,7 @@ Verified on March 25, 2026 against a live Quest reachable over Wi-Fi ADB:
 - selecting `LslTwin` and launching it from the GUI succeeded
 - applying Quest performance levels from the GUI updated the live headset to `CPU 2 / GPU 2`
 - `Twin Monitor` stayed stable and tracked `188` reported headset values from `quest_twin_state`
+- the Sussex study shell pinned one APK hash plus one Quest device profile without exposing the full runtime-config surface
 
 ## Install Or Build
 
@@ -50,6 +52,7 @@ are published.
 
 - Download/install guide: [docs/download.md](docs/download.md)
 - First-session walkthrough: [docs/first-session.md](docs/first-session.md)
+- Study-shell guide: [docs/study-shells.md](docs/study-shells.md)
 
 For local development:
 
@@ -75,6 +78,7 @@ Start with:
 - [Docs Home](docs/index.md)
 - [Download](docs/download.md)
 - [First Session](docs/first-session.md)
+- [Study Shells](docs/study-shells.md)
 - [Monitoring and Control](docs/monitoring-and-control.md)
 - [Runtime Config](docs/runtime-config.md)
 - [Getting Started](docs/getting-started.md)

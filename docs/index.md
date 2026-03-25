@@ -17,6 +17,7 @@ watch live state, and keep session control on the operator side.
 <div class="action-row">
   <a class="button primary" href="download.md">Install The App</a>
   <a class="button" href="first-session.md">Run A First Session</a>
+  <a class="button" href="study-shells.md">Open A Study Shell</a>
   <a class="button" href="monitoring-and-control.md">Monitoring And Control</a>
 </div>
 
@@ -54,6 +55,7 @@ watch live state, and keep session control on the operator side.
 
 - [Download](download.md)
 - [First Session](first-session.md)
+- [Study Shells](study-shells.md)
 - [App Overview](app-overview.md)
 - [Monitoring and Control](monitoring-and-control.md)
 - [Troubleshooting](troubleshooting.md)

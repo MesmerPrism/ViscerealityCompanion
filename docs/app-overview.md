@@ -26,6 +26,20 @@ one place:
 - confirm live monitor and twin-state status
 - export a manifest at the end of the run
 
+The same tab also exposes discovered study shells, so operators can switch from
+the full app into a narrower study-specific window without installing a second
+desktop application.
+
+## Study Shells
+
+Study shells are dedicated windows for specific protocols. They reuse the same
+ADB and twin-monitor services, but they pin one APK, one device profile, and a
+small set of live metrics instead of exposing the whole runtime-config and
+library surface.
+
+The first committed example is the Sussex University shell for the
+controller-breathing study.
+
 ## Session
 
 The `Session` tab keeps the full connection and device snapshot view once you

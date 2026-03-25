@@ -44,6 +44,10 @@ In the app:
 
 In the committed public sample catalog, that target is currently `LslTwin`.
 
+If the study team already gave you a dedicated study shell, you can open it
+from `Start Here` instead of using the full catalog views. That path pins the
+expected build and device profile for you.
+
 ## 3. Install And Launch
 
 **WPF App:** Click **Install App**, then **Launch App**.

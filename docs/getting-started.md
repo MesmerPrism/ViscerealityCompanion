@@ -33,6 +33,11 @@ The app runs against the committed sample session-kit catalogs under
 `samples/quest-session-kit/` and the public runtime-config profiles under
 `samples/oscillator-config/`.
 
+Study-shell definitions are loaded separately from `samples/study-shells/`. You
+can also point the app at an external study-shell folder with
+`VISCEREALITY_STUDY_SHELL_ROOT` so new simplified operator windows can be added
+without changing the main app binary.
+
 The repo-local session-kit sample is now the preferred default source. It
 currently contains one public Quest target, `LslTwin`, plus one scene-matched
 runtime baseline. That keeps older internal APK and profile variants out of the

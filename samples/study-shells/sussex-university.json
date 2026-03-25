@@ -1,0 +1,88 @@
+{
+  "id": "sussex-university",
+  "label": "Sussex University",
+  "partner": "University of Sussex",
+  "description": "Simplified operator window for the Sussex controller-breathing study. The shell pins a single LslTwin build, one Quest device profile, and the live monitoring fields the experimenter needs during a session.",
+  "app": {
+    "label": "Sussex LslTwin Build",
+    "packageId": "com.Viscereality.LslTwin",
+    "apkPath": "",
+    "launchComponent": "",
+    "sha256": "B1D5529516F9867FEF790C276EA3324415188B1B3AB4A54FD32B3705654F3D3C",
+    "versionName": "0.1.0",
+    "notes": "Select the supplied Sussex APK file once. The operator shell will keep checking the local file hash and the installed headset hash against this pinned build."
+  },
+  "deviceProfile": {
+    "id": "sussex-study-profile",
+    "label": "Sussex Study Device Profile",
+    "description": "Dedicated Quest device settings for the Sussex controller-breathing study.",
+    "properties": {
+      "debug.oculus.cpuLevel": "2",
+      "debug.oculus.gpuLevel": "5",
+      "debug.oculus.foveation.dynamic": "false",
+      "debug.oculus.foveation.level": "1"
+    }
+  },
+  "monitoring": {
+    "expectedBreathingLabel": "",
+    "expectedHeartbeatLabel": "",
+    "expectedCoherenceLabel": "",
+    "expectedLslStreamName": "quest_biofeedback_in",
+    "expectedLslStreamType": "quest.biofeedback",
+    "recenterDistanceThresholdUnits": 0.2,
+    "lslConnectivityKeys": [
+      "connection.lsl.connected_count",
+      "connection.lsl.connecting_count",
+      "connection.lsl.total_count"
+    ],
+    "lslStreamNameKeys": [
+      "showcase_lsl_in_stream_name",
+      "hotload.showcase_lsl_in_stream_name"
+    ],
+    "lslStreamTypeKeys": [
+      "showcase_lsl_in_stream_type",
+      "hotload.showcase_lsl_in_stream_type"
+    ],
+    "controllerValueKeys": [
+      "tracker.breathing.controller.volume01",
+      "signal01.breathing_controller"
+    ],
+    "controllerStateKeys": [
+      "tracker.breathing.controller.state",
+      "tracker.breathing.controller.calibrated",
+      "tracker.breathing.controller.validating",
+      "tracker.breathing.controller.validation_progress01"
+    ],
+    "controllerTrackingKeys": [
+      "tracker.breathing.controller.active",
+      "tracker.breathing.controller.failure_reason",
+      "routing.breathing.mode",
+      "routing.breathing.label"
+    ],
+    "heartbeatValueKeys": [
+      "signal01.heartbeat_lsl",
+      "signal01.heartbeat_polar",
+      "signal01.heartbeat_mock_processed"
+    ],
+    "heartbeatStateKeys": [
+      "routing.heartbeat.mode",
+      "routing.heartbeat.label"
+    ],
+    "coherenceValueKeys": [
+      "signal01.coherence_heartbeat",
+      "signal01.mock_coherence"
+    ],
+    "coherenceStateKeys": [
+      "routing.coherence.mode",
+      "routing.coherence.label",
+      "routing.coherence.uses_heartbeat_source"
+    ],
+    "recenterDistanceKeys": [],
+    "particleVisibilityKeys": []
+  },
+  "controls": {
+    "recenterCommandActionId": "2",
+    "particleVisibleOnActionId": "",
+    "particleVisibleOffActionId": ""
+  }
+}

@@ -127,6 +127,35 @@
             </Grid>
         </DataTemplate>
 
+        <DataTemplate DataType="{x:Type models:StudyShellDefinition}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="{Binding Label}"
+                               FontWeight="Bold"
+                               FontSize="14"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Partner}"
+                               Style="{StaticResource MicroCaptionStyle}"
+                               Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding Description}"
+                               Style="{StaticResource MicroCaptionStyle}"
+                               Margin="0,6,0,0" />
+                </StackPanel>
+
+                <Button Grid.Column="1"
+                        Content="Open Study Shell"
+                        Command="{Binding DataContext.OpenStudyShellCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding}"
+                        Margin="12,0,0,0"
+                        VerticalAlignment="Top" />
+            </Grid>
+        </DataTemplate>
+
         <DataTemplate DataType="{x:Type viewModels:SingleValueRowViewModel}">
             <Border Margin="0,0,0,8"
                     Background="{StaticResource PanelBrush}"
@@ -638,6 +667,20 @@
                                     <TextBlock Text="{Binding RuntimeConfigPublishSummary}"
                                                Style="{StaticResource MicroCaptionStyle}"
                                                Margin="0,8,0,0" />
+                                    <Separator Margin="0,14,0,12" />
+                                    <TextBlock Text="Study shells"
+                                               FontSize="15"
+                                               FontWeight="Bold" />
+                                    <TextBlock Text="{Binding StudyShellCatalogStatus}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding StudyShellCatalogSourcePath}"
+                                               Style="{StaticResource InspectorKeyStyle}"
+                                               Margin="0,4,0,8" />
+                                    <ListBox ItemsSource="{Binding StudyShells}"
+                                             MaxHeight="220"
+                                             BorderThickness="0"
+                                             Background="{StaticResource PanelAltBrush}" />
                                 </StackPanel>
                             </Border>
                         </Grid>

@@ -22,6 +22,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     ];
 
     private readonly QuestSessionKitCatalogLoader _catalogLoader = new();
+    private readonly StudyShellCatalogLoader _studyShellCatalogLoader = new();
     private AppSessionState _sessionState;
     private readonly IQuestControlService _questService;
     private readonly IHzdbService _hzdbService = HzdbServiceFactory.CreateDefault();
@@ -44,6 +45,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool _initialized;
     private string _catalogStatus = "Loading Quest Session Kit...";
     private string _catalogSourcePath = string.Empty;
+    private string _studyShellCatalogStatus = "Loading study shells...";
+    private string _studyShellCatalogSourcePath = string.Empty;
     private string _endpointDraft = string.Empty;
     private string _browserUrlDraft = "https://www.aliusresearch.org/viscereality.html";
     private string _connectionSummary = "No Quest endpoint action has run yet.";
@@ -146,6 +149,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         RefreshCatalogCommand = new AsyncRelayCommand(RefreshCatalogAsync);
+        OpenStudyShellCommand = new AsyncRelayCommand(OpenStudyShellAsync);
         ProbeUsbCommand = new AsyncRelayCommand(ProbeUsbAsync);
         DiscoverWifiCommand = new AsyncRelayCommand(DiscoverWifiAsync);
         EnableWifiCommand = new AsyncRelayCommand(EnableWifiAsync);
@@ -173,6 +177,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public ObservableCollection<QuestAppTarget> Apps { get; } = new();
 
     public ObservableCollection<QuestBundle> Bundles { get; } = new();
+
+    public ObservableCollection<StudyShellDefinition> StudyShells { get; } = new();
 
     public ObservableCollection<HotloadProfile> AvailableHotloadProfiles { get; } = new();
 
@@ -202,6 +208,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public RuntimeConfigWorkspaceViewModel RuntimeConfig => _runtimeConfig;
 
     public AsyncRelayCommand RefreshCatalogCommand { get; }
+
+    public AsyncRelayCommand OpenStudyShellCommand { get; }
 
     public AsyncRelayCommand ProbeUsbCommand { get; }
 
@@ -257,6 +265,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         get => _catalogSourcePath;
         private set => SetProperty(ref _catalogSourcePath, value);
+    }
+
+    public string StudyShellCatalogStatus
+    {
+        get => _studyShellCatalogStatus;
+        private set => SetProperty(ref _studyShellCatalogStatus, value);
+    }
+
+    public string StudyShellCatalogSourcePath
+    {
+        get => _studyShellCatalogSourcePath;
+        private set => SetProperty(ref _studyShellCatalogSourcePath, value);
     }
 
     public string EndpointDraft
@@ -902,6 +922,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _initialized = true;
         EnsureTwinBridgeMonitoringStarted();
         await RefreshCatalogAsync().ConfigureAwait(false);
+        await RefreshStudyShellCatalogAsync().ConfigureAwait(false);
         await RestartMonitorAsync().ConfigureAwait(false);
     }
 
@@ -981,6 +1002,71 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 AppendLog(OperatorLogLevel.Failure, "Catalog refresh failed.", ex.Message);
             }).ConfigureAwait(false);
         }
+
+        await RefreshStudyShellCatalogAsync().ConfigureAwait(false);
+    }
+
+    private async Task RefreshStudyShellCatalogAsync()
+    {
+        try
+        {
+            var rootPath = AppAssetLocator.TryResolveStudyShellRoot();
+            if (string.IsNullOrWhiteSpace(rootPath))
+            {
+                await DispatchAsync(() =>
+                {
+                    StudyShells.Clear();
+                    StudyShellCatalogStatus = "No study-shell catalog found.";
+                    StudyShellCatalogSourcePath = "Set VISCEREALITY_STUDY_SHELL_ROOT or keep samples/study-shells available next to the app.";
+                }).ConfigureAwait(false);
+                return;
+            }
+
+            var catalog = await _studyShellCatalogLoader.LoadAsync(rootPath).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                StudyShells.Clear();
+                foreach (var study in catalog.Studies)
+                {
+                    StudyShells.Add(study);
+                }
+
+                StudyShellCatalogStatus = $"Loaded {catalog.Studies.Count} study shell(s) from {catalog.Source.Label}.";
+                StudyShellCatalogSourcePath = catalog.Source.RootPath;
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await DispatchAsync(() =>
+            {
+                StudyShells.Clear();
+                StudyShellCatalogStatus = "Study-shell catalog refresh failed.";
+                StudyShellCatalogSourcePath = ex.Message;
+                AppendLog(OperatorLogLevel.Warning, "Study-shell catalog refresh failed.", ex.Message);
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task OpenStudyShellAsync(object? parameter)
+    {
+        if (parameter is not StudyShellDefinition study)
+        {
+            await DispatchAsync(() => AppendLog(OperatorLogLevel.Warning, "Study shell blocked.", "Select a study shell before opening it.")).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() =>
+        {
+            var owner = Application.Current?.MainWindow;
+            var window = new StudyShellWindow(study);
+            if (owner is not null && !ReferenceEquals(owner, window))
+            {
+                window.Owner = owner;
+            }
+
+            window.Show();
+            window.Activate();
+        }).ConfigureAwait(false);
     }
 
     private void RefreshAvailableHotloadProfiles()
@@ -2353,25 +2439,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         };
 
     private static string ResolveCatalogRoot()
-    {
-        var candidates = new[]
-        {
-            Environment.GetEnvironmentVariable("VISCEREALITY_QUEST_SESSION_KIT_ROOT"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit")),
-            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source",
-                "repos",
-                "AstralKarateDojo",
-                "QuestSessionKit"),
-        };
-
-        return candidates
-            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-            .Cast<string>()
-            .First();
-    }
+        => AppAssetLocator.ResolveQuestSessionKitRoot();
 
     private string? ResolveApkPathForTarget(QuestAppTarget target)
     {

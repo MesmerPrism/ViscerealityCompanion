@@ -26,6 +26,12 @@ public interface IQuestControlService
         QuestAppTarget browserTarget,
         CancellationToken cancellationToken = default);
     Task<OperationOutcome> QueryForegroundAsync(CancellationToken cancellationToken = default);
+    Task<InstalledAppStatus> QueryInstalledAppAsync(
+        QuestAppTarget target,
+        CancellationToken cancellationToken = default);
+    Task<DeviceProfileStatus> QueryDeviceProfileStatusAsync(
+        DeviceProfile profile,
+        CancellationToken cancellationToken = default);
     Task<HeadsetAppStatus> QueryHeadsetStatusAsync(
         QuestAppTarget? target,
         bool remoteOnlyControlEnabled,
@@ -138,6 +144,32 @@ public sealed class PreviewQuestControlService : IQuestControlService
         => Task.FromResult(Preview(
             "Foreground package query prepared.",
             "The preview transport returns no live package id until a desktop ADB backend is attached."));
+
+    public Task<InstalledAppStatus> QueryInstalledAppAsync(
+        QuestAppTarget target,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(new InstalledAppStatus(
+            target.PackageId,
+            IsInstalled: true,
+            VersionName: "preview",
+            VersionCode: "0",
+            InstalledSha256: target.ApkSha256 ?? string.Empty,
+            InstalledPath: string.Empty,
+            Summary: $"Preview install state available for {target.Label}.",
+            Detail: "Attach the Windows ADB backend to verify the installed package path and hash on the headset."));
+
+    public Task<DeviceProfileStatus> QueryDeviceProfileStatusAsync(
+        DeviceProfile profile,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(new DeviceProfileStatus(
+            profile.Id,
+            profile.Label,
+            IsActive: false,
+            Summary: $"Preview device-profile check for {profile.Label}.",
+            Detail: "Attach the Windows ADB backend to read the current Quest properties and compare them against the pinned study profile.",
+            Properties: profile.Properties
+                .Select(pair => new DevicePropertyStatus(pair.Key, pair.Value, string.Empty, Matches: false))
+                .ToArray()));
 
     public Task<HeadsetAppStatus> QueryHeadsetStatusAsync(
         QuestAppTarget? target,
