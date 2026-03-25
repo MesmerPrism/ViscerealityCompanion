@@ -1,0 +1,9 @@
+* text=auto eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+samples/quest-session-kit/APKs/LslTwin.apk filter=lfs diff=lfs merge=lfs -text

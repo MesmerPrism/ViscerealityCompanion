@@ -1,0 +1,23 @@
+{
+  "label": "Repo sample oscillator configs",
+  "profiles": [
+    {
+      "id": "studio-baseline",
+      "label": "Studio Baseline",
+      "file": "studio-baseline.json",
+      "description": "Balanced public baseline for Quest operator sessions.",
+      "packageIds": [
+        "org.aliusresearch.viscereality.preview"
+      ]
+    },
+    {
+      "id": "twin-coherence",
+      "label": "Twin Coherence",
+      "file": "twin-coherence.json",
+      "description": "Twin-mode sample with stronger coherence-driven routing and coupling.",
+      "packageIds": [
+        "org.aliusresearch.viscereality.preview"
+      ]
+    }
+  ]
+}

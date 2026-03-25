@@ -1,0 +1,32 @@
+{
+  "apps": [
+    {
+      "sha256": "B1D5529516F9867FEF790C276EA3324415188B1B3AB4A54FD32B3705654F3D3C",
+      "status": "compatible",
+      "label": "LslTwin verified",
+      "notes": "Twin runtime verified against the Windows app contract: quest_twin_state/quest.twin.state, quest_twin_commands/quest.twin.command, and quest_hotload_config/quest.config.",
+      "tags": ["viscereality", "runtime", "lsl", "twin"]
+    },
+    {
+      "sha256": "8DCD56E6F1C07B2963D5B6D244EF8543226C985FB916E97881F1C5CF612D9C65",
+      "status": "compatible",
+      "label": "KarateBio verified",
+      "notes": "Primary runtime build verified for ADB device snapshots and compatible runtime-config editing; live requested/reported tracking still requires a twin-state publisher.",
+      "tags": ["viscereality", "runtime"]
+    },
+    {
+      "sha256": "15517E649D5FCBF393A5FCD3F9B51D2484D3A31D4D350F45803832E57E46C0C4",
+      "status": "compatible",
+      "label": "LslInAndOut verified",
+      "notes": "Combined relay/runtime build recognized by this Windows app version.",
+      "tags": ["viscereality", "runtime", "lsl", "twin"]
+    },
+    {
+      "sha256": "FBA319E8F76EDA856A94EE360FB658A02FAD397FA6D8EF68883A6BFFF56F34F6",
+      "status": "compatible",
+      "label": "LSLout verified",
+      "notes": "Telemetry relay build verified for desktop-side LSL monitoring.",
+      "tags": ["viscereality", "lsl", "telemetry"]
+    }
+  ]
+}
