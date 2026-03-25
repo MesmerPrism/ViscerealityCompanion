@@ -1,41 +1,36 @@
 ---
-title: Private Split
-description: What stays in the public repo and what belongs in a local-only overlay.
-nav_order: 50
+title: Relation To AstralKarateDojo
+description: What lives in this public Windows repo and what stays in the separate AstralKarateDojo Unity repo.
+summary: This repo is public and focused on the operator app. The Unity scene and study APK development stay in AstralKarateDojo.
+nav_label: Relation To Astral
+nav_group: Reference
+nav_order: 90
 ---
 
-# Private Split
+# Relation To AstralKarateDojo
 
-The public repo is for the operator surface, onboarding, and safe sample
-contracts. The config contract stays public; only the live runtime dynamics and
-transport stay out of it.
+Viscereality Companion is not a mirror of the Unity project. It is the public
+Windows-side operator repo around that project.
 
-## Public
+## This Repo Owns
 
-- WPF UI shell
-- session-kit manifest format
-- oscillator config document format
-- public sample oscillator profiles
-- Windows-side ADB install, launch, status polling, and device-property control
-- docs and release automation
-- preview transport implementations
-- manifest export and operator logs
+- the WPF desktop app
+- the CLI
+- Windows ADB control
+- LSL monitoring and outlet plumbing
+- twin command and state transport on the desktop side
+- sample session-kit contracts
+- public onboarding docs, Pages, and release automation
 
-## Private
+## AstralKarateDojo Owns
 
-- job-system coupling dynamics implementation
-- live bidirectional twin-mode backend and runtime handoff
-- any research-only or study-specific compute code
-- private APKs and sensitive presets
+- the Unity scene
+- the Quest runtime and scene-local wiring
+- study APK development
+- scene-internal runtime code and scene assets
+- any study-specific content that belongs with the runtime repo
 
-## Suggested Local Overlay
+## Practical Rule
 
-Use one of the ignored paths:
-
-- `src/ViscerealityCompanion.Private/`
-- `tests/ViscerealityCompanion.Private.Tests/`
-- `private/`
-
-The public shell already exposes the twin command contract, hotload presets,
-and editable oscillator config surface, so a local overlay can attach the live
-backend without changing the public repo API.
+If you need to run sessions from Windows, work in this repo. If you need to
+change the Quest scene or APK behavior, work in `AstralKarateDojo`.

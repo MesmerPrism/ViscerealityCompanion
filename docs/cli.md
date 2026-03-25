@@ -1,7 +1,10 @@
 ---
 title: CLI Reference
 description: Command-line interface for the ViscerealityCompanion operator station.
-nav_order: 25
+summary: The CLI mirrors the desktop app for scripted ADB, LSL, and twin workflows when you do not want the WPF shell.
+nav_label: CLI Reference
+nav_group: Developer Path
+nav_order: 80
 ---
 
 # CLI Reference
@@ -49,6 +52,7 @@ viscereality --help
 | `monitor` | Monitor an LSL stream (continuous output) |
 
 Options:
+
 - `--stream <name>` — stream name (default: `quest_monitor`)
 - `--type <type>` — stream type (default: `quest.telemetry`)
 - `--channel <index>` — channel index (default: `0`)
@@ -57,7 +61,7 @@ Options:
 
 | Command | Description |
 |---------|-------------|
-| `twin send <action>` | Send a twin command (e.g. `twin-start`, `twin-pause`) |
+| `twin send <action>` | Send a twin command (for example `twin-start`, `twin-pause`) |
 | `twin status` | Show twin bridge status and settings comparison |
 
 ### Catalog
@@ -67,6 +71,7 @@ Options:
 | `catalog list` | List available apps, bundles, and profiles |
 
 Options:
+
 - `--root <path>` — catalog root directory (auto-detected if omitted)
 
 ### Utilities
@@ -86,10 +91,9 @@ Options:
 | `VISCEREALITY_QUEST_SESSION_KIT_ROOT` | Override catalog root directory |
 | `VISCEREALITY_LSL_DLL` | Path to `lsl.dll` for LSL features |
 
-## Examples
+## Example
 
 ```powershell
-# Full session setup
 viscereality probe
 viscereality wifi
 viscereality connect 192.168.43.1:5555

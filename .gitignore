@@ -6,6 +6,7 @@ artifacts/
 site/
 node_modules/
 TestResults/
+src/ViscerealityCompanion.App.Package/AppPackages/
 
 session/
 *.user

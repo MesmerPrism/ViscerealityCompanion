@@ -11,12 +11,21 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <RootNamespace>ViscerealityCompanion.App</RootNamespace>
+    <AssemblyName>ViscerealityCompanion</AssemblyName>
+    <Title>Viscereality Companion</Title>
+    <Product>Viscereality Companion</Product>
+    <ApplicationIcon>Assets\viscereality-companion.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="..\..\samples\quest-session-kit\**\*.*"
           Link="samples\quest-session-kit\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\viscereality-companion.ico" />
+    <Resource Include="Assets\viscereality-companion.png" />
   </ItemGroup>
 
 </Project>
