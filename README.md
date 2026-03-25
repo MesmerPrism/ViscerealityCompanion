@@ -1,89 +1,94 @@
 # Viscereality Companion
 
-Public Windows-first operator shell for the Viscereality workflow.
+Viscereality Companion is the public Windows operator app for
+AstralKarateDojo-based research sessions. It is meant for people who receive a
+Quest APK from the study team and need a stable desktop tool to install it,
+launch it, monitor live state, and keep session control on the operator side.
 
-This repo is the public-facing setup for a desktop app that combines the
-operator patterns from:
+This repo is deliberately separate from the Unity scene repo. It does not copy
+AstralKarateDojo internals into the public tree. Instead, it ships the Windows
+surface around that workflow:
 
-- the Viscereality Quest-side session kit and LSL monitor flow
-- the Android phone Quest companion app
-- the twin-mode control contract
-- the public-docs and release posture used in `PolarH10`
+- WPF desktop app for Quest connection, install, launch, monitoring, and runtime-config staging
+- CLI for scriptable ADB, LSL, and twin command workflows
+- Quest Session Kit sample catalogs, hotload presets, and device profiles
+- public runtime-config editor that mirrors the Astral inspector layout
+- Pages docs and release automation
+- Windows packaging scaffolding for a single branded launcher install path
 
-The goal is a Windows app and public git that provide onboarding, downloads,
-sample session-kit contracts, public oscillator config editing, and the
-operator interface surface without publishing the private job-system dynamics
-implementation.
+## Who It Is For
 
-## What Is Public Here
+- operators running study sessions on Windows
+- collaborators who need the desktop control surface but not the Unity scene code
+- developers who need the transport, onboarding, and release repo around the Quest build
 
-- WPF desktop shell under `src/ViscerealityCompanion.App`
-- public transport and twin-mode abstractions plus preview implementations
-- sample Quest Session Kit catalogs under `samples/quest-session-kit/`
-- sample oscillator config profiles under `samples/oscillator-config/`
-- docs site source under `docs/`
-- CI, Pages, and tagged release automation under `.github/workflows/`
+## Core Workflow
 
-## What Stays Private
+1. Connect the Quest over USB or Wi-Fi ADB.
+2. Select the supplied app target and APK.
+3. Install the APK, apply Quest CPU and GPU levels, and launch it.
+4. Monitor headset state, LSL telemetry, and twin-state tracking from Windows.
+5. Stage or publish tracked runtime-config changes from the desktop side when the study protocol calls for them.
 
-This repo intentionally does **not** include:
+The current research mode is intentionally remote-first: the desktop app is the
+control surface, and the APK is treated as the participant-facing runtime.
 
-- the job-system coupling dynamics implementation
-- the live twin-mode/runtime handoff backend
-- private APK payloads
-- study-specific presets or secrets
+## Install Or Build
 
-Use a local-only overlay such as `src/ViscerealityCompanion.Private/` when you
-need to attach those pieces.
+For operators, the intended path is the packaged launcher once preview releases
+are published.
 
-## Quick Start
+- Download/install guide: [docs/download.md](docs/download.md)
+- First-session walkthrough: [docs/first-session.md](docs/first-session.md)
+
+For local development:
 
 ```powershell
-git clone <your-public-url> ViscerealityCompanion
+git clone <repo-url> ViscerealityCompanion
 cd ViscerealityCompanion
 dotnet build ViscerealityCompanion.sln
 dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
 ```
 
-The app starts from the committed sample session-kit catalogs and public
-oscillator config profiles. When `adb` is available on the Windows machine, the
-desktop shell can install APKs, connect to Quest, apply CPU/GPU levels, launch
-apps, and poll headset status directly. Runtime preset and oscillator config
-changes stay operator-side in the current remote-only mode.
-
-## Docs And Site
-
-Start with:
-
-- [Docs Home](docs/index.md)
-- [Getting Started](docs/getting-started.md)
-- [App Overview](docs/app-overview.md)
-- [Download](docs/download.md)
-- [Private Split](docs/private-split.md)
-
-Build the static docs site locally with:
+Build the docs site locally with:
 
 ```powershell
 npm install
 npm run pages:build
 ```
 
-## Releases
+## Docs
 
-Pushing a `v*` tag triggers the Windows release workflow. It publishes a
-portable `win-x64` desktop zip and checksum files to GitHub Releases. The
-public download page points to those tagged artifacts.
+Start with:
 
-## Structure
+- [Docs Home](docs/index.md)
+- [Download](docs/download.md)
+- [First Session](docs/first-session.md)
+- [Monitoring and Control](docs/monitoring-and-control.md)
+- [Runtime Config](docs/runtime-config.md)
+- [Getting Started](docs/getting-started.md)
 
-- `src/ViscerealityCompanion.Core/` public models, loaders, abstractions, preview services
-- `src/ViscerealityCompanion.App/` WPF operator shell
-- `tests/ViscerealityCompanion.Core.Tests/` loader and manifest tests
-- `samples/quest-session-kit/` sample library, preset, and device-profile contracts
-- `samples/oscillator-config/` public oscillator-config catalog and profiles
-- `docs/` public onboarding and reference pages
-- `tools/site/` static Pages build
+## Packaging
+
+The repo includes Windows packaging scaffolding under
+`src/ViscerealityCompanion.App.Package/` plus
+`tools/app/Build-App-Package.ps1`.
+
+That path is meant to produce one branded launcher entry for the installed app,
+instead of asking operators to run the unpackaged repo build directly.
+
+## Scope
+
+This public repo does not ship:
+
+- the AstralKarateDojo Unity scene
+- private or study-locked APK payloads
+- scene-internal runtime code that belongs in the separate Unity repo
+
+If you need to change the Quest runtime itself, do that in
+`AstralKarateDojo`. If you need to run or support sessions from Windows, do it
+here.
 
 ## License
 

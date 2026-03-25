@@ -1,58 +1,88 @@
 ---
 title: App Overview
-description: The Windows shell layout and how it maps to the source projects.
+description: The Windows shell layout for operators who need one clean place to connect Quest, install builds, monitor live state, and track runtime settings.
+summary: The app opens with a guided Start Here flow, then fans out into library, runtime-config, twin, LSL, and diagnostics tabs when you need more detail.
+nav_label: App Overview
+nav_group: Operator Guides
 nav_order: 30
 ---
 
 # App Overview
 
-The desktop shell is organized around the same operator tasks already present in
-the Quest-side and phone-side workflows.
+The desktop shell is built around the real operator workflow rather than around
+repo internals.
+
+![Start Here tab](assets/operator-shell-start-here.png)
+
+## Start Here
+
+The app opens with a first-session tab that keeps the common operator path in
+one place:
+
+- connect Quest
+- select the supplied target
+- install and launch the APK
+- apply CPU and GPU levels
+- confirm live monitor and twin-state status
+- export a manifest at the end of the run
 
 ## Session
 
-- Quest endpoint entry
-- USB ADB probe and Wi-Fi bootstrap buttons
-- live headset status for install state, foreground package, battery, and CPU/GPU levels
-- session manifest export
+The `Session` tab keeps the full connection and device snapshot view once you
+move beyond the first-session flow.
 
 ## Quest Library
 
-- app target selection
-- direct APK path selection for the chosen target
-- ordered bundle selection
-- hotload preset selection
-- device profile selection
-- launch, foreground inspection, and CPU/GPU control actions
+This is the detailed study-build workspace:
 
-## Oscillator Config
+- app targets
+- bundles
+- runtime presets
+- device profiles
+- APK overrides
+- install, launch, and Quest performance controls
 
-- public profile selection and catalog metadata
-- editable config sections for stretch, dimensions, driver overrides, visuals,
-  motion, coupling, and diagnostics
-- config export and publish actions that keep the backend boundary explicit
+## Runtime Config
+
+The runtime-config editor follows the Astral inspector structure as closely as
+possible from the desktop side:
+
+- `Setup`
+- `Parameters`
+- `Coupling`
+- `All`
+
+That makes it usable both as a tracking surface and as the place where desktop
+operators stage or publish requested settings.
+
+![Runtime Config tab](assets/operator-shell-runtime-config.png)
 
 ## Twin Mode
 
-The first working version is a remote-only mode:
+The first shipping mode is deliberately simpler than the full bidirectional
+contract:
 
-- headset-side config control remains disabled
-- runtime preset and oscillator config changes are tracked in the Windows app
-- the remote-only toggle is part of the operator workflow for supervised research sessions
+- remote-only research control stays enabled by default
+- the desktop app owns trigger commands and tracked settings
+- the APK reports state
+- `Twin Monitor` focuses on requested vs reported comparisons rather than on-device editing
 
 ## LSL Monitor
 
-- stream name, type, and channel contract
-- live preview value
-- sample-rate and reconnect status surface
+`LSL Monitor` is the quick transport check:
+
+- stream name and type
+- channel selection
+- live sample value
+- sample-rate and reconnect state
 
 ## Diagnostics
 
-- utility actions mirrored from the phone companion
-- rolling operator log
+`Diagnostics` keeps the utility actions and the operator log without crowding
+the main flow.
 
 ## Relation To The Source Repos
 
-- `Viscereality` supplies the Quest-side concepts, LSL flow, twin-mode boundary, and oscillator config field groups.
-- `AndroidPhoneQuestCompanion` supplies the session-kit catalog shape, Quest control operator flow, and monitor contract.
-- `PolarH10` supplies the public-repo posture: Windows app, onboarding docs, Pages site, and tagged-release download path.
+- `AstralKarateDojo` supplies the Quest runtime and the scene-side twin and LSL contracts.
+- `AndroidPhoneQuestCompanion` supplied earlier monitor and operator-flow ideas.
+- `PolarH10` informed the public Pages, onboarding, and packaging posture.
