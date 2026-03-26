@@ -354,6 +354,8 @@
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="4" />
                                                 <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="4" />
+                                                <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
 
                                             <TextBlock Grid.Row="0" Text="Listening for" Style="{StaticResource InfoLabelStyle}" Margin="0" />
@@ -364,10 +366,11 @@
                                             <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding LslConnectedStreamLabel}" Style="{StaticResource CompactCaptionStyle}" FontFamily="{StaticResource MonoFont}" />
                                             <TextBlock Grid.Row="6" Text="Connection" Style="{StaticResource InfoLabelStyle}" Margin="0" />
                                             <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding LslConnectionStateLabel}" Style="{StaticResource CompactCaptionStyle}" />
-                                            <TextBlock Grid.Row="8" Text="Echo" Style="{StaticResource InfoLabelStyle}" Margin="0" />
+                                            <TextBlock Grid.Row="8" Text="Quest echo" Style="{StaticResource InfoLabelStyle}" Margin="0" />
                                             <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding LslEchoStateLabel}" Style="{StaticResource CompactCaptionStyle}" />
+                                            <TextBlock Grid.Row="10" Text="Bench sender" Style="{StaticResource InfoLabelStyle}" Margin="0" />
+                                            <TextBlock Grid.Row="10" Grid.Column="1" Text="{Binding LslBenchStateLabel}" Style="{StaticResource CompactCaptionStyle}" />
                                         </Grid>
-                                        <TextBlock Text="{Binding LslBenchStateLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,8,0,0" />
                                         <Expander Style="{StaticResource CompactStatusExpanderStyle}">
                                             <Expander.Header>
                                                 <TextBlock Text="LSL details" Style="{StaticResource InfoLabelStyle}" Margin="0" />

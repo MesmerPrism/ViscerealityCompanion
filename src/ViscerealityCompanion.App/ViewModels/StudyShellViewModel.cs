@@ -123,7 +123,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _recenterDetail = "The recenter action is available, and camera drift will appear here once the study runtime starts publishing it.";
     private string _particlesSummary = "Waiting for runtime particle state.";
     private string _particlesDetail = "Particle visibility and render suppression will appear here once the study runtime starts publishing them.";
-    private string _proximitySummary = "Proximity hold has not been checked yet.";
+    private string _proximitySummary = "Proximity sensor state has not been checked yet.";
     private string _proximityDetail = "Quest vrpowermanager readback will appear here once the shell can reach the active headset selector.";
     private string _proximityActionLabel = "Disable for 8h";
     private string _benchToolsSummary = "Bench tools need attention before bench checks.";
@@ -1753,10 +1753,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 HeadsetAwakeLevel = OperationOutcomeKind.Success;
                 HeadsetAwakeSummary = liveStatus.HoldUntilUtc.HasValue
-                    ? $"Awake hold active until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
-                    : "Awake hold active on headset.";
+                    ? $"Headset awake hold active; proximity sensor disabled until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
+                    : "Headset awake hold active; proximity sensor disabled.";
                 HeadsetAwakeDetail =
-                    $"Virtual proximity {liveStatus.VirtualState}. Headset state {liveStatus.HeadsetState}. Autosleep disabled {liveStatus.IsAutosleepDisabled}. Auto-sleep timer {autoSleepLabel}.";
+                    $"Virtual proximity {liveStatus.VirtualState}. The proximity sensor is currently disabled. Headset state {liveStatus.HeadsetState}. Autosleep disabled {liveStatus.IsAutosleepDisabled}. Auto-sleep timer {autoSleepLabel}.";
                 return;
             }
 
@@ -1915,6 +1915,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var expectedName = _study.Monitoring.ExpectedLslStreamName;
         var expectedType = _study.Monitoring.ExpectedLslStreamType;
         var testSenderActive = _testLslSignalService.IsRunning;
+        var lastBenchSendAt = _testLslSignalService.LastSentAtUtc;
+        var lastBenchSendLabel = lastBenchSendAt.HasValue
+            ? $"{_testLslSignalService.LastValue:0.000} at {lastBenchSendAt.Value.ToLocalTime():HH:mm:ss}"
+            : null;
+        var lastStateReceivedAt = _twinBridge is LslTwinModeBridge lslBridge
+            ? lslBridge.LastStateReceivedAt
+            : null;
         var testSenderDetail = testSenderActive
             ? $"Companion TEST sender is publishing direct coherence packets on {expectedName} / {expectedType} at a bench heartbeat cadence. Packet arrival is the bench heartbeat trigger, and the payload is the coherence value."
             : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} with direct coherence payloads and packet-paced heartbeat triggers.";
@@ -1944,7 +1951,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         LslConnectionStateLabel =
             $"Connected {connectedCount?.ToString() ?? (connectedFlag.HasValue ? (connectedFlag.Value ? "1" : "0") : "n/a")}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}";
         LslBenchStateLabel = testSenderActive
-            ? "Companion TEST sender active. Bench packets arrive at heartbeat pace and carry coherence 0..1."
+            ? lastBenchSendLabel is not null
+                ? $"Windows TEST sender active. Latest local send {lastBenchSendLabel}. Bench packets arrive at heartbeat pace and carry coherence 0..1."
+                : "Windows TEST sender active. Bench packets arrive at heartbeat pace and carry coherence 0..1."
             : "Companion TEST sender off.";
         LslStatusLineLabel = string.IsNullOrWhiteSpace(statusLine)
             ? "Runtime did not publish an extra LSL status line."
@@ -1968,7 +1977,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             || connectedCount.GetValueOrDefault() > 0
             || !string.IsNullOrWhiteSpace(connectedName);
         LslEchoStateLabel = hasInputValue
-            ? $"Latest inlet value {inputValue:0.000} via {inputValueKey}."
+            ? lastStateReceivedAt.HasValue
+                ? $"Current Quest echo {inputValue:0.000} via {inputValueKey} in frame {lastStateReceivedAt.Value.ToLocalTime():HH:mm:ss}."
+                : $"Current Quest echo {inputValue:0.000} via {inputValueKey}."
             : hasConnectedInput
                 ? "Connected, but this public build does not echo the routed inlet value yet."
                 : "No inlet value reported yet.";
@@ -1997,12 +2008,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             LslSummary += " Companion TEST sender active.";
         }
+        var comparisonNote = testSenderActive && lastBenchSendLabel is not null
+            ? hasInputValue
+                ? $"The TEST sender line shows the latest Windows packet ({lastBenchSendLabel}). The Echo line shows the current Quest-reported public value, which can lag or reset between beats."
+                : $"The TEST sender line shows the latest Windows packet ({lastBenchSendLabel}). Quest echo has not appeared in the current public frame yet."
+            : string.Empty;
         var routeNote = hasConnectedInput && !coherenceRouteIsExpected && !string.IsNullOrWhiteSpace(coherenceRouteLabel)
             ? $"The inlet is healthy, but the runtime coherence route is still {coherenceRouteLabel} (mode {coherenceRouteMode ?? "n/a"}), so Sussex is not currently consuming this inlet for coherence."
             : hasConnectedInput
                 ? "The inlet is healthy and matches the study stream target."
                 : "The study runtime has not confirmed an active inlet connection yet.";
-        LslDetail = $"{routeNote} {testSenderDetail}".Trim();
+        LslDetail = $"{routeNote} {comparisonNote} {testSenderDetail}".Trim();
     }
 
     private void UpdateControllerCard()
@@ -2125,7 +2141,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Coherence route is LSL Direct, but no live coherence value is reported yet."
                 : "Coherence route visible, but no live coherence value yet.";
         CoherenceDetail = routeMatchesExpected
-            ? "The runtime is reporting the expected direct-LSL coherence route."
+            ? _testLslSignalService.IsRunning
+                ? "The runtime is reporting the expected direct-LSL coherence route. This field shows the current Quest-reported value, not the latest local TEST packet, so it can briefly lag or return to baseline between beats."
+                : "The runtime is reporting the expected direct-LSL coherence route."
             : "The runtime is reporting a non-study coherence route.";
     }
 
@@ -2385,13 +2403,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
             if (liveStatus.HoldActive)
             {
-                ProximityLevel = OperationOutcomeKind.Warning;
+                ProximityLevel = OperationOutcomeKind.Success;
                 ProximityActionLabel = "Enable Proximity";
                 ProximitySummary = liveStatus.HoldUntilUtc.HasValue
-                    ? $"Proximity hold active on headset until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
-                    : "Proximity hold active on headset.";
+                    ? $"Proximity sensor disabled on headset until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
+                    : "Proximity sensor disabled on headset.";
                 ProximityDetail =
-                    $"Quest vrpowermanager reports virtual proximity {liveStatus.VirtualState} at {readAt}, so normal wear-sensor sleep is bypassed. " +
+                    $"Quest vrpowermanager reports virtual proximity {liveStatus.VirtualState} at {readAt}, so the proximity sensor is currently disabled and normal wear-sensor sleep is bypassed. " +
                     $"Headset state {stateLabel}. Base auto-sleep {autoSleepLabel}. " +
                     (tracked.Known && !tracked.ExpectedEnabled && tracked.DisableUntilUtc.HasValue
                         ? $"Companion last requested a hold until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}."
@@ -2425,7 +2443,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             if (liveStatus is not { Available: false })
             {
                 ProximityLevel = OperationOutcomeKind.Warning;
-                ProximitySummary = $"Proximity sensor expected off until {untilLocal:HH:mm}.";
+                ProximitySummary = $"Proximity sensor expected disabled until {untilLocal:HH:mm}.";
                 ProximityDetail =
                     $"Companion last sent an 8h disable for {selector} at {updatedLabel}. " +
                     "Waiting for a fresh Quest vrpowermanager readback.";
@@ -2476,8 +2494,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             TestLslSenderLevel = OperationOutcomeKind.Warning;
             TestLslSenderSummary = "Windows TEST sender active.";
             TestLslSenderValueLabel = _testLslSignalService.LastSentAtUtc.HasValue
-                ? $"Latest direct coherence {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
-                : "Starting direct coherence stream...";
+                ? $"Latest local send {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
+                : "Starting local direct-coherence stream...";
             TestLslSenderDetail =
                 $"Direct coherence packets are publishing locally on {expectedName} / {expectedType} at a bench heartbeat cadence. The study shell also requests Heartbeat Mode = LSL and Coherence Mode = LSL Direct while this bench sender is active.";
             return;
