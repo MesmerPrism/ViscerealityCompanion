@@ -17,6 +17,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ProximityReadbackRefreshInterval = TimeSpan.FromSeconds(3);
     private static readonly Regex CommandSequenceRegex = new(@"\bseq=(\d+)\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly StudyValueSection[] SectionCatalog =
     [
@@ -40,11 +41,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private Window? _twinEventsWindow;
     private bool _initialized;
     private bool _twinRefreshPending;
+    private bool _proximityRefreshPending;
     private string _activeFocusSectionId = string.Empty;
     private IReadOnlyDictionary<string, string> _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private HeadsetAppStatus? _headsetStatus;
     private InstalledAppStatus? _installedAppStatus;
     private DeviceProfileStatus? _deviceProfileStatus;
+    private QuestProximityStatus? _liveProximityStatus;
+    private string? _liveProximitySelector;
+    private DateTimeOffset? _lastProximityRefreshAtUtc;
     private string _endpointDraft;
     private string _connectionSummary = "Quest connection has not been checked yet.";
     private string _questStatusSummary = "Waiting for Quest connection.";
@@ -95,7 +100,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _particlesSummary = "Waiting for runtime particle state.";
     private string _particlesDetail = "Particle visibility and render suppression will appear here once the study runtime starts publishing them.";
     private string _proximitySummary = "Proximity hold has not been checked yet.";
-    private string _proximityDetail = "This shell tracks the last companion-issued proximity request because hzdb does not expose a live readback.";
+    private string _proximityDetail = "Quest vrpowermanager readback will appear here once the shell can reach the active headset selector.";
     private string _proximityActionLabel = "Disable for 8h";
     private string _testLslSenderSummary = "Windows TEST sender off.";
     private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes synthetic 0..1 breath samples on the Sussex inlet.";
@@ -748,6 +753,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
         await RefreshInstalledAppStatusAsync().ConfigureAwait(false);
         await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
+        await RefreshProximityStatusAsync(force: true).ConfigureAwait(false);
         await DispatchAsync(UpdatePinnedBuildStatus).ConfigureAwait(false);
         await DispatchAsync(UpdateDeviceProfileRows).ConfigureAwait(false);
         await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
@@ -863,8 +869,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var liveStatus = await RefreshProximityStatusAsync(force: true).ConfigureAwait(false);
         var tracked = await DispatchAsync(() => _appSessionState.GetTrackedProximity(selector)).ConfigureAwait(false);
-        var disableHoldIsActive = tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired;
+        var disableHoldIsActive = liveStatus?.Available == true
+            ? liveStatus.HoldActive
+            : tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired;
         var enable = disableHoldIsActive;
         var actionLabel = enable ? "Enable Proximity" : "Disable Proximity For 8h";
         var disableUntilUtc = enable ? (DateTimeOffset?)null : DateTimeOffset.UtcNow.AddMilliseconds(ProximityDisableDurationMs);
@@ -883,6 +892,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         await ApplyOutcomeAsync(actionLabel, outcome).ConfigureAwait(false);
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await Task.Delay(250).ConfigureAwait(false);
+            await RefreshProximityStatusAsync(force: true).ConfigureAwait(false);
+        }
+
         await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
     }
 
@@ -1651,15 +1666,66 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var updatedLabel = tracked.UpdatedAtUtc.HasValue
             ? tracked.UpdatedAtUtc.Value.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)
             : "n/a";
+        var liveStatus = string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
+            ? _liveProximityStatus
+            : null;
+
+        if (liveStatus?.Available == true)
+        {
+            var readAt = liveStatus.RetrievedAtUtc.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+            var autoSleepLabel = liveStatus.AutoSleepTimeMs.HasValue
+                ? $"{liveStatus.AutoSleepTimeMs.Value / 1000d:0.#}s"
+                : "n/a";
+            var stateLabel = string.IsNullOrWhiteSpace(liveStatus.HeadsetState) ? "unknown" : liveStatus.HeadsetState;
+
+            if (liveStatus.HoldActive)
+            {
+                ProximityLevel = OperationOutcomeKind.Warning;
+                ProximityActionLabel = "Enable Proximity";
+                ProximitySummary = liveStatus.HoldUntilUtc.HasValue
+                    ? $"Proximity hold active on headset until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
+                    : "Proximity hold active on headset.";
+                ProximityDetail =
+                    $"Quest vrpowermanager reports virtual proximity {liveStatus.VirtualState} at {readAt}, so normal wear-sensor sleep is bypassed. " +
+                    $"Headset state {stateLabel}. Base auto-sleep {autoSleepLabel}. " +
+                    (tracked.Known && !tracked.ExpectedEnabled && tracked.DisableUntilUtc.HasValue
+                        ? $"Companion last requested a hold until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}."
+                        : "Quest readback is authoritative even if the hold was toggled outside the companion.");
+                return;
+            }
+
+            ProximityLevel = OperationOutcomeKind.Success;
+            ProximitySummary = "Proximity sensor enabled on headset.";
+            ProximityDetail =
+                $"Quest vrpowermanager reports virtual proximity {liveStatus.VirtualState} at {readAt}, so normal wear-sensor behavior is active. " +
+                $"Headset state {stateLabel}. Base auto-sleep {autoSleepLabel}. " +
+                (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired
+                    ? "The last companion-tracked hold is no longer active, which usually means the headset rebooted or proximity was re-enabled outside the companion."
+                    : tracked.Known
+                        ? $"Companion last updated proximity for {selector} at {updatedLabel}."
+                        : $"No active companion-issued proximity hold is tracked for {selector}.");
+            return;
+        }
+
+        if (liveStatus is { Available: false })
+        {
+            ProximityLevel = OperationOutcomeKind.Warning;
+            ProximitySummary = "Live proximity readback unavailable.";
+            ProximityDetail = $"{liveStatus.StatusDetail} Falling back to companion-tracked proximity state.";
+        }
 
         if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired && tracked.DisableUntilUtc.HasValue)
         {
             var untilLocal = tracked.DisableUntilUtc.Value.ToLocalTime();
-            ProximityLevel = OperationOutcomeKind.Warning;
-            ProximitySummary = $"Proximity sensor expected off until {untilLocal:HH:mm}.";
-            ProximityDetail =
-                $"Companion last sent an 8h disable for {selector} at {updatedLabel}. " +
-                $"This is tracked operator state only; hzdb does not expose a live headset readback.";
+            if (liveStatus is not { Available: false })
+            {
+                ProximityLevel = OperationOutcomeKind.Warning;
+                ProximitySummary = $"Proximity sensor expected off until {untilLocal:HH:mm}.";
+                ProximityDetail =
+                    $"Companion last sent an 8h disable for {selector} at {updatedLabel}. " +
+                    "Waiting for a fresh Quest vrpowermanager readback.";
+            }
+
             ProximityActionLabel = "Enable Proximity";
             return;
         }
@@ -1667,19 +1733,26 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (tracked.DisableWindowExpired && tracked.UpdatedAtUtc.HasValue)
         {
             var expiredAt = tracked.DisableUntilUtc?.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture) ?? "n/a";
-            ProximityLevel = OperationOutcomeKind.Preview;
-            ProximitySummary = "Tracked proximity hold expired. Sensor expected on.";
-            ProximityDetail =
-                $"The last companion-issued disable window ended at {expiredAt}. " +
-                $"The shell now assumes the normal proximity sensor state is on because hzdb does not expose a live readback.";
+            if (liveStatus is not { Available: false })
+            {
+                ProximityLevel = OperationOutcomeKind.Preview;
+                ProximitySummary = "Tracked proximity hold expired. Sensor expected on.";
+                ProximityDetail =
+                    $"The last companion-issued disable window ended at {expiredAt}. " +
+                    "The shell is waiting for the next Quest vrpowermanager readback to confirm the live state.";
+            }
+
             return;
         }
 
-        ProximityLevel = OperationOutcomeKind.Success;
-        ProximitySummary = "Proximity sensor expected on.";
-        ProximityDetail = tracked.Known
-            ? $"Companion last requested normal proximity behavior for {selector} at {updatedLabel}. hzdb does not expose a live readback, so this reflects the last operator request."
-            : $"No active companion-issued proximity hold is tracked for {selector}. The shell assumes the normal proximity sensor state is on.";
+        if (liveStatus is not { Available: false })
+        {
+            ProximityLevel = OperationOutcomeKind.Success;
+            ProximitySummary = "Proximity sensor expected on.";
+            ProximityDetail = tracked.Known
+                ? $"Companion last requested normal proximity behavior for {selector} at {updatedLabel}. Waiting for a fresh Quest vrpowermanager readback."
+                : $"No active companion-issued proximity hold is tracked for {selector}. Waiting for the first Quest vrpowermanager readback.";
+        }
     }
 
     private void UpdateTestLslSenderCard()
@@ -1995,6 +2068,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var selector = ResolveHzdbSelector();
         var tracked = _appSessionState.GetTrackedProximity(selector);
         var needsLiveRefresh = _testLslSignalService.IsRunning
+            || (_hzdbService.IsAvailable && !string.IsNullOrWhiteSpace(selector))
             || (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired);
 
         if (needsLiveRefresh)
@@ -2014,6 +2088,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         RefreshBenchToolsStatus();
         UpdateLslCard();
+        _ = RefreshProximityStatusAsync();
     }
 
     private void OnTestLslSignalServiceStateChanged(object? sender, EventArgs e)
@@ -2114,6 +2189,75 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         => _appSessionState.LastUsbSerial
             ?? _appSessionState.ActiveEndpoint
             ?? (string.IsNullOrWhiteSpace(EndpointDraft) ? string.Empty : EndpointDraft.Trim());
+
+    private async Task<QuestProximityStatus?> RefreshProximityStatusAsync(bool force = false)
+    {
+        if (!_hzdbService.IsAvailable)
+        {
+            await DispatchAsync(() =>
+            {
+                _liveProximityStatus = null;
+                _liveProximitySelector = null;
+                _lastProximityRefreshAtUtc = null;
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+            return null;
+        }
+
+        var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            await DispatchAsync(() =>
+            {
+                _liveProximityStatus = null;
+                _liveProximitySelector = null;
+                _lastProximityRefreshAtUtc = null;
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+            return null;
+        }
+
+        var cachedStatus = await DispatchAsync(() =>
+            string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase) ? _liveProximityStatus : null).ConfigureAwait(false);
+        var shouldRefresh = await DispatchAsync(() =>
+            force
+            || !string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
+            || _liveProximityStatus is null
+            || !_lastProximityRefreshAtUtc.HasValue
+            || DateTimeOffset.UtcNow - _lastProximityRefreshAtUtc.Value >= ProximityReadbackRefreshInterval).ConfigureAwait(false);
+
+        if (!shouldRefresh)
+            return cachedStatus;
+
+        var entered = await DispatchAsync(() =>
+        {
+            if (_proximityRefreshPending)
+                return false;
+
+            _proximityRefreshPending = true;
+            return true;
+        }).ConfigureAwait(false);
+
+        if (!entered)
+            return cachedStatus;
+
+        try
+        {
+            var status = await _hzdbService.GetProximityStatusAsync(selector).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                _liveProximitySelector = selector;
+                _liveProximityStatus = status;
+                _lastProximityRefreshAtUtc = DateTimeOffset.UtcNow;
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+            return status;
+        }
+        finally
+        {
+            await DispatchAsync(() => _proximityRefreshPending = false).ConfigureAwait(false);
+        }
+    }
 
     private void SaveSession(string? endpoint = null, string? usbSerial = null)
     {

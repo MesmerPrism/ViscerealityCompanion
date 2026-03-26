@@ -151,6 +151,18 @@ public class HzdbCommandTests
     }
 
     [Fact]
+    public async Task Hzdb_service_reads_live_proximity_status()
+    {
+        if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
+
+        var service = new WindowsHzdbService();
+        var status = await service.GetProximityStatusAsync(_device.UsbSerial);
+
+        Assert.True(status.Available, status.StatusDetail);
+        Assert.False(string.IsNullOrWhiteSpace(status.VirtualState));
+    }
+
+    [Fact]
     public async Task Hzdb_device_wake_wakes_device()
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;

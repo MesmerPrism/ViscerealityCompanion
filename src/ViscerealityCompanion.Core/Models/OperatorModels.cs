@@ -96,6 +96,17 @@ public sealed record OperationOutcome(
     public IReadOnlyList<string> SafeItems => Items ?? Array.Empty<string>();
 }
 
+public sealed record QuestProximityStatus(
+    bool Available,
+    bool HoldActive,
+    string VirtualState,
+    bool IsAutosleepDisabled,
+    string HeadsetState,
+    int? AutoSleepTimeMs,
+    DateTimeOffset RetrievedAtUtc,
+    DateTimeOffset? HoldUntilUtc,
+    string StatusDetail);
+
 public enum QuestUtilityAction
 {
     Home,

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.Core.Services;
@@ -9,6 +11,7 @@ public interface IHzdbService
     Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, CancellationToken cancellationToken = default);
     Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default);
     Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default);
+    Task<QuestProximityStatus> GetProximityStatusAsync(string deviceSerial, CancellationToken cancellationToken = default);
     Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default);
     Task<OperationOutcome> GetDeviceInfoAsync(string deviceSerial, CancellationToken cancellationToken = default);
     Task<OperationOutcome> ListFilesAsync(string deviceSerial, string remotePath, CancellationToken cancellationToken = default);
@@ -19,6 +22,11 @@ public interface IHzdbService
 public sealed class WindowsHzdbService : IHzdbService
 {
     private const string HzdbPerfCaptureFormatPanicMarker = "Mismatch between definition and access of `format`";
+    private static readonly Regex VrPowerManagerVirtualStateRegex = new(@"^Virtual proximity state:\s*(.+)$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerAutosleepDisabledRegex = new(@"^isAutosleepDisabled:\s*(true|false)$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerAutoSleepTimeRegex = new(@"^AutoSleepTime:\s*(\d+)\s*ms$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerHeadsetStateRegex = new(@"^State:\s*(.+)$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerProxCloseRegex = new(@"^\s*\d+(?:\.\d+)?s \(([\d\.]+)s ago\) - received com\.oculus\.vrpowermanager\.prox_close broadcast: duration=(\d+)", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
     private readonly Lazy<string?> _npxCommandPath;
     private readonly Lazy<bool> _available;
 
@@ -72,6 +80,59 @@ public sealed class WindowsHzdbService : IHzdbService
                         : "Proximity sensor disabled.",
                 result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "Proximity toggle failed.", result.Combined);
+    }
+
+    public async Task<QuestProximityStatus> GetProximityStatusAsync(string deviceSerial, CancellationToken cancellationToken = default)
+    {
+        var adbPath = AdbExecutableLocator.TryLocate();
+        var observedAtUtc = DateTimeOffset.UtcNow;
+        if (string.IsNullOrWhiteSpace(adbPath))
+        {
+            return new QuestProximityStatus(
+                Available: false,
+                HoldActive: false,
+                VirtualState: string.Empty,
+                IsAutosleepDisabled: false,
+                HeadsetState: string.Empty,
+                AutoSleepTimeMs: null,
+                RetrievedAtUtc: observedAtUtc,
+                HoldUntilUtc: null,
+                StatusDetail: "adb.exe could not be located for Quest vrpowermanager readback.");
+        }
+
+        var result = await RunAdbAsync(
+            adbPath,
+            ["-s", deviceSerial, "shell", "dumpsys", "vrpowermanager"],
+            cancellationToken).ConfigureAwait(false);
+
+        if (result.ExitCode != 0)
+        {
+            return new QuestProximityStatus(
+                Available: false,
+                HoldActive: false,
+                VirtualState: string.Empty,
+                IsAutosleepDisabled: false,
+                HeadsetState: string.Empty,
+                AutoSleepTimeMs: null,
+                RetrievedAtUtc: observedAtUtc,
+                HoldUntilUtc: null,
+                StatusDetail: string.IsNullOrWhiteSpace(result.Combined)
+                    ? "Quest vrpowermanager readback failed."
+                    : result.Combined);
+        }
+
+        return TryParseQuestProximityStatus(result.StdOut, observedAtUtc, out var status)
+            ? status
+            : new QuestProximityStatus(
+                Available: false,
+                HoldActive: false,
+                VirtualState: string.Empty,
+                IsAutosleepDisabled: false,
+                HeadsetState: string.Empty,
+                AutoSleepTimeMs: null,
+                RetrievedAtUtc: observedAtUtc,
+                HoldUntilUtc: null,
+                StatusDetail: "Quest vrpowermanager output did not contain a recognizable virtual proximity state.");
     }
 
     public async Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)
@@ -162,7 +223,50 @@ public sealed class WindowsHzdbService : IHzdbService
         }
     }
 
-    private async Task<HzdbResult> RunAsync(string arguments, CancellationToken cancellationToken)
+    internal static bool TryParseQuestProximityStatus(string rawOutput, DateTimeOffset observedAtUtc, out QuestProximityStatus status)
+    {
+        status = new QuestProximityStatus(
+            Available: false,
+            HoldActive: false,
+            VirtualState: string.Empty,
+            IsAutosleepDisabled: false,
+            HeadsetState: string.Empty,
+            AutoSleepTimeMs: null,
+            RetrievedAtUtc: observedAtUtc,
+            HoldUntilUtc: null,
+            StatusDetail: "Quest vrpowermanager output did not contain a recognizable virtual proximity state.");
+
+        if (string.IsNullOrWhiteSpace(rawOutput))
+            return false;
+
+        var virtualState = MatchValue(VrPowerManagerVirtualStateRegex, rawOutput);
+        if (string.IsNullOrWhiteSpace(virtualState))
+            return false;
+
+        var headsetState = MatchValue(VrPowerManagerHeadsetStateRegex, rawOutput) ?? string.Empty;
+        var autosleepDisabled = bool.TryParse(MatchValue(VrPowerManagerAutosleepDisabledRegex, rawOutput), out var autosleepFlag) && autosleepFlag;
+        var autoSleepTimeMs = int.TryParse(MatchValue(VrPowerManagerAutoSleepTimeRegex, rawOutput), NumberStyles.Integer, CultureInfo.InvariantCulture, out var autoSleepMs)
+            ? autoSleepMs
+            : (int?)null;
+        var holdActive = !string.Equals(virtualState, "DISABLED", StringComparison.OrdinalIgnoreCase);
+        var holdUntilUtc = holdActive && TryParseHoldUntilUtc(rawOutput, observedAtUtc, out var parsedHoldUntilUtc)
+            ? (DateTimeOffset?)parsedHoldUntilUtc
+            : null;
+
+        status = new QuestProximityStatus(
+            Available: true,
+            HoldActive: holdActive,
+            VirtualState: virtualState,
+            IsAutosleepDisabled: autosleepDisabled,
+            HeadsetState: headsetState,
+            AutoSleepTimeMs: autoSleepTimeMs,
+            RetrievedAtUtc: observedAtUtc,
+            HoldUntilUtc: holdUntilUtc,
+            StatusDetail: "Read from adb shell dumpsys vrpowermanager.");
+        return true;
+    }
+
+    private async Task<ProcessResult> RunAsync(string arguments, CancellationToken cancellationToken)
     {
         using var process = Process.Start(CreateProcessStartInfo(arguments))
             ?? throw new InvalidOperationException("Failed to start hzdb process.");
@@ -171,7 +275,7 @@ public sealed class WindowsHzdbService : IHzdbService
         var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new HzdbResult(process.ExitCode, stdout.Trim(), stderr.Trim());
+        return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
     }
 
     private ProcessStartInfo CreateProcessStartInfo(string arguments)
@@ -193,6 +297,30 @@ public sealed class WindowsHzdbService : IHzdbService
 
     private static bool LooksLikeHzdbPerfCaptureFormatPanic(string detail)
         => detail.Contains(HzdbPerfCaptureFormatPanicMarker, StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<ProcessResult> RunAdbAsync(string adbPath, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = adbPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start adb process.");
+
+        var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+        return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
+    }
 
     private static async Task<OperationOutcome> CapturePerfTraceViaAdbFallbackAsync(
         string deviceSerial,
@@ -414,7 +542,38 @@ public sealed class WindowsHzdbService : IHzdbService
     private static OperationOutcome Outcome(OperationOutcomeKind kind, string summary, string detail)
         => new(kind, summary, string.IsNullOrWhiteSpace(detail) ? string.Empty : detail);
 
-    private sealed record HzdbResult(int ExitCode, string StdOut, string StdErr)
+    private static bool TryParseHoldUntilUtc(string rawOutput, DateTimeOffset observedAtUtc, out DateTimeOffset holdUntilUtc)
+    {
+        holdUntilUtc = default;
+        var match = VrPowerManagerProxCloseRegex.Match(rawOutput);
+        if (!match.Success)
+            return false;
+
+        if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ageSeconds) ||
+            !double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var durationMs))
+        {
+            return false;
+        }
+
+        if (durationMs <= 0)
+            return false;
+
+        var eventTimeUtc = observedAtUtc - TimeSpan.FromSeconds(Math.Max(0, ageSeconds));
+        var candidate = eventTimeUtc.AddMilliseconds(durationMs);
+        if (candidate <= observedAtUtc)
+            return false;
+
+        holdUntilUtc = candidate;
+        return true;
+    }
+
+    private static string? MatchValue(Regex regex, string input)
+    {
+        var match = regex.Match(input);
+        return match.Success ? match.Groups[1].Value.Trim() : null;
+    }
+
+    private sealed record ProcessResult(int ExitCode, string StdOut, string StdErr)
     {
         public string Combined => string.IsNullOrWhiteSpace(StdErr) ? StdOut : $"{StdOut}\n{StdErr}";
     }
@@ -432,6 +591,18 @@ public sealed class PreviewHzdbService : IHzdbService
 
     public Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default)
         => Preview("Proximity control requires hzdb (npx @meta-quest/hzdb).");
+
+    public Task<QuestProximityStatus> GetProximityStatusAsync(string deviceSerial, CancellationToken cancellationToken = default)
+        => Task.FromResult(new QuestProximityStatus(
+            Available: false,
+            HoldActive: false,
+            VirtualState: string.Empty,
+            IsAutosleepDisabled: false,
+            HeadsetState: string.Empty,
+            AutoSleepTimeMs: null,
+            RetrievedAtUtc: DateTimeOffset.UtcNow,
+            HoldUntilUtc: null,
+            StatusDetail: "Quest proximity readback requires adb plus hzdb companion integration."));
 
     public Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)
         => Preview("Device wake via hzdb requires hzdb (npx @meta-quest/hzdb).");
