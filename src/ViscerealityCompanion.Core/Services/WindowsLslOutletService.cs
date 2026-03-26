@@ -12,7 +12,7 @@ public interface ILslOutletService : IDisposable
     void Close();
     void PushSample(string[] values);
     OperationOutcome PublishConfigSnapshot(IReadOnlyList<RuntimeConfigEntry> entries);
-    OperationOutcome PublishCommand(TwinModeCommand command);
+    OperationOutcome PublishCommand(TwinModeCommand command, int sequence);
 }
 
 public sealed class WindowsLslOutletService : ILslOutletService
@@ -133,7 +133,7 @@ public sealed class WindowsLslOutletService : ILslOutletService
             $"Snapshot frame: begin/set/end revision {revision}.");
     }
 
-    public OperationOutcome PublishCommand(TwinModeCommand command)
+    public OperationOutcome PublishCommand(TwinModeCommand command, int sequence)
     {
         if (_outlet == IntPtr.Zero)
         {
@@ -143,14 +143,14 @@ public sealed class WindowsLslOutletService : ILslOutletService
                 "Open the outlet before sending twin commands.");
         }
 
-        _publishedCommandSequence++;
-        var sequence = _publishedCommandSequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        PushSample(["cmd", sequence, command.ActionId, command.DisplayName]);
+        _publishedCommandSequence = Math.Max(_publishedCommandSequence, sequence);
+        var renderedSequence = sequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        PushSample(["cmd", renderedSequence, command.ActionId, command.DisplayName]);
 
         return new OperationOutcome(
             OperationOutcomeKind.Success,
             $"Sent twin command: {command.DisplayName}.",
-            $"Published command frame seq={sequence} action={command.ActionId} on the twin command stream.");
+            $"Published command frame seq={renderedSequence} action={command.ActionId} on the twin command stream.");
     }
 
     private static string ComputeSnapshotHash(IReadOnlyList<RuntimeConfigEntry> entries)
@@ -201,10 +201,10 @@ public sealed class PreviewLslOutletService : ILslOutletService
             $"Preview config snapshot ({entries.Count} entries).",
             "No real LSL samples published in preview mode.");
 
-    public OperationOutcome PublishCommand(TwinModeCommand command)
+    public OperationOutcome PublishCommand(TwinModeCommand command, int sequence)
         => new(OperationOutcomeKind.Preview,
             $"Preview twin command: {command.DisplayName}.",
-            $"Command `{command.ActionId}` would be published on the twin stream.");
+            $"Command `{command.ActionId}` would be published on the twin stream as seq={sequence.ToString(System.Globalization.CultureInfo.InvariantCulture)}.");
 
     public void Dispose()
     {
@@ -334,4 +334,95 @@ public static class LslOutletServiceFactory
         => OperatingSystem.IsWindows()
             ? new WindowsLslOutletService()
             : new PreviewLslOutletService();
+}
+
+internal interface ITwinCommandSequenceStore
+{
+    int Next();
+}
+
+internal sealed class PersistentTwinCommandSequenceStore : ITwinCommandSequenceStore
+{
+    private static readonly Lazy<PersistentTwinCommandSequenceStore> Shared = new(() => new PersistentTwinCommandSequenceStore());
+    private readonly string _statePath;
+    private readonly Mutex _mutex;
+
+    internal PersistentTwinCommandSequenceStore()
+        : this(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ViscerealityCompanion",
+                "session",
+                "twin-command-sequence.txt"),
+            @"Local\ViscerealityCompanion.TwinCommandSequence")
+    {
+    }
+
+    internal PersistentTwinCommandSequenceStore(string statePath, string mutexName)
+    {
+        _statePath = statePath;
+        _mutex = new Mutex(false, mutexName);
+    }
+
+    public static PersistentTwinCommandSequenceStore Instance => Shared.Value;
+
+    public int Next()
+    {
+        _mutex.WaitOne();
+        try
+        {
+            var current = LoadCurrentSequence();
+            var next = current >= int.MaxValue - 1 ? 1 : current + 1;
+            SaveSequence(next);
+            return next;
+        }
+        finally
+        {
+            _mutex.ReleaseMutex();
+        }
+    }
+
+    private int LoadCurrentSequence()
+    {
+        var floor = GetSequenceFloor();
+        try
+        {
+            if (!File.Exists(_statePath))
+                return floor;
+
+            var raw = File.ReadAllText(_statePath).Trim();
+            var persisted = int.TryParse(raw, out var value) && value > 0 ? value : 0;
+            return Math.Max(persisted, floor);
+        }
+        catch
+        {
+            return floor;
+        }
+    }
+
+    private void SaveSequence(int sequence)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(_statePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(_statePath, sequence.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+        catch
+        {
+        }
+    }
+
+    private static int GetSequenceFloor()
+    {
+        var unixSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (unixSeconds <= 0)
+            return 0;
+
+        return unixSeconds >= int.MaxValue
+            ? int.MaxValue - 1
+            : (int)unixSeconds;
+    }
 }

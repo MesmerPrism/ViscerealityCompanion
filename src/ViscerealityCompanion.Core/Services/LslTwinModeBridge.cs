@@ -15,6 +15,7 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     private readonly ILslOutletService _commandOutlet;
     private readonly ILslOutletService _configOutlet;
     private readonly ILslMonitorService _stateMonitor;
+    private readonly ITwinCommandSequenceStore _commandSequenceStore;
     private readonly Dictionary<string, string> _requestedSettings = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _reportedSettings = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _pendingStructuredSnapshot = new(StringComparer.OrdinalIgnoreCase);
@@ -39,10 +40,20 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         ILslOutletService commandOutlet,
         ILslOutletService configOutlet,
         ILslMonitorService stateMonitor)
+        : this(commandOutlet, configOutlet, stateMonitor, null)
+    {
+    }
+
+    internal LslTwinModeBridge(
+        ILslOutletService commandOutlet,
+        ILslOutletService configOutlet,
+        ILslMonitorService stateMonitor,
+        ITwinCommandSequenceStore? commandSequenceStore)
     {
         _commandOutlet = commandOutlet;
         _configOutlet = configOutlet;
         _stateMonitor = stateMonitor;
+        _commandSequenceStore = commandSequenceStore ?? PersistentTwinCommandSequenceStore.Instance;
     }
 
     public TwinBridgeStatus Status
@@ -239,12 +250,6 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             _configOutletOpened = true;
         }
 
-        lock (_settingsSync)
-        {
-            _publishedCommandCount = 0;
-            _lastPublishedCommandSequence = 0;
-        }
-
         StartStateMonitor();
 
         return new OperationOutcome(
@@ -258,13 +263,14 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         CancellationToken cancellationToken = default)
     {
         EnsureOpen();
-        var result = _commandOutlet.PublishCommand(command);
+        var sequence = _commandSequenceStore.Next();
+        var result = _commandOutlet.PublishCommand(command, sequence);
         if (result.Kind != OperationOutcomeKind.Failure)
         {
             lock (_settingsSync)
             {
                 _publishedCommandCount++;
-                _lastPublishedCommandSequence++;
+                _lastPublishedCommandSequence = sequence;
             }
 
             StateChanged?.Invoke(this, EventArgs.Empty);

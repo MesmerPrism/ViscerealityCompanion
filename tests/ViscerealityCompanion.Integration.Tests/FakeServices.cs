@@ -16,6 +16,7 @@ public sealed class FakeOutletService : ILslOutletService
     public LslRuntimeState RuntimeState { get; } = new(false, "Fake outlet");
     public bool IsOpen { get; private set; }
     public string? LastPublishedCommand { get; private set; }
+    public int? LastPublishedSequence { get; private set; }
     public int PublishedEntryCount { get; private set; }
     public IReadOnlyList<string[]> PublishedSamples => _publishedSamples;
     public IReadOnlyList<TwinModeCommand> PublishedCommands => _publishedCommands;
@@ -37,10 +38,11 @@ public sealed class FakeOutletService : ILslOutletService
         return new OperationOutcome(OperationOutcomeKind.Preview, "Fake config snapshot published.", "test");
     }
 
-    public OperationOutcome PublishCommand(TwinModeCommand command)
+    public OperationOutcome PublishCommand(TwinModeCommand command, int sequence)
     {
         _publishedCommands.Add(command);
         LastPublishedCommand = command.ActionId;
+        LastPublishedSequence = sequence;
         return new OperationOutcome(OperationOutcomeKind.Preview, "Fake command published.", "test");
     }
 

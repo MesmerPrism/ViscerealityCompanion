@@ -17,7 +17,7 @@ public class LslTwinModeBridgeTests
     [Fact]
     public void Open_creates_command_and_config_outlets()
     {
-        using var bridge = CreateBridge(out var commandOutlet, out var configOutlet, out _);
+        using var bridge = CreateBridge(out var commandOutlet, out var configOutlet, out _, out _);
         var result = bridge.Open();
 
         Assert.Equal(OperationOutcomeKind.Success, result.Kind);
@@ -28,7 +28,7 @@ public class LslTwinModeBridgeTests
     [Fact]
     public async Task SendCommandAsync_publishes_through_outlet()
     {
-        using var bridge = CreateBridge(out var commandOutlet, out _, out _);
+        using var bridge = CreateBridge(out var commandOutlet, out _, out _, out _);
         var command = new TwinModeCommand("twin-start", "Start twin session");
 
         var result = await bridge.SendCommandAsync(command);
@@ -40,7 +40,7 @@ public class LslTwinModeBridgeTests
     [Fact]
     public async Task SendCommandAsync_updates_transport_counters()
     {
-        using var bridge = CreateBridge();
+        using var bridge = CreateBridge(out _, out _, out _, out var sequenceStore);
 
         await bridge.SendCommandAsync(new TwinModeCommand("2", "Recenter"));
 
@@ -48,12 +48,29 @@ public class LslTwinModeBridgeTests
         Assert.Equal(1, bridge.PublishedCommandCount);
         Assert.Equal(1, bridge.LastPublishedCommandSequence);
         Assert.Contains("sent 1 command", bridge.Status.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, sequenceStore.LastIssuedSequence);
+    }
+
+    [Fact]
+    public async Task SendCommandAsync_keeps_monotonic_sequence_across_bridge_instances()
+    {
+        var sharedSequenceStore = new FakeSequenceStore();
+        using (var firstBridge = CreateBridge(out _, out _, out _, out _, sharedSequenceStore))
+        {
+            await firstBridge.SendCommandAsync(new TwinModeCommand("2", "Recenter"));
+            Assert.Equal(1, firstBridge.LastPublishedCommandSequence);
+        }
+
+        using var secondBridge = CreateBridge(out _, out _, out _, out _, sharedSequenceStore);
+        await secondBridge.SendCommandAsync(new TwinModeCommand("14", "Particles Off"));
+
+        Assert.Equal(2, secondBridge.LastPublishedCommandSequence);
     }
 
     [Fact]
     public async Task PublishRuntimeConfigAsync_tracks_requested_settings()
     {
-        using var bridge = CreateBridge(out _, out var configOutlet, out _);
+        using var bridge = CreateBridge(out _, out var configOutlet, out _, out _);
         var profile = new RuntimeConfigProfile(
             "test-profile", "Test Profile", "test.csv", "1.0", "preview", false,
             "Test description", ["org.test.app"],
@@ -74,7 +91,7 @@ public class LslTwinModeBridgeTests
     [Fact]
     public async Task ComputeSettingsDelta_compares_requested_and_reported()
     {
-        using var bridge = CreateBridge(out _, out _, out var stateMonitor);
+        using var bridge = CreateBridge(out _, out _, out var stateMonitor, out _);
         stateMonitor.EnqueueReading(new LslMonitorReading(
             "Streaming", "set alpha=0.7", 0f, 30f, DateTimeOffset.UtcNow));
 
@@ -120,7 +137,7 @@ public class LslTwinModeBridgeTests
     [Fact]
     public async Task Structured_snapshot_updates_revision_and_last_remote_command_detail()
     {
-        using var bridge = CreateBridge(out _, out _, out var stateMonitor);
+        using var bridge = CreateBridge(out _, out _, out var stateMonitor, out _);
         var timestamp = DateTimeOffset.UtcNow;
 
         stateMonitor.EnqueueReading(new LslMonitorReading(
@@ -151,17 +168,20 @@ public class LslTwinModeBridgeTests
     }
 
     private static LslTwinModeBridge CreateBridge() =>
-        CreateBridge(out _, out _, out _);
+        CreateBridge(out _, out _, out _, out _);
 
     private static LslTwinModeBridge CreateBridge(
         out FakeOutletService commandOutlet,
         out FakeOutletService configOutlet,
-        out FakeMonitorService stateMonitor)
+        out FakeMonitorService stateMonitor,
+        out FakeSequenceStore sequenceStore,
+        FakeSequenceStore? providedSequenceStore = null)
     {
         commandOutlet = new FakeOutletService();
         configOutlet = new FakeOutletService();
         stateMonitor = new FakeMonitorService();
-        return new LslTwinModeBridge(commandOutlet, configOutlet, stateMonitor);
+        sequenceStore = providedSequenceStore ?? new FakeSequenceStore();
+        return new LslTwinModeBridge(commandOutlet, configOutlet, stateMonitor, sequenceStore);
     }
 
     private sealed class FakeOutletService : ILslOutletService
@@ -169,6 +189,7 @@ public class LslTwinModeBridgeTests
         public LslRuntimeState RuntimeState { get; } = new(false, "Fake outlet");
         public bool IsOpen { get; private set; }
         public string? LastPublishedCommand { get; private set; }
+        public int? LastPublishedSequence { get; private set; }
         public int PublishedEntryCount { get; private set; }
 
         public OperationOutcome Open(string streamName, string streamType, int channelCount)
@@ -187,13 +208,25 @@ public class LslTwinModeBridgeTests
             return new OperationOutcome(OperationOutcomeKind.Preview, "Fake config.", "test");
         }
 
-        public OperationOutcome PublishCommand(TwinModeCommand command)
+        public OperationOutcome PublishCommand(TwinModeCommand command, int sequence)
         {
             LastPublishedCommand = command.ActionId;
+            LastPublishedSequence = sequence;
             return new OperationOutcome(OperationOutcomeKind.Preview, "Fake command.", "test");
         }
 
         public void Dispose() { }
+    }
+
+    private sealed class FakeSequenceStore : ITwinCommandSequenceStore
+    {
+        public int LastIssuedSequence { get; private set; }
+
+        public int Next()
+        {
+            LastIssuedSequence++;
+            return LastIssuedSequence;
+        }
     }
 
     private sealed class FakeMonitorService : ILslMonitorService
