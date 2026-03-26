@@ -75,6 +75,7 @@ public sealed class StudyShellCatalogLoader
                     CloneList(dto.Monitoring?.LslConnectivityKeys),
                     CloneList(dto.Monitoring?.LslStreamNameKeys),
                     CloneList(dto.Monitoring?.LslStreamTypeKeys),
+                    CloneList(dto.Monitoring?.LslValueKeys),
                     CloneList(dto.Monitoring?.ControllerValueKeys),
                     CloneList(dto.Monitoring?.ControllerStateKeys),
                     CloneList(dto.Monitoring?.ControllerTrackingKeys),
@@ -223,6 +224,9 @@ public sealed class StudyShellCatalogLoader
 
         [JsonPropertyName("lslStreamTypeKeys")]
         public string[]? LslStreamTypeKeys { get; init; }
+
+        [JsonPropertyName("lslValueKeys")]
+        public string[]? LslValueKeys { get; init; }
 
         [JsonPropertyName("controllerValueKeys")]
         public string[]? ControllerValueKeys { get; init; }

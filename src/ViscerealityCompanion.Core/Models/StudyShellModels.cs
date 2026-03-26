@@ -47,6 +47,7 @@ public sealed record StudyMonitoringProfile(
     IReadOnlyList<string> LslConnectivityKeys,
     IReadOnlyList<string> LslStreamNameKeys,
     IReadOnlyList<string> LslStreamTypeKeys,
+    IReadOnlyList<string> LslValueKeys,
     IReadOnlyList<string> ControllerValueKeys,
     IReadOnlyList<string> ControllerStateKeys,
     IReadOnlyList<string> ControllerTrackingKeys,

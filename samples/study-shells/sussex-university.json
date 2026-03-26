@@ -7,8 +7,8 @@
     "label": "Sussex LslTwin Build",
     "packageId": "com.Viscereality.LslTwin",
     "apkPath": "",
-    "launchComponent": "",
-    "sha256": "B1D5529516F9867FEF790C276EA3324415188B1B3AB4A54FD32B3705654F3D3C",
+    "launchComponent": "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
+    "sha256": "CD8E119D0AED030450BBECD9CF4C2BD9B0F67CBCDF5A0676DE36D4A79C6B7A4B",
     "versionName": "0.1.0",
     "notes": "Select the supplied Sussex APK file once. The operator shell will keep checking the local file hash and the installed headset hash against this pinned build."
   },
@@ -24,24 +24,30 @@
     }
   },
   "monitoring": {
-    "expectedBreathingLabel": "",
-    "expectedHeartbeatLabel": "",
-    "expectedCoherenceLabel": "",
+    "expectedBreathingLabel": "Controller Volume",
+    "expectedHeartbeatLabel": "LSL Heartbeat",
+    "expectedCoherenceLabel": "Heartbeat Derived",
     "expectedLslStreamName": "quest_biofeedback_in",
     "expectedLslStreamType": "quest.biofeedback",
     "recenterDistanceThresholdUnits": 0.2,
     "lslConnectivityKeys": [
+      "study.lsl.connected",
       "connection.lsl.connected_count",
       "connection.lsl.connecting_count",
       "connection.lsl.total_count"
     ],
     "lslStreamNameKeys": [
+      "study.lsl.filter_name",
       "showcase_lsl_in_stream_name",
       "hotload.showcase_lsl_in_stream_name"
     ],
     "lslStreamTypeKeys": [
+      "study.lsl.filter_type",
       "showcase_lsl_in_stream_type",
       "hotload.showcase_lsl_in_stream_type"
+    ],
+    "lslValueKeys": [
+      "signal01.breathing_lsl"
     ],
     "controllerValueKeys": [
       "tracker.breathing.controller.volume01",
@@ -77,12 +83,16 @@
       "routing.coherence.label",
       "routing.coherence.uses_heartbeat_source"
     ],
-    "recenterDistanceKeys": [],
-    "particleVisibilityKeys": []
+    "recenterDistanceKeys": [
+      "study.recenter.distance_units"
+    ],
+    "particleVisibilityKeys": [
+      "study.particles.visible"
+    ]
   },
   "controls": {
     "recenterCommandActionId": "2",
-    "particleVisibleOnActionId": "",
-    "particleVisibleOffActionId": ""
+    "particleVisibleOnActionId": "39",
+    "particleVisibleOffActionId": "40"
   }
 }

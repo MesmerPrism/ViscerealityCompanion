@@ -71,7 +71,7 @@ ADB. The Windows app launched the Quest build, applied `CPU 2 / GPU 2`, and
 tracked `188` reported headset values over `quest_twin_state` without the tab
 crashing.
 
-For study-specific windows such as the Sussex shell, the same twin-state stream
+For study-specific modes such as the Sussex shell, the same twin-state stream
 is reduced to a much narrower monitor:
 
 - pinned build verification
@@ -79,6 +79,12 @@ is reduced to a much narrower monitor:
 - LSL routing and connectivity
 - controller breathing, heartbeat, and coherence values
 - only the study trigger buttons that are actually allowed
+
+The Sussex verification harness now also spins up a local Windows LSL sender on
+`quest_biofeedback_in / quest.biofeedback` so the operator app can verify that
+the headset is actually resolving and connecting to a live sender on this
+machine, not just carrying stale stream configuration. The test signal is the
+current Sussex app-side contract: a normalized `0..1` breath-volume value.
 
 ## What The Operator Can Control Today
 
@@ -96,7 +102,15 @@ The first working mode does not depend on the APK exposing its own control UI.
 That is deliberate. The operator flow is meant to work even when the headset
 user should only wear the device and follow the study instructions.
 
-Some study-shell controls still depend on new scene-side telemetry. For
-example, the Sussex shell already reserves space for recenter drift distance
-and particle visibility, but the public APK must publish those signals before
-the window can do more than report that they are not exposed yet.
+Study shells can stay narrower than the main app without losing the signals an
+experimenter actually needs. The Sussex shell, for example, now reads camera
+drift from the last recenter anchor plus particle visibility and suppression
+state from the public `quest_twin_state` telemetry surface.
+
+The current public Sussex telemetry always confirms LSL inlet connectivity
+through `study.lsl.*`. If a verified build also echoes the normalized inbound
+breath value on `signal01.breathing_lsl` or a `driver.stream.*.value01` mirror
+entry, the harness will derive value-level latency. On the currently verified
+public build, that value was not echoed, so the harness can confirm the
+end-to-end connection path but cannot yet derive a trustworthy value-level
+round-trip latency from the public repo alone.

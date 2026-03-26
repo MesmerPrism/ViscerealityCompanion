@@ -69,16 +69,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _liveRuntimeDetail = "Once the study APK starts publishing quest_twin_state, this window will focus on the Sussex-specific signals instead of the full raw keyspace.";
     private string _lslSummary = "Waiting for LSL runtime state.";
     private string _lslDetail = "The pinned stream target and live LSL connectivity will appear here once the study runtime is active.";
+    private double _lslValuePercent;
+    private string _lslValueLabel = "n/a";
     private string _controllerSummary = "Waiting for controller breathing state.";
     private string _controllerDetail = "The Sussex study expects controller-based breathing. Calibration and controller value reporting will appear here.";
     private string _heartbeatSummary = "Waiting for heartbeat state.";
     private string _heartbeatDetail = "The study runtime should report the latest heartbeat source and value over quest_twin_state.";
     private string _coherenceSummary = "Waiting for coherence state.";
     private string _coherenceDetail = "The study runtime should report the latest coherence route and value over quest_twin_state.";
-    private string _recenterSummary = "Recenter drift telemetry not exposed yet.";
-    private string _recenterDetail = "The current public runtime does not publish camera distance from the last recenter point yet. The recenter action can still be sent.";
-    private string _particlesSummary = "Particle visibility control not exposed yet.";
-    private string _particlesDetail = "The current public runtime does not expose a particle visibility command or public state key yet.";
+    private string _recenterSummary = "Waiting for recenter telemetry.";
+    private string _recenterDetail = "The recenter action is available, and camera drift will appear here once the study runtime starts publishing it.";
+    private string _particlesSummary = "Waiting for runtime particle state.";
+    private string _particlesDetail = "Particle visibility and render suppression will appear here once the study runtime starts publishing them.";
     private string _lastTwinStateTimestampLabel = "No live app-state timestamp yet.";
     private string _lastActionLabel = "None";
     private string _lastActionDetail = "No study action has run yet.";
@@ -139,8 +141,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     }
 
     public string StudyLabel => _study.Label;
+    public string StudyId => _study.Id;
     public string StudyPartner => _study.Partner;
     public string StudyDescription => _study.Description;
+    public string PinnedPackageId => _study.App.PackageId;
 
     public string EndpointDraft
     {
@@ -352,6 +356,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _lslDetail, value);
     }
 
+    public double LslValuePercent
+    {
+        get => _lslValuePercent;
+        private set => SetProperty(ref _lslValuePercent, value);
+    }
+
+    public string LslValueLabel
+    {
+        get => _lslValueLabel;
+        private set => SetProperty(ref _lslValueLabel, value);
+    }
+
     public string ControllerSummary
     {
         get => _controllerSummary;
@@ -515,6 +531,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public ObservableCollection<TwinStateEvent> RecentTwinEvents { get; } = new();
     public ObservableCollection<OperatorLogEntry> Logs { get; } = new();
 
+    public bool TryGetObservedLslValue(out double value, out string sourceKey)
+    {
+        if (TryGetConfiguredUnitIntervalValue(_study.Monitoring.LslValueKeys, out value, out sourceKey))
+        {
+            return true;
+        }
+
+        if (TryGetSignalMirrorValue("breathing_lsl", out value, out sourceKey))
+        {
+            return true;
+        }
+
+        value = 0d;
+        sourceKey = string.Empty;
+        return false;
+    }
+    public IReadOnlyDictionary<string, string> ReportedTwinStateSnapshot => _reportedTwinState;
+
     public AsyncRelayCommand ProbeUsbCommand { get; }
     public AsyncRelayCommand DiscoverWifiCommand { get; }
     public AsyncRelayCommand EnableWifiCommand { get; }
@@ -592,7 +626,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await HandleConnectionOutcomeAsync("Connect Quest", outcome).ConfigureAwait(false);
     }
 
-    private async Task RefreshStatusAsync()
+    public async Task RefreshStatusAsync()
     {
         await RefreshLocalApkStatusAsync().ConfigureAwait(false);
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
@@ -632,7 +666,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await DispatchAsync(UpdatePinnedBuildStatus).ConfigureAwait(false);
     }
 
-    private async Task InstallStudyAppAsync()
+    public async Task InstallStudyAppAsync()
     {
         var localPath = await DispatchAsync(() => StagedApkPath).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(localPath) || !File.Exists(localPath))
@@ -655,14 +689,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await RefreshStatusAsync().ConfigureAwait(false);
     }
 
-    private async Task LaunchStudyAppAsync()
+    public async Task LaunchStudyAppAsync()
     {
         var outcome = await _questService.LaunchAppAsync(CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false))).ConfigureAwait(false);
         await ApplyOutcomeAsync("Launch Sussex APK", outcome).ConfigureAwait(false);
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
     }
 
-    private async Task ApplyPinnedDeviceProfileAsync()
+    public async Task ApplyPinnedDeviceProfileAsync()
     {
         var outcome = await _questService.ApplyDeviceProfileAsync(CreatePinnedDeviceProfile()).ConfigureAwait(false);
         await ApplyOutcomeAsync("Apply Study Device Profile", outcome).ConfigureAwait(false);
@@ -670,13 +704,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
     }
 
-    private Task RecenterAsync()
+    public Task RecenterAsync()
         => SendStudyTwinCommandAsync(_study.Controls.RecenterCommandActionId, "Recenter");
 
-    private Task ParticlesOnAsync()
+    public Task ParticlesOnAsync()
         => SendStudyTwinCommandAsync(_study.Controls.ParticleVisibleOnActionId, "Particles On");
 
-    private Task ParticlesOffAsync()
+    public Task ParticlesOffAsync()
         => SendStudyTwinCommandAsync(_study.Controls.ParticleVisibleOffActionId, "Particles Off");
 
     private async Task SendStudyTwinCommandAsync(string actionId, string label)
@@ -1004,11 +1038,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         var expectedName = _study.Monitoring.ExpectedLslStreamName;
         var expectedType = _study.Monitoring.ExpectedLslStreamType;
-        var streamName = GetFirstValue(_study.Monitoring.LslStreamNameKeys);
-        var streamType = GetFirstValue(_study.Monitoring.LslStreamTypeKeys);
+        var streamName = GetFirstValue("study.lsl.filter_name") ?? GetFirstValue(_study.Monitoring.LslStreamNameKeys);
+        var streamType = GetFirstValue("study.lsl.filter_type") ?? GetFirstValue(_study.Monitoring.LslStreamTypeKeys);
+        var hasInputValue = TryGetObservedLslValue(out var inputValue, out var inputValueKey);
+        var connectedName = GetFirstValue("study.lsl.connected_name");
+        var connectedType = GetFirstValue("study.lsl.connected_type");
+        var statusLine = GetFirstValue("study.lsl.status");
+        var connectedFlag = ParseBool(GetFirstValue("study.lsl.connected"));
         var connectedCount = ParseInt(GetFirstValue("connection.lsl.connected_count"));
         var connectingCount = ParseInt(GetFirstValue("connection.lsl.connecting_count"));
         var totalCount = ParseInt(GetFirstValue("connection.lsl.total_count"));
+
+        LslValuePercent = hasInputValue ? inputValue * 100d : 0d;
+        LslValueLabel = hasInputValue ? $"{inputValue:0.000}" : "Not echoed";
 
         if (_reportedTwinState.Count == 0)
         {
@@ -1020,19 +1062,38 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         var streamMatches = (string.IsNullOrWhiteSpace(expectedName) || string.Equals(streamName, expectedName, StringComparison.OrdinalIgnoreCase))
             && (string.IsNullOrWhiteSpace(expectedType) || string.Equals(streamType, expectedType, StringComparison.OrdinalIgnoreCase));
-        var hasConnectedInput = connectedCount.GetValueOrDefault() > 0;
+        var hasConnectedInput = connectedFlag == true
+            || connectedCount.GetValueOrDefault() > 0
+            || !string.IsNullOrWhiteSpace(connectedName);
 
         LslLevel = hasConnectedInput && streamMatches
             ? OperationOutcomeKind.Success
-            : connectedCount.HasValue || connectingCount.HasValue || totalCount.HasValue
+            : connectedFlag.HasValue || connectedCount.HasValue || connectingCount.HasValue || totalCount.HasValue
                 ? OperationOutcomeKind.Warning
                 : OperationOutcomeKind.Preview;
         LslSummary = hasConnectedInput
-            ? $"LSL input live: {connectedCount} connected."
+            ? string.IsNullOrWhiteSpace(connectedName)
+                ? $"LSL input live: {connectedCount?.ToString() ?? "1"} connected."
+                : $"LSL input live: {connectedName}."
             : connectingCount.GetValueOrDefault() > 0
                 ? $"LSL input connecting: {connectingCount} stream(s) still resolving."
                 : "No live LSL input reported yet.";
-        LslDetail = $"Expected {expectedName} / {expectedType}. Runtime reports {(string.IsNullOrWhiteSpace(streamName) ? "stream name unavailable" : streamName)} / {(string.IsNullOrWhiteSpace(streamType) ? "stream type unavailable" : streamType)}. Connected {connectedCount?.ToString() ?? "n/a"}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}.";
+        if (hasInputValue)
+        {
+            LslSummary += $" Breath value {inputValue:0.000}.";
+        }
+        else if (hasConnectedInput)
+        {
+            LslSummary += " Waiting for a public breath-value echo.";
+        }
+        LslDetail =
+            $"Expected {expectedName} / {expectedType}. Runtime target {(string.IsNullOrWhiteSpace(streamName) ? "stream name unavailable" : streamName)} / {(string.IsNullOrWhiteSpace(streamType) ? "stream type unavailable" : streamType)}. " +
+            $"Connected {(string.IsNullOrWhiteSpace(connectedName) ? "stream name unavailable" : connectedName)} / {(string.IsNullOrWhiteSpace(connectedType) ? "stream type unavailable" : connectedType)}. " +
+            $"Connected {connectedCount?.ToString() ?? (connectedFlag.HasValue ? (connectedFlag.Value ? "1" : "0") : "n/a")}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}. " +
+            (hasInputValue
+                ? $"Latest normalized 0..1 breath value {inputValue:0.000} via {inputValueKey}. "
+                : "The current public state frame confirms inlet connectivity, but this build did not echo the normalized 0..1 breath value yet. ") +
+            $"{(string.IsNullOrWhiteSpace(statusLine) ? string.Empty : statusLine)}".Trim();
     }
 
     private void UpdateControllerCard()
@@ -1141,11 +1202,22 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void UpdateRecenterCard()
     {
         var distance = ParseDouble(GetFirstValue(_study.Monitoring.RecenterDistanceKeys));
+        var anchorRecorded = ParseBool(GetFirstValue("study.recenter.anchor_recorded"));
         if (_reportedTwinState.Count == 0)
         {
             RecenterLevel = OperationOutcomeKind.Preview;
             RecenterSummary = "Waiting for recenter telemetry.";
             RecenterDetail = "The recenter action is available, but the live drift distance appears only when the APK publishes it.";
+            RecenterDistancePercent = 0d;
+            RecenterDistanceLabel = "n/a";
+            return;
+        }
+
+        if (anchorRecorded == false)
+        {
+            RecenterLevel = OperationOutcomeKind.Preview;
+            RecenterSummary = "Waiting for the first recenter anchor.";
+            RecenterDetail = "The study runtime has not recorded a recenter anchor yet, so camera drift cannot be evaluated.";
             RecenterDistancePercent = 0d;
             RecenterDistanceLabel = "n/a";
             return;
@@ -1169,12 +1241,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         RecenterSummary = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
             ? $"Camera drift is {distance.Value:0.000} units from the last recenter."
             : $"Camera drift is within threshold at {distance.Value:0.000} units.";
-        RecenterDetail = $"Study threshold: {_study.Monitoring.RecenterDistanceThresholdUnits:0.000} units.";
+        RecenterDetail = $"Study threshold: {_study.Monitoring.RecenterDistanceThresholdUnits:0.000} units. Recenter anchor recorded: {(anchorRecorded == true ? "yes" : "unknown")}.";
     }
 
     private void UpdateParticlesCard()
     {
         var visibility = GetFirstValue(_study.Monitoring.ParticleVisibilityKeys);
+        var renderOutputEnabled = ParseBool(GetFirstValue("study.particles.render_output_enabled"));
+        var suppressedByOperator = ParseBool(GetFirstValue("study.particles.suppressed_by_operator"));
+        var suppressedByHud = ParseBool(GetFirstValue("study.particles.suppressed_by_hud"));
         if (_reportedTwinState.Count == 0)
         {
             ParticlesLevel = OperationOutcomeKind.Preview;
@@ -1193,9 +1268,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        ParticlesLevel = OperationOutcomeKind.Success;
-        ParticlesSummary = $"Particles currently report `{visibility}`.";
-        ParticlesDetail = "The Sussex study shell is reading the published particle visibility state from quest_twin_state.";
+        var visible = ParseBool(visibility);
+        ParticlesLevel = visible == true && renderOutputEnabled != false
+            ? OperationOutcomeKind.Success
+            : OperationOutcomeKind.Warning;
+        ParticlesSummary = visible == true
+            ? "Particles are visible."
+            : visible == false
+                ? "Particles are hidden."
+                : $"Particles currently report `{visibility}`.";
+        ParticlesDetail =
+            $"Render output {(renderOutputEnabled == true ? "enabled" : renderOutputEnabled == false ? "disabled" : "unknown")}. " +
+            $"Operator suppression {(suppressedByOperator == true ? "on" : suppressedByOperator == false ? "off" : "unknown")}. " +
+            $"HUD suppression {(suppressedByHud == true ? "on" : suppressedByHud == false ? "off" : "unknown")}.";
     }
 
     private void RefreshFocusRows()
@@ -1226,8 +1311,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         return
         [
-            CreateStudyRow("Target stream name", _study.Monitoring.LslStreamNameKeys, _study.Monitoring.ExpectedLslStreamName, "Study-configured stream name."),
-            CreateStudyRow("Target stream type", _study.Monitoring.LslStreamTypeKeys, _study.Monitoring.ExpectedLslStreamType, "Study-configured stream type."),
+            CreateStudyRow("Target stream name", ["study.lsl.filter_name", .. _study.Monitoring.LslStreamNameKeys], _study.Monitoring.ExpectedLslStreamName, "Study-configured stream name."),
+            CreateStudyRow("Target stream type", ["study.lsl.filter_type", .. _study.Monitoring.LslStreamTypeKeys], _study.Monitoring.ExpectedLslStreamType, "Study-configured stream type."),
+            CreateLslValueRow(),
+            CreateStudyRow("Connected stream name", ["study.lsl.connected_name"], string.Empty, "Currently connected LSL input name."),
+            CreateStudyRow("Connected stream type", ["study.lsl.connected_type"], string.Empty, "Currently connected LSL input type."),
+            CreateStudyRow("LSL connected", ["study.lsl.connected"], string.Empty, "Whether the study LSL inlet is currently connected."),
+            CreateStudyRow("LSL status", ["study.lsl.status"], string.Empty, "Runtime status line published by the study telemetry bridge."),
             CreateStudyRow("Connected inputs", ["connection.lsl.connected_count"], string.Empty, "Count of connected LSL inputs."),
             CreateStudyRow("Connecting inputs", ["connection.lsl.connecting_count"], string.Empty, "Count of LSL inputs still resolving."),
             CreateStudyRow("Known inputs", ["connection.lsl.total_count"], string.Empty, "Total LSL inputs the runtime is currently tracking.")
@@ -1275,7 +1365,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return
         [
             CreateStudyRow("Recenter distance", _study.Monitoring.RecenterDistanceKeys, _study.Monitoring.RecenterDistanceThresholdUnits.ToString("0.000", CultureInfo.InvariantCulture), "Distance from the last recenter point."),
+            CreateStudyRow("Recenter anchor", ["study.recenter.anchor_recorded"], string.Empty, "Whether the study runtime has recorded a recenter anchor."),
             CreateStudyRow("Particle visibility", _study.Monitoring.ParticleVisibilityKeys, string.Empty, "Published particle visibility state."),
+            CreateStudyRow("Particle render output", ["study.particles.render_output_enabled"], string.Empty, "Whether the particle engine currently renders output."),
+            CreateStudyRow("Particle operator suppression", ["study.particles.suppressed_by_operator"], string.Empty, "Whether the operator has suppressed particle rendering."),
+            CreateStudyRow("Particle HUD suppression", ["study.particles.suppressed_by_hud"], string.Empty, "Whether the in-headset HUD has suppressed particle rendering."),
             CreateSupportRow("Recenter command", CanSendRecenterCommand, "Twin command is configured for this study shell."),
             CreateSupportRow("Particle toggle commands", CanToggleParticles, "Twin commands are configured for particle visibility.")
         ];
@@ -1302,6 +1396,29 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var renderedValue = string.IsNullOrWhiteSpace(value) ? "Not reported" : value;
         var level = ClassifyValue(value, expected);
         return new StudyStatusRow(label, key, renderedValue, expected, detail, level);
+    }
+
+    private StudyStatusRow CreateLslValueRow()
+    {
+        var configuredKey = _study.Monitoring.LslValueKeys.FirstOrDefault() ?? "signal01.breathing_lsl";
+        if (TryGetObservedLslValue(out var value, out var sourceKey))
+        {
+            return new StudyStatusRow(
+                "Breath value",
+                sourceKey,
+                value.ToString("0.000", CultureInfo.InvariantCulture),
+                string.Empty,
+                "Latest normalized 0..1 breath-volume value echoed by quest_twin_state when public signal mirroring is available.",
+                OperationOutcomeKind.Success);
+        }
+
+        return new StudyStatusRow(
+            "Breath value",
+            configuredKey,
+            "Not echoed by current public build",
+            string.Empty,
+            "The Sussex runtime consumes a normalized 0..1 LSL breath value, but the current public twin-state frame only confirms inlet connectivity unless signal mirroring is enabled.",
+            OperationOutcomeKind.Preview);
     }
 
     private StudyStatusRow CreateSupportRow(string label, bool isAvailable, string detail)
@@ -1453,6 +1570,54 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         return null;
+    }
+
+    private bool TryGetConfiguredUnitIntervalValue(IReadOnlyList<string> keys, out double value, out string sourceKey)
+    {
+        foreach (var key in keys)
+        {
+            if (_reportedTwinState.TryGetValue(key, out var rawValue) &&
+                ParseUnitInterval(rawValue) is double parsedValue)
+            {
+                value = parsedValue;
+                sourceKey = key;
+                return true;
+            }
+        }
+
+        value = 0d;
+        sourceKey = string.Empty;
+        return false;
+    }
+
+    private bool TryGetSignalMirrorValue(string signalName, out double value, out string sourceKey)
+    {
+        const string NameSuffix = ".name";
+        const string ValueSuffix = ".value01";
+
+        foreach (var entry in _reportedTwinState)
+        {
+            if (!entry.Key.StartsWith("driver.stream.", StringComparison.OrdinalIgnoreCase) ||
+                !entry.Key.EndsWith(NameSuffix, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(entry.Value, signalName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var keyBase = entry.Key[..^NameSuffix.Length];
+            var valueKey = keyBase + ValueSuffix;
+            if (_reportedTwinState.TryGetValue(valueKey, out var rawValue) &&
+                ParseUnitInterval(rawValue) is double parsedValue)
+            {
+                value = parsedValue;
+                sourceKey = valueKey;
+                return true;
+            }
+        }
+
+        value = 0d;
+        sourceKey = string.Empty;
+        return false;
     }
 
     private static bool HashMatches(string? left, string? right)

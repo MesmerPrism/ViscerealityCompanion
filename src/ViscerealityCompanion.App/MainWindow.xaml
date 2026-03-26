@@ -29,6 +29,7 @@
         <local:TagsToBrushConverter x:Key="TagsToBrush" />
         <local:TagsToSoftBrushConverter x:Key="TagsToSoftBrush" />
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <local:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
 
         <Style x:Key="InsetPanelStyle" TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
             <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
@@ -148,7 +149,7 @@
                 </StackPanel>
 
                 <Button Grid.Column="1"
-                        Content="Open Study Shell"
+                        Content="Activate In Main App"
                         Command="{Binding DataContext.OpenStudyShellCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                         CommandParameter="{Binding}"
                         Margin="12,0,0,0"
@@ -401,40 +402,49 @@
                 CornerRadius="3" />
 
         <Border Grid.Row="1"
-                Margin="0,18,0,0"
+                Margin="0,12,0,0"
                 Style="{StaticResource PanelBorderStyle}"
-                Padding="16">
+                Padding="12,10">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="24" />
-                    <ColumnDefinition Width="430" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="520" />
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0">
                     <TextBlock Text="Viscereality Companion"
-                               FontSize="31"
+                               FontSize="28"
                                FontWeight="Bold" />
-                    <TextBlock Text="Install the supplied Quest build, monitor live state, and stage runtime settings from Windows."
+                    <TextBlock Text="Install the supplied Quest build, monitor live study state, and keep operator control on Windows."
                                Style="{StaticResource SectionCaptionStyle}"
                                Margin="0,6,0,0" />
                 </StackPanel>
 
                 <StackPanel Grid.Column="2">
-                    <TextBlock Text="{Binding TargetSelectionHeadline}"
-                               FontSize="16"
+                    <TextBlock Text="{Binding CurrentModeLabel}"
+                               FontSize="18"
                                FontWeight="Bold"
                                TextAlignment="Right"
                                TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding TargetSelectionDetail}"
+                    <TextBlock Text="{Binding HeaderModeSummary}"
                                Style="{StaticResource MicroCaptionStyle}"
                                Margin="0,6,0,0"
                                TextAlignment="Right" />
-                    <WrapPanel Margin="0,12,0,0" HorizontalAlignment="Right">
+                    <TextBlock Text="{Binding TargetSelectionHeadline}"
+                               FontSize="14"
+                               FontWeight="Bold"
+                               Margin="0,8,0,0"
+                               TextAlignment="Right"
+                               TextWrapping="Wrap" />
+                    <WrapPanel Margin="0,8,0,0" HorizontalAlignment="Right">
+                        <Button Content="Exit Study Mode"
+                                Command="{Binding ExitStudyModeCommand}"
+                                Visibility="{Binding HasActiveStudyShell, Converter={StaticResource BoolToVisibility}}" />
                         <CheckBox Content="Remote-only research control"
-                                  Margin="0,6,12,0"
+                                  Margin="0,6,10,0"
                                   IsChecked="{Binding RemoteOnlyControlEnabled}" />
-                        <Button Content="Refresh Device Snapshot" Command="{Binding RefreshHeadsetStatusCommand}" />
+                        <Button Content="Refresh Snapshot" Command="{Binding RefreshHeadsetStatusCommand}" />
                         <Button Content="Refresh Foreground" Command="{Binding RefreshForegroundCommand}" />
                     </WrapPanel>
                 </StackPanel>
@@ -458,7 +468,8 @@
         <Border Grid.Row="3"
                 Margin="0,12,0,0"
                 Style="{StaticResource PanelBorderStyle}"
-                Padding="12">
+                Padding="12"
+                Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -575,9 +586,17 @@
             </Grid>
         </Border>
 
-        <TabControl Grid.Row="5">
-            <TabItem Header="Start Here">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <TabControl Grid.Row="5" SelectedIndex="{Binding SelectedTabIndex}">
+            <TabItem Header="{Binding PrimaryWorkflowTabLabel}">
+                <Grid>
+                    <Grid Visibility="{Binding HasActiveStudyShell, Converter={StaticResource BoolToVisibility}}">
+                        <local:StudyShellView
+                                              Margin="0,8,0,0"
+                                              DataContext="{Binding ActiveStudyShell}" />
+                    </Grid>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                  Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
                     <Grid Margin="4,16,4,6">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -886,6 +905,7 @@
                         </Grid>
                     </Grid>
                 </ScrollViewer>
+                </Grid>
             </TabItem>
 
             <TabItem Header="Session">
@@ -1669,7 +1689,7 @@
                         </Grid>
                     </Grid>
                     </Grid>
-                </ScrollViewer>
+                    </ScrollViewer>
             </TabItem>
 
             <TabItem Header="LSL Monitor">
@@ -1754,7 +1774,7 @@
                         </Grid>
                     </Border>
                     </Grid>
-                </ScrollViewer>
+                    </ScrollViewer>
             </TabItem>
 
             <TabItem Header="Diagnostics">

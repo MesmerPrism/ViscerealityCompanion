@@ -10,8 +10,45 @@ cross-project patterns, or central-bureau maintenance, use
 - Test: `dotnet test ViscerealityCompanion.sln`
 - Run WPF app: `dotnet run --project src/ViscerealityCompanion.App`
 - Run CLI: `dotnet run --project src/ViscerealityCompanion.Cli`
+- Run Sussex verification harness: `dotnet run --project tools/ViscerealityCompanion.VerificationHarness`
 - Build docs site: `npm run pages:build`
 - Serve docs locally: `npm run pages:serve`
+
+## GUI Validation Guardrails
+
+- For live Quest GUI testing, establish an active ADB selector first. Use
+  `ProbeUsbAsync` / `Probe USB` when a headset is attached over USB, or
+  `ConnectAsync` / `Connect Quest` when using a known Wi-Fi `ip:port`
+  endpoint.
+- If a one-off WPF harness is used from `artifacts/verify/`, make it write
+  screenshots and a text report to a dedicated subfolder and inspect that
+  output before assuming the run is hung.
+- A one-off WPF harness should clear stale error/report/screenshot artifacts at
+  the start of the run so old failures cannot be mistaken for the current pass.
+- A one-off WPF harness must shut the application down explicitly after the
+  scripted window closes. Do not rely on `window.Close()` alone when the
+  harness uses `ShutdownMode.OnExplicitShutdown`.
+- The tracked Sussex verification harness runs the study inside the main app,
+  not in a separate `StudyShellWindow`. Validate the embedded `Sussex
+  University experiment mode` tab and header, because that is the current
+  operator-facing surface.
+- The Sussex verification harness brings up a local float LSL sender on
+  `quest_biofeedback_in / quest.biofeedback` and publishes `0..1` breath-volume
+  samples so the Quest runtime can prove full Windows sender -> headset inlet
+  connectivity.
+- The current public Sussex telemetry only confirms that path through
+  `study.lsl.connected_*` and `study.lsl.status`, and some builds may also echo
+  the normalized `0..1` value on `signal01.breathing_lsl` or a
+  `driver.stream.*.value01` mirror entry. Do not claim value-level round-trip
+  latency unless the runtime actually exposes that breath value or an inlet
+  sample timestamp on `quest_twin_state` during the verified run.
+- In WPF XAML, any control property that binds TwoWay by default
+  (`ProgressBar.Value`, `Slider.Value`, similar range controls) must use
+  `Mode=OneWay` when the viewmodel property is read-only. Otherwise the app can
+  fall into dispatcher exception loops that look like hangs.
+- If a GUI validation run appears stuck, check
+  `%LOCALAPPDATA%\\ViscerealityCompanion\\logs` and the active
+  `artifacts/verify/...` folder before retrying.
 
 ## Architecture Rules
 
@@ -100,15 +137,11 @@ This machine may block `dotnet test` when unsigned assemblies are loaded.
 Workaround: single-file publish with
 `dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false`.
 
-## Skills Gap — Aspirational References
+## Available Skills
 
-Two skill names were referenced during initial planning but do **not** exist on
-disk or in any Copilot skill registry:
-
-| Skill name | Intent | Status |
-|---|---|---|
-| `$bureau-context` | Cross-project conventions from `~/Agent Bureau/` (naming, branching, CI patterns shared across repos) | Not yet authored — create as a Copilot skill when the Agent Bureau directory has enough material |
-| `uncodixify` | UI/UX design guidance (layout, colour, accessibility, WPF styling conventions) | Not yet authored — define scope before writing |
-
-Until these skills are created, agents should rely on the rules in this file and
-`.copilot-instructions.md` for project conventions.
+- `$bureau-context` is available and should be used when the task genuinely
+  needs cross-project or machine-wide context before falling back to this repo's
+  local rules.
+- `$uncodixfy-ui` is available and should be used for layout, styling, and UI
+  polish work so the WPF shell stays restrained and product-specific instead of
+  drifting toward generic dashboard chrome.

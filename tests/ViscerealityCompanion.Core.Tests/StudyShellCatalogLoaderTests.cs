@@ -21,6 +21,7 @@ public sealed class StudyShellCatalogLoaderTests
             Assert.Equal("2", study.Controls.RecenterCommandActionId);
             Assert.Contains("debug.oculus.gpuLevel", study.DeviceProfile.Properties.Keys);
             Assert.Contains("connection.lsl.connected_count", study.Monitoring.LslConnectivityKeys);
+            Assert.Contains("signal01.breathing_lsl", study.Monitoring.LslValueKeys);
             Assert.Equal(0.2d, study.Monitoring.RecenterDistanceThresholdUnits);
         }
         finally
@@ -103,6 +104,7 @@ public sealed class StudyShellCatalogLoaderTests
                 "lslConnectivityKeys": ["connection.lsl.connected_count"],
                 "lslStreamNameKeys": ["showcase_lsl_in_stream_name"],
                 "lslStreamTypeKeys": ["showcase_lsl_in_stream_type"],
+                "lslValueKeys": ["signal01.breathing_lsl"],
                 "controllerValueKeys": ["tracker.breathing.controller.volume01"],
                 "controllerStateKeys": ["tracker.breathing.controller.state"],
                 "controllerTrackingKeys": ["tracker.breathing.controller.active"],

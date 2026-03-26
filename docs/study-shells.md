@@ -1,7 +1,7 @@
 ---
 title: Study Shells
-description: Reusable simplified operator windows for specific studies such as the Sussex University controller-breathing session.
-summary: Study shells keep the full operator app available, but let you open a narrower window with one pinned build, one pinned device profile, and only the live metrics that a specific experimenter needs.
+description: Reusable simplified operator modes for specific studies such as the Sussex University controller-breathing session.
+summary: Study shells keep the full operator app available, but let the first tab switch into a pinned study workspace with one build, one device profile, and only the live metrics that a specific experimenter needs.
 nav_label: Study Shells
 nav_group: Operator Guides
 nav_order: 35
@@ -9,9 +9,9 @@ nav_order: 35
 
 # Study Shells
 
-The main app now supports dedicated study shells: focused operator windows that
-sit on top of the same public ADB and twin-monitoring services without
-requiring a separate app build.
+The main app now supports dedicated study shells: focused operator modes that
+sit inside the same public operator window without requiring a separate app
+build.
 
 ## Why They Exist
 
@@ -27,6 +27,9 @@ view down to:
 That keeps the participant-facing runtime simple while still leaving the full
 desktop shell available when the study team needs deeper diagnostics.
 
+When a study shell is activated from `Start Here`, the first tab becomes the
+study workspace and the main header switches into that study mode as well.
+
 ## Sussex University Shell
 
 The first committed study shell is `Sussex University`, backed by
@@ -36,31 +39,49 @@ It currently pins:
 
 - package id: `com.Viscereality.LslTwin`
 - version: `0.1.0`
-- SHA256: `B1D5529516F9867FEF790C276EA3324415188B1B3AB4A54FD32B3705654F3D3C`
+- SHA256: `CD8E119D0AED030450BBECD9CF4C2BD9B0F67CBCDF5A0676DE36D4A79C6B7A4B`
 - device profile: `CPU 2 / GPU 5 / static foveation level 1`
 - expected LSL input target: `quest_biofeedback_in / quest.biofeedback`
+- expected routing: `Controller Volume / LSL Heartbeat / Heartbeat Derived`
 
-The window checks:
+The embedded Sussex workspace checks:
 
 - whether the locally staged APK matches the pinned study hash
 - whether the same build is already installed on the headset
 - whether the pinned Quest device profile is currently active
-- live LSL connectivity counts from `quest_twin_state`
+- live LSL target, connected stream, and inlet status from `quest_twin_state`
+- normalized `0..1` inbound breath volume when the runtime publicly echoes it
 - controller breathing, heartbeat, and coherence values from the study runtime
+- camera drift from the last recenter anchor
+- particle visibility and whether rendering is suppressed by the operator or HUD
 
-The current public shell can also send the study recenter command.
+The current public shell can also send the study recenter command and the
+dedicated particle visibility on/off commands.
 
-## Current Limits
+## Sussex Verification Harness
 
-Two Sussex items still depend on new scene-side telemetry or commands from the
-Quest runtime:
+The repo now includes a tracked live harness:
 
-- recenter drift distance from the last recenter point
-- particle visibility on/off control
+- command: `dotnet run --project tools/ViscerealityCompanion.VerificationHarness`
+- output: `artifacts/verify/sussex-study-mode-live/`
 
-The study shell already reserves space for those states, but if the current APK
-does not publish them, the UI will show that they are not exposed yet instead
-of guessing.
+That harness:
+
+- opens the main WPF app
+- activates `Sussex University experiment mode`
+- starts a local float LSL sender on `quest_biofeedback_in / quest.biofeedback`
+- publishes `0..1` breath-volume samples from this Windows machine
+- installs, launches, and profiles the pinned Sussex APK
+- captures screenshots plus a text report
+
+At the moment, the public study telemetry confirms full sender -> headset inlet
+connectivity through `study.lsl.connected_*` and `study.lsl.status`. If the
+runtime also exposes `signal01.breathing_lsl` or a `driver.stream.*.value01`
+mirror entry, the harness will measure round-trip latency for the normalized
+`0..1` breath-volume value. On the currently verified public Sussex build, that
+value was not echoed back over `quest_twin_state`, so the harness could prove
+the path and pinned stream target but not compute a trustworthy value-level
+latency yet.
 
 ## How Study Shell Discovery Works
 

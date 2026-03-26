@@ -161,7 +161,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         cpuLevel = Math.Clamp(cpuLevel, 0, 5);
         gpuLevel = Math.Clamp(gpuLevel, 0, 5);
 
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var cpuResult = await RunShellAsync(selector, $"setprop debug.oculus.cpuLevel {cpuLevel}", cancellationToken).ConfigureAwait(false);
         if (cpuResult.ExitCode != 0)
         {
@@ -193,7 +193,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     public async Task<OperationOutcome> InstallAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var apkPath = ResolveExistingPath(target.ApkFile);
         if (apkPath is null)
         {
@@ -261,7 +261,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         QuestAppTarget target,
         CancellationToken cancellationToken = default)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
 
         // Resolve the CSV file — profile.File may be an absolute path or relative name
         var csvPath = File.Exists(profile.File) ? profile.File : null;
@@ -308,7 +308,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     public async Task<OperationOutcome> ApplyDeviceProfileAsync(DeviceProfile profile, CancellationToken cancellationToken = default)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var applied = new List<string>();
 
         foreach (var pair in profile.Properties)
@@ -340,7 +340,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     public async Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         await RunShellAsync(selector, AdbShellSupport.BuildForceStopCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
 
         AdbCommandResult launch;
@@ -369,7 +369,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         QuestAppTarget browserTarget,
         CancellationToken cancellationToken = default)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var open = await RunShellAsync(selector, AdbShellSupport.BuildOpenUrlCommand(url, browserTarget.PackageId), cancellationToken).ConfigureAwait(false);
         return open.ExitCode == 0
             ? Success($"Browser open sent for {url}.", AdbShellSupport.Collapse(open.CombinedOutput), packageId: browserTarget.PackageId)
@@ -378,7 +378,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     public async Task<OperationOutcome> QueryForegroundAsync(CancellationToken cancellationToken = default)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var (windowOutput, snapshot) = await QueryForegroundSnapshotAsync(selector, cancellationToken).ConfigureAwait(false);
         if (snapshot is null && windowOutput.ExitCode != 0)
         {
@@ -688,7 +688,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     public async Task<OperationOutcome> RunUtilityAsync(QuestUtilityAction action, CancellationToken cancellationToken = default)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         return action switch
         {
             QuestUtilityAction.Home => await RunUtilityShellAsync("Home command sent.", "input keyevent 3", cancellationToken).ConfigureAwait(false),
@@ -702,7 +702,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     private async Task<OperationOutcome> RunUtilityShellAsync(string summary, string command, CancellationToken cancellationToken)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var output = await RunShellAsync(selector, command, cancellationToken).ConfigureAwait(false);
         return output.ExitCode == 0
             ? Success(summary, AdbShellSupport.Collapse(output.CombinedOutput))
@@ -711,7 +711,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     private async Task<OperationOutcome> RunRebootAsync(CancellationToken cancellationToken)
     {
-        var selector = GetRequiredSelector();
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var reboot = await RunAdbAsync(["-s", selector, "reboot"], cancellationToken).ConfigureAwait(false);
         return reboot.ExitCode == 0
             ? Success("Reboot command sent.", AdbShellSupport.Collapse(reboot.CombinedOutput))
@@ -784,6 +784,17 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         }
 
         return probe.Endpoint!;
+    }
+
+    private async Task<string> EnsureSelectorAsync(CancellationToken cancellationToken)
+    {
+        var selector = GetActiveSelector();
+        if (!string.IsNullOrWhiteSpace(selector))
+        {
+            return selector;
+        }
+
+        return await EnsureUsbSelectorAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private string GetRequiredSelector()
