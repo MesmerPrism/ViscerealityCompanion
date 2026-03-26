@@ -21,7 +21,8 @@ public sealed class StudyShellCatalogLoaderTests
             Assert.Equal("2", study.Controls.RecenterCommandActionId);
             Assert.Contains("debug.oculus.gpuLevel", study.DeviceProfile.Properties.Keys);
             Assert.Contains("connection.lsl.connected_count", study.Monitoring.LslConnectivityKeys);
-            Assert.Contains("signal01.breathing_lsl", study.Monitoring.LslValueKeys);
+            Assert.Contains("signal01.coherence_lsl", study.Monitoring.LslValueKeys);
+            Assert.Contains("study.performance.fps", study.Monitoring.PerformanceFpsKeys);
             Assert.Equal(0.2d, study.Monitoring.RecenterDistanceThresholdUnits);
         }
         finally
@@ -104,14 +105,18 @@ public sealed class StudyShellCatalogLoaderTests
                 "lslConnectivityKeys": ["connection.lsl.connected_count"],
                 "lslStreamNameKeys": ["showcase_lsl_in_stream_name"],
                 "lslStreamTypeKeys": ["showcase_lsl_in_stream_type"],
-                "lslValueKeys": ["signal01.breathing_lsl"],
+                "lslValueKeys": ["signal01.coherence_lsl"],
                 "controllerValueKeys": ["tracker.breathing.controller.volume01"],
                 "controllerStateKeys": ["tracker.breathing.controller.state"],
                 "controllerTrackingKeys": ["tracker.breathing.controller.active"],
                 "heartbeatValueKeys": ["signal01.heartbeat_lsl"],
                 "heartbeatStateKeys": ["routing.heartbeat.mode"],
-                "coherenceValueKeys": ["signal01.coherence_heartbeat"],
+                "coherenceValueKeys": ["signal01.coherence_lsl"],
                 "coherenceStateKeys": ["routing.coherence.mode"],
+                "performanceFpsKeys": ["study.performance.fps"],
+                "performanceFrameTimeKeys": ["study.performance.frame_ms"],
+                "performanceTargetFpsKeys": ["study.performance.target_fps"],
+                "performanceRefreshRateKeys": ["study.performance.refresh_hz"],
                 "recenterDistanceKeys": [],
                 "particleVisibilityKeys": []
               },

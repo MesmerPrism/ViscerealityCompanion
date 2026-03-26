@@ -22,6 +22,8 @@ internal static class Program
 
 public static class HarnessScenarioRunner
 {
+    private static readonly TimeSpan MockHeartbeatInterval = TimeSpan.FromMilliseconds(910);
+
     [STAThread]
     public static void RunOnceFromCurrentDirectory()
     {
@@ -178,7 +180,7 @@ public static class HarnessScenarioRunner
                 return;
             }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(180));
+            await Task.Delay(MockHeartbeatInterval);
         }
     }
 
@@ -191,7 +193,7 @@ public static class HarnessScenarioRunner
 
         foreach (var step in stepValues)
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(300));
+            await Task.Delay(MockHeartbeatInterval);
             var sentAt = DateTimeOffset.UtcNow;
             outlet.PushSample(step);
 
@@ -296,9 +298,9 @@ public static class HarnessScenarioRunner
         else
         {
             builder.AppendLine("No round-trip latency samples were observed.");
-            builder.AppendLine("The harness publishes normalized 0..1 bench inlet samples on quest_biofeedback_in / quest.biofeedback from this Windows machine.");
-            builder.AppendLine("The current public Sussex telemetry confirmed study.lsl.* inlet connectivity on this pass, but it did not echo that routed inlet value back over quest_twin_state.");
-            builder.AppendLine("Value-level round-trip latency therefore still needs a public inlet-value echo or inlet sample timestamp in the runtime state frame.");
+            builder.AppendLine("The harness publishes normalized 0..1 coherence samples on quest_biofeedback_in / quest.biofeedback from this Windows machine at a mock heartbeat cadence.");
+            builder.AppendLine("The current public Sussex telemetry confirmed study.lsl.* inlet connectivity on this pass, but it did not echo that routed coherence value back over quest_twin_state.");
+            builder.AppendLine("Value-level round-trip latency therefore still needs a public coherence echo or inlet sample timestamp in the runtime state frame.");
         }
 
         builder.AppendLine();
@@ -452,15 +454,15 @@ public static class HarnessScenarioRunner
     {
         var relevant = new List<KeyValuePair<string, string>>();
         var snapshot = studyViewModel.ReportedTwinStateSnapshot;
-        var breathingMirrorBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var coherenceMirrorBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var entry in snapshot)
         {
             if (entry.Key.StartsWith("driver.stream.", StringComparison.OrdinalIgnoreCase) &&
                 entry.Key.EndsWith(".name", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(entry.Value, "breathing_lsl", StringComparison.OrdinalIgnoreCase))
+                string.Equals(entry.Value, "coherence_lsl", StringComparison.OrdinalIgnoreCase))
             {
-                breathingMirrorBases.Add(entry.Key[..^".name".Length]);
+                coherenceMirrorBases.Add(entry.Key[..^".name".Length]);
             }
         }
 
@@ -469,10 +471,11 @@ public static class HarnessScenarioRunner
             if (entry.Key.StartsWith("study.lsl", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.recenter", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.particles", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.StartsWith("study.performance", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("connection.lsl", StringComparison.OrdinalIgnoreCase) ||
-                entry.Key.StartsWith("signal01.breathing_lsl", StringComparison.OrdinalIgnoreCase) ||
-                entry.Key.Contains("breathing_lsl", StringComparison.OrdinalIgnoreCase) ||
-                breathingMirrorBases.Any(baseKey => entry.Key.StartsWith(baseKey, StringComparison.OrdinalIgnoreCase)))
+                entry.Key.StartsWith("signal01.coherence_lsl", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.Contains("coherence_lsl", StringComparison.OrdinalIgnoreCase) ||
+                coherenceMirrorBases.Any(baseKey => entry.Key.StartsWith(baseKey, StringComparison.OrdinalIgnoreCase)))
             {
                 relevant.Add(entry);
             }

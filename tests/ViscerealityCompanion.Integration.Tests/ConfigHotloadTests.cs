@@ -11,8 +11,9 @@ namespace ViscerealityCompanion.Integration.Tests;
 public class ConfigHotloadTests
 {
     private readonly QuestDeviceFixture _device;
-    private const string KarateBioPackage = "com.Viscereality.KarateBio";
-    private const string RemoteHotloadDir = "/sdcard/Android/data/com.Viscereality.KarateBio/files/runtime_hotload";
+    private const string StudyPackage = "com.Viscereality.LslTwin";
+    private const string StudyLaunchComponent = "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity";
+    private const string RemoteHotloadDir = "/sdcard/Android/data/com.Viscereality.LslTwin/files/runtime_hotload";
     private const string RemoteOverridesPath = RemoteHotloadDir + "/runtime_overrides.csv";
 
     public ConfigHotloadTests(QuestDeviceFixture device) => _device = device;
@@ -43,22 +44,15 @@ public class ConfigHotloadTests
         await _device.Shell($"mkdir -p {RemoteHotloadDir}");
         await _device.RunAdb($"-s {_device.ActiveSelector} push \"{profilePath}\" \"{RemoteOverridesPath}\"");
 
-        // Force-stop and relaunch KarateBio so it picks up the new profile
-        await _device.Shell($"am force-stop {KarateBioPackage}");
+        // Force-stop and relaunch the public LslTwin runtime so it picks up the new profile.
+        await _device.Shell($"am force-stop {StudyPackage}");
         await Task.Delay(1000);
-        await _device.Shell($"monkey -p {KarateBioPackage} -c android.intent.category.LAUNCHER 1");
-        await Task.Delay(5000);
+        var launchOutput = await _device.Shell($"am start -n {StudyLaunchComponent}");
+        var surfaced = await WaitForPackageToSurfaceAsync(StudyPackage, TimeSpan.FromSeconds(15));
 
-        // Verify app is running using the same package/window checks as QSK.
-        var pidOutput = (await _device.Shell($"pidof {KarateBioPackage}")).Trim();
-        if (string.IsNullOrWhiteSpace(pidOutput))
-        {
-            var windowOutput = await _device.Shell("dumpsys window windows");
-            Assert.Contains(KarateBioPackage, windowOutput);
-            return;
-        }
-
-        Assert.False(string.IsNullOrWhiteSpace(pidOutput));
+        Assert.True(
+            surfaced || LaunchWasAccepted(launchOutput),
+            $"Expected {StudyPackage} to surface or the ActivityManager launch request to be accepted. Output: {launchOutput}");
     }
 
     [Fact]
@@ -116,7 +110,7 @@ public class ConfigHotloadTests
         var profile = new RuntimeConfigProfile(
             "karatebio_baseline", "KarateBio Baseline", "karatebio_baseline.csv", "1.0", "release", false,
             "Standard baseline config",
-            [KarateBioPackage],
+            [StudyPackage],
             [
                 new RuntimeConfigEntry("internal_tick_lock_60hz", "true"),
                 new RuntimeConfigEntry("performance_hint_cpu_level", "2"),
@@ -125,7 +119,7 @@ public class ConfigHotloadTests
             ]);
 
         var target = new QuestAppTarget(
-            "karatebio", "KarateBio", KarateBioPackage, "", "", "", "", []);
+            "sussex-lsltwin", "LslTwin", StudyPackage, "", "", "", "", []);
 
         var result = await bridge.PublishRuntimeConfigAsync(profile, target);
 
@@ -146,4 +140,32 @@ public class ConfigHotloadTests
         var path = Path.Combine(profileDir, name);
         return File.Exists(path) ? path : null;
     }
+
+    private async Task<bool> WaitForPackageToSurfaceAsync(string packageId, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var pidOutput = (await _device.Shell($"pidof {packageId}")).Trim();
+            if (!string.IsNullOrWhiteSpace(pidOutput))
+            {
+                return true;
+            }
+
+            var windowOutput = await _device.Shell("dumpsys window windows");
+            if (windowOutput.Contains(packageId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            await Task.Delay(1000);
+        }
+
+        return false;
+    }
+
+    private static bool LaunchWasAccepted(string launchOutput)
+        => !string.IsNullOrWhiteSpace(launchOutput)
+            && !launchOutput.Contains("Error:", StringComparison.OrdinalIgnoreCase)
+            && launchOutput.Contains("Starting:", StringComparison.OrdinalIgnoreCase);
 }

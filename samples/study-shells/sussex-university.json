@@ -8,7 +8,7 @@
     "packageId": "com.Viscereality.LslTwin",
     "apkPath": "",
     "launchComponent": "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
-    "sha256": "4C3C75967D72DB39EC7C8E088C421BE2E91ED86C146B34D7F3F2B6BE1CEFE119",
+    "sha256": "CA52EBBF30FA4D1C524CCE36A3B2644E634C8DBFD20E8C90D97D051306A897BB",
     "versionName": "0.1.0",
     "notes": "Select the supplied Sussex APK file once. The operator shell will keep checking the local file hash and the installed headset hash against this pinned build."
   },
@@ -26,7 +26,7 @@
   "monitoring": {
     "expectedBreathingLabel": "Controller Volume",
     "expectedHeartbeatLabel": "LSL Heartbeat",
-    "expectedCoherenceLabel": "Heartbeat Derived",
+    "expectedCoherenceLabel": "LSL Direct",
     "expectedLslStreamName": "quest_biofeedback_in",
     "expectedLslStreamType": "quest.biofeedback",
     "recenterDistanceThresholdUnits": 0.2,
@@ -47,7 +47,7 @@
       "hotload.showcase_lsl_in_stream_type"
     ],
     "lslValueKeys": [
-      "signal01.breathing_lsl"
+      "signal01.coherence_lsl"
     ],
     "controllerValueKeys": [
       "tracker.breathing.controller.volume01",
@@ -75,6 +75,7 @@
       "routing.heartbeat.label"
     ],
     "coherenceValueKeys": [
+      "signal01.coherence_lsl",
       "signal01.coherence_heartbeat",
       "signal01.mock_coherence"
     ],
@@ -82,6 +83,18 @@
       "routing.coherence.mode",
       "routing.coherence.label",
       "routing.coherence.uses_heartbeat_source"
+    ],
+    "performanceFpsKeys": [
+      "study.performance.fps"
+    ],
+    "performanceFrameTimeKeys": [
+      "study.performance.frame_ms"
+    ],
+    "performanceTargetFpsKeys": [
+      "study.performance.target_fps"
+    ],
+    "performanceRefreshRateKeys": [
+      "study.performance.refresh_hz"
     ],
     "recenterDistanceKeys": [
       "study.recenter.distance_units"

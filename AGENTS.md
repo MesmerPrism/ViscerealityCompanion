@@ -34,15 +34,22 @@ cross-project patterns, or central-bureau maintenance, use
   University experiment mode` tab and header, because that is the current
   operator-facing surface.
 - The Sussex verification harness brings up a local float LSL sender on
-  `quest_biofeedback_in / quest.biofeedback` and publishes `0..1` breath-volume
-  samples so the Quest runtime can prove full Windows sender -> headset inlet
-  connectivity.
+  `quest_biofeedback_in / quest.biofeedback` and publishes direct `0..1`
+  coherence packets at a mock heartbeat cadence. Each packet arrival is the
+  heartbeat event, and the packet value itself is the current coherence.
 - The current public Sussex telemetry only confirms that path through
   `study.lsl.connected_*` and `study.lsl.status`, and some builds may also echo
-  the normalized `0..1` value on `signal01.breathing_lsl` or a
+  the normalized `0..1` value on `signal01.coherence_lsl` or a
   `driver.stream.*.value01` mirror entry. Do not claim value-level round-trip
-  latency unless the runtime actually exposes that breath value or an inlet
+  latency unless the runtime actually exposes that coherence value or an inlet
   sample timestamp on `quest_twin_state` during the verified run.
+- `liblsl` on Windows may log repeated startup warnings like
+  `Could not bind multicast responder ... to interface ::1 (An invalid argument
+  was supplied.)` while enumerating the IPv6 loopback adapter. Treat that as a
+  known benign library quirk on this machine, not as evidence that the harness
+  is hung or that LSL transport is broken. Judge the run from actual stream
+  resolution, twin-state freshness, and the generated `artifacts/verify/...`
+  report instead.
 - In WPF XAML, any control property that binds TwoWay by default
   (`ProgressBar.Value`, `Slider.Value`, similar range controls) must use
   `Mode=OneWay` when the viewmodel property is read-only. Otherwise the app can
@@ -113,6 +120,10 @@ The `WindowsLslMonitorService` and `WindowsLslOutletService` use P/Invoke to
 2. `<app-dir>/lsl.dll`
 3. `<app-dir>/runtimes/win-x64/native/lsl.dll`
 4. Known Unity project paths under `~/source/repos/`
+
+Known Windows quirk: `lsl.dll` may emit IPv6 loopback multicast-responder bind
+warnings against `::1` during startup on this machine. Those warnings are noisy
+but non-fatal unless stream discovery or publication actually fails afterward.
 
 ## Twin Mode Protocol
 

@@ -16,7 +16,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
     private const string TestSenderHeartbeatMode = "3";
-    private const string TestSenderCoherenceMode = "0";
+    private const string TestSenderCoherenceMode = "2";
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ProximityReadbackRefreshInterval = TimeSpan.FromSeconds(3);
@@ -27,6 +27,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         new("controller", "Controller Breathing", "Follow controller breathing state, calibration, and live control value."),
         new("heartbeat", "Heartbeat", "Inspect heartbeat route selection and the latest incoming heartbeat value."),
         new("coherence", "Coherence", "Inspect coherence routing and the current coherence value."),
+        new("performance", "Performance", "Track current fps, frame time, and the runtime target."),
         new("controls", "Recenter + Particles", "Study-specific controls and the runtime telemetry that backs them."),
         new("all", "All Pinned Keys", "Every live key this study shell is currently watching.")
     ];
@@ -79,6 +80,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _controllerLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _heartbeatLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _coherenceLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _performanceLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _recenterLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _particlesLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _proximityLevel = OperationOutcomeKind.Preview;
@@ -97,6 +99,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _heartbeatDetail = "The study runtime should report the latest heartbeat source and value over quest_twin_state.";
     private string _coherenceSummary = "Waiting for coherence state.";
     private string _coherenceDetail = "The study runtime should report the latest coherence route and value over quest_twin_state.";
+    private string _performanceSummary = "Waiting for performance telemetry.";
+    private string _performanceDetail = "Current fps, frame time, and the runtime target will appear here once the study runtime publishes them.";
     private string _recenterSummary = "Waiting for recenter telemetry.";
     private string _recenterDetail = "The recenter action is available, and camera drift will appear here once the study runtime starts publishing it.";
     private string _particlesSummary = "Waiting for runtime particle state.";
@@ -105,7 +109,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _proximityDetail = "Quest vrpowermanager readback will appear here once the shell can reach the active headset selector.";
     private string _proximityActionLabel = "Disable for 8h";
     private string _testLslSenderSummary = "Windows TEST sender off.";
-    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes synthetic heartbeat pulses and requests the Sussex coherence route over the shared inlet.";
+    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes direct coherence packets at a mock heartbeat cadence; each packet arrival is treated as a heartbeat in the Sussex LSL route.";
     private string _testLslSenderValueLabel = "Not running";
     private string _testLslSenderActionLabel = "Start TEST Sender";
     private string _lastTwinStateTimestampLabel = "No live app-state timestamp yet.";
@@ -118,6 +122,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _controllerCalibrationLabel = "Calibration n/a";
     private double _coherencePercent;
     private string _coherenceValueLabel = "n/a";
+    private double _performancePercent;
+    private string _performanceValueLabel = "n/a";
     private double _recenterDistancePercent;
     private string _recenterDistanceLabel = "n/a";
     private StudyTwinCommandRequest? _lastRecenterCommandRequest;
@@ -356,6 +362,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _coherenceLevel, value);
     }
 
+    public OperationOutcomeKind PerformanceLevel
+    {
+        get => _performanceLevel;
+        private set => SetProperty(ref _performanceLevel, value);
+    }
+
     public OperationOutcomeKind RecenterLevel
     {
         get => _recenterLevel;
@@ -462,6 +474,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _coherenceDetail;
         private set => SetProperty(ref _coherenceDetail, value);
+    }
+
+    public string PerformanceSummary
+    {
+        get => _performanceSummary;
+        private set => SetProperty(ref _performanceSummary, value);
+    }
+
+    public string PerformanceDetail
+    {
+        get => _performanceDetail;
+        private set => SetProperty(ref _performanceDetail, value);
     }
 
     public string RecenterSummary
@@ -590,6 +614,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _coherenceValueLabel, value);
     }
 
+    public double PerformancePercent
+    {
+        get => _performancePercent;
+        private set => SetProperty(ref _performancePercent, value);
+    }
+
+    public string PerformanceValueLabel
+    {
+        get => _performanceValueLabel;
+        private set => SetProperty(ref _performanceValueLabel, value);
+    }
+
     public double RecenterDistancePercent
     {
         get => _recenterDistancePercent;
@@ -644,6 +680,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public bool TryGetObservedLslValue(out double value, out string sourceKey)
     {
         if (TryGetConfiguredUnitIntervalValue(_study.Monitoring.LslValueKeys, out value, out sourceKey))
+        {
+            return true;
+        }
+
+        if (TryGetSignalMirrorValue("coherence_lsl", out value, out sourceKey))
         {
             return true;
         }
@@ -970,7 +1011,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "test-sender-coherence-route",
             "Bench route for TEST sender-driven coherence checks.",
             "TEST sender routing enabled.",
-            "Heartbeat mode switched to LSL and coherence mode switched to heartbeat-derived for bench checks.")
+            "Heartbeat mode switched to LSL and coherence mode switched to direct LSL for bench checks.")
             .ConfigureAwait(false);
     }
 
@@ -1358,6 +1399,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ControllerLevel = OperationOutcomeKind.Preview;
             HeartbeatLevel = OperationOutcomeKind.Preview;
             CoherenceLevel = OperationOutcomeKind.Preview;
+            PerformanceLevel = OperationOutcomeKind.Preview;
             RecenterLevel = OperationOutcomeKind.Preview;
             ParticlesLevel = OperationOutcomeKind.Preview;
             LastTwinStateTimestampLabel = "No live app-state timestamp yet.";
@@ -1391,6 +1433,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdateControllerCard();
         UpdateHeartbeatCard();
         UpdateCoherenceCard();
+        UpdatePerformanceCard();
         UpdateRecenterCard();
         UpdateParticlesCard();
         RefreshFocusRows();
@@ -1446,8 +1489,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var expectedType = _study.Monitoring.ExpectedLslStreamType;
         var testSenderActive = _testLslSignalService.IsRunning;
         var testSenderDetail = testSenderActive
-            ? $"Companion TEST sender is publishing heartbeat-pulse bench traffic on {expectedName} / {expectedType} and requesting the heartbeat-derived coherence route."
-            : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} and the headset coherence path without a live sensor.";
+            ? $"Companion TEST sender is publishing direct coherence packets on {expectedName} / {expectedType} at a mock heartbeat cadence. Packet arrival is the bench heartbeat trigger, and the payload is the coherence value."
+            : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} with direct coherence payloads and packet-paced heartbeat triggers.";
         var streamName = GetFirstValue("study.lsl.filter_name") ?? GetFirstValue(_study.Monitoring.LslStreamNameKeys);
         var streamType = GetFirstValue("study.lsl.filter_type") ?? GetFirstValue(_study.Monitoring.LslStreamTypeKeys);
         var hasInputValue = TryGetObservedLslValue(out var inputValue, out var inputValueKey);
@@ -1490,7 +1533,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : "No live LSL input reported yet.";
         if (hasInputValue)
         {
-            LslSummary += $" Inlet value {inputValue:0.000}.";
+            LslSummary += $" Inlet coherence {inputValue:0.000}.";
         }
         else if (hasConnectedInput)
         {
@@ -1505,7 +1548,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             $"Connected {(string.IsNullOrWhiteSpace(connectedName) ? "stream name unavailable" : connectedName)} / {(string.IsNullOrWhiteSpace(connectedType) ? "stream type unavailable" : connectedType)}. " +
             $"Connected {connectedCount?.ToString() ?? (connectedFlag.HasValue ? (connectedFlag.Value ? "1" : "0") : "n/a")}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}. " +
             (hasInputValue
-                ? $"Latest normalized inlet value {inputValue:0.000} via {inputValueKey}. "
+                ? $"Latest direct coherence value {inputValue:0.000} via {inputValueKey}. "
                 : "The current public state frame confirms inlet connectivity. The live link is healthy, but this build did not echo the routed inlet value yet. ") +
             $"{testSenderDetail} {(string.IsNullOrWhiteSpace(statusLine) ? string.Empty : statusLine)}".Trim();
     }
@@ -1611,6 +1654,51 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? $"Coherence live value: {CoherenceValueLabel}."
             : "Coherence route visible, but no live coherence value yet.";
         CoherenceDetail = $"Route {(string.IsNullOrWhiteSpace(routeLabel) ? "n/a" : routeLabel)} (mode {routeMode ?? "n/a"}). Uses heartbeat source {usesHeartbeat ?? "n/a"}.";
+    }
+
+    private void UpdatePerformanceCard()
+    {
+        var fps = ParseDouble(GetFirstValue(_study.Monitoring.PerformanceFpsKeys));
+        var frameMs = ParseDouble(GetFirstValue(_study.Monitoring.PerformanceFrameTimeKeys));
+        var targetFps = ParseDouble(GetFirstValue(_study.Monitoring.PerformanceTargetFpsKeys));
+        var refreshHz = ParseDouble(GetFirstValue(_study.Monitoring.PerformanceRefreshRateKeys));
+
+        PerformancePercent = targetFps.HasValue && targetFps.Value > 0d
+            ? Math.Clamp((fps.GetValueOrDefault() / targetFps.Value) * 100d, 0d, 100d)
+            : fps.HasValue
+                ? Math.Clamp((fps.Value / 120d) * 100d, 0d, 100d)
+                : 0d;
+        PerformanceValueLabel = fps.HasValue || frameMs.HasValue
+            ? $"{(fps.HasValue ? $"{fps.Value:0.0} FPS" : "FPS n/a")} / {(frameMs.HasValue ? $"{frameMs.Value:0.0} ms" : "frame ms n/a")}"
+            : "n/a";
+
+        if (_reportedTwinState.Count == 0)
+        {
+            PerformanceLevel = OperationOutcomeKind.Preview;
+            PerformanceSummary = "Waiting for performance telemetry.";
+            PerformanceDetail = "Current fps, frame time, and the runtime target will appear once quest_twin_state is active.";
+            return;
+        }
+
+        if (!fps.HasValue && !frameMs.HasValue && !targetFps.HasValue)
+        {
+            PerformanceLevel = OperationOutcomeKind.Warning;
+            PerformanceSummary = "Performance telemetry not reported yet.";
+            PerformanceDetail = "The Sussex runtime is live, but it has not published fps or frame-time values yet.";
+            return;
+        }
+
+        var onTarget = !fps.HasValue || !targetFps.HasValue || targetFps.Value <= 0d || fps.Value >= targetFps.Value * 0.9d;
+        PerformanceLevel = onTarget ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
+        PerformanceSummary = fps.HasValue
+            ? onTarget
+                ? $"Performance live: {fps.Value:0.0} FPS."
+                : $"Performance below target: {fps.Value:0.0} FPS."
+            : "Performance telemetry is live.";
+        PerformanceDetail =
+            $"Frame time {(frameMs.HasValue ? $"{frameMs.Value:0.0} ms" : "n/a")}. " +
+            $"Target {(targetFps.HasValue ? $"{targetFps.Value:0.#} FPS" : "n/a")}. " +
+            $"Display refresh {(refreshHz.HasValue ? $"{refreshHz.Value:0.#} Hz" : "n/a")}.";
     }
 
     private void UpdateRecenterCard()
@@ -1911,10 +1999,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             TestLslSenderLevel = OperationOutcomeKind.Warning;
             TestLslSenderSummary = "Windows TEST sender active.";
             TestLslSenderValueLabel = _testLslSignalService.LastSentAtUtc.HasValue
-                ? $"Latest synthetic heartbeat pulse {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
-                : "Starting synthetic heartbeat pulse stream...";
+                ? $"Latest direct coherence {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
+                : "Starting direct coherence stream...";
             TestLslSenderDetail =
-                $"Synthetic heartbeat-pulse samples are publishing locally on {expectedName} / {expectedType}. The study shell also requests Heartbeat Mode = LSL and Coherence Mode = Heartbeat Derived while this bench sender is active.";
+                $"Direct coherence packets are publishing locally on {expectedName} / {expectedType} at a mock heartbeat cadence. The study shell also requests Heartbeat Mode = LSL and Coherence Mode = LSL Direct while this bench sender is active.";
             return;
         }
 
@@ -1940,7 +2028,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         TestLslSenderSummary = "Windows TEST sender off.";
         TestLslSenderValueLabel = "Not running";
         TestLslSenderDetail =
-            $"Start the Windows TEST sender to publish synthetic heartbeat pulses on {expectedName} / {expectedType}. This is bench-only traffic and temporarily routes the Sussex coherence path to LSL heartbeat.";
+            $"Start the Windows TEST sender to publish direct coherence packets on {expectedName} / {expectedType}. This is bench-only traffic; packet arrival acts as heartbeat and the payload is the current coherence value.";
     }
 
     private void RefreshFocusRows(bool forceRebuild = false)
@@ -1991,6 +2079,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "controller" => BuildControllerRows(),
             "heartbeat" => BuildHeartbeatRows(),
             "coherence" => BuildCoherenceRows(),
+            "performance" => BuildPerformanceRows(),
             "controls" => BuildControlRows(),
             _ => BuildAllRows()
         };
@@ -2049,6 +2138,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ];
     }
 
+    private IReadOnlyList<StudyStatusRow> BuildPerformanceRows()
+    {
+        return
+        [
+            CreateStudyRow("Current fps", _study.Monitoring.PerformanceFpsKeys, string.Empty, "Smoothed live framerate reported by the runtime."),
+            CreateStudyRow("Frame time", _study.Monitoring.PerformanceFrameTimeKeys, string.Empty, "Smoothed live frame time in milliseconds."),
+            CreateStudyRow("Target fps", _study.Monitoring.PerformanceTargetFpsKeys, string.Empty, "Current target frame-rate cap on the headset."),
+            CreateStudyRow("Display refresh", _study.Monitoring.PerformanceRefreshRateKeys, string.Empty, "Current observed display refresh rate when reported by the runtime.")
+        ];
+    }
+
     private IReadOnlyList<StudyStatusRow> BuildControlRows()
     {
         return
@@ -2082,6 +2182,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         rows.AddRange(BuildControllerRows());
         rows.AddRange(BuildHeartbeatRows());
         rows.AddRange(BuildCoherenceRows());
+        rows.AddRange(BuildPerformanceRows());
         rows.AddRange(BuildControlRows());
         return rows
             .GroupBy(row => row.Key, StringComparer.OrdinalIgnoreCase)
@@ -2100,7 +2201,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private StudyStatusRow CreateLslValueRow()
     {
-        var configuredKey = _study.Monitoring.LslValueKeys.FirstOrDefault() ?? "signal01.breathing_lsl";
+        var configuredKey = _study.Monitoring.LslValueKeys.FirstOrDefault() ?? "signal01.coherence_lsl";
         if (TryGetObservedLslValue(out var value, out var sourceKey))
         {
             return new StudyStatusRow(
@@ -2108,7 +2209,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 sourceKey,
                 value.ToString("0.000", CultureInfo.InvariantCulture),
                 string.Empty,
-                "Latest normalized inlet value echoed by quest_twin_state when public signal mirroring is available.",
+                "Latest direct coherence value echoed by quest_twin_state when public signal mirroring is available.",
                 OperationOutcomeKind.Success);
         }
 
@@ -2117,7 +2218,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             configuredKey,
             "Not echoed by current public build",
             string.Empty,
-            "The Sussex runtime confirms inlet connectivity here, but the current public twin-state frame only echoes the routed inlet value when signal mirroring is enabled.",
+            "The Sussex runtime confirms inlet connectivity here, but the current public twin-state frame only echoes the routed direct coherence value when signal mirroring is enabled.",
             OperationOutcomeKind.Preview);
     }
 

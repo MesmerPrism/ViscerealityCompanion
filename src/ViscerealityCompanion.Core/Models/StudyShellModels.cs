@@ -55,6 +55,10 @@ public sealed record StudyMonitoringProfile(
     IReadOnlyList<string> HeartbeatStateKeys,
     IReadOnlyList<string> CoherenceValueKeys,
     IReadOnlyList<string> CoherenceStateKeys,
+    IReadOnlyList<string> PerformanceFpsKeys,
+    IReadOnlyList<string> PerformanceFrameTimeKeys,
+    IReadOnlyList<string> PerformanceTargetFpsKeys,
+    IReadOnlyList<string> PerformanceRefreshRateKeys,
     IReadOnlyList<string> RecenterDistanceKeys,
     IReadOnlyList<string> ParticleVisibilityKeys);
 

@@ -51,6 +51,7 @@ public sealed class QuestDeviceFixture : IAsyncLifetime
         if (!string.IsNullOrEmpty(DeviceIp))
         {
             await RunAdb($"-s {_usbSerial} tcpip 5555");
+            await WaitForDeviceStateAsync(_usbSerial, "device", TimeSpan.FromSeconds(15));
             await Task.Delay(1500);
             var connectResult = await RunAdb($"connect {DeviceIp}:5555");
             if (connectResult.Contains("connected"))
@@ -67,7 +68,8 @@ public sealed class QuestDeviceFixture : IAsyncLifetime
         if (string.IsNullOrEmpty(DeviceIp))
             throw new InvalidOperationException("No device WiFi IP available.");
 
-        await RunAdb($"-s {_usbSerial} tcpip 5555");
+        await RunAdb($"-s {UsbSerial} tcpip 5555");
+        await WaitForDeviceStateAsync(UsbSerial, "device", TimeSpan.FromSeconds(15));
         await Task.Delay(1000); // Allow ADB to restart in TCP mode
 
         var connectResult = await RunAdb($"connect {DeviceIp}:5555");
@@ -94,6 +96,28 @@ public sealed class QuestDeviceFixture : IAsyncLifetime
     public async Task<string> Shell(string command)
     {
         return await RunAdb($"-s {ActiveSelector} shell {command}");
+    }
+
+    public async Task WaitForUsbReadyAsync(TimeSpan? timeout = null)
+    {
+        await WaitForDeviceStateAsync(UsbSerial, "device", timeout ?? TimeSpan.FromSeconds(15));
+    }
+
+    private async Task WaitForDeviceStateAsync(string selector, string expectedState, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = (await RunAdb($"-s {selector} get-state")).Trim();
+            if (state.Equals(expectedState, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            await Task.Delay(500);
+        }
+
+        throw new TimeoutException($"ADB selector '{selector}' did not reach state '{expectedState}' within {timeout.TotalSeconds:0}s.");
     }
 
     private static string? LocateAdb()

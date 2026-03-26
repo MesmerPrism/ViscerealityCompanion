@@ -83,6 +83,10 @@ public sealed class StudyShellCatalogLoader
                     CloneList(dto.Monitoring?.HeartbeatStateKeys),
                     CloneList(dto.Monitoring?.CoherenceValueKeys),
                     CloneList(dto.Monitoring?.CoherenceStateKeys),
+                    CloneList(dto.Monitoring?.PerformanceFpsKeys),
+                    CloneList(dto.Monitoring?.PerformanceFrameTimeKeys),
+                    CloneList(dto.Monitoring?.PerformanceTargetFpsKeys),
+                    CloneList(dto.Monitoring?.PerformanceRefreshRateKeys),
                     CloneList(dto.Monitoring?.RecenterDistanceKeys),
                     CloneList(dto.Monitoring?.ParticleVisibilityKeys)),
                 new StudyControlProfile(
@@ -248,6 +252,18 @@ public sealed class StudyShellCatalogLoader
 
         [JsonPropertyName("coherenceStateKeys")]
         public string[]? CoherenceStateKeys { get; init; }
+
+        [JsonPropertyName("performanceFpsKeys")]
+        public string[]? PerformanceFpsKeys { get; init; }
+
+        [JsonPropertyName("performanceFrameTimeKeys")]
+        public string[]? PerformanceFrameTimeKeys { get; init; }
+
+        [JsonPropertyName("performanceTargetFpsKeys")]
+        public string[]? PerformanceTargetFpsKeys { get; init; }
+
+        [JsonPropertyName("performanceRefreshRateKeys")]
+        public string[]? PerformanceRefreshRateKeys { get; init; }
 
         [JsonPropertyName("recenterDistanceKeys")]
         public string[]? RecenterDistanceKeys { get; init; }

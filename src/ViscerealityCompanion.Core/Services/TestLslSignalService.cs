@@ -19,12 +19,8 @@ public interface ITestLslSignalService : IDisposable
 
 public sealed class WindowsTestLslSignalService : ITestLslSignalService
 {
-    private static readonly TimeSpan SampleInterval = TimeSpan.FromMilliseconds(50);
-    private const float PulseBaseline01 = 0.1f;
-    private const float PulsePeak01 = 1.0f;
-    private const float PulsePeriodSeconds = 1.0f;
-    private const float PulsePeakWindowSeconds = 0.08f;
-    private const float PulseDecayWindowSeconds = 0.24f;
+    private const float MockHeartbeatBpm = 66f;
+    private static readonly TimeSpan PacketInterval = TimeSpan.FromMilliseconds(Math.Round(60000d / MockHeartbeatBpm));
     private readonly Lock _sync = new();
     private nint _streamInfo;
     private nint _outlet;
@@ -104,7 +100,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
                 return new OperationOutcome(
                     OperationOutcomeKind.Success,
                     "Windows TEST sender already active.",
-                    $"Streaming synthetic heartbeat pulse values on {streamName} / {streamType}.");
+                    $"Streaming synthetic direct-coherence packets on {streamName} / {streamType} at roughly {MockHeartbeatBpm:0} BPM.");
             }
 
             _lastFaultDetail = string.Empty;
@@ -138,7 +134,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         return new OperationOutcome(
             OperationOutcomeKind.Success,
             "Windows TEST sender active.",
-            $"Streaming synthetic heartbeat pulse values on {streamName} / {streamType}. Use this only for bench checks.");
+            $"Streaming synthetic direct-coherence packets on {streamName} / {streamType} at roughly {MockHeartbeatBpm:0} BPM. Each packet arrival is a bench heartbeat trigger.");
     }
 
     public OperationOutcome Stop()
@@ -152,7 +148,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
                 return new OperationOutcome(
                     OperationOutcomeKind.Preview,
                     "Windows TEST sender already off.",
-                    "No synthetic LSL heartbeat-pulse stream is active.");
+                    "No synthetic direct-coherence LSL stream is active.");
             }
 
             pumpCts = _pumpCts;
@@ -171,7 +167,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         return new OperationOutcome(
             OperationOutcomeKind.Success,
             "Windows TEST sender stopped.",
-            "Synthetic heartbeat-pulse publishing has stopped.");
+            "Synthetic direct-coherence publishing has stopped.");
     }
 
     public void Dispose()
@@ -181,34 +177,17 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
 
     private async Task PumpAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(SampleInterval);
-        var startedAt = DateTime.UtcNow;
+        using var timer = new PeriodicTimer(PacketInterval);
+        var beatIndex = 0;
 
         try
         {
+            PushBeatSample(beatIndex);
+
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                var elapsedSeconds = (float)(DateTime.UtcNow - startedAt).TotalSeconds;
-                var phaseSeconds = elapsedSeconds % PulsePeriodSeconds;
-                float value = phaseSeconds switch
-                {
-                    <= PulsePeakWindowSeconds => PulsePeak01,
-                    <= PulseDecayWindowSeconds => PulseBaseline01 + (PulsePeak01 - PulseBaseline01) *
-                        MathF.Exp(-(phaseSeconds - PulsePeakWindowSeconds) / 0.05f),
-                    _ => PulseBaseline01
-                };
-
-                lock (_sync)
-                {
-                    if (_outlet == IntPtr.Zero)
-                    {
-                        return;
-                    }
-
-                    TestOutletNativeMethods.PushFloatSample(_outlet, [value], TestOutletNativeMethods.LocalClock());
-                    _lastValue = value;
-                    _lastSentAtUtc = DateTimeOffset.UtcNow;
-                }
+                beatIndex++;
+                PushBeatSample(beatIndex);
             }
         }
         catch (OperationCanceledException)
@@ -224,6 +203,33 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
 
             RaiseStateChanged();
         }
+    }
+
+    private void PushBeatSample(int beatIndex)
+    {
+        var value = BuildCoherenceValue(beatIndex);
+
+        lock (_sync)
+        {
+            if (_outlet == IntPtr.Zero)
+            {
+                return;
+            }
+
+            TestOutletNativeMethods.PushFloatSample(_outlet, [value], TestOutletNativeMethods.LocalClock());
+            _lastValue = value;
+            _lastSentAtUtc = DateTimeOffset.UtcNow;
+        }
+    }
+
+    private static float BuildCoherenceValue(int beatIndex)
+    {
+        var phase = beatIndex * 0.63f;
+        var value =
+            0.5f +
+            0.26f * MathF.Sin(phase) +
+            0.12f * MathF.Sin((phase * 0.41f) + 0.85f);
+        return Math.Clamp(value, 0.05f, 0.95f);
     }
 
     private void DisposeNativeHandles()

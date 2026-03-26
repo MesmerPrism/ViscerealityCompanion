@@ -11,6 +11,8 @@ namespace ViscerealityCompanion.Integration.Tests;
 [Collection("QuestDevice")]
 public class HzdbCommandTests
 {
+    private const string StudyPackage = "com.Viscereality.LslTwin";
+    private const string StudyFilesDir = "/sdcard/Android/data/com.Viscereality.LslTwin/files/";
     private readonly QuestDeviceFixture _device;
     private static readonly Lazy<string?> _npxCommandPath = new(WindowsHzdbService.ResolveNpxCommandPath);
     private static readonly Lazy<bool> _hzdbAvailable = new(() =>
@@ -69,12 +71,12 @@ public class HzdbCommandTests
     }
 
     [Fact]
-    public async Task Hzdb_app_info_karatebio()
+    public async Task Hzdb_app_info_lsl_twin()
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var result = await RunHzdb($"app info --device {_device.UsbSerial} com.Viscereality.KarateBio");
-        Assert.Contains("com.Viscereality.KarateBio", result);
+        var result = await RunHzdb($"app info --device {_device.UsbSerial} {StudyPackage}");
+        Assert.Contains(StudyPackage, result);
     }
 
     [Fact]
@@ -82,8 +84,9 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var result = await RunHzdb($"app list --device {_device.UsbSerial} --json");
-        Assert.Contains("com.Viscereality.KarateBio", result);
+        await _device.WaitForUsbReadyAsync();
+        var result = await RunHzdbWithUsbRetryAsync($"app list --device {_device.UsbSerial} --json");
+        Assert.Contains(StudyPackage, result);
     }
 
     [Fact]
@@ -133,7 +136,7 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var result = await RunHzdb($"files ls --device {_device.UsbSerial} /sdcard/Android/data/com.Viscereality.KarateBio/files/");
+        var result = await RunHzdb($"files ls --device {_device.UsbSerial} {StudyFilesDir}");
         // Should list files we know exist (deformable-room-cache, etc.)
         Assert.True(result.Length > 10, "Expected file listing output");
     }
@@ -143,8 +146,8 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        // This is critical for off-face testing
-        var result = await RunHzdb($"device proximity --device {_device.UsbSerial} --disable");
+        await _device.WaitForUsbReadyAsync();
+        var result = await RunHzdbWithUsbRetryAsync($"device proximity --device {_device.UsbSerial} --disable");
         Assert.DoesNotContain("error", result, StringComparison.OrdinalIgnoreCase);
 
         // Re-enable to not leave device in weird state? Actually user said it's already off
@@ -209,5 +212,18 @@ public class HzdbCommandTests
         var stderr = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
         return stdout + stderr;
+    }
+
+    private async Task<string> RunHzdbWithUsbRetryAsync(string arguments)
+    {
+        var result = await RunHzdb(arguments);
+        if (!result.Contains("Failed to detect USB", StringComparison.OrdinalIgnoreCase))
+        {
+            return result;
+        }
+
+        await _device.WaitForUsbReadyAsync();
+        await Task.Delay(1000);
+        return await RunHzdb(arguments);
     }
 }

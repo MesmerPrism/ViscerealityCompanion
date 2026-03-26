@@ -329,6 +329,8 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="12" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="12" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <Border Grid.Row="0"
@@ -420,6 +422,28 @@
                                                  Command="{Binding RecenterCommand}"
                                                  IsEnabled="{Binding CanSendRecenterCommand}"
                                                  Margin="0,12,0,0" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Row="4"
+                                        Grid.ColumnSpan="3"
+                                        Style="{StaticResource StudyPanelStyle}"
+                                        Background="{Binding PerformanceLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                        BorderBrush="{Binding PerformanceLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                    <StackPanel>
+                                        <TextBlock Text="Performance" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Text="{Binding PerformanceSummary}"
+                                                   FontSize="16"
+                                                   FontWeight="Bold"
+                                                   Foreground="{Binding PerformanceLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                   TextWrapping="Wrap" />
+                                        <ProgressBar Margin="0,10,0,0"
+                                                     Height="8"
+                                                     Maximum="100"
+                                                     Value="{Binding PerformancePercent, Mode=OneWay}"
+                                                     Foreground="{Binding PerformanceLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                        <TextBlock Text="{Binding PerformanceValueLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
+                                        <TextBlock Text="{Binding PerformanceDetail}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
                                     </StackPanel>
                                 </Border>
                             </Grid>
