@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using ViscerealityCompanion.App;
 using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
 
@@ -28,8 +29,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly IQuestControlService _questService;
     private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateDefault();
     private readonly DispatcherTimer? _twinRefreshTimer;
+    private Window? _twinEventsWindow;
     private bool _initialized;
     private bool _twinRefreshPending;
+    private string _activeFocusSectionId = string.Empty;
     private IReadOnlyDictionary<string, string> _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private HeadsetAppStatus? _headsetStatus;
     private InstalledAppStatus? _installedAppStatus;
@@ -138,6 +141,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         RecenterCommand = new AsyncRelayCommand(RecenterAsync);
         ParticlesOnCommand = new AsyncRelayCommand(ParticlesOnAsync);
         ParticlesOffCommand = new AsyncRelayCommand(ParticlesOffAsync);
+        OpenTwinEventsWindowCommand = new AsyncRelayCommand(OpenTwinEventsWindowAsync);
     }
 
     public string StudyLabel => _study.Label;
@@ -521,13 +525,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _selectedLiveSection, value))
             {
-                RefreshFocusRows();
+                RefreshFocusRows(forceRebuild: true);
             }
         }
     }
 
     public ObservableCollection<StudyStatusRow> DeviceProfileRows { get; } = new();
-    public ObservableCollection<StudyStatusRow> FocusRows { get; } = new();
+    public ObservableCollection<StudyStatusRowViewModel> FocusRows { get; } = new();
     public ObservableCollection<TwinStateEvent> RecentTwinEvents { get; } = new();
     public ObservableCollection<OperatorLogEntry> Logs { get; } = new();
 
@@ -561,6 +565,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand RecenterCommand { get; }
     public AsyncRelayCommand ParticlesOnCommand { get; }
     public AsyncRelayCommand ParticlesOffCommand { get; }
+    public AsyncRelayCommand OpenTwinEventsWindowCommand { get; }
 
     public async Task InitializeAsync()
     {
@@ -587,6 +592,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _twinRefreshTimer.Stop();
         }
 
+        CloseTwinEventsWindow();
         (_twinBridge as IDisposable)?.Dispose();
     }
 
@@ -977,6 +983,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             RecenterLevel = OperationOutcomeKind.Preview;
             ParticlesLevel = OperationOutcomeKind.Preview;
             LastTwinStateTimestampLabel = "No live app-state timestamp yet.";
+            _activeFocusSectionId = string.Empty;
             FocusRows.Clear();
             RecentTwinEvents.Clear();
             return;
@@ -1283,14 +1290,43 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             $"HUD suppression {(suppressedByHud == true ? "on" : suppressedByHud == false ? "off" : "unknown")}.";
     }
 
-    private void RefreshFocusRows()
+    private void RefreshFocusRows(bool forceRebuild = false)
     {
-        FocusRows.Clear();
+        var sectionId = SelectedLiveSection?.Id ?? "lsl";
+        var nextRows = BuildFocusRows().ToArray();
+        var canPatchInPlace = !forceRebuild
+            && string.Equals(_activeFocusSectionId, sectionId, StringComparison.OrdinalIgnoreCase)
+            && FocusRows.Count == nextRows.Length;
 
-        foreach (var row in BuildFocusRows())
+        if (canPatchInPlace)
         {
-            FocusRows.Add(row);
+            for (var index = 0; index < nextRows.Length; index++)
+            {
+                if (!string.Equals(FocusRows[index].Key, nextRows[index].Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    canPatchInPlace = false;
+                    break;
+                }
+            }
         }
+
+        if (!canPatchInPlace)
+        {
+            FocusRows.Clear();
+            foreach (var row in nextRows)
+            {
+                FocusRows.Add(new StudyStatusRowViewModel(row));
+            }
+        }
+        else
+        {
+            for (var index = 0; index < nextRows.Length; index++)
+            {
+                FocusRows[index].Apply(nextRows[index]);
+            }
+        }
+
+        _activeFocusSectionId = sectionId;
     }
 
     private IReadOnlyList<StudyStatusRow> BuildFocusRows()
@@ -1673,6 +1709,58 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    private async Task OpenTwinEventsWindowAsync()
+    {
+        await DispatchAsync(() =>
+        {
+            if (_twinEventsWindow is { IsLoaded: true })
+            {
+                if (_twinEventsWindow.WindowState == WindowState.Minimized)
+                {
+                    _twinEventsWindow.WindowState = WindowState.Normal;
+                }
+
+                _twinEventsWindow.Activate();
+                return;
+            }
+
+            var owner = Application.Current?.Windows
+                .OfType<Window>()
+                .FirstOrDefault(window => window.IsActive)
+                ?? Application.Current?.MainWindow;
+
+            var window = new StudyTwinEventsWindow(this)
+            {
+                Owner = owner
+            };
+            window.Closed += OnTwinEventsWindowClosed;
+            _twinEventsWindow = window;
+            window.Show();
+            window.Activate();
+        }).ConfigureAwait(false);
+    }
+
+    private void OnTwinEventsWindowClosed(object? sender, EventArgs e)
+    {
+        if (_twinEventsWindow is not null)
+        {
+            _twinEventsWindow.Closed -= OnTwinEventsWindowClosed;
+            _twinEventsWindow = null;
+        }
+    }
+
+    private void CloseTwinEventsWindow()
+    {
+        if (_twinEventsWindow is null)
+        {
+            return;
+        }
+
+        _twinEventsWindow.Closed -= OnTwinEventsWindowClosed;
+        _twinEventsWindow.Close();
+        _twinEventsWindow = null;
+    }
+
     private static OperatorLogLevel MapLevel(OperationOutcomeKind kind)
         => kind switch
         {
@@ -1708,6 +1796,72 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 public sealed record StudyValueSection(string Id, string Label, string Description)
 {
     public override string ToString() => Label;
+}
+
+public sealed class StudyStatusRowViewModel : ObservableObject
+{
+    private string _label;
+    private string _key;
+    private string _value;
+    private string _expected;
+    private string _detail;
+    private OperationOutcomeKind _level;
+
+    public StudyStatusRowViewModel(StudyStatusRow source)
+    {
+        _label = source.Label;
+        _key = source.Key;
+        _value = source.Value;
+        _expected = source.Expected;
+        _detail = source.Detail;
+        _level = source.Level;
+    }
+
+    public string Label
+    {
+        get => _label;
+        private set => SetProperty(ref _label, value);
+    }
+
+    public string Key
+    {
+        get => _key;
+        private set => SetProperty(ref _key, value);
+    }
+
+    public string Value
+    {
+        get => _value;
+        private set => SetProperty(ref _value, value);
+    }
+
+    public string Expected
+    {
+        get => _expected;
+        private set => SetProperty(ref _expected, value);
+    }
+
+    public string Detail
+    {
+        get => _detail;
+        private set => SetProperty(ref _detail, value);
+    }
+
+    public OperationOutcomeKind Level
+    {
+        get => _level;
+        private set => SetProperty(ref _level, value);
+    }
+
+    public void Apply(StudyStatusRow source)
+    {
+        Label = source.Label;
+        Key = source.Key;
+        Value = source.Value;
+        Expected = source.Expected;
+        Detail = source.Detail;
+        Level = source.Level;
+    }
 }
 
 public sealed record StudyStatusRow(

@@ -29,6 +29,17 @@
         <Style x:Key="StudyPanelStyle" TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
             <Setter Property="Padding" Value="14" />
         </Style>
+
+        <Style x:Key="DataGridCellTextStyle" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="NoWrap" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <Style x:Key="DataGridCodeTextStyle" TargetType="TextBlock" BasedOn="{StaticResource DataGridCellTextStyle}">
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
     </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -373,46 +384,81 @@
                                 <Button Content="Particles Off"
                                         Command="{Binding ParticlesOffCommand}"
                                         IsEnabled="{Binding CanToggleParticles}" />
+                                <Button Content="Open Twin Event Log"
+                                        Command="{Binding OpenTwinEventsWindowCommand}" />
                             </WrapPanel>
+                            <TextBlock Text="Keep the raw event stream out of the main study page. Open the twin event log only when you need to inspect individual state messages."
+                                       Style="{StaticResource CompactCaptionStyle}"
+                                       Margin="0,10,0,0" />
                         </StackPanel>
                     </Border>
 
                     <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Focused Live Values" Style="{StaticResource SectionTitleStyle}" />
-                            <ComboBox ItemsSource="{Binding LiveSections}"
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="10" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Row="0"
+                                       Grid.Column="0"
+                                       Text="Focused Live Values"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Grid.Row="0"
+                                       Grid.Column="1"
+                                       Text="Stable operator view"
+                                       Style="{StaticResource CompactCaptionStyle}"
+                                       VerticalAlignment="Center" />
+
+                            <ComboBox Grid.Row="2"
+                                      Grid.ColumnSpan="2"
+                                      ItemsSource="{Binding LiveSections}"
                                       SelectedItem="{Binding SelectedLiveSection}" />
-                            <DataGrid ItemsSource="{Binding FocusRows}"
+
+                            <DataGrid Grid.Row="4"
+                                      Grid.ColumnSpan="2"
+                                      ItemsSource="{Binding FocusRows}"
                                       AutoGenerateColumns="False"
                                       CanUserAddRows="False"
                                       CanUserDeleteRows="False"
+                                      CanUserResizeRows="False"
                                       IsReadOnly="True"
+                                      EnableColumnVirtualization="True"
+                                      EnableRowVirtualization="True"
                                       HeadersVisibility="Column"
-                                      MaxHeight="250">
+                                      Height="320"
+                                      MinHeight="320"
+                                      MaxHeight="320"
+                                      ScrollViewer.CanContentScroll="True"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Signal" Binding="{Binding Label}" Width="1.2*" />
-                                    <DataGridTextColumn Header="Live" Binding="{Binding Value}" Width="1.1*" />
-                                    <DataGridTextColumn Header="Expected" Binding="{Binding Expected}" Width="1.1*" />
-                                    <DataGridTextColumn Header="Key" Binding="{Binding Key}" Width="1.6*" />
+                                    <DataGridTextColumn Header="Signal"
+                                                        Binding="{Binding Label}"
+                                                        Width="210"
+                                                        ElementStyle="{StaticResource DataGridCellTextStyle}" />
+                                    <DataGridTextColumn Header="Live"
+                                                        Binding="{Binding Value}"
+                                                        Width="240"
+                                                        ElementStyle="{StaticResource DataGridCellTextStyle}" />
+                                    <DataGridTextColumn Header="Expected"
+                                                        Binding="{Binding Expected}"
+                                                        Width="210"
+                                                        ElementStyle="{StaticResource DataGridCellTextStyle}" />
+                                    <DataGridTextColumn Header="Key"
+                                                        Binding="{Binding Key}"
+                                                        Width="*"
+                                                        ElementStyle="{StaticResource DataGridCodeTextStyle}" />
                                 </DataGrid.Columns>
                             </DataGrid>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Recent Twin Events" Style="{StaticResource SectionTitleStyle}" />
-                            <ListBox ItemsSource="{Binding RecentTwinEvents}" MaxHeight="180">
-                                <ListBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Margin="0,0,0,6">
-                                            <TextBlock Text="{Binding Detail}" FontWeight="Bold" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Payload}" Style="{StaticResource CompactCaptionStyle}" />
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </ListBox.ItemTemplate>
-                            </ListBox>
-                        </StackPanel>
+                        </Grid>
                     </Border>
                 </StackPanel>
             </Grid>
