@@ -159,7 +159,7 @@ button:focus-visible {
 }
 
 .hero {
-  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr) 340px;
 }
 
 .page-layout {
@@ -190,8 +190,8 @@ button:focus-visible {
 .hero h1,
 .prose h1 {
   margin: 0 0 12px;
-  font-size: clamp(2.8rem, 6vw, 5rem);
-  line-height: 0.92;
+  font-size: clamp(2.4rem, 4.8vw, 4.2rem);
+  line-height: 0.95;
   letter-spacing: -0.06em;
 }
 
@@ -212,7 +212,46 @@ button:focus-visible {
 .prose li {
   color: var(--ink-muted);
   font-size: 1.02rem;
-  line-height: 1.65;
+  line-height: 1.58;
+}
+
+.quick-steps {
+  margin: 0 0 16px;
+  padding-left: 1.2rem;
+  color: var(--ink-soft);
+}
+
+.quick-steps li + li {
+  margin-top: 0.55rem;
+}
+
+.aside-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.aside-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.aside-link:hover {
+  background: var(--paper);
+  border-color: rgba(37, 138, 203, 0.28);
+}
+
+.aside-note {
+  margin: 0;
 }
 
 .sidebar {

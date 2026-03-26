@@ -39,10 +39,10 @@ It currently pins:
 
 - package id: `com.Viscereality.LslTwin`
 - version: `0.1.0`
-- SHA256: `CD8E119D0AED030450BBECD9CF4C2BD9B0F67CBCDF5A0676DE36D4A79C6B7A4B`
+- SHA256: `CA52EBBF30FA4D1C524CCE36A3B2644E634C8DBFD20E8C90D97D051306A897BB`
 - device profile: `CPU 2 / GPU 5 / static foveation level 1`
 - expected LSL input target: `quest_biofeedback_in / quest.biofeedback`
-- expected routing: `Controller Volume / LSL Heartbeat / Heartbeat Derived`
+- expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
 
 The embedded Sussex workspace checks:
 
@@ -50,10 +50,11 @@ The embedded Sussex workspace checks:
 - whether the same build is already installed on the headset
 - whether the pinned Quest device profile is currently active
 - live LSL target, connected stream, and inlet status from `quest_twin_state`
-- normalized `0..1` inbound breath volume when the runtime publicly echoes it
+- direct `0..1` inbound coherence when the runtime publicly echoes it
 - controller breathing, heartbeat, and coherence values from the study runtime
 - camera drift from the last recenter anchor
 - particle visibility and whether rendering is suppressed by the operator or HUD
+- current fps, frame time, and refresh-rate telemetry when the runtime publishes it
 
 The current public shell can also send the study recenter command and the
 dedicated particle visibility on/off commands.
@@ -70,18 +71,17 @@ That harness:
 - opens the main WPF app
 - activates `Sussex University experiment mode`
 - starts a local float LSL sender on `quest_biofeedback_in / quest.biofeedback`
-- publishes `0..1` breath-volume samples from this Windows machine
+- publishes direct `0..1` coherence packets from this Windows machine at a mock heartbeat cadence
 - installs, launches, and profiles the pinned Sussex APK
 - captures screenshots plus a text report
 
 At the moment, the public study telemetry confirms full sender -> headset inlet
 connectivity through `study.lsl.connected_*` and `study.lsl.status`. If the
-runtime also exposes `signal01.breathing_lsl` or a `driver.stream.*.value01`
-mirror entry, the harness will measure round-trip latency for the normalized
-`0..1` breath-volume value. On the currently verified public Sussex build, that
-value was not echoed back over `quest_twin_state`, so the harness could prove
-the path and pinned stream target but not compute a trustworthy value-level
-latency yet.
+runtime also exposes `signal01.coherence_lsl` or a `driver.stream.*.value01`
+mirror entry, the harness will measure round-trip latency for the direct
+coherence value. The currently verified public Sussex build does expose that
+value, so the harness now reports measured coherence loop latency in the text
+report.
 
 ## How Study Shell Discovery Works
 

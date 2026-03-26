@@ -9,8 +9,9 @@ nav_order: 20
 
 # First Session
 
-This guide walks through the clean operator path in the desktop app. Use the
-`Start Here` tab if you want the shortest route through the UI.
+This guide walks through the clean operator path in the desktop app. If your
+study team already gave you a dedicated study shell such as Sussex, use that
+surface first. Otherwise use `Start Here`.
 
 ## 1. Connect Your Quest
 
@@ -30,11 +31,12 @@ viscereality connect 192.168.43.1:5555
 The first time you do this on a machine, approve the USB debugging prompt in
 the headset.
 
-## 2. Select The Study Build
+## 2. Open The Right Operator Surface
 
 In the app:
 
-- open `Start Here` or `Quest Library`
+- open the supplied study shell from `Start Here` if one is available
+- otherwise stay in `Start Here` or move to `Quest Library`
 - run `Refresh Device Snapshot` first if you want the app to adopt a known
   foreground target automatically
 - if Quest Home or another non-catalog app is foreground, select the supplied
@@ -44,24 +46,25 @@ In the app:
 
 In the committed public sample catalog, that target is currently `LslTwin`.
 
-If the study team already gave you a dedicated study shell, you can open it
-from `Start Here` instead of using the full catalog views. That path pins the
-expected build and device profile for you.
+If the study team already gave you a dedicated study shell, that path pins the
+expected build and device profile for you and keeps the live monitor narrower.
 
-## 3. Install And Launch
+## 3. Install The Study Build
 
-**WPF App:** Click **Install App**, then **Launch App**.
+**WPF App:** In a study shell, click **Install Pinned Build**. In the full app,
+click **Install App**.
 
 **CLI:**
 
 ```powershell
 viscereality install path/to/viscereality.apk
-viscereality launch com.example.package
 ```
 
-## 4. Set Quest Performance
+## 4. Apply The Study Device Profile
 
-Use the CPU and GPU fields in the app and apply the study-recommended values.
+If you are in a study shell, click **Apply Study Device Profile**. If you are
+in the full app, use the CPU and GPU fields and apply the study-recommended
+values.
 
 **CLI:**
 
@@ -69,14 +72,19 @@ Use the CPU and GPU fields in the app and apply the study-recommended values.
 viscereality perf 4 4
 ```
 
-## 5. Confirm Live State
+## 5. Launch And Confirm Live State
+
+**WPF App:** In a study shell, click **Launch Study Runtime**. In the full app,
+click **Launch App**.
 
 Use the app to confirm:
 
+- the top status cards show Quest connected, the pinned build installed, the device profile active, and live runtime active
 - the foreground package is the one you launched
 - the headset snapshot reports the expected model, battery, and CPU/GPU state
 - `quest_monitor` is live if the build publishes the lightweight monitor outlet
 - twin-state frames appear when the supplied APK includes the twin publisher
+- if the study uses the Sussex shell, live monitoring should also show LSL input, coherence, recenter state, particles state, and performance
 
 **CLI:**
 
@@ -95,6 +103,16 @@ The current research mode is remote-only by default:
 
 When you need to mark or pause a session, use the buttons on `Start Here` or
 the detailed controls in `Twin Monitor`.
+
+## What Healthy Looks Like
+
+Before the participant starts, a good operator state is:
+
+- the Quest is connected over USB or Wi-Fi ADB
+- the intended study APK is selected and installed
+- the headset reports the study runtime in front
+- the pinned device profile has been applied
+- the live runtime or study shell shows fresh twin-state timestamps
 
 ## 7. End Session
 

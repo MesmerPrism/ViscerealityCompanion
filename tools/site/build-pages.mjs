@@ -103,6 +103,7 @@ function renderPage(page, pages) {
     const downloadPage = pages.find(candidate => candidate.relativePath === "download.md");
     const firstSessionPage = pages.find(candidate => candidate.relativePath === "first-session.md");
     const gettingStartedPage = pages.find(candidate => candidate.relativePath === "getting-started.md");
+    const studyShellsPage = pages.find(candidate => candidate.relativePath === "study-shells.md");
     const topNav = [
         homePage,
         downloadPage,
@@ -114,6 +115,17 @@ function renderPage(page, pages) {
             const relativeHref = path.relative(path.dirname(page.outputPath), candidate.outputPath).replace(/\\/g, "/");
             const activeClass = candidate.outputPath === page.outputPath ? " active" : "";
             return `<a class="${activeClass.trim()}" href="${relativeHref}">${escapeHtml(candidate.navLabel)}</a>`;
+        })
+        .join("");
+    const onboardingLinks = [
+        downloadPage,
+        firstSessionPage,
+        studyShellsPage
+    ]
+        .filter(Boolean)
+        .map(candidate => {
+            const relativeHref = path.relative(path.dirname(page.outputPath), candidate.outputPath).replace(/\\/g, "/");
+            return `<a class="aside-link" href="${relativeHref}">${escapeHtml(candidate.navLabel)}</a>`;
         })
         .join("");
 
@@ -146,9 +158,14 @@ function renderPage(page, pages) {
         <p class="page-intro">${escapeHtml(page.summary)}</p>
       </div>
       <aside class="hero-aside panel">
-        <h2>Public repo, separate runtime repo</h2>
-        <p>The Windows app, docs, and packaging live here. The Unity scene and study APK development stay in AstralKarateDojo.</p>
-        <p>For operators, the normal path is: install the app, connect Quest, install the supplied APK, launch it, then monitor and track from Windows.</p>
+        <h2>New here?</h2>
+        <ol class="quick-steps">
+          <li>Install the Windows app or launcher you were given.</li>
+          <li>Connect the Quest, then open <strong>Start Here</strong> or the study shell your team uses.</li>
+          <li>Install the supplied APK, launch it, and keep status monitoring on Windows.</li>
+        </ol>
+        <div class="aside-links">${onboardingLinks}</div>
+        <p class="aside-note">This repo is the public Windows operator surface. The Unity runtime and study APK development stay in AstralKarateDojo.</p>
       </aside>
     </section>
 

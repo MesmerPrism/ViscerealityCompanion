@@ -188,8 +188,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         get => _activeStudyShell;
         private set
         {
+            var previous = _activeStudyShell;
             if (SetProperty(ref _activeStudyShell, value))
             {
+                if (previous is not null)
+                {
+                    previous.PropertyChanged -= OnActiveStudyShellPropertyChanged;
+                }
+
+                if (value is not null)
+                {
+                    value.PropertyChanged += OnActiveStudyShellPropertyChanged;
+                }
+
                 OnPropertyChanged(nameof(HasActiveStudyShell));
                 OnPropertyChanged(nameof(PrimaryWorkflowTabLabel));
                 OnPropertyChanged(nameof(CurrentModeLabel));
@@ -197,6 +208,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(HeaderModeSummary));
                 OnPropertyChanged(nameof(TargetSelectionHeadline));
                 OnPropertyChanged(nameof(TargetSelectionDetail));
+                OnPropertyChanged(nameof(SessionHealthSummary));
+                OnPropertyChanged(nameof(OnDeviceStatusDetail));
+                OnPropertyChanged(nameof(LiveSignalHeadline));
+                OnPropertyChanged(nameof(LiveSignalDetail));
+                OnPropertyChanged(nameof(HeaderTargetLevel));
+                OnPropertyChanged(nameof(HeaderConnectionLevel));
+                OnPropertyChanged(nameof(HeaderLiveLevel));
             }
         }
     }
@@ -688,6 +706,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string MonitorRateLabel => $"{MonitorSampleRateHz:0} Hz";
 
+    public OperationOutcomeKind HeaderTargetLevel
+        => ActiveStudyShell?.PinnedBuildLevel ?? TargetStatusLevel;
+
+    public OperationOutcomeKind HeaderConnectionLevel
+        => ActiveStudyShell?.QuestStatusLevel ?? HeadsetActivityLevel;
+
+    public OperationOutcomeKind HeaderLiveLevel
+        => ActiveStudyShell?.LiveRuntimeLevel ?? LiveSignalLevel;
+
     public OperationOutcomeKind LiveSignalLevel
     {
         get
@@ -707,40 +734,52 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     }
 
     public string LiveSignalHeadline
-        => !string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId)
+        => ActiveStudyShell is not null
+            ? ActiveStudyShell.LiveRuntimeSummary
+            : !string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId)
             ? "Twin-state reporting live."
             : MonitorSampleRateHz > 0.1f
                 ? $"Monitor stream live at {MonitorSampleRateHz:0} Hz."
                 : "Waiting for live runtime signal.";
 
     public string LiveSignalDetail
-        => !string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId)
+        => ActiveStudyShell is not null
+            ? $"{ActiveStudyShell.LiveRuntimeDetail} {ActiveStudyShell.LastTwinStateTimestampLabel}".Trim()
+            : !string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId)
             ? $"{LiveTwinPublisherLabel} {LastTwinStateTimestampLabel}"
             : MonitorSampleRateHz > 0.1f
                 ? $"{MonitorSummary} {MonitorDetail}"
                 : $"{TwinBridgeSummary} {MonitorSummary}";
 
     public string OnDeviceStatusDetail
-        => IsForegroundMismatch
+        => ActiveStudyShell is not null
+            ? $"{ActiveStudyShell.ConnectionSummary}. {ActiveStudyShell.QuestStatusDetail}".Trim()
+            : IsForegroundMismatch
             ? ForegroundMismatchLabel
             : string.IsNullOrWhiteSpace(_activeForegroundPackageId)
                 ? HeadsetActivityDetail
                 : $"{HeadsetForegroundPackage}. {HeadsetActivityDetail}";
 
     public string SessionHealthSummary
-        => IsQuestConnected
+        => ActiveStudyShell is not null
+            ? ActiveStudyShell.QuestStatusSummary
+            : IsQuestConnected
             ? $"{HeadsetActivityLabel}. {DeviceSnapshotAgeLabel}"
             : "Reconnect the Quest before install, launch, or snapshot actions.";
 
     public string TargetSelectionHeadline
-        => SelectedApp is null
+        => ActiveStudyShell is not null
+            ? $"Selected study target: {ActiveStudyShell.StudyLabel}"
+            : SelectedApp is null
             ? ActiveStudyShell is null
                 ? "Selected target: waiting for headset check."
                 : $"Selected study target: {ActiveStudyShell.StudyLabel}"
             : $"Selected target: {SelectedApp.Label}";
 
     public string TargetSelectionDetail
-        => SelectedApp is null
+        => ActiveStudyShell is not null
+            ? $"{ActiveStudyShell.PinnedPackageId}. {ActiveStudyShell.PinnedBuildSummary}"
+            : SelectedApp is null
             ? ActiveStudyShell is null
                 ? "Refresh Device Snapshot to adopt the current headset app automatically, or choose one manually in Quest Library."
                 : $"{ActiveStudyShell.PinnedPackageId}. Study mode is active, so the main window is pinned to the Sussex operator surface while the headset snapshot catches up."
@@ -2220,6 +2259,32 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             or nameof(RuntimeConfigWorkspaceViewModel.SelectedProfileLabel))
         {
             RefreshRuntimeContextLabels();
+        }
+    }
+
+    private void OnActiveStudyShellPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(StudyShellViewModel.ConnectionSummary):
+            case nameof(StudyShellViewModel.QuestStatusSummary):
+            case nameof(StudyShellViewModel.QuestStatusDetail):
+            case nameof(StudyShellViewModel.PinnedBuildSummary):
+            case nameof(StudyShellViewModel.PinnedBuildLevel):
+            case nameof(StudyShellViewModel.LiveRuntimeSummary):
+            case nameof(StudyShellViewModel.LiveRuntimeDetail):
+            case nameof(StudyShellViewModel.LiveRuntimeLevel):
+            case nameof(StudyShellViewModel.LastTwinStateTimestampLabel):
+                OnPropertyChanged(nameof(TargetSelectionHeadline));
+                OnPropertyChanged(nameof(TargetSelectionDetail));
+                OnPropertyChanged(nameof(SessionHealthSummary));
+                OnPropertyChanged(nameof(OnDeviceStatusDetail));
+                OnPropertyChanged(nameof(LiveSignalHeadline));
+                OnPropertyChanged(nameof(LiveSignalDetail));
+                OnPropertyChanged(nameof(HeaderTargetLevel));
+                OnPropertyChanged(nameof(HeaderConnectionLevel));
+                OnPropertyChanged(nameof(HeaderLiveLevel));
+                break;
         }
     }
 

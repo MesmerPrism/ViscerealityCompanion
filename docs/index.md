@@ -30,6 +30,14 @@ watch live state, and keep session control on the operator side.
 - stage runtime-config changes from the desktop side
 - keep the participant experience simple while the operator handles the controls
 
+## If This Is Your First Session
+
+Use these three pages in order:
+
+1. [Download](download.md) the Windows app or launcher path you were given.
+2. [First Session](first-session.md) to connect the Quest, install the study APK, and launch it.
+3. [Study Shells](study-shells.md) if your team gave you a pinned operator surface such as Sussex.
+
 ## Choose Your Path
 
 <div class="card-grid">

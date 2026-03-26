@@ -12,6 +12,14 @@ nav_order: 15
 The intended operator path is a packaged Windows install with one launcher entry
 in the Start menu and a matching taskbar icon.
 
+## Fastest Operator Path
+
+If you are trying to get to a session quickly:
+
+1. Use the packaged app when a release is available.
+2. If no release is available, use `Start-Desktop-App.ps1` from the repo.
+3. Then continue with [First Session](first-session.md).
+
 ## Install Options
 
 ### Packaged app

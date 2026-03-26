@@ -30,6 +30,12 @@
             <Setter Property="Padding" Value="14" />
         </Style>
 
+        <Style x:Key="StudyInsetPanelStyle" TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+
         <Style x:Key="DataGridCellTextStyle" TargetType="TextBlock">
             <Setter Property="TextWrapping" Value="NoWrap" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
@@ -71,23 +77,29 @@
                                        Margin="0,8,0,0" />
                         </StackPanel>
 
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="{Binding PinnedBuildSummary}"
-                                       FontSize="17"
-                                       FontWeight="Bold"
-                                       Foreground="{Binding PinnedBuildLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                       TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding PinnedBuildDetail}"
-                                       Style="{StaticResource CompactCaptionStyle}"
-                                       Margin="0,6,0,0" />
-                            <TextBlock Text="{Binding LastActionLabel}"
-                                       FontSize="14"
-                                       FontWeight="Bold"
-                                       Margin="0,10,0,0" />
-                            <TextBlock Text="{Binding LastActionDetail}"
-                                       Style="{StaticResource CompactCaptionStyle}"
-                                       Margin="0,4,0,0" />
-                        </StackPanel>
+                        <Border Grid.Column="2" Style="{StaticResource StudyInsetPanelStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Current status" Style="{StaticResource InfoLabelStyle}" />
+                                <TextBlock Text="{Binding PinnedBuildSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding PinnedBuildLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding PinnedBuildDetail}"
+                                           Style="{StaticResource CompactCaptionStyle}"
+                                           Margin="0,6,0,0" />
+                                <Separator Margin="0,10,0,10" />
+                                <TextBlock Text="Last operator action" Style="{StaticResource InfoLabelStyle}" />
+                                <TextBlock Text="{Binding LastActionLabel}"
+                                           FontSize="14"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding LastActionLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding LastActionDetail}"
+                                           Style="{StaticResource CompactCaptionStyle}"
+                                           Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
                     </Grid>
 
                     <Grid Margin="0,12,0,0">
@@ -174,20 +186,98 @@
                 <StackPanel Grid.Column="0">
                     <Border Style="{StaticResource StudyPanelStyle}">
                         <StackPanel>
-                            <TextBlock Text="Session Setup" Style="{StaticResource SectionTitleStyle}" />
-                            <TextBlock Text="Connect the Quest, verify the supplied Sussex build, and keep this shell focused on one pinned runtime and one pinned device profile."
+                            <TextBlock Text="Session Path" Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="Work from top to bottom: connect the headset, confirm the pinned build, then apply the pinned device profile before launching."
                                        Style="{StaticResource SectionCaptionStyle}" />
-                            <TextBlock Text="Quest endpoint" Style="{StaticResource InfoLabelStyle}" />
-                            <TextBox Text="{Binding EndpointDraft, UpdateSourceTrigger=PropertyChanged}" />
-                            <WrapPanel Margin="0,2,0,8">
-                                <Button Content="Probe USB" Command="{Binding ProbeUsbCommand}" />
-                                <Button Content="Find Wi-Fi Quest" Command="{Binding DiscoverWifiCommand}" />
-                                <Button Content="Enable Wi-Fi ADB" Command="{Binding EnableWifiCommand}" />
-                                <Button Content="Connect Quest" Command="{Binding ConnectQuestCommand}" />
-                                <Button Content="Refresh Study Status" Command="{Binding RefreshStatusCommand}" />
-                            </WrapPanel>
-                            <TextBlock Text="{Binding ConnectionSummary}" FontWeight="Bold" TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding QuestStatusDetail}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
+                            <Border Style="{StaticResource StudyInsetPanelStyle}" Margin="0,10,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="1. Connect headset" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding ConnectionSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="Quest endpoint" Style="{StaticResource InfoLabelStyle}" Margin="0,10,0,6" />
+                                    <TextBox Text="{Binding EndpointDraft, UpdateSourceTrigger=PropertyChanged}" />
+                                    <WrapPanel Margin="0,8,0,0">
+                                        <Button Content="Probe USB" Command="{Binding ProbeUsbCommand}" />
+                                        <Button Content="Find Wi-Fi Quest" Command="{Binding DiscoverWifiCommand}" />
+                                        <Button Content="Enable Wi-Fi ADB" Command="{Binding EnableWifiCommand}" />
+                                        <Button Content="Connect Quest" Command="{Binding ConnectQuestCommand}" />
+                                        <Button Content="Refresh Study Status" Command="{Binding RefreshStatusCommand}" />
+                                    </WrapPanel>
+                                    <TextBlock Text="{Binding QuestStatusDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyInsetPanelStyle}" Margin="0,10,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="2. Verify pinned build" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding PinnedBuildSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding PinnedBuildLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding PinnedBuildDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+
+                                    <TextBlock Text="Selected local file" Style="{StaticResource InfoLabelStyle}" Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding LocalApkSummary}"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding LocalApkLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding StagedApkPath}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,4,0,0" />
+
+                                    <TextBlock Text="Installed on headset" Style="{StaticResource InfoLabelStyle}" Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding InstalledApkSummary}"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding InstalledApkLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding InstalledApkDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,4,0,0" />
+
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="Choose Study APK" Command="{Binding BrowseApkCommand}" />
+                                        <Button Content="Install Pinned Build" Command="{Binding InstallStudyAppCommand}" />
+                                        <Button Content="Launch Study Runtime" Command="{Binding LaunchStudyAppCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyInsetPanelStyle}" Margin="0,10,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="3. Apply pinned device profile" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding DeviceProfileSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding DeviceProfileLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding DeviceProfileDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <Button Content="Apply Study Device Profile"
+                                            Command="{Binding ApplyPinnedDeviceProfileCommand}"
+                                            Margin="0,10,0,8" />
+                                    <DataGrid ItemsSource="{Binding DeviceProfileRows}"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              CanUserDeleteRows="False"
+                                              IsReadOnly="True"
+                                              HeadersVisibility="Column"
+                                              MaxHeight="220">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Property" Binding="{Binding Label}" Width="2.2*" />
+                                            <DataGridTextColumn Header="Live" Binding="{Binding Value}" Width="1.3*" />
+                                            <DataGridTextColumn Header="Expected" Binding="{Binding Expected}" Width="1.1*" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
 
@@ -196,101 +286,62 @@
                             <TextBlock Text="Bench Tools" Style="{StaticResource SectionTitleStyle}" />
                             <TextBlock Text="Use these only for headset bench checks. They expose the last companion-issued proximity hold and an explicitly synthetic Windows TEST LSL sender."
                                        Style="{StaticResource SectionCaptionStyle}" />
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
 
-                            <Border Padding="12"
-                                    Margin="0,10,0,0"
-                                    Background="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
-                                    BorderBrush="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                    BorderThickness="1"
-                                    CornerRadius="12">
-                                <StackPanel>
-                                    <TextBlock Text="Proximity Hold" Style="{StaticResource InfoLabelStyle}" />
-                                    <TextBlock Text="{Binding ProximitySummary}"
-                                               FontSize="15"
-                                               FontWeight="Bold"
-                                               Foreground="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock Text="{Binding ProximityDetail}"
-                                               Style="{StaticResource CompactCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <Button Content="{Binding ProximityActionLabel}"
-                                            Command="{Binding ToggleProximityCommand}"
-                                            IsEnabled="{Binding CanToggleProximity}"
-                                            Margin="0,10,0,0" />
-                                </StackPanel>
-                            </Border>
+                                <Border Grid.Column="0"
+                                        Padding="12"
+                                        Background="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                        BorderBrush="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                    <StackPanel>
+                                        <TextBlock Text="Proximity Hold" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Text="{Binding ProximitySummary}"
+                                                   FontSize="15"
+                                                   FontWeight="Bold"
+                                                   Foreground="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding ProximityDetail}"
+                                                   Style="{StaticResource CompactCaptionStyle}"
+                                                   Margin="0,6,0,0" />
+                                        <Button Content="{Binding ProximityActionLabel}"
+                                                Command="{Binding ToggleProximityCommand}"
+                                                IsEnabled="{Binding CanToggleProximity}"
+                                                Margin="0,10,0,0" />
+                                    </StackPanel>
+                                </Border>
 
-                            <Border Padding="12"
-                                    Margin="0,10,0,0"
-                                    Background="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
-                                    BorderBrush="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                    BorderThickness="1"
-                                    CornerRadius="12">
-                                <StackPanel>
-                                    <TextBlock Text="Windows TEST LSL Sender" Style="{StaticResource InfoLabelStyle}" />
-                                    <TextBlock Text="{Binding TestLslSenderSummary}"
-                                               FontSize="15"
-                                               FontWeight="Bold"
-                                               Foreground="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock Text="{Binding TestLslSenderValueLabel}"
-                                               Style="{StaticResource CompactCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding TestLslSenderDetail}"
-                                               Style="{StaticResource CompactCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <Button Content="{Binding TestLslSenderActionLabel}"
-                                            Command="{Binding ToggleTestLslSenderCommand}"
-                                            IsEnabled="{Binding CanToggleTestLslSender}"
-                                            Margin="0,10,0,0" />
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Pinned APK" Style="{StaticResource SectionTitleStyle}" />
-                            <TextBlock Text="{Binding LocalApkSummary}"
-                                       FontSize="16"
-                                       FontWeight="Bold"
-                                       Foreground="{Binding LocalApkLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                       TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding StagedApkPath}" Style="{StaticResource CompactCaptionStyle}" Margin="0,8,0,0" />
-                            <TextBlock Text="{Binding InstalledApkSummary}"
-                                       FontSize="15"
-                                       FontWeight="Bold"
-                                       Foreground="{Binding InstalledApkLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                       Margin="0,10,0,0"
-                                       TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding InstalledApkDetail}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
-                            <WrapPanel Margin="0,12,0,0">
-                                <Button Content="Choose Study APK" Command="{Binding BrowseApkCommand}" />
-                                <Button Content="Install Pinned Build" Command="{Binding InstallStudyAppCommand}" />
-                                <Button Content="Launch Study Runtime" Command="{Binding LaunchStudyAppCommand}" />
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Pinned Device Profile" Style="{StaticResource SectionTitleStyle}" />
-                            <Button Content="Apply Study Device Profile"
-                                    Command="{Binding ApplyPinnedDeviceProfileCommand}"
-                                    Margin="0,0,0,8" />
-                            <DataGrid ItemsSource="{Binding DeviceProfileRows}"
-                                      AutoGenerateColumns="False"
-                                      CanUserAddRows="False"
-                                      CanUserDeleteRows="False"
-                                      IsReadOnly="True"
-                                      HeadersVisibility="Column"
-                                      MaxHeight="220">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Property" Binding="{Binding Label}" Width="2.2*" />
-                                    <DataGridTextColumn Header="Live" Binding="{Binding Value}" Width="1.3*" />
-                                    <DataGridTextColumn Header="Expected" Binding="{Binding Expected}" Width="1.1*" />
-                                </DataGrid.Columns>
-                            </DataGrid>
+                                <Border Grid.Column="2"
+                                        Padding="12"
+                                        Background="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                        BorderBrush="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                    <StackPanel>
+                                        <TextBlock Text="Windows TEST LSL Sender" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Text="{Binding TestLslSenderSummary}"
+                                                   FontSize="15"
+                                                   FontWeight="Bold"
+                                                   Foreground="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding TestLslSenderValueLabel}"
+                                                   Style="{StaticResource CompactCaptionStyle}"
+                                                   Margin="0,6,0,0" />
+                                        <TextBlock Text="{Binding TestLslSenderDetail}"
+                                                   Style="{StaticResource CompactCaptionStyle}"
+                                                   Margin="0,6,0,0" />
+                                        <Button Content="{Binding TestLslSenderActionLabel}"
+                                                Command="{Binding ToggleTestLslSenderCommand}"
+                                                IsEnabled="{Binding CanToggleTestLslSender}"
+                                                Margin="0,10,0,0" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
                         </StackPanel>
                     </Border>
 

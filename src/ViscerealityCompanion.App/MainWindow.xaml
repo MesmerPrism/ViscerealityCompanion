@@ -406,48 +406,108 @@
                 Style="{StaticResource PanelBorderStyle}"
                 Padding="12,10">
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="20" />
-                    <ColumnDefinition Width="520" />
-                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="12" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="Viscereality Companion"
-                               FontSize="28"
-                               FontWeight="Bold" />
-                    <TextBlock Text="Install the supplied Quest build, monitor live study state, and keep operator control on Windows."
-                               Style="{StaticResource SectionCaptionStyle}"
-                               Margin="0,6,0,0" />
-                </StackPanel>
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="20" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="2">
-                    <TextBlock Text="{Binding CurrentModeLabel}"
-                               FontSize="18"
-                               FontWeight="Bold"
-                               TextAlignment="Right"
-                               TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding HeaderModeSummary}"
-                               Style="{StaticResource MicroCaptionStyle}"
-                               Margin="0,6,0,0"
-                               TextAlignment="Right" />
-                    <TextBlock Text="{Binding TargetSelectionHeadline}"
-                               FontSize="14"
-                               FontWeight="Bold"
-                               Margin="0,8,0,0"
-                               TextAlignment="Right"
-                               TextWrapping="Wrap" />
-                    <WrapPanel Margin="0,8,0,0" HorizontalAlignment="Right">
-                        <Button Content="Exit Study Mode"
-                                Command="{Binding ExitStudyModeCommand}"
-                                Visibility="{Binding HasActiveStudyShell, Converter={StaticResource BoolToVisibility}}" />
-                        <CheckBox Content="Remote-only research control"
-                                  Margin="0,6,10,0"
-                                  IsChecked="{Binding RemoteOnlyControlEnabled}" />
-                        <Button Content="Refresh Snapshot" Command="{Binding RefreshHeadsetStatusCommand}" />
-                        <Button Content="Refresh Foreground" Command="{Binding RefreshForegroundCommand}" />
-                    </WrapPanel>
-                </StackPanel>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Viscereality Companion"
+                                   FontSize="28"
+                                   FontWeight="Bold" />
+                        <TextBlock Text="Install the supplied Quest build, monitor live study state, and keep operator control on Windows."
+                                   Style="{StaticResource SectionCaptionStyle}"
+                                   Margin="0,6,0,0" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" MaxWidth="500">
+                        <TextBlock Text="{Binding CurrentModeLabel}"
+                                   FontSize="18"
+                                   FontWeight="Bold"
+                                   TextAlignment="Right"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding CurrentModeDetail}"
+                                   Style="{StaticResource MicroCaptionStyle}"
+                                   Margin="0,6,0,0"
+                                   TextAlignment="Right" />
+                        <WrapPanel Margin="0,10,0,0" HorizontalAlignment="Right">
+                            <Button Content="Exit Study Mode"
+                                    Command="{Binding ExitStudyModeCommand}"
+                                    Visibility="{Binding HasActiveStudyShell, Converter={StaticResource BoolToVisibility}}" />
+                            <CheckBox Content="Remote-only research control"
+                                      Margin="0,6,10,0"
+                                      IsChecked="{Binding RemoteOnlyControlEnabled}" />
+                            <Button Content="Refresh Snapshot" Command="{Binding RefreshHeadsetStatusCommand}" />
+                            <Button Content="Refresh Foreground" Command="{Binding RefreshForegroundCommand}" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Grid>
+
+                <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Background="{Binding HeaderTargetLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding HeaderTargetLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Selected target" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding TargetSelectionHeadline}"
+                                       FontSize="15"
+                                       FontWeight="Bold"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding TargetSelectionDetail}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="2"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Background="{Binding HeaderConnectionLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding HeaderConnectionLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Headset status" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding SessionHealthSummary}"
+                                       FontSize="15"
+                                       FontWeight="Bold"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding OnDeviceStatusDetail}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="4"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Background="{Binding HeaderLiveLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding HeaderLiveLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Live runtime signal" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding LiveSignalHeadline}"
+                                       FontSize="15"
+                                       FontWeight="Bold"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LiveSignalDetail}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </Grid>
         </Border>
 
