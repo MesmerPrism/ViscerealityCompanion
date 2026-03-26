@@ -28,7 +28,7 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
             [
                 Choice("showcase_breathing_mode", "Breathing Mode", "0 Controller State, 1 Controller Volume, 2 Polar Volume, 3 Headset Motion, 4 Mock, 5 LSL Belt.", "4", ["0", "1", "2", "3", "4", "5"]),
                 Choice("showcase_heartbeat_mode", "Heartbeat Mode", "0 Polar H10, 1 Mock, 2 Headset Motion, 3 LSL Heartbeat.", "1", ["0", "1", "2", "3"]),
-                Choice("showcase_coherence_mode", "Coherence Mode", "0 Heartbeat Derived, 1 Mock.", "1", ["0", "1"]),
+                Choice("showcase_coherence_mode", "Coherence Mode", "0 Heartbeat Derived, 1 Mock, 2 LSL Direct.", "2", ["0", "1", "2"]),
                 Toggle("showcase_adaptive_pacer_enabled", "Adaptive Pacer Enabled", "Enable the runtime adaptive breathing pacer.", false),
                 Text("showcase_lsl_in_stream_name", "LSL In Stream Name", "Default inbound biofeedback LSL stream name.", "quest_biofeedback_in"),
                 Text("showcase_lsl_in_stream_type", "LSL In Stream Type", "Default inbound biofeedback LSL stream type.", "quest.biofeedback"),

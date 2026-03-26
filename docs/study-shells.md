@@ -39,8 +39,8 @@ It currently pins:
 
 - package id: `com.Viscereality.LslTwin`
 - version: `0.1.0`
-- SHA256: `CA52EBBF30FA4D1C524CCE36A3B2644E634C8DBFD20E8C90D97D051306A897BB`
-- device profile: `CPU 2 / GPU 5 / static foveation level 1`
+- SHA256: `E22396E38394DD7EC186E7CEDCEDCC21BAD47D16A8572C7311B8AADDB104AC50`
+- device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `quest_biofeedback_in / quest.biofeedback`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
 
@@ -50,11 +50,18 @@ The embedded Sussex workspace checks:
 - whether the same build is already installed on the headset
 - whether the pinned Quest device profile is currently active
 - live LSL target, connected stream, and inlet status from `quest_twin_state`
+
 - direct `0..1` inbound coherence when the runtime publicly echoes it
 - controller breathing, heartbeat, and coherence values from the study runtime
 - camera drift from the last recenter anchor
 - particle visibility and whether rendering is suppressed by the operator or HUD
 - current fps, frame time, and refresh-rate telemetry when the runtime publishes it
+
+The active Sussex shell is organized into three operator views:
+
+- `Pre-session` for connection, pinned-build verification, and device-profile setup
+- `During session` for the live monitoring and command surface
+- `Inspect` for detailed pinned-runtime settings, focused live values, and recent twin events
 
 The current public shell can also send the study recenter command and the
 dedicated particle visibility on/off commands.
@@ -71,7 +78,7 @@ That harness:
 - opens the main WPF app
 - activates `Sussex University experiment mode`
 - starts a local float LSL sender on `quest_biofeedback_in / quest.biofeedback`
-- publishes direct `0..1` coherence packets from this Windows machine at a mock heartbeat cadence
+- publishes direct `0..1` coherence packets from this Windows machine at a bench heartbeat cadence
 - installs, launches, and profiles the pinned Sussex APK
 - captures screenshots plus a text report
 

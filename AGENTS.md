@@ -35,7 +35,7 @@ cross-project patterns, or central-bureau maintenance, use
   operator-facing surface.
 - The Sussex verification harness brings up a local float LSL sender on
   `quest_biofeedback_in / quest.biofeedback` and publishes direct `0..1`
-  coherence packets at a mock heartbeat cadence. Each packet arrival is the
+  coherence packets at a bench heartbeat cadence. Each packet arrival is the
   heartbeat event, and the packet value itself is the current coherence.
 - The current public Sussex telemetry only confirms that path through
   `study.lsl.connected_*` and `study.lsl.status`, and some builds may also echo

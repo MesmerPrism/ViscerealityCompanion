@@ -8,7 +8,7 @@
     "packageId": "com.Viscereality.LslTwin",
     "apkPath": "",
     "launchComponent": "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
-    "sha256": "CA52EBBF30FA4D1C524CCE36A3B2644E634C8DBFD20E8C90D97D051306A897BB",
+    "sha256": "E22396E38394DD7EC186E7CEDCEDCC21BAD47D16A8572C7311B8AADDB104AC50",
     "versionName": "0.1.0",
     "notes": "Select the supplied Sussex APK file once. The operator shell will keep checking the local file hash and the installed headset hash against this pinned build."
   },
@@ -17,7 +17,7 @@
     "label": "Sussex Study Device Profile",
     "description": "Dedicated Quest device settings for the Sussex controller-breathing study.",
     "properties": {
-      "debug.oculus.cpuLevel": "2",
+      "debug.oculus.cpuLevel": "5",
       "debug.oculus.gpuLevel": "5",
       "debug.oculus.foveation.dynamic": "false",
       "debug.oculus.foveation.level": "1"

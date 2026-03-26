@@ -93,7 +93,12 @@ public static class HarnessScenarioRunner
         var studyViewModel = mainViewModel.ActiveStudyShell
                              ?? throw new InvalidOperationException("Study mode did not create an active study shell.");
 
-        await studyViewModel.RefreshStatusAsync();
+        await ExecuteCommandAsync(studyViewModel.ProbeUsbCommand, studyViewModel, "Probe USB");
+        await ExecuteCommandAsync(studyViewModel.EnableWifiCommand, studyViewModel, "Enable Wi-Fi ADB");
+        await ExecuteCommandAsync(studyViewModel.ConnectQuestCommand, studyViewModel, "Connect Quest");
+        await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
+        await EnsureProximityHoldDisabledAsync(studyViewModel);
+
         await studyViewModel.InstallStudyAppAsync();
         await Task.Delay(TimeSpan.FromSeconds(1.5));
         await studyViewModel.ApplyPinnedDeviceProfileAsync();
@@ -260,6 +265,10 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Mode: {mainViewModel.CurrentModeLabel}");
         builder.AppendLine($"Mode detail: {mainViewModel.CurrentModeDetail}");
         builder.AppendLine($"Quest: {studyViewModel.QuestStatusSummary}");
+        builder.AppendLine($"Connection: {studyViewModel.ConnectionSummary}");
+        builder.AppendLine($"Connection transport: {studyViewModel.ConnectionTransportSummary}");
+        builder.AppendLine($"Proximity: {studyViewModel.ProximitySummary}");
+        builder.AppendLine($"Proximity detail: {studyViewModel.ProximityDetail}");
         builder.AppendLine($"Pinned build: {studyViewModel.PinnedBuildSummary}");
         builder.AppendLine($"Installed build: {studyViewModel.InstalledApkSummary}");
         builder.AppendLine($"Device profile: {studyViewModel.DeviceProfileSummary}");
@@ -268,6 +277,7 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"LSL detail: {studyViewModel.LslDetail}");
         builder.AppendLine($"Controller: {studyViewModel.ControllerSummary}");
         builder.AppendLine($"Coherence: {studyViewModel.CoherenceSummary}");
+        builder.AppendLine($"Coherence route: {studyViewModel.CoherenceRouteSummary}");
         builder.AppendLine($"Recenter: {studyViewModel.RecenterSummary}");
         builder.AppendLine($"Recenter detail: {studyViewModel.RecenterDetail}");
         builder.AppendLine($"Particles: {studyViewModel.ParticlesSummary}");
@@ -298,7 +308,7 @@ public static class HarnessScenarioRunner
         else
         {
             builder.AppendLine("No round-trip latency samples were observed.");
-            builder.AppendLine("The harness publishes normalized 0..1 coherence samples on quest_biofeedback_in / quest.biofeedback from this Windows machine at a mock heartbeat cadence.");
+            builder.AppendLine("The harness publishes normalized 0..1 coherence samples on quest_biofeedback_in / quest.biofeedback from this Windows machine at a bench heartbeat cadence.");
             builder.AppendLine("The current public Sussex telemetry confirmed study.lsl.* inlet connectivity on this pass, but it did not echo that routed coherence value back over quest_twin_state.");
             builder.AppendLine("Value-level round-trip latency therefore still needs a public coherence echo or inlet sample timestamp in the runtime state frame.");
         }
@@ -393,6 +403,47 @@ public static class HarnessScenarioRunner
         }
 
         return new ObservationResult(label, false, $"timed out waiting for `{expectedValue}` on {string.Join(", ", keys)}");
+    }
+
+    private static async Task ExecuteCommandAsync(
+        AsyncRelayCommand command,
+        StudyShellViewModel studyViewModel,
+        string? expectedActionLabel,
+        TimeSpan? timeout = null)
+    {
+        if (!command.CanExecute(null))
+        {
+            throw new InvalidOperationException($"Command '{expectedActionLabel ?? "anonymous"}' was not available for the harness.");
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() => command.Execute(null));
+
+        await WaitForConditionAsync(
+            () => command.CanExecute(null)
+                  && (string.IsNullOrWhiteSpace(expectedActionLabel)
+                      || string.Equals(studyViewModel.LastActionLabel, expectedActionLabel, StringComparison.Ordinal)),
+            timeout ?? TimeSpan.FromSeconds(20),
+            $"GUI command '{expectedActionLabel ?? "anonymous"}' did not complete.");
+    }
+
+    private static async Task EnsureProximityHoldDisabledAsync(StudyShellViewModel studyViewModel)
+    {
+        if (string.Equals(studyViewModel.ProximityActionLabel, "Enable Proximity", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await ExecuteCommandAsync(
+            studyViewModel.ToggleProximityCommand,
+            studyViewModel,
+            "Disable Proximity For 8h",
+            TimeSpan.FromSeconds(25));
+
+        await WaitForConditionAsync(
+            () => string.Equals(studyViewModel.ProximityActionLabel, "Enable Proximity", StringComparison.Ordinal)
+                  || studyViewModel.ProximitySummary.Contains("hold active", StringComparison.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(10),
+            "Proximity hold did not become active through the study shell.");
     }
 
     private static bool? ParseBool(string? value)

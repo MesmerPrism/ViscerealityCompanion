@@ -14,25 +14,27 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $launcherScriptPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App.ps1'
+$launcherHostPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App.vbs'
 $iconPath = Join-Path $repoRoot 'src\ViscerealityCompanion.App\Assets\viscereality-companion.ico'
-$shellHost = Get-Command pwsh.exe -ErrorAction SilentlyContinue
-if ($null -eq $shellHost) {
-    $shellHost = Get-Command powershell.exe -ErrorAction SilentlyContinue
-}
+$scriptHost = Join-Path $env:SystemRoot 'System32\wscript.exe'
 
 if (-not (Test-Path $launcherScriptPath)) {
     throw "Launcher script not found at $launcherScriptPath."
+}
+
+if (-not (Test-Path $launcherHostPath)) {
+    throw "Launcher host not found at $launcherHostPath."
 }
 
 if (-not (Test-Path $iconPath)) {
     throw "Launcher icon not found at $iconPath."
 }
 
-if ($null -eq $shellHost) {
-    throw 'Neither pwsh.exe nor powershell.exe was found on PATH.'
+if (-not (Test-Path $scriptHost)) {
+    throw "wscript.exe was not found at $scriptHost."
 }
 
-$arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$launcherScriptPath`""
+$arguments = "//B //nologo `"$launcherHostPath`""
 if ($RefreshPublishedBuild) {
     $arguments += ' -Refresh'
 }
@@ -53,11 +55,11 @@ foreach ($name in $obsoleteLaunchers) {
 $shell = New-Object -ComObject WScript.Shell
 $shortcutPath = Join-Path $DesktopPath $ShortcutName
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $shellHost.Source
+$shortcut.TargetPath = $scriptHost
 $shortcut.Arguments = $arguments
 $shortcut.WorkingDirectory = $repoRoot
 $shortcut.IconLocation = "$iconPath,0"
-$shortcut.Description = 'Launch Viscereality Companion via the single-file publish path'
+$shortcut.Description = 'Launch Viscereality Companion via the single-file publish path without a console window'
 $shortcut.Save()
 
 $created = $shell.CreateShortcut($shortcutPath)

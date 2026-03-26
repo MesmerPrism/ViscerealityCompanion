@@ -55,6 +55,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private DateTimeOffset? _lastProximityRefreshAtUtc;
     private string _endpointDraft;
     private string _connectionSummary = "Quest connection has not been checked yet.";
+    private string _connectionTransportSummary = "Wi-Fi ADB not active yet.";
+    private string _connectionTransportDetail = "Connect the Quest and switch to Wi-Fi ADB before relying on remote-only study control.";
     private string _questStatusSummary = "Waiting for Quest connection.";
     private string _questStatusDetail = "Connect to the headset to verify the Sussex study runtime and profile.";
     private string _headsetModel = "Unknown";
@@ -62,6 +64,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _headsetBatteryLabel = "Battery n/a";
     private string _headsetPerformanceLabel = "CPU n/a / GPU n/a";
     private string _headsetForegroundLabel = "Foreground n/a";
+    private string _headsetAwakeSummary = "Awake status not checked yet.";
+    private string _headsetAwakeDetail = "Quest vrpowermanager readback will appear here once the shell can query the active headset selector.";
+    private OperationOutcomeKind _headsetAwakeLevel = OperationOutcomeKind.Preview;
     private string _pinnedBuildSummary = "Choose the supplied Sussex APK.";
     private string _pinnedBuildDetail = "The window will compare both the local file and the installed Quest build against the pinned Sussex hash.";
     private string _localApkSummary = "Waiting for the supplied Sussex APK file.";
@@ -71,10 +76,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _stagedApkPath;
     private string _localApkHash = string.Empty;
     private OperationOutcomeKind _questStatusLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _connectionCardLevel = OperationOutcomeKind.Warning;
+    private OperationOutcomeKind _connectionTransportLevel = OperationOutcomeKind.Warning;
     private OperationOutcomeKind _pinnedBuildLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _pinnedBuildCardLevel = OperationOutcomeKind.Warning;
     private OperationOutcomeKind _localApkLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _installedApkLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _deviceProfileLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _deviceProfileCardLevel = OperationOutcomeKind.Warning;
     private OperationOutcomeKind _liveRuntimeLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _lslLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _controllerLevel = OperationOutcomeKind.Preview;
@@ -85,12 +94,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _particlesLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _proximityLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _testLslSenderLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _benchToolsCardLevel = OperationOutcomeKind.Warning;
     private string _deviceProfileSummary = "Pinned device profile has not been checked yet.";
     private string _deviceProfileDetail = "Refresh the study status after connecting to the headset.";
     private string _liveRuntimeSummary = "Waiting for quest_twin_state.";
     private string _liveRuntimeDetail = "Once the study APK starts publishing quest_twin_state, this window will focus on the Sussex-specific signals instead of the full raw keyspace.";
     private string _lslSummary = "Waiting for LSL runtime state.";
     private string _lslDetail = "The pinned stream target and live LSL connectivity will appear here once the study runtime is active.";
+    private string _lslExpectedStreamLabel = "quest_biofeedback_in / quest.biofeedback";
+    private string _lslRuntimeTargetLabel = "Runtime target n/a";
+    private string _lslConnectedStreamLabel = "Connected stream n/a";
+    private string _lslConnectionStateLabel = "Connection counts n/a";
+    private string _lslEchoStateLabel = "Echo state n/a";
+    private string _lslBenchStateLabel = "Companion TEST sender off.";
+    private string _lslStatusLineLabel = "Runtime did not publish an extra LSL status line.";
     private double _lslValuePercent;
     private string _lslValueLabel = "n/a";
     private string _controllerSummary = "Waiting for controller breathing state.";
@@ -99,6 +116,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _heartbeatDetail = "The study runtime should report the latest heartbeat source and value over quest_twin_state.";
     private string _coherenceSummary = "Waiting for coherence state.";
     private string _coherenceDetail = "The study runtime should report the latest coherence route and value over quest_twin_state.";
+    private string _coherenceRouteSummary = "Current route n/a.";
     private string _performanceSummary = "Waiting for performance telemetry.";
     private string _performanceDetail = "Current fps, frame time, and the runtime target will appear here once the study runtime publishes them.";
     private string _recenterSummary = "Waiting for recenter telemetry.";
@@ -108,14 +126,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _proximitySummary = "Proximity hold has not been checked yet.";
     private string _proximityDetail = "Quest vrpowermanager readback will appear here once the shell can reach the active headset selector.";
     private string _proximityActionLabel = "Disable for 8h";
+    private string _benchToolsSummary = "Bench tools need attention before bench checks.";
     private string _testLslSenderSummary = "Windows TEST sender off.";
-    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes direct coherence packets at a mock heartbeat cadence; each packet arrival is treated as a heartbeat in the Sussex LSL route.";
+    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes direct coherence packets at a bench heartbeat cadence; each packet arrival is treated as a heartbeat in the Sussex LSL route.";
     private string _testLslSenderValueLabel = "Not running";
     private string _testLslSenderActionLabel = "Start TEST Sender";
     private string _lastTwinStateTimestampLabel = "No live app-state timestamp yet.";
     private string _lastActionLabel = "None";
     private string _lastActionDetail = "No study action has run yet.";
     private OperationOutcomeKind _lastActionLevel = OperationOutcomeKind.Preview;
+    private string _lastConnectionActionLabel = string.Empty;
+    private string _lastConnectionDetail = string.Empty;
+    private OperationOutcomeKind _lastConnectionLevel = OperationOutcomeKind.Preview;
     private double _controllerValuePercent;
     private string _controllerValueLabel = "n/a";
     private double _controllerCalibrationPercent;
@@ -126,6 +148,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _performanceValueLabel = "n/a";
     private double _recenterDistancePercent;
     private string _recenterDistanceLabel = "n/a";
+    private int _selectedPhaseTabIndex;
     private StudyTwinCommandRequest? _lastRecenterCommandRequest;
     private StudyTwinCommandRequest? _lastParticlesCommandRequest;
     private string? _testSenderRestoreHeartbeatMode;
@@ -193,6 +216,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string StudyPartner => _study.Partner;
     public string StudyDescription => _study.Description;
     public string PinnedPackageId => _study.App.PackageId;
+    public string PinnedBuildVersion => string.IsNullOrWhiteSpace(_study.App.VersionName) ? "n/a" : _study.App.VersionName;
+    public string PinnedBuildHash => _study.App.Sha256;
+    public string PinnedLaunchComponent => string.IsNullOrWhiteSpace(_study.App.LaunchComponent) ? "n/a" : _study.App.LaunchComponent;
+    public string PinnedAppNotes => string.IsNullOrWhiteSpace(_study.App.Notes) ? "No extra study-build notes." : _study.App.Notes;
+    public string PinnedDeviceProfileLabel => _study.DeviceProfile.Label;
 
     public string EndpointDraft
     {
@@ -210,6 +238,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _connectionSummary;
         private set => SetProperty(ref _connectionSummary, value);
+    }
+
+    public string ConnectionTransportSummary
+    {
+        get => _connectionTransportSummary;
+        private set => SetProperty(ref _connectionTransportSummary, value);
+    }
+
+    public string ConnectionTransportDetail
+    {
+        get => _connectionTransportDetail;
+        private set => SetProperty(ref _connectionTransportDetail, value);
     }
 
     public string QuestStatusSummary
@@ -252,6 +292,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _headsetForegroundLabel;
         private set => SetProperty(ref _headsetForegroundLabel, value);
+    }
+
+    public string HeadsetAwakeSummary
+    {
+        get => _headsetAwakeSummary;
+        private set => SetProperty(ref _headsetAwakeSummary, value);
+    }
+
+    public string HeadsetAwakeDetail
+    {
+        get => _headsetAwakeDetail;
+        private set => SetProperty(ref _headsetAwakeDetail, value);
+    }
+
+    public OperationOutcomeKind HeadsetAwakeLevel
+    {
+        get => _headsetAwakeLevel;
+        private set => SetProperty(ref _headsetAwakeLevel, value);
     }
 
     public string PinnedBuildSummary
@@ -308,10 +366,28 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _questStatusLevel, value);
     }
 
+    public OperationOutcomeKind ConnectionCardLevel
+    {
+        get => _connectionCardLevel;
+        private set => SetProperty(ref _connectionCardLevel, value);
+    }
+
+    public OperationOutcomeKind ConnectionTransportLevel
+    {
+        get => _connectionTransportLevel;
+        private set => SetProperty(ref _connectionTransportLevel, value);
+    }
+
     public OperationOutcomeKind PinnedBuildLevel
     {
         get => _pinnedBuildLevel;
         private set => SetProperty(ref _pinnedBuildLevel, value);
+    }
+
+    public OperationOutcomeKind PinnedBuildCardLevel
+    {
+        get => _pinnedBuildCardLevel;
+        private set => SetProperty(ref _pinnedBuildCardLevel, value);
     }
 
     public OperationOutcomeKind LocalApkLevel
@@ -330,6 +406,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _deviceProfileLevel;
         private set => SetProperty(ref _deviceProfileLevel, value);
+    }
+
+    public OperationOutcomeKind DeviceProfileCardLevel
+    {
+        get => _deviceProfileCardLevel;
+        private set => SetProperty(ref _deviceProfileCardLevel, value);
     }
 
     public OperationOutcomeKind LiveRuntimeLevel
@@ -392,6 +474,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _testLslSenderLevel, value);
     }
 
+    public OperationOutcomeKind BenchToolsCardLevel
+    {
+        get => _benchToolsCardLevel;
+        private set => SetProperty(ref _benchToolsCardLevel, value);
+    }
+
     public string DeviceProfileSummary
     {
         get => _deviceProfileSummary;
@@ -402,6 +490,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _deviceProfileDetail;
         private set => SetProperty(ref _deviceProfileDetail, value);
+    }
+
+    public string BenchToolsSummary
+    {
+        get => _benchToolsSummary;
+        private set => SetProperty(ref _benchToolsSummary, value);
     }
 
     public string LiveRuntimeSummary
@@ -426,6 +520,48 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _lslDetail;
         private set => SetProperty(ref _lslDetail, value);
+    }
+
+    public string LslExpectedStreamLabel
+    {
+        get => _lslExpectedStreamLabel;
+        private set => SetProperty(ref _lslExpectedStreamLabel, value);
+    }
+
+    public string LslRuntimeTargetLabel
+    {
+        get => _lslRuntimeTargetLabel;
+        private set => SetProperty(ref _lslRuntimeTargetLabel, value);
+    }
+
+    public string LslConnectedStreamLabel
+    {
+        get => _lslConnectedStreamLabel;
+        private set => SetProperty(ref _lslConnectedStreamLabel, value);
+    }
+
+    public string LslConnectionStateLabel
+    {
+        get => _lslConnectionStateLabel;
+        private set => SetProperty(ref _lslConnectionStateLabel, value);
+    }
+
+    public string LslEchoStateLabel
+    {
+        get => _lslEchoStateLabel;
+        private set => SetProperty(ref _lslEchoStateLabel, value);
+    }
+
+    public string LslBenchStateLabel
+    {
+        get => _lslBenchStateLabel;
+        private set => SetProperty(ref _lslBenchStateLabel, value);
+    }
+
+    public string LslStatusLineLabel
+    {
+        get => _lslStatusLineLabel;
+        private set => SetProperty(ref _lslStatusLineLabel, value);
     }
 
     public double LslValuePercent
@@ -474,6 +610,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _coherenceDetail;
         private set => SetProperty(ref _coherenceDetail, value);
+    }
+
+    public string CoherenceRouteSummary
+    {
+        get => _coherenceRouteSummary;
+        private set => SetProperty(ref _coherenceRouteSummary, value);
     }
 
     public string PerformanceSummary
@@ -638,6 +780,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _recenterDistanceLabel, value);
     }
 
+    public int SelectedPhaseTabIndex
+    {
+        get => _selectedPhaseTabIndex;
+        set => SetProperty(ref _selectedPhaseTabIndex, value);
+    }
+
     public bool HasValidPinnedLocalApk
         => !string.IsNullOrWhiteSpace(StagedApkPath)
             && File.Exists(StagedApkPath)
@@ -726,7 +874,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _initialized = true;
         EnsureTwinBridgeMonitoringStarted();
         await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
-        await RefreshStatusAsync().ConfigureAwait(false);
+        var autoConnected = await ConnectQuestCoreAsync(warnWhenMissingEndpoint: false).ConfigureAwait(false);
+        if (!autoConnected)
+        {
+            await RefreshStatusAsync().ConfigureAwait(false);
+        }
+
+        if (ShouldDefaultToDuringSession())
+        {
+            await DispatchAsync(() => SelectedPhaseTabIndex = 1).ConfigureAwait(false);
+        }
     }
 
     public void Dispose()
@@ -757,12 +914,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private async Task ProbeUsbAsync()
     {
         var outcome = await _questService.ProbeUsbAsync().ConfigureAwait(false);
+        RecordConnectionOutcome("Probe USB", outcome);
         await ApplyOutcomeAsync("Probe USB", outcome).ConfigureAwait(false);
 
         if (!string.IsNullOrWhiteSpace(outcome.Endpoint))
         {
             SaveSession(usbSerial: outcome.Endpoint);
-            await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
+            await RefreshStatusAsync().ConfigureAwait(false);
         }
     }
 
@@ -780,15 +938,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private async Task ConnectQuestAsync()
     {
-        var endpoint = await DispatchAsync(() => EndpointDraft.Trim()).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(endpoint))
-        {
-            await DispatchAsync(() => AppendLog(OperatorLogLevel.Warning, "Quest connect blocked.", "Enter an IP:port endpoint first.")).ConfigureAwait(false);
-            return;
-        }
-
-        var outcome = await _questService.ConnectAsync(endpoint).ConfigureAwait(false);
-        await HandleConnectionOutcomeAsync("Connect Quest", outcome).ConfigureAwait(false);
+        await ConnectQuestCoreAsync(warnWhenMissingEndpoint: true).ConfigureAwait(false);
     }
 
     public async Task RefreshStatusAsync()
@@ -869,6 +1019,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
+            var performanceOutcome = await TryStabilizeStudyPerformancePolicyAsync().ConfigureAwait(false);
+            if (performanceOutcome is not null)
+            {
+                await DispatchAsync(() => AppendLog(MapLevel(performanceOutcome.Kind), performanceOutcome.Summary, performanceOutcome.Detail)).ConfigureAwait(false);
+                await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
+                await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+            }
+
+            await DispatchAsync(() => SelectedPhaseTabIndex = 1).ConfigureAwait(false);
             await DispatchAsync(() =>
             {
                 if (!string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase))
@@ -884,7 +1043,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public async Task ApplyPinnedDeviceProfileAsync()
     {
-        var outcome = await _questService.ApplyDeviceProfileAsync(CreatePinnedDeviceProfile()).ConfigureAwait(false);
+        var outcome = await TryStabilizeStudyPerformancePolicyAsync().ConfigureAwait(false)
+            ?? await _questService.ApplyDeviceProfileAsync(CreatePinnedDeviceProfile()).ConfigureAwait(false);
         await ApplyOutcomeAsync("Apply Study Device Profile", outcome).ConfigureAwait(false);
         await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
@@ -1077,6 +1237,52 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : new OperationOutcome(outcome.Kind, summary, detail);
     }
 
+    private bool IsStudyRuntimeForeground()
+        => _headsetStatus?.IsTargetForeground == true
+            || string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
+
+    private async Task<OperationOutcome?> TryStabilizeStudyPerformancePolicyAsync()
+    {
+        if (!IsStudyRuntimeForeground())
+        {
+            return null;
+        }
+
+        var target = CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false));
+        var profile = new RuntimeConfigProfile(
+            "sussex-study-performance-policy",
+            "Sussex Study Runtime Performance Policy",
+            string.Empty,
+            DateTime.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
+            "study",
+            false,
+            "Disable Sussex direct OVR CPU/GPU writes so the pinned ADB device profile remains authoritative.",
+            [_study.App.PackageId],
+            [
+                new RuntimeConfigEntry("performance_hint_write_direct_levels", "false")
+            ]);
+
+        var policyOutcome = await _twinBridge.PublishRuntimeConfigAsync(profile, target).ConfigureAwait(false);
+        var profileOutcome = await _questService.ApplyDeviceProfileAsync(CreatePinnedDeviceProfile()).ConfigureAwait(false);
+        if (profileOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            return profileOutcome;
+        }
+
+        if (policyOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Applied study device profile, but Sussex may still reset CPU/GPU levels.",
+                $"{profileOutcome.Detail} The live runtime performance policy could not be published: {policyOutcome.Detail}");
+        }
+
+        return new OperationOutcome(
+            profileOutcome.Kind,
+            "Applied study device profile and locked Sussex runtime CPU/GPU policy.",
+            $"{profileOutcome.Detail} Published performance_hint_write_direct_levels=false so the running Sussex APK stops overwriting debug.oculus.cpuLevel/gpuLevel.");
+    }
+
     private static OperationOutcome CombineTestSenderOutcomes(OperationOutcome first, OperationOutcome second)
     {
         if (first.Kind == OperationOutcomeKind.Failure)
@@ -1147,6 +1353,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         await DispatchAsync(() =>
         {
+            RecordConnectionOutcome(actionLabel, outcome);
             ConnectionSummary = outcome.Summary;
             if (!string.IsNullOrWhiteSpace(outcome.Endpoint))
             {
@@ -1158,12 +1365,34 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             LastActionDetail = outcome.Detail;
             LastActionLevel = outcome.Kind;
             AppendLog(MapLevel(outcome.Kind), outcome.Summary, outcome.Detail);
+            UpdateConnectionCardState();
         }).ConfigureAwait(false);
 
         if (refreshAfter)
         {
             await RefreshStatusAsync().ConfigureAwait(false);
         }
+    }
+
+    private async Task<bool> ConnectQuestCoreAsync(bool warnWhenMissingEndpoint)
+    {
+        var endpoint = await DispatchAsync(() => EndpointDraft.Trim()).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(endpoint))
+        {
+            if (warnWhenMissingEndpoint)
+            {
+                await DispatchAsync(() => AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Quest connect blocked.",
+                    "Enter an IP:port endpoint first.")).ConfigureAwait(false);
+            }
+
+            return false;
+        }
+
+        var outcome = await _questService.ConnectAsync(endpoint).ConfigureAwait(false);
+        await HandleConnectionOutcomeAsync("Connect Quest", outcome).ConfigureAwait(false);
+        return true;
     }
 
     private async Task RefreshLocalApkStatusAsync()
@@ -1253,6 +1482,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 DeviceProfileSummary = "Pinned device profile has not been checked yet.";
                 DeviceProfileDetail = "Refresh the study status after connecting to the headset.";
                 UpdateDeviceProfileRows();
+                UpdateDeviceProfileCardState();
                 return;
             }
 
@@ -1260,6 +1490,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             DeviceProfileSummary = _deviceProfileStatus.Summary;
             DeviceProfileDetail = _deviceProfileStatus.Detail;
             UpdateDeviceProfileRows();
+            UpdateDeviceProfileCardState();
         }).ConfigureAwait(false);
     }
 
@@ -1274,10 +1505,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 return;
             }
 
+            var studyRuntimeForeground = string.Equals(_headsetStatus.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
             ConnectionSummary = _headsetStatus.ConnectionLabel;
-            QuestStatusLevel = _headsetStatus.IsConnected ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
-            QuestStatusSummary = _headsetStatus.Summary;
-            QuestStatusDetail = _headsetStatus.Detail;
+            if (!_headsetStatus.IsConnected)
+            {
+                QuestStatusLevel = OperationOutcomeKind.Warning;
+                QuestStatusSummary = _headsetStatus.Summary;
+                QuestStatusDetail = _headsetStatus.Detail;
+            }
+            else if (studyRuntimeForeground)
+            {
+                QuestStatusLevel = OperationOutcomeKind.Success;
+                QuestStatusSummary = _headsetStatus.Summary;
+                QuestStatusDetail = _headsetStatus.Detail;
+            }
+            else
+            {
+                var foregroundPackage = string.IsNullOrWhiteSpace(_headsetStatus.ForegroundPackageId)
+                    ? "unknown"
+                    : _headsetStatus.ForegroundPackageId;
+                QuestStatusLevel = OperationOutcomeKind.Warning;
+                QuestStatusSummary = $"{_study.App.Label} is not in the foreground.";
+                QuestStatusDetail = $"Connected to the headset, but the foreground package is {foregroundPackage}. Refresh foreground or relaunch the Sussex APK before relying on session controls.";
+            }
+
             HeadsetModel = string.IsNullOrWhiteSpace(_headsetStatus.DeviceModel) ? "Quest" : _headsetStatus.DeviceModel;
             BatteryPercent = Math.Clamp(_headsetStatus.BatteryLevel ?? 0, 0, 100);
             HeadsetBatteryLabel = _headsetStatus.BatteryLevel is null ? "Battery n/a" : $"{_headsetStatus.BatteryLevel}%";
@@ -1285,6 +1536,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             HeadsetForegroundLabel = string.IsNullOrWhiteSpace(_headsetStatus.ForegroundPackageId)
                 ? "Foreground n/a"
                 : _headsetStatus.ForegroundPackageId;
+            UpdateConnectionCardState();
         }).ConfigureAwait(false);
     }
 
@@ -1343,6 +1595,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         PinnedBuildDetail = string.Join(" ", details);
+        UpdatePinnedBuildCardState();
     }
 
     private void UpdateDeviceProfileRows()
@@ -1366,6 +1619,179 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void RecordConnectionOutcome(string actionLabel, OperationOutcome outcome)
+    {
+        _lastConnectionActionLabel = actionLabel;
+        _lastConnectionLevel = outcome.Kind;
+        _lastConnectionDetail = outcome.Detail;
+    }
+
+    private void UpdateConnectionCardState()
+    {
+        var selector = _headsetStatus?.ConnectionLabel ?? string.Empty;
+        var isWifiAdbActive = LooksLikeTcpSelector(selector);
+        var lastConnectionFailed = _lastConnectionLevel == OperationOutcomeKind.Failure;
+        var wifiPreparedButNotConnected =
+            string.Equals(_lastConnectionActionLabel, "Enable Wi-Fi ADB", StringComparison.Ordinal)
+            && _lastConnectionLevel == OperationOutcomeKind.Success
+            && !isWifiAdbActive;
+
+        if (_headsetStatus is null)
+        {
+            ConnectionCardLevel = OperationOutcomeKind.Warning;
+            ConnectionTransportLevel = OperationOutcomeKind.Warning;
+            ConnectionTransportSummary = "Headset connection has not been checked yet.";
+            ConnectionTransportDetail = "Connect the Quest and switch to Wi-Fi ADB before relying on remote-only study control.";
+            return;
+        }
+
+        if (!_headsetStatus.IsConnected)
+        {
+            ConnectionCardLevel = lastConnectionFailed ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning;
+            ConnectionTransportLevel = ConnectionCardLevel;
+            ConnectionTransportSummary = lastConnectionFailed
+                ? "Quest connection failed."
+                : "Quest not connected yet.";
+            ConnectionTransportDetail = lastConnectionFailed && !string.IsNullOrWhiteSpace(_lastConnectionDetail)
+                ? _lastConnectionDetail
+                : "Probe USB or connect a known Wi-Fi ADB endpoint before starting the session.";
+            return;
+        }
+
+        if (isWifiAdbActive)
+        {
+            ConnectionCardLevel = OperationOutcomeKind.Success;
+            ConnectionTransportLevel = OperationOutcomeKind.Success;
+            ConnectionTransportSummary = "Wi-Fi ADB active.";
+            ConnectionTransportDetail = $"Remote control is using {selector}.";
+            return;
+        }
+
+        ConnectionCardLevel = OperationOutcomeKind.Warning;
+        ConnectionTransportLevel = OperationOutcomeKind.Warning;
+        ConnectionTransportSummary = wifiPreparedButNotConnected
+            ? "USB ADB active. Wi-Fi ADB is prepared but not connected yet."
+            : "USB ADB active only.";
+        ConnectionTransportDetail = wifiPreparedButNotConnected
+            ? "Run Connect Quest to switch the session from USB to the prepared Wi-Fi ADB endpoint."
+            : "Enable Wi-Fi ADB and reconnect before leaving the headset unattended or relying on remote-only control.";
+    }
+
+    private void UpdatePinnedBuildCardState()
+    {
+        PinnedBuildCardLevel = NormalizePreSessionLevel(PinnedBuildLevel);
+    }
+
+    private void UpdateDeviceProfileCardState()
+    {
+        DeviceProfileCardLevel = NormalizePreSessionLevel(DeviceProfileLevel);
+    }
+
+    private void UpdateBenchToolsCardState()
+    {
+        if (TestLslSenderLevel == OperationOutcomeKind.Failure)
+        {
+            BenchToolsCardLevel = OperationOutcomeKind.Failure;
+            BenchToolsSummary = "Bench tools are blocked by a TEST sender fault.";
+            return;
+        }
+
+        if (ProximityLevel == OperationOutcomeKind.Failure)
+        {
+            BenchToolsCardLevel = OperationOutcomeKind.Failure;
+            BenchToolsSummary = "Bench tools are blocked by a proximity control fault.";
+            return;
+        }
+
+        if (_testLslSignalService.IsRunning)
+        {
+            BenchToolsCardLevel = OperationOutcomeKind.Warning;
+            BenchToolsSummary = ProximityLevel == OperationOutcomeKind.Success
+                ? "Bench tools are active."
+                : "Bench tools are active. Proximity readback needs attention.";
+            return;
+        }
+
+        if (ProximityLevel == OperationOutcomeKind.Success && _testLslSignalService.RuntimeState.Available)
+        {
+            BenchToolsCardLevel = OperationOutcomeKind.Success;
+            BenchToolsSummary = "Bench tools are ready.";
+            return;
+        }
+
+        BenchToolsCardLevel = OperationOutcomeKind.Warning;
+        BenchToolsSummary = "Bench tools need attention.";
+    }
+
+    private void UpdateHeadsetAwakeStatus(string selector, TrackedQuestProximityState tracked, QuestProximityStatus? liveStatus)
+    {
+        if (!_hzdbService.IsAvailable)
+        {
+            HeadsetAwakeLevel = OperationOutcomeKind.Preview;
+            HeadsetAwakeSummary = "Awake status unavailable.";
+            HeadsetAwakeDetail = "Install or expose @meta-quest/hzdb to show live headset awake state.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            HeadsetAwakeLevel = OperationOutcomeKind.Preview;
+            HeadsetAwakeSummary = "Awake status not checked yet.";
+            HeadsetAwakeDetail = "Connect the headset first so the shell has an active selector for vrpowermanager readback.";
+            return;
+        }
+
+        if (liveStatus?.Available == true)
+        {
+            bool mounted = string.Equals(liveStatus.HeadsetState, "HEADSET_MOUNTED", StringComparison.OrdinalIgnoreCase);
+            bool virtualClose = string.Equals(liveStatus.VirtualState, "CLOSE", StringComparison.OrdinalIgnoreCase);
+            var autoSleepLabel = liveStatus.AutoSleepTimeMs is > 0
+                ? $"{liveStatus.AutoSleepTimeMs.Value / 1000d:0.#} s"
+                : "system default";
+
+            if (liveStatus.HoldActive)
+            {
+                HeadsetAwakeLevel = OperationOutcomeKind.Success;
+                HeadsetAwakeSummary = liveStatus.HoldUntilUtc.HasValue
+                    ? $"Awake hold active until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
+                    : "Awake hold active on headset.";
+                HeadsetAwakeDetail =
+                    $"Virtual proximity {liveStatus.VirtualState}. Headset state {liveStatus.HeadsetState}. Autosleep disabled {liveStatus.IsAutosleepDisabled}. Auto-sleep timer {autoSleepLabel}.";
+                return;
+            }
+
+            if (mounted || virtualClose)
+            {
+                HeadsetAwakeLevel = OperationOutcomeKind.Success;
+                HeadsetAwakeSummary = "Headset awake.";
+                HeadsetAwakeDetail =
+                    $"Virtual proximity {liveStatus.VirtualState}. Headset state {liveStatus.HeadsetState}. Autosleep disabled {liveStatus.IsAutosleepDisabled}. Auto-sleep timer {autoSleepLabel}.";
+                return;
+            }
+
+            HeadsetAwakeLevel = OperationOutcomeKind.Warning;
+            HeadsetAwakeSummary = "Headset may sleep normally.";
+            HeadsetAwakeDetail =
+                $"Virtual proximity {liveStatus.VirtualState}. Headset state {liveStatus.HeadsetState}. Autosleep disabled {liveStatus.IsAutosleepDisabled}. Auto-sleep timer {autoSleepLabel}.";
+            return;
+        }
+
+        if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired)
+        {
+            var untilLocal = tracked.DisableUntilUtc?.ToLocalTime();
+            HeadsetAwakeLevel = OperationOutcomeKind.Warning;
+            HeadsetAwakeSummary = untilLocal.HasValue
+                ? $"Awake hold expected until {untilLocal.Value:HH:mm}."
+                : "Awake hold expected from companion.";
+            HeadsetAwakeDetail = "The companion last requested a proximity hold, but live vrpowermanager readback is unavailable right now.";
+            return;
+        }
+
+        HeadsetAwakeLevel = OperationOutcomeKind.Preview;
+        HeadsetAwakeSummary = "Awake status unavailable.";
+        HeadsetAwakeDetail = liveStatus?.StatusDetail ?? "vrpowermanager did not return a usable awake-state readback for the active headset selector.";
+    }
+
     private async Task ApplyOutcomeAsync(string actionLabel, OperationOutcome outcome)
     {
         await DispatchAsync(() =>
@@ -1381,6 +1807,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         UpdateProximityCard();
         UpdateTestLslSenderCard();
+        UpdateBenchToolsCardState();
         UpdateBenchRefreshTimerState();
         OnPropertyChanged(nameof(CanToggleProximity));
         OnPropertyChanged(nameof(CanToggleTestLslSender));
@@ -1489,7 +1916,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var expectedType = _study.Monitoring.ExpectedLslStreamType;
         var testSenderActive = _testLslSignalService.IsRunning;
         var testSenderDetail = testSenderActive
-            ? $"Companion TEST sender is publishing direct coherence packets on {expectedName} / {expectedType} at a mock heartbeat cadence. Packet arrival is the bench heartbeat trigger, and the payload is the coherence value."
+            ? $"Companion TEST sender is publishing direct coherence packets on {expectedName} / {expectedType} at a bench heartbeat cadence. Packet arrival is the bench heartbeat trigger, and the payload is the coherence value."
             : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} with direct coherence payloads and packet-paced heartbeat triggers.";
         var streamName = GetFirstValue("study.lsl.filter_name") ?? GetFirstValue(_study.Monitoring.LslStreamNameKeys);
         var streamType = GetFirstValue("study.lsl.filter_type") ?? GetFirstValue(_study.Monitoring.LslStreamTypeKeys);
@@ -1501,15 +1928,37 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var connectedCount = ParseInt(GetFirstValue("connection.lsl.connected_count"));
         var connectingCount = ParseInt(GetFirstValue("connection.lsl.connecting_count"));
         var totalCount = ParseInt(GetFirstValue("connection.lsl.total_count"));
+        var coherenceRouteLabel = GetFirstValue("routing.coherence.label");
+        var coherenceRouteMode = GetFirstValue("routing.coherence.mode");
+        var coherenceRouteIsExpected =
+            string.Equals(coherenceRouteLabel, _study.Monitoring.ExpectedCoherenceLabel, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(coherenceRouteMode, TestSenderCoherenceMode, StringComparison.Ordinal);
 
         LslValuePercent = hasInputValue ? inputValue * 100d : 0d;
         LslValueLabel = hasInputValue ? $"{inputValue:0.000}" : "Not echoed";
+        LslExpectedStreamLabel = $"{expectedName} / {expectedType}";
+        LslRuntimeTargetLabel =
+            $"{(string.IsNullOrWhiteSpace(streamName) ? "n/a" : streamName)} / {(string.IsNullOrWhiteSpace(streamType) ? "n/a" : streamType)}";
+        LslConnectedStreamLabel =
+            $"{(string.IsNullOrWhiteSpace(connectedName) ? "n/a" : connectedName)} / {(string.IsNullOrWhiteSpace(connectedType) ? "n/a" : connectedType)}";
+        LslConnectionStateLabel =
+            $"Connected {connectedCount?.ToString() ?? (connectedFlag.HasValue ? (connectedFlag.Value ? "1" : "0") : "n/a")}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}";
+        LslBenchStateLabel = testSenderActive
+            ? "Companion TEST sender active. Bench packets arrive at heartbeat pace and carry coherence 0..1."
+            : "Companion TEST sender off.";
+        LslStatusLineLabel = string.IsNullOrWhiteSpace(statusLine)
+            ? "Runtime did not publish an extra LSL status line."
+            : statusLine;
 
         if (_reportedTwinState.Count == 0)
         {
             LslLevel = OperationOutcomeKind.Preview;
             LslSummary = "Waiting for LSL runtime state.";
             LslDetail = $"Expected stream: {expectedName} / {expectedType}. {testSenderDetail}";
+            LslRuntimeTargetLabel = "Runtime target n/a";
+            LslConnectedStreamLabel = "Connected stream n/a";
+            LslConnectionStateLabel = "Connection counts n/a";
+            LslEchoStateLabel = "No inlet value reported yet.";
             return;
         }
 
@@ -1518,6 +1967,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var hasConnectedInput = connectedFlag == true
             || connectedCount.GetValueOrDefault() > 0
             || !string.IsNullOrWhiteSpace(connectedName);
+        LslEchoStateLabel = hasInputValue
+            ? $"Latest inlet value {inputValue:0.000} via {inputValueKey}."
+            : hasConnectedInput
+                ? "Connected, but this public build does not echo the routed inlet value yet."
+                : "No inlet value reported yet.";
 
         LslLevel = hasConnectedInput && streamMatches
             ? OperationOutcomeKind.Success
@@ -1543,14 +1997,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             LslSummary += " Companion TEST sender active.";
         }
-        LslDetail =
-            $"Expected {expectedName} / {expectedType}. Runtime target {(string.IsNullOrWhiteSpace(streamName) ? "stream name unavailable" : streamName)} / {(string.IsNullOrWhiteSpace(streamType) ? "stream type unavailable" : streamType)}. " +
-            $"Connected {(string.IsNullOrWhiteSpace(connectedName) ? "stream name unavailable" : connectedName)} / {(string.IsNullOrWhiteSpace(connectedType) ? "stream type unavailable" : connectedType)}. " +
-            $"Connected {connectedCount?.ToString() ?? (connectedFlag.HasValue ? (connectedFlag.Value ? "1" : "0") : "n/a")}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}. " +
-            (hasInputValue
-                ? $"Latest direct coherence value {inputValue:0.000} via {inputValueKey}. "
-                : "The current public state frame confirms inlet connectivity. The live link is healthy, but this build did not echo the routed inlet value yet. ") +
-            $"{testSenderDetail} {(string.IsNullOrWhiteSpace(statusLine) ? string.Empty : statusLine)}".Trim();
+        var routeNote = hasConnectedInput && !coherenceRouteIsExpected && !string.IsNullOrWhiteSpace(coherenceRouteLabel)
+            ? $"The inlet is healthy, but the runtime coherence route is still {coherenceRouteLabel} (mode {coherenceRouteMode ?? "n/a"}), so Sussex is not currently consuming this inlet for coherence."
+            : hasConnectedInput
+                ? "The inlet is healthy and matches the study stream target."
+                : "The study runtime has not confirmed an active inlet connection yet.";
+        LslDetail = $"{routeNote} {testSenderDetail}".Trim();
     }
 
     private void UpdateControllerCard()
@@ -1635,25 +2087,46 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var routeLabel = GetFirstValue("routing.coherence.label");
         var routeMode = GetFirstValue("routing.coherence.mode");
         var usesHeartbeat = GetFirstValue("routing.coherence.uses_heartbeat_source");
+        var lslConnected = ParseBool(GetFirstValue("study.lsl.connected")) == true
+            || ParseInt(GetFirstValue("connection.lsl.connected_count")).GetValueOrDefault() > 0
+            || !string.IsNullOrWhiteSpace(GetFirstValue("study.lsl.connected_name"));
+        var routeMatchesExpected =
+            string.Equals(routeLabel, _study.Monitoring.ExpectedCoherenceLabel, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(routeMode, TestSenderCoherenceMode, StringComparison.Ordinal);
 
         CoherencePercent = value.HasValue ? value.Value * 100d : 0d;
         CoherenceValueLabel = value.HasValue ? $"{value.Value:0.000}" : rawValue ?? "n/a";
+        CoherenceRouteSummary =
+            $"Current route {(string.IsNullOrWhiteSpace(routeLabel) ? "n/a" : routeLabel)} (mode {routeMode ?? "n/a"}). Uses heartbeat source {usesHeartbeat ?? "n/a"}.";
 
         if (_reportedTwinState.Count == 0)
         {
             CoherenceLevel = OperationOutcomeKind.Preview;
             CoherenceSummary = "Waiting for coherence state.";
             CoherenceDetail = "Coherence route and live value will appear once quest_twin_state is active.";
+            CoherenceRouteSummary = "Current route n/a.";
+            return;
+        }
+
+        if (!routeMatchesExpected && lslConnected)
+        {
+            CoherenceLevel = OperationOutcomeKind.Warning;
+            CoherenceSummary = $"LSL inlet connected, but coherence is still routed to {(string.IsNullOrWhiteSpace(routeLabel) ? "another source" : routeLabel)}.";
+            CoherenceDetail = "This explains the apparent mismatch: the headset is listening on the expected LSL inlet, but Sussex is not currently using that inlet as its active coherence source. A hotload/config path is still selecting a different coherence route.";
             return;
         }
 
         CoherenceLevel = value.HasValue || !string.IsNullOrWhiteSpace(rawValue)
-            ? OperationOutcomeKind.Success
+            ? routeMatchesExpected ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning
             : OperationOutcomeKind.Warning;
         CoherenceSummary = value.HasValue || !string.IsNullOrWhiteSpace(rawValue)
             ? $"Coherence live value: {CoherenceValueLabel}."
-            : "Coherence route visible, but no live coherence value yet.";
-        CoherenceDetail = $"Route {(string.IsNullOrWhiteSpace(routeLabel) ? "n/a" : routeLabel)} (mode {routeMode ?? "n/a"}). Uses heartbeat source {usesHeartbeat ?? "n/a"}.";
+            : routeMatchesExpected
+                ? "Coherence route is LSL Direct, but no live coherence value is reported yet."
+                : "Coherence route visible, but no live coherence value yet.";
+        CoherenceDetail = routeMatchesExpected
+            ? "The runtime is reporting the expected direct-LSL coherence route."
+            : "The runtime is reporting a non-study coherence route.";
     }
 
     private void UpdatePerformanceCard()
@@ -1871,8 +2344,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void UpdateProximityCard()
     {
-        var selector = ResolveHzdbSelector();
+        var selector = !string.IsNullOrWhiteSpace(_liveProximitySelector)
+            ? _liveProximitySelector
+            : ResolveHzdbSelector();
         ProximityActionLabel = "Disable for 8h";
+        var tracked = _appSessionState.GetTrackedProximity(selector);
+        var liveStatus = string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
+            ? _liveProximityStatus
+            : null;
+
+        UpdateHeadsetAwakeStatus(selector, tracked, liveStatus);
 
         if (!_hzdbService.IsAvailable)
         {
@@ -1886,17 +2367,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             ProximityLevel = OperationOutcomeKind.Preview;
             ProximitySummary = "Quest selector needed for proximity hold.";
-            ProximityDetail = "Probe USB or connect the Quest first. The shell prefers the last USB serial and falls back to the active endpoint.";
+            ProximityDetail = "Probe USB or connect the Quest first. The shell prefers the live ADB transport and falls back across saved Wi-Fi and USB selectors.";
             return;
         }
 
-        var tracked = _appSessionState.GetTrackedProximity(selector);
         var updatedLabel = tracked.UpdatedAtUtc.HasValue
             ? tracked.UpdatedAtUtc.Value.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)
             : "n/a";
-        var liveStatus = string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
-            ? _liveProximityStatus
-            : null;
 
         if (liveStatus?.Available == true)
         {
@@ -2002,7 +2479,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? $"Latest direct coherence {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
                 : "Starting direct coherence stream...";
             TestLslSenderDetail =
-                $"Direct coherence packets are publishing locally on {expectedName} / {expectedType} at a mock heartbeat cadence. The study shell also requests Heartbeat Mode = LSL and Coherence Mode = LSL Direct while this bench sender is active.";
+                $"Direct coherence packets are publishing locally on {expectedName} / {expectedType} at a bench heartbeat cadence. The study shell also requests Heartbeat Mode = LSL and Coherence Mode = LSL Direct while this bench sender is active.";
             return;
         }
 
@@ -2427,9 +2904,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     }
 
     private string ResolveHzdbSelector()
-        => _appSessionState.LastUsbSerial
-            ?? _appSessionState.ActiveEndpoint
-            ?? (string.IsNullOrWhiteSpace(EndpointDraft) ? string.Empty : EndpointDraft.Trim());
+        => ResolveHzdbSelectorCandidates().FirstOrDefault() ?? string.Empty;
+
+    private IReadOnlyList<string> ResolveHzdbSelectorCandidates()
+    {
+        var connectedSelector = _headsetStatus?.IsConnected == true ? _headsetStatus.ConnectionLabel : null;
+        var endpointDraft = string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim();
+        var candidates = new List<string>(4);
+
+        AddSelectorCandidate(candidates, connectedSelector);
+        AddSelectorCandidate(candidates, _appSessionState.ActiveEndpoint);
+        AddSelectorCandidate(candidates, endpointDraft);
+        AddSelectorCandidate(candidates, _appSessionState.LastUsbSerial);
+
+        return candidates;
+    }
 
     private async Task<QuestProximityStatus?> RefreshProximityStatusAsync(bool force = false)
     {
@@ -2445,8 +2934,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return null;
         }
 
-        var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(selector))
+        var selectors = await DispatchAsync(() => ResolveHzdbSelectorCandidates().ToArray()).ConfigureAwait(false);
+        if (selectors.Length == 0)
         {
             await DispatchAsync(() =>
             {
@@ -2459,10 +2948,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         var cachedStatus = await DispatchAsync(() =>
-            string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase) ? _liveProximityStatus : null).ConfigureAwait(false);
+            selectors.Any(selector => string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase))
+                ? _liveProximityStatus
+                : null).ConfigureAwait(false);
         var shouldRefresh = await DispatchAsync(() =>
             force
-            || !string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
+            || _liveProximitySelector is null
+            || !selectors.Any(selector => string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase))
             || _liveProximityStatus is null
             || !_lastProximityRefreshAtUtc.HasValue
             || DateTimeOffset.UtcNow - _lastProximityRefreshAtUtc.Value >= ProximityReadbackRefreshInterval).ConfigureAwait(false);
@@ -2484,10 +2976,34 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         try
         {
-            var status = await _hzdbService.GetProximityStatusAsync(selector).ConfigureAwait(false);
+            QuestProximityStatus? status = null;
+            string? selectedSelector = null;
+
+            foreach (var selector in selectors)
+            {
+                var current = await _hzdbService.GetProximityStatusAsync(selector).ConfigureAwait(false);
+                if (selectedSelector is null)
+                {
+                    selectedSelector = selector;
+                    status = current;
+                }
+
+                if (current.Available)
+                {
+                    selectedSelector = selector;
+                    status = current;
+                    break;
+                }
+            }
+
+            if (status is null || string.IsNullOrWhiteSpace(selectedSelector))
+            {
+                return null;
+            }
+
             await DispatchAsync(() =>
             {
-                _liveProximitySelector = selector;
+                _liveProximitySelector = selectedSelector;
                 _liveProximityStatus = status;
                 _lastProximityRefreshAtUtc = DateTimeOffset.UtcNow;
                 RefreshBenchToolsStatus();
@@ -2843,6 +3359,33 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             && !string.IsNullOrWhiteSpace(right)
             && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
 
+    private static OperationOutcomeKind NormalizePreSessionLevel(OperationOutcomeKind level)
+        => level switch
+        {
+            OperationOutcomeKind.Success => OperationOutcomeKind.Success,
+            OperationOutcomeKind.Failure => OperationOutcomeKind.Failure,
+            _ => OperationOutcomeKind.Warning
+        };
+
+    private static void AddSelectorCandidate(ICollection<string> candidates, string? selector)
+    {
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return;
+        }
+
+        var normalized = selector.Trim();
+        if (candidates.Any(existing => string.Equals(existing, normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        candidates.Add(normalized);
+    }
+
+    private static bool LooksLikeTcpSelector(string? selector)
+        => !string.IsNullOrWhiteSpace(selector) && selector.Contains(':', StringComparison.Ordinal);
+
     private static async Task<string> ComputeFileSha256Async(string path)
     {
         await using var stream = File.OpenRead(path);
@@ -3007,6 +3550,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         return string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
     }
+
+    private bool ShouldDefaultToDuringSession()
+        => _reportedTwinState.Count > 0
+           && string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
 
     private void AppendLog(OperatorLogLevel level, string message, string detail)
     {

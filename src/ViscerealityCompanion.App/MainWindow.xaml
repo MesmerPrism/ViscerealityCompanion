@@ -66,6 +66,17 @@
             <Setter Property="Padding" Value="14" />
         </Style>
 
+        <Style x:Key="CompactStatusExpanderStyle" TargetType="Expander">
+            <Setter Property="Margin" Value="0,6,0,0" />
+        </Style>
+
+        <Style x:Key="PrimaryActionButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource FocusBlueBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PanelBrush}" />
+            <Setter Property="Padding" Value="14,9" />
+        </Style>
+
         <Style x:Key="DetailLabelStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="Bold" />
@@ -145,11 +156,13 @@
                                Margin="0,4,0,0" />
                     <TextBlock Text="{Binding Description}"
                                Style="{StaticResource MicroCaptionStyle}"
-                               Margin="0,6,0,0" />
+                               Margin="0,6,0,0"
+                               TextWrapping="NoWrap"
+                               TextTrimming="CharacterEllipsis" />
                 </StackPanel>
 
                 <Button Grid.Column="1"
-                        Content="Activate In Main App"
+                        Content="Open Study Mode"
                         Command="{Binding DataContext.OpenStudyShellCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                         CommandParameter="{Binding}"
                         Margin="12,0,0,0"
@@ -404,54 +417,63 @@
         <Border Grid.Row="1"
                 Margin="0,12,0,0"
                 Style="{StaticResource PanelBorderStyle}"
-                Padding="12,10">
+                Padding="12">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="12" />
+                    <RowDefinition Height="8" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="20" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="16" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0">
                         <TextBlock Text="Viscereality Companion"
-                                   FontSize="28"
+                                   FontSize="24"
                                    FontWeight="Bold" />
                         <TextBlock Text="Install the supplied Quest build, monitor live study state, and keep operator control on Windows."
-                                   Style="{StaticResource SectionCaptionStyle}"
-                                   Margin="0,6,0,0" />
+                                   Style="{StaticResource MicroCaptionStyle}"
+                                   Margin="0,4,0,0" />
                     </StackPanel>
 
-                    <StackPanel Grid.Column="2" MaxWidth="500">
+                    <StackPanel Grid.Column="2" MaxWidth="360" VerticalAlignment="Center">
                         <TextBlock Text="{Binding CurrentModeLabel}"
-                                   FontSize="18"
+                                   FontSize="17"
                                    FontWeight="Bold"
                                    TextAlignment="Right"
                                    TextWrapping="Wrap" />
-                        <TextBlock Text="{Binding CurrentModeDetail}"
-                                   Style="{StaticResource MicroCaptionStyle}"
-                                   Margin="0,6,0,0"
-                                   TextAlignment="Right" />
-                        <WrapPanel Margin="0,10,0,0" HorizontalAlignment="Right">
-                            <Button Content="Exit Study Mode"
-                                    Command="{Binding ExitStudyModeCommand}"
-                                    Visibility="{Binding HasActiveStudyShell, Converter={StaticResource BoolToVisibility}}" />
-                            <CheckBox Content="Remote-only research control"
-                                      Margin="0,6,10,0"
-                                      IsChecked="{Binding RemoteOnlyControlEnabled}" />
-                            <Button Content="Refresh Snapshot" Command="{Binding RefreshHeadsetStatusCommand}" />
-                            <Button Content="Refresh Foreground" Command="{Binding RefreshForegroundCommand}" />
-                        </WrapPanel>
+                        <TextBlock Text="{Binding HeaderModeSummary}"
+                                    Style="{StaticResource MicroCaptionStyle}"
+                                    Margin="0,4,0,0"
+                                    TextAlignment="Right" />
                     </StackPanel>
+
+                    <WrapPanel Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Right">
+                        <Button Content="{Binding StudyModeHeaderButtonLabel}"
+                                Style="{StaticResource PrimaryActionButtonStyle}"
+                                Command="{Binding OpenStudyShellCommand}"
+                                CommandParameter="{Binding FeaturedStudyShell}"
+                                Visibility="{Binding ShowStudyModeAction, Converter={StaticResource BoolToVisibility}}" />
+                        <Button Content="Exit Study Mode"
+                                Command="{Binding ExitStudyModeCommand}"
+                                Visibility="{Binding HasActiveStudyShell, Converter={StaticResource BoolToVisibility}}" />
+                        <CheckBox Content="Remote-only research control"
+                                  Margin="0,6,10,0"
+                                  IsChecked="{Binding RemoteOnlyControlEnabled}" />
+                        <Button Content="Refresh Snapshot" Command="{Binding RefreshHeadsetStatusCommand}" />
+                        <Button Content="Refresh Foreground" Command="{Binding RefreshForegroundCommand}" />
+                    </WrapPanel>
                 </Grid>
 
-                <Grid Grid.Row="2">
+                <Grid Grid.Row="2"
+                      Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="10" />
@@ -462,52 +484,238 @@
 
                     <Border Grid.Column="0"
                             Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
                             Background="{Binding HeaderTargetLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                             BorderBrush="{Binding HeaderTargetLevel, Converter={StaticResource OutcomeKindToBrush}}">
                         <StackPanel>
                             <TextBlock Text="Selected target" Style="{StaticResource EyebrowStyle}" />
                             <TextBlock Text="{Binding TargetSelectionHeadline}"
-                                       FontSize="15"
+                                       FontSize="14"
                                        FontWeight="Bold"
                                        TextWrapping="Wrap" />
                             <TextBlock Text="{Binding TargetSelectionDetail}"
                                        Style="{StaticResource MicroCaptionStyle}"
-                                       Margin="0,6,0,0" />
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </Border>
 
                     <Border Grid.Column="2"
                             Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
                             Background="{Binding HeaderConnectionLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                             BorderBrush="{Binding HeaderConnectionLevel, Converter={StaticResource OutcomeKindToBrush}}">
                         <StackPanel>
                             <TextBlock Text="Headset status" Style="{StaticResource EyebrowStyle}" />
                             <TextBlock Text="{Binding SessionHealthSummary}"
-                                       FontSize="15"
+                                       FontSize="14"
                                        FontWeight="Bold"
                                        TextWrapping="Wrap" />
                             <TextBlock Text="{Binding OnDeviceStatusDetail}"
                                        Style="{StaticResource MicroCaptionStyle}"
-                                       Margin="0,6,0,0" />
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </Border>
 
                     <Border Grid.Column="4"
                             Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
                             Background="{Binding HeaderLiveLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                             BorderBrush="{Binding HeaderLiveLevel, Converter={StaticResource OutcomeKindToBrush}}">
                         <StackPanel>
                             <TextBlock Text="Live runtime signal" Style="{StaticResource EyebrowStyle}" />
                             <TextBlock Text="{Binding LiveSignalHeadline}"
-                                       FontSize="15"
+                                       FontSize="14"
                                        FontWeight="Bold"
                                        TextWrapping="Wrap" />
                             <TextBlock Text="{Binding LiveSignalDetail}"
                                        Style="{StaticResource MicroCaptionStyle}"
-                                       Margin="0,6,0,0" />
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </Border>
                 </Grid>
+
+                <WrapPanel Grid.Row="2"
+                           Margin="0,0,-8,-8"
+                           Visibility="{Binding HasActiveStudyShell, Converter={StaticResource BoolToVisibility}}">
+                    <Border Width="252"
+                            Margin="0,0,8,8"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
+                            Background="{Binding ActiveStudyShell.PinnedBuildLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding ActiveStudyShell.PinnedBuildLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Pinned runtime" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding ActiveStudyShell.PinnedBuildSummary}"
+                                       FontSize="14"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding ActiveStudyShell.PinnedBuildLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.PinnedPackageId}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Expander Style="{StaticResource CompactStatusExpanderStyle}">
+                                <Expander.Header>
+                                    <TextBlock Text="Details" Style="{StaticResource EyebrowStyle}" />
+                                </Expander.Header>
+                                <StackPanel Margin="0,6,0,0">
+                                    <TextBlock Text="{Binding ActiveStudyShell.PinnedBuildDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.InstalledApkDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Width="252"
+                            Margin="0,0,8,8"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
+                            Background="{Binding ActiveStudyShell.QuestStatusLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding ActiveStudyShell.QuestStatusLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Headset" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding ActiveStudyShell.QuestStatusSummary}"
+                                       FontSize="14"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding ActiveStudyShell.QuestStatusLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.HeadsetForegroundLabel}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding ActiveStudyShell.HeadsetAwakeSummary}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       Foreground="{Binding ActiveStudyShell.HeadsetAwakeLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <Button Content="Launch Study Runtime"
+                                    Command="{Binding ActiveStudyShell.LaunchStudyAppCommand}"
+                                    Margin="0,8,0,0" />
+                            <Expander Style="{StaticResource CompactStatusExpanderStyle}">
+                                <Expander.Header>
+                                    <TextBlock Text="Details" Style="{StaticResource EyebrowStyle}" />
+                                </Expander.Header>
+                                <StackPanel Margin="0,6,0,0">
+                                    <TextBlock Text="{Binding ActiveStudyShell.ConnectionSummary}"
+                                               Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetAwakeDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.QuestStatusDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetBatteryLabel}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetPerformanceLabel}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,2,0,0" />
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Width="252"
+                            Margin="0,0,8,8"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
+                            Background="{Binding ActiveStudyShell.DeviceProfileLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding ActiveStudyShell.DeviceProfileLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Device profile" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding ActiveStudyShell.DeviceProfileSummary}"
+                                       FontSize="14"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding ActiveStudyShell.DeviceProfileLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.HeadsetPerformanceLabel}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Button Content="Apply Study Device Profile"
+                                    Command="{Binding ActiveStudyShell.ApplyPinnedDeviceProfileCommand}"
+                                    Margin="0,8,0,0" />
+                            <Expander Style="{StaticResource CompactStatusExpanderStyle}">
+                                <Expander.Header>
+                                    <TextBlock Text="Details" Style="{StaticResource EyebrowStyle}" />
+                                </Expander.Header>
+                                <TextBlock Text="{Binding ActiveStudyShell.DeviceProfileDetail}"
+                                           Style="{StaticResource MicroCaptionStyle}"
+                                           Margin="0,6,0,0" />
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Width="252"
+                            Margin="0,0,8,8"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
+                            Background="{Binding ActiveStudyShell.LiveRuntimeLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding ActiveStudyShell.LiveRuntimeLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Live runtime" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding ActiveStudyShell.LiveRuntimeSummary}"
+                                       FontSize="14"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding ActiveStudyShell.LiveRuntimeLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.LastTwinStateTimestampLabel}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Expander Style="{StaticResource CompactStatusExpanderStyle}">
+                                <Expander.Header>
+                                    <TextBlock Text="Details" Style="{StaticResource EyebrowStyle}" />
+                                </Expander.Header>
+                                <TextBlock Text="{Binding ActiveStudyShell.LiveRuntimeDetail}"
+                                           Style="{StaticResource MicroCaptionStyle}"
+                                           Margin="0,6,0,0" />
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Width="252"
+                            Margin="0,0,8,8"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
+                            Background="{Binding ActiveStudyShell.LastActionLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding ActiveStudyShell.LastActionLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Last action" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding ActiveStudyShell.LastActionLabel}"
+                                       FontSize="14"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding ActiveStudyShell.LastActionLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.LastActionDetail}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Expander Style="{StaticResource CompactStatusExpanderStyle}">
+                                <Expander.Header>
+                                    <TextBlock Text="Details" Style="{StaticResource EyebrowStyle}" />
+                                </Expander.Header>
+                                <TextBlock Text="{Binding ActiveStudyShell.LastActionDetail}"
+                                           Style="{StaticResource MicroCaptionStyle}"
+                                           Margin="0,6,0,0" />
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+                </WrapPanel>
             </Grid>
         </Border>
 
@@ -661,174 +869,145 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="16" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="16" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
                         <Grid Grid.Row="0">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="1.25*" />
+                                <ColumnDefinition Width="1.12*" />
                                 <ColumnDefinition Width="16" />
-                                <ColumnDefinition Width="0.75*" />
+                                <ColumnDefinition Width="0.88*" />
                             </Grid.ColumnDefinitions>
 
                             <Border Grid.Column="0" Style="{StaticResource PanelBorderStyle}">
                                 <StackPanel>
-                                    <TextBlock Text="Start Here" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="This page is the first-session workflow for operators who receive a supplied APK and need one direct path: connect the headset, install the build, launch it, confirm telemetry, and keep the session under Windows control."
+                                    <TextBlock Text="Operator quick path" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Use the standard tools here when you need the generic operator workflow. The four steps below are the shortest path from a disconnected headset to a monitored public APK."
                                                Style="{StaticResource SectionCaptionStyle}" />
 
-                                    <Grid Margin="0,4,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="16" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-
-                                        <Border Grid.Column="0" Style="{StaticResource InsetPanelStyle}">
+                                    <UniformGrid Margin="0,4,0,0"
+                                                 Columns="4">
+                                        <Border Style="{StaticResource InsetPanelStyle}" Margin="0,0,12,0">
                                             <StackPanel>
-                                                <TextBlock Text="Before the first session"
+                                                <TextBlock Text="01" Style="{StaticResource StepIndexStyle}" />
+                                                <TextBlock Text="Connect the Quest"
                                                            FontSize="15"
-                                                           FontWeight="Bold" />
-                                                <TextBlock Text="1. Put the Quest in developer mode and approve USB debugging once."
-                                                           Style="{StaticResource MicroCaptionStyle}"
-                                                           Margin="0,10,0,0" />
-                                                <TextBlock Text="2. Keep Android platform-tools installed so the app can find adb."
-                                                           Style="{StaticResource MicroCaptionStyle}"
-                                                           Margin="0,8,0,0" />
-                                                <TextBlock Text="3. Get the study APK, package id, and recommended preset from the research team."
-                                                           Style="{StaticResource MicroCaptionStyle}"
-                                                           Margin="0,8,0,0" />
-                                                <TextBlock Text="4. Treat the headset as participant-facing: the operator app handles install, launch, monitoring, and tracked config changes."
+                                                           FontWeight="Bold"
+                                                           Margin="0,6,0,0" />
+                                                <TextBlock Text="Probe USB, switch to Wi-Fi ADB if needed, and confirm the saved endpoint."
                                                            Style="{StaticResource MicroCaptionStyle}"
                                                            Margin="0,8,0,0" />
                                             </StackPanel>
                                         </Border>
 
-                                        <Border Grid.Column="2" Style="{StaticResource InsetPanelStyle}">
+                                        <Border Style="{StaticResource InsetPanelStyle}" Margin="0,0,12,0">
                                             <StackPanel>
-                                                <TextBlock Text="What stays in operator control"
+                                                <TextBlock Text="02" Style="{StaticResource StepIndexStyle}" />
+                                                <TextBlock Text="Install the supplied APK"
                                                            FontSize="15"
-                                                           FontWeight="Bold" />
-                                                <TextBlock Text="The current shipping mode is remote-first. The APK reports state, while Windows handles study setup, device performance, runtime-config staging, and trigger commands."
-                                                           Style="{StaticResource MicroCaptionStyle}"
-                                                           Margin="0,10,0,0" />
-                                                <TextBlock Text="Use the detailed tabs when you need full library browsing, the inspector-style config editor, raw twin-state comparisons, or diagnostics."
+                                                           FontWeight="Bold"
+                                                           Margin="0,6,0,0" />
+                                                <TextBlock Text="Keep the target, APK path, preset, and device profile aligned before install."
                                                            Style="{StaticResource MicroCaptionStyle}"
                                                            Margin="0,8,0,0" />
                                             </StackPanel>
                                         </Border>
-                                    </Grid>
+
+                                        <Border Style="{StaticResource InsetPanelStyle}" Margin="0,0,12,0">
+                                            <StackPanel>
+                                                <TextBlock Text="03" Style="{StaticResource StepIndexStyle}" />
+                                                <TextBlock Text="Launch and verify"
+                                                           FontSize="15"
+                                                           FontWeight="Bold"
+                                                           Margin="0,6,0,0" />
+                                                <TextBlock Text="Launch the app, apply CPU/GPU levels, and confirm the foreground package."
+                                                           Style="{StaticResource MicroCaptionStyle}"
+                                                           Margin="0,8,0,0" />
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Style="{StaticResource InsetPanelStyle}">
+                                            <StackPanel>
+                                                <TextBlock Text="04" Style="{StaticResource StepIndexStyle}" />
+                                                <TextBlock Text="Monitor and track"
+                                                           FontSize="15"
+                                                           FontWeight="Bold"
+                                                           Margin="0,6,0,0" />
+                                                <TextBlock Text="Keep telemetry and twin-state feedback visible while the session runs."
+                                                           Style="{StaticResource MicroCaptionStyle}"
+                                                           Margin="0,8,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                    </UniformGrid>
+
+                                    <Border Style="{StaticResource InsetPanelStyle}" Margin="0,12,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Standard operator mode stays best for open-ended setup, library browsing, runtime-config editing, twin-state comparison, and diagnostics."
+                                                       FontWeight="Bold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="If the session needs one locked-down operator surface instead, use the study-mode action on the right or the header button above."
+                                                       Style="{StaticResource MicroCaptionStyle}"
+                                                       Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
                             </Border>
 
                             <Border Grid.Column="2" Style="{StaticResource PanelBorderStyle}">
                                 <StackPanel>
-                                    <TextBlock Text="Current study setup" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="{Binding SelectedAppSummary}"
-                                               FontSize="18"
-                                               FontWeight="Bold"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock Text="{Binding SelectedAppCapabilitySummary}"
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,10,0,0" />
-                                    <TextBlock Text="{Binding CatalogStatus}"
-                                               FontWeight="Bold"
-                                               Margin="0,14,0,0"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock Text="{Binding CatalogSourcePath}"
-                                               Style="{StaticResource InspectorKeyStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding SelectedHotloadProfileSummary}"
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,12,0,0" />
-                                    <TextBlock Text="{Binding RuntimeConfigPublishSummary}"
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,8,0,0" />
-                                    <Separator Margin="0,14,0,12" />
-                                    <TextBlock Text="Study shells"
-                                               FontSize="15"
-                                               FontWeight="Bold" />
-                                    <TextBlock Text="{Binding StudyShellCatalogStatus}"
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding StudyShellCatalogSourcePath}"
-                                               Style="{StaticResource InspectorKeyStyle}"
-                                               Margin="0,4,0,8" />
-                                    <ListBox ItemsSource="{Binding StudyShells}"
-                                             MaxHeight="220"
-                                             BorderThickness="0"
-                                             Background="{StaticResource PanelAltBrush}" />
+                                    <TextBlock Text="Study mode" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Use this when the session should stay inside one pinned experiment surface instead of the full operator toolset."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+
+                                    <Border Style="{StaticResource InsetPanelStyle}"
+                                            Background="{StaticResource SurfaceTintBrush}"
+                                            BorderBrush="{StaticResource FocusBlueBrush}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding FeaturedStudyShellLabel}"
+                                                       FontSize="18"
+                                                       FontWeight="Bold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding FeaturedStudyShellSummary}"
+                                                       Style="{StaticResource MicroCaptionStyle}"
+                                                       Margin="0,8,0,0" />
+                                            <TextBlock Text="{Binding FeaturedStudyShellTargetLabel}"
+                                                       Style="{StaticResource MicroCaptionStyle}"
+                                                       Margin="0,8,0,0" />
+                                            <Button Content="{Binding FeaturedStudyShellActionLabel}"
+                                                    Style="{StaticResource PrimaryActionButtonStyle}"
+                                                    Command="{Binding OpenStudyShellCommand}"
+                                                    CommandParameter="{Binding FeaturedStudyShell}"
+                                                    Visibility="{Binding HasFeaturedStudyShell, Converter={StaticResource BoolToVisibility}}"
+                                                    HorizontalAlignment="Left"
+                                                    Margin="0,12,0,0" />
+                                            <TextBlock Text="{Binding StudyShellCatalogStatus}"
+                                                       Style="{StaticResource MicroCaptionStyle}"
+                                                       Margin="0,10,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource InsetPanelStyle}" Margin="0,12,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Current target"
+                                                       FontSize="15"
+                                                       FontWeight="Bold" />
+                                            <TextBlock Text="{Binding SelectedAppSummary}"
+                                                       FontWeight="Bold"
+                                                       Margin="0,8,0,0"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding SelectedAppCapabilitySummary}"
+                                                       Style="{StaticResource MicroCaptionStyle}"
+                                                       Margin="0,8,0,0" />
+                                            <TextBlock Text="{Binding CatalogStatus}"
+                                                       Style="{StaticResource MicroCaptionStyle}"
+                                                       Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
                                 </StackPanel>
                             </Border>
                         </Grid>
 
                         <Grid Grid.Row="2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="12" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="12" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="12" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-
-                            <Border Grid.Column="0" Style="{StaticResource InsetPanelStyle}">
-                                <StackPanel>
-                                    <TextBlock Text="01" Style="{StaticResource StepIndexStyle}" />
-                                    <TextBlock Text="Connect the Quest"
-                                               FontSize="15"
-                                               FontWeight="Bold"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="Probe USB, switch to Wi-Fi ADB if needed, and confirm the saved endpoint before the participant starts."
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,8,0,0" />
-                                </StackPanel>
-                            </Border>
-
-                            <Border Grid.Column="2" Style="{StaticResource InsetPanelStyle}">
-                                <StackPanel>
-                                    <TextBlock Text="02" Style="{StaticResource StepIndexStyle}" />
-                                    <TextBlock Text="Install the supplied APK"
-                                               FontSize="15"
-                                               FontWeight="Bold"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="Select the study target, point at the APK if needed, and keep the matching bundle and preset selected."
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,8,0,0" />
-                                </StackPanel>
-                            </Border>
-
-                            <Border Grid.Column="4" Style="{StaticResource InsetPanelStyle}">
-                                <StackPanel>
-                                    <TextBlock Text="03" Style="{StaticResource StepIndexStyle}" />
-                                    <TextBlock Text="Launch and verify"
-                                               FontSize="15"
-                                               FontWeight="Bold"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="Launch the app, apply Quest CPU and GPU levels, and confirm the foreground package and live headset snapshot."
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,8,0,0" />
-                                </StackPanel>
-                            </Border>
-
-                            <Border Grid.Column="6" Style="{StaticResource InsetPanelStyle}">
-                                <StackPanel>
-                                    <TextBlock Text="04" Style="{StaticResource StepIndexStyle}" />
-                                    <TextBlock Text="Monitor and track"
-                                               FontSize="15"
-                                               FontWeight="Bold"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="Keep telemetry and twin-state tracking visible from Windows, then publish tracked config changes only when the study calls for them."
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,8,0,0" />
-                                </StackPanel>
-                            </Border>
-                        </Grid>
-
-                        <Grid Grid.Row="4">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="16" />
@@ -840,7 +1019,7 @@
                             <Border Grid.Column="0" Style="{StaticResource PanelBorderStyle}">
                                 <StackPanel>
                                     <TextBlock Text="Connect Quest" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="Start with the active endpoint, then reuse the same buttons every session."
+                                    <TextBlock Text="Start with the active endpoint, then reuse the same connection controls every session."
                                                Style="{StaticResource SectionCaptionStyle}" />
                                     <TextBlock Text="Quest endpoint" Style="{StaticResource DetailLabelStyle}" />
                                     <TextBox Text="{Binding EndpointDraft, UpdateSourceTrigger=PropertyChanged}" />
@@ -873,7 +1052,7 @@
                             <Border Grid.Column="2" Style="{StaticResource PanelBorderStyle}">
                                 <StackPanel>
                                     <TextBlock Text="Install + Launch" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="This keeps the study APK, presets, and Quest performance controls in one place."
+                                    <TextBlock Text="Keep the target APK, preset, device profile, and Quest performance controls in one place."
                                                Style="{StaticResource SectionCaptionStyle}" />
                                     <TextBlock Text="App target" Style="{StaticResource DetailLabelStyle}" />
                                     <ComboBox ItemsSource="{Binding Apps}"
@@ -919,7 +1098,7 @@
                             <Border Grid.Column="4" Style="{StaticResource PanelBorderStyle}">
                                 <StackPanel>
                                     <TextBlock Text="Live Check" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="Use this column while the participant is already in headset and you need live confirmation rather than detailed editing."
+                                    <TextBlock Text="Use this column when the participant is already in headset and you need live confirmation rather than editing."
                                                Style="{StaticResource SectionCaptionStyle}" />
                                     <CheckBox Content="Remote-only research control"
                                               IsChecked="{Binding RemoteOnlyControlEnabled}" />
@@ -968,7 +1147,8 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Session">
+            <TabItem Header="Session"
+                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                         <Grid.ColumnDefinitions>
@@ -1181,7 +1361,8 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Quest Library">
+            <TabItem Header="Quest Library"
+                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                         <Grid.ColumnDefinitions>
@@ -1333,7 +1514,8 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Runtime Config">
+            <TabItem Header="Runtime Config"
+                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
                 <Grid Margin="4,16,4,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="340" />
@@ -1443,7 +1625,8 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Twin Monitor">
+            <TabItem Header="Twin Monitor"
+                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                     <Grid.RowDefinitions>
@@ -1752,7 +1935,8 @@
                     </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="LSL Monitor">
+            <TabItem Header="LSL Monitor"
+                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                     <Grid.ColumnDefinitions>
@@ -1837,7 +2021,8 @@
                     </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Diagnostics">
+            <TabItem Header="Diagnostics"
+                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                     <Grid.ColumnDefinitions>

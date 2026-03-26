@@ -215,11 +215,40 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(HeaderTargetLevel));
                 OnPropertyChanged(nameof(HeaderConnectionLevel));
                 OnPropertyChanged(nameof(HeaderLiveLevel));
+                OnPropertyChanged(nameof(ShowStudyModeAction));
             }
         }
     }
 
     public bool HasActiveStudyShell => ActiveStudyShell is not null;
+
+    public StudyShellDefinition? FeaturedStudyShell
+        => StudyShells.Count > 0 ? StudyShells[0] : null;
+
+    public bool HasFeaturedStudyShell => FeaturedStudyShell is not null;
+
+    public bool ShowStudyModeAction => ActiveStudyShell is null && FeaturedStudyShell is not null;
+
+    public string FeaturedStudyShellLabel
+        => FeaturedStudyShell?.Label ?? "No study mode is available yet.";
+
+    public string FeaturedStudyShellSummary
+        => FeaturedStudyShell is null
+            ? "Load a public study-shell catalog to open a pinned experiment surface in the main window."
+            : $"{FeaturedStudyShell.Partner}. {FeaturedStudyShell.Description}";
+
+    public string FeaturedStudyShellTargetLabel
+        => FeaturedStudyShell is null
+            ? StudyShellCatalogStatus
+            : $"Pinned runtime {FeaturedStudyShell.App.PackageId}. Device profile {FeaturedStudyShell.DeviceProfile.Label}.";
+
+    public string StudyModeHeaderButtonLabel
+        => FeaturedStudyShell is null
+            ? "Open Study Mode"
+            : $"Open {FeaturedStudyShell.Label} Study Mode";
+
+    public string FeaturedStudyShellActionLabel
+        => FeaturedStudyShell is null ? "Study mode unavailable" : "Open Study Mode";
 
     public ObservableCollection<HotloadProfile> AvailableHotloadProfiles { get; } = new();
 
@@ -797,12 +826,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string CurrentModeDetail
         => ActiveStudyShell is null
-            ? "Use the first tab for onboarding, then move through the library, config, twin monitor, and diagnostics tabs as needed."
-            : $"{ActiveStudyShell.StudyPartner}. The main window is focused on the pinned Sussex study surface, while the other tabs remain available for deeper diagnostics.";
+            ? "Use Start Here for the direct operator path, or open the pinned study mode when a session needs one controlled surface."
+            : $"{ActiveStudyShell.StudyPartner}. Study mode now stays inside one Sussex shell with pre-session, during-session, and inspect views, while the generic tabs stay hidden until you exit study mode.";
 
     public string HeaderModeSummary
         => ActiveStudyShell is null
-            ? "Generic operator workflow. Adopt or choose a target, then use the tabs below for install, launch, monitoring, and diagnostics."
+            ? "Standard operator workflow. Keep the generic tools here, or jump straight into the pinned study mode from the button above."
             : $"{ActiveStudyShell.StudyPartner}. Pinned target {ActiveStudyShell.PinnedPackageId}.";
 
     public string SelectedAppSummary
@@ -1113,6 +1142,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     StudyShells.Clear();
                     StudyShellCatalogStatus = "No study-shell catalog found.";
                     StudyShellCatalogSourcePath = "Set VISCEREALITY_STUDY_SHELL_ROOT or keep samples/study-shells available next to the app.";
+                    NotifyStudyShellEntryPointsChanged();
                 }).ConfigureAwait(false);
                 return;
             }
@@ -1128,6 +1158,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
                 StudyShellCatalogStatus = $"Loaded {catalog.Studies.Count} study shell(s) from {catalog.Source.Label}.";
                 StudyShellCatalogSourcePath = catalog.Source.RootPath;
+                NotifyStudyShellEntryPointsChanged();
             }).ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(activeStudyId))
@@ -1148,8 +1179,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 StudyShellCatalogStatus = "Study-shell catalog refresh failed.";
                 StudyShellCatalogSourcePath = ex.Message;
                 AppendLog(OperatorLogLevel.Warning, "Study-shell catalog refresh failed.", ex.Message);
+                NotifyStudyShellEntryPointsChanged();
             }).ConfigureAwait(false);
         }
+    }
+
+    private void NotifyStudyShellEntryPointsChanged()
+    {
+        OnPropertyChanged(nameof(FeaturedStudyShell));
+        OnPropertyChanged(nameof(HasFeaturedStudyShell));
+        OnPropertyChanged(nameof(ShowStudyModeAction));
+        OnPropertyChanged(nameof(FeaturedStudyShellLabel));
+        OnPropertyChanged(nameof(FeaturedStudyShellSummary));
+        OnPropertyChanged(nameof(FeaturedStudyShellTargetLabel));
+        OnPropertyChanged(nameof(StudyModeHeaderButtonLabel));
+        OnPropertyChanged(nameof(FeaturedStudyShellActionLabel));
     }
 
     private async Task OpenStudyShellAsync(object? parameter)
@@ -1947,19 +1991,37 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 "Install or expose @meta-quest/hzdb to collect extra device details on request.");
         }
 
-        var selector = ResolveHzdbSelector();
-        if (string.IsNullOrWhiteSpace(selector))
+        var selectors = ResolveHzdbSelectorCandidates();
+        if (selectors.Count == 0)
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "hzdb selector unavailable.",
-                "No USB serial or active endpoint is available for an hzdb query yet.");
+                "No live Wi-Fi endpoint or USB serial is available for an hzdb query yet.");
         }
 
         try
         {
-            var outcome = await _hzdbService.GetDeviceInfoAsync(selector, cancellationToken).ConfigureAwait(false);
-            return outcome with { Detail = TrimStatusDetail(outcome.Detail) };
+            OperationOutcome? fallback = null;
+            foreach (var selector in selectors)
+            {
+                var outcome = await _hzdbService.GetDeviceInfoAsync(selector, cancellationToken).ConfigureAwait(false);
+                if (fallback is null)
+                {
+                    fallback = outcome with { Detail = TrimStatusDetail(outcome.Detail) };
+                }
+
+                if (outcome.Kind != OperationOutcomeKind.Failure)
+                {
+                    return outcome with { Detail = TrimStatusDetail(outcome.Detail) };
+                }
+            }
+
+            return fallback
+                ?? new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "hzdb query failed.",
+                    "The companion could not find a working Quest selector for hzdb.");
         }
         catch (Exception ex)
         {
@@ -2027,9 +2089,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     }
 
     private string ResolveHzdbSelector()
-        => _sessionState.LastUsbSerial
-            ?? _sessionState.ActiveEndpoint
-            ?? (string.IsNullOrWhiteSpace(EndpointDraft) ? string.Empty : EndpointDraft);
+        => ResolveHzdbSelectorCandidates().FirstOrDefault() ?? string.Empty;
+
+    private IReadOnlyList<string> ResolveHzdbSelectorCandidates()
+    {
+        var candidates = new List<string>(3);
+        AddHzdbSelectorCandidate(candidates, _sessionState.ActiveEndpoint);
+        AddHzdbSelectorCandidate(candidates, string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim());
+        AddHzdbSelectorCandidate(candidates, _sessionState.LastUsbSerial);
+        return candidates;
+    }
 
     private static string DescribeTwinAppState(IReadOnlyList<KeyValuePair<string, string>> reportedSettings)
     {
@@ -2072,6 +2141,22 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         return "Live quest_twin_state frames received.";
+    }
+
+    private static void AddHzdbSelectorCandidate(ICollection<string> candidates, string? selector)
+    {
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return;
+        }
+
+        var normalized = selector.Trim();
+        if (candidates.Any(existing => string.Equals(existing, normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        candidates.Add(normalized);
     }
 
     private void RefreshRuntimeContextLabels()

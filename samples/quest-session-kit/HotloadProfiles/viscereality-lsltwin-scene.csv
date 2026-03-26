@@ -1,7 +1,7 @@
 # Scene-matched public baseline for the current Viscereality LslTwin build.
 key,value
 hotload_profile_id,viscereality_lsltwin_scene
-hotload_profile_version,2026.03.25
+hotload_profile_version,2026.03.26
 hotload_profile_channel,public
 hotload_profile_lock,false
 internal_tick_lock_60hz,true
@@ -52,8 +52,8 @@ study_log_runtime_hotload_console,false
 study_log_runtime_hotload_applied_entries,false
 study_watch_hotload_file_changes,true
 showcase_breathing_mode,4
-showcase_heartbeat_mode,1
-showcase_coherence_mode,1
+showcase_heartbeat_mode,3
+showcase_coherence_mode,2
 showcase_adaptive_pacer_enabled,false
 showcase_lsl_in_stream_name,quest_biofeedback_in
 showcase_lsl_in_stream_type,quest.biofeedback
