@@ -28,6 +28,10 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     private string? _pendingStructuredRevision;
     private string? _pendingStructuredHash;
     private string? _lastCommittedSnapshotHash;
+    private string? _lastCommittedSnapshotRevision;
+    private int _lastCommittedSnapshotEntryCount;
+    private int _publishedCommandCount;
+    private int _lastPublishedCommandSequence;
 
     public event EventHandler? StateChanged;
 
@@ -41,15 +45,59 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         _stateMonitor = stateMonitor;
     }
 
-    public TwinBridgeStatus Status => new(
-        IsAvailable: true,
-        UsesPrivateImplementation: false,
-        Summary: _commandOutletOpened
-            ? "LSL twin bridge active."
-            : "LSL twin bridge available (not yet opened).",
-        Detail: _commandOutletOpened
-            ? $"Publishing on {DefaultCommandStreamName} / {DefaultCommandStreamType}. Monitoring {DefaultStateStreamName} / {DefaultStateStreamType}."
-            : "Call Open() or send a command to activate the twin bridge.");
+    public TwinBridgeStatus Status
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                var summary = _commandOutletOpened
+                    ? "LSL twin bridge active."
+                    : "LSL twin bridge available (not yet opened).";
+
+                var detailParts = new List<string>(4);
+                if (_commandOutletOpened)
+                {
+                    detailParts.Add(
+                        $"Command outlet {DefaultCommandStreamName} / {DefaultCommandStreamType}: sent {_publishedCommandCount} command(s), last seq " +
+                        $"{(_lastPublishedCommandSequence > 0 ? _lastPublishedCommandSequence.ToString(System.Globalization.CultureInfo.InvariantCulture) : "n/a")}.");
+                }
+                else
+                {
+                    detailParts.Add("Call Open() or send a command to activate the twin bridge.");
+                }
+
+                detailParts.Add($"Monitoring {DefaultStateStreamName} / {DefaultStateStreamType}.");
+
+                if (!string.IsNullOrWhiteSpace(_lastCommittedSnapshotRevision))
+                {
+                    detailParts.Add(
+                        $"Latest quest snapshot rev {_lastCommittedSnapshotRevision} " +
+                        $"({_lastCommittedSnapshotEntryCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} entries).");
+                }
+                else if (_lastStateReceivedAt.HasValue)
+                {
+                    detailParts.Add(
+                        $"Quest state received at {_lastStateReceivedAt.Value.ToLocalTime():HH:mm:ss}, but no completed structured snapshot has been committed yet.");
+                }
+                else
+                {
+                    detailParts.Add("No quest_twin_state frame received yet.");
+                }
+
+                if (TryBuildLastRemoteCommandDetailLocked(out var lastRemoteCommandDetail))
+                {
+                    detailParts.Add(lastRemoteCommandDetail);
+                }
+
+                return new TwinBridgeStatus(
+                    IsAvailable: true,
+                    UsesPrivateImplementation: false,
+                    Summary: summary,
+                    Detail: string.Join(" ", detailParts));
+            }
+        }
+    }
 
     public IReadOnlyDictionary<string, string> RequestedSettings
     {
@@ -91,6 +139,52 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             lock (_settingsSync)
             {
                 return _lastStateReceivedAt;
+            }
+        }
+    }
+
+    public bool IsCommandOutletOpen => _commandOutletOpened;
+
+    public int PublishedCommandCount
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                return _publishedCommandCount;
+            }
+        }
+    }
+
+    public int LastPublishedCommandSequence
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                return _lastPublishedCommandSequence;
+            }
+        }
+    }
+
+    public string? LastCommittedSnapshotRevision
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                return _lastCommittedSnapshotRevision;
+            }
+        }
+    }
+
+    public int LastCommittedSnapshotEntryCount
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                return _lastCommittedSnapshotEntryCount;
             }
         }
     }
@@ -145,6 +239,12 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             _configOutletOpened = true;
         }
 
+        lock (_settingsSync)
+        {
+            _publishedCommandCount = 0;
+            _lastPublishedCommandSequence = 0;
+        }
+
         StartStateMonitor();
 
         return new OperationOutcome(
@@ -159,6 +259,17 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     {
         EnsureOpen();
         var result = _commandOutlet.PublishCommand(command);
+        if (result.Kind != OperationOutcomeKind.Failure)
+        {
+            lock (_settingsSync)
+            {
+                _publishedCommandCount++;
+                _lastPublishedCommandSequence++;
+            }
+
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
         return Task.FromResult(result);
     }
 
@@ -364,6 +475,8 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
                     }
 
                     _lastCommittedSnapshotHash = _pendingStructuredHash;
+                    _lastCommittedSnapshotRevision = revision;
+                    _lastCommittedSnapshotEntryCount = _pendingStructuredSnapshot.Count;
                     AddStateEventLocked(new TwinStateEvent(reading.Timestamp, "frame", string.Join(" | ", values), $"Snapshot end rev={revision} entries={key} hash={value}"));
                     _pendingStructuredSnapshot.Clear();
                     _pendingStructuredRevision = null;
@@ -442,6 +555,44 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         key = payload[..separatorIndex].Trim();
         value = payload[(separatorIndex + 1)..].Trim();
         return !string.IsNullOrWhiteSpace(key);
+    }
+
+    private bool TryBuildLastRemoteCommandDetailLocked(out string detail)
+    {
+        detail = string.Empty;
+
+        _reportedSettings.TryGetValue("study.command.last_action_sequence", out var sequenceRaw);
+        _reportedSettings.TryGetValue("study.command.last_action_label", out var label);
+        _reportedSettings.TryGetValue("study.command.last_action_source", out var source);
+        _reportedSettings.TryGetValue("study.command.last_action_at_utc", out var timestampRaw);
+
+        var hasAnySignal =
+            !string.IsNullOrWhiteSpace(sequenceRaw) ||
+            !string.IsNullOrWhiteSpace(label) ||
+            !string.IsNullOrWhiteSpace(source) ||
+            !string.IsNullOrWhiteSpace(timestampRaw);
+        if (!hasAnySignal)
+        {
+            return false;
+        }
+
+        var renderedLabel = string.IsNullOrWhiteSpace(label) ? "command" : label.Trim();
+        var renderedSequence = string.IsNullOrWhiteSpace(sequenceRaw) ? "n/a" : sequenceRaw.Trim();
+        var renderedSource = string.IsNullOrWhiteSpace(source) ? "unknown source" : source.Trim();
+        var renderedTime = timestampRaw;
+        if (DateTimeOffset.TryParse(
+                timestampRaw,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out var parsedTimestamp))
+        {
+            renderedTime = parsedTimestamp.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        detail =
+            $"Headset last executed {renderedLabel} seq {renderedSequence} via {renderedSource}" +
+            $"{(string.IsNullOrWhiteSpace(renderedTime) ? "." : $" at {renderedTime}.")}";
+        return true;
     }
 }
 

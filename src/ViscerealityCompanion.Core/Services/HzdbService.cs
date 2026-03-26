@@ -8,7 +8,7 @@ public interface IHzdbService
     bool IsAvailable { get; }
     Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, CancellationToken cancellationToken = default);
     Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default);
-    Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, CancellationToken cancellationToken = default);
+    Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default);
     Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default);
     Task<OperationOutcome> GetDeviceInfoAsync(string deviceSerial, CancellationToken cancellationToken = default);
     Task<OperationOutcome> ListFilesAsync(string deviceSerial, string remotePath, CancellationToken cancellationToken = default);
@@ -18,28 +18,15 @@ public interface IHzdbService
 
 public sealed class WindowsHzdbService : IHzdbService
 {
-    private readonly Lazy<bool> _available = new(() =>
+    private const string HzdbPerfCaptureFormatPanicMarker = "Mismatch between definition and access of `format`";
+    private readonly Lazy<string?> _npxCommandPath;
+    private readonly Lazy<bool> _available;
+
+    public WindowsHzdbService()
     {
-        try
-        {
-            var psi = new ProcessStartInfo("npx.cmd")
-            {
-                Arguments = "-y @meta-quest/hzdb --version",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var process = Process.Start(psi);
-            if (process is null) return false;
-            process.WaitForExit(30_000);
-            return process.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    });
+        _npxCommandPath = new Lazy<string?>(ResolveNpxCommandPath);
+        _available = new Lazy<bool>(ProbeAvailability);
+    }
 
     public bool IsAvailable => _available.Value;
 
@@ -49,7 +36,7 @@ public sealed class WindowsHzdbService : IHzdbService
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);
 
-        var result = await RunAsync($"capture screenshot -d {deviceSerial} -o \"{outputPath}\"", cancellationToken).ConfigureAwait(false);
+        var result = await RunAsync($"capture screenshot --device \"{deviceSerial}\" -o \"{outputPath}\"", cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0
             ? Outcome(OperationOutcomeKind.Success, "Screenshot captured.", result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "Screenshot capture failed.", result.Combined);
@@ -57,24 +44,39 @@ public sealed class WindowsHzdbService : IHzdbService
 
     public async Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default)
     {
-        var result = await RunAsync($"perf capture -d {deviceSerial} --duration {durationMs}", cancellationToken).ConfigureAwait(false);
+        var result = await RunAsync($"perf capture --device \"{deviceSerial}\" --duration {durationMs}", cancellationToken).ConfigureAwait(false);
+        if (result.ExitCode != 0 && LooksLikeHzdbPerfCaptureFormatPanic(result.Combined))
+        {
+            return await CapturePerfTraceViaAdbFallbackAsync(deviceSerial, durationMs, result.Combined, cancellationToken).ConfigureAwait(false);
+        }
+
         return result.ExitCode == 0
             ? Outcome(OperationOutcomeKind.Success, $"Perf trace captured ({durationMs}ms).", result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "Perf capture failed.", result.Combined);
     }
 
-    public async Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, CancellationToken cancellationToken = default)
+    public async Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default)
     {
         var flag = enabled ? "--enable" : "--disable";
-        var result = await RunAsync($"device proximity -d {deviceSerial} {flag}", cancellationToken).ConfigureAwait(false);
+        var durationArg = !enabled && durationMs.HasValue && durationMs.Value > 0
+            ? $" --duration-ms {durationMs.Value}"
+            : string.Empty;
+        var result = await RunAsync($"device proximity --device \"{deviceSerial}\" {flag}{durationArg}", cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0
-            ? Outcome(OperationOutcomeKind.Success, $"Proximity sensor {(enabled ? "enabled" : "disabled")}.", result.StdOut)
+            ? Outcome(
+                OperationOutcomeKind.Success,
+                enabled
+                    ? "Proximity sensor enabled."
+                    : durationMs.HasValue && durationMs.Value > 0
+                        ? $"Proximity sensor disabled for {durationMs.Value / 1000d / 3600d:0.#}h."
+                        : "Proximity sensor disabled.",
+                result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "Proximity toggle failed.", result.Combined);
     }
 
     public async Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)
     {
-        var result = await RunAsync($"device wake -d {deviceSerial}", cancellationToken).ConfigureAwait(false);
+        var result = await RunAsync($"device wake --device \"{deviceSerial}\"", cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0
             ? Outcome(OperationOutcomeKind.Success, "Device wake sent.", result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "Device wake failed.", result.Combined);
@@ -90,7 +92,7 @@ public sealed class WindowsHzdbService : IHzdbService
 
     public async Task<OperationOutcome> ListFilesAsync(string deviceSerial, string remotePath, CancellationToken cancellationToken = default)
     {
-        var result = await RunAsync($"files ls -d {deviceSerial} {remotePath}", cancellationToken).ConfigureAwait(false);
+        var result = await RunAsync($"files ls --device \"{deviceSerial}\" \"{remotePath}\"", cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0
             ? new OperationOutcome(OperationOutcomeKind.Success, $"Listed {remotePath}.", result.StdOut,
                 Items: result.StdOut.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).ToArray())
@@ -99,7 +101,7 @@ public sealed class WindowsHzdbService : IHzdbService
 
     public async Task<OperationOutcome> PushFileAsync(string deviceSerial, string localPath, string remotePath, CancellationToken cancellationToken = default)
     {
-        var result = await RunAsync($"files push -d {deviceSerial} \"{localPath}\" {remotePath}", cancellationToken).ConfigureAwait(false);
+        var result = await RunAsync($"files push --device \"{deviceSerial}\" \"{localPath}\" \"{remotePath}\"", cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0
             ? Outcome(OperationOutcomeKind.Success, $"Pushed {Path.GetFileName(localPath)} to device.", result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "File push failed.", result.Combined);
@@ -111,24 +113,58 @@ public sealed class WindowsHzdbService : IHzdbService
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);
 
-        var result = await RunAsync($"files pull -d {deviceSerial} {remotePath} \"{localPath}\"", cancellationToken).ConfigureAwait(false);
+        var result = await RunAsync($"files pull --device \"{deviceSerial}\" \"{remotePath}\" \"{localPath}\"", cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0
             ? Outcome(OperationOutcomeKind.Success, $"Pulled {Path.GetFileName(remotePath)} from device.", result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "File pull failed.", result.Combined);
     }
 
-    private static async Task<HzdbResult> RunAsync(string arguments, CancellationToken cancellationToken)
-    {
-        var psi = new ProcessStartInfo("npx.cmd")
-        {
-            Arguments = $"-y @meta-quest/hzdb {arguments}",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+    internal static string? ResolveNpxCommandPath()
+        => ResolveNpxCommandPath(EnumerateNpxCommandCandidates(), File.Exists);
 
-        using var process = Process.Start(psi)
+    internal static string? ResolveNpxCommandPath(IEnumerable<string?> candidatePaths, Func<string, bool> fileExists)
+    {
+        ArgumentNullException.ThrowIfNull(candidatePaths);
+        ArgumentNullException.ThrowIfNull(fileExists);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawCandidate in candidatePaths)
+        {
+            var candidate = NormalizeCandidate(rawCandidate);
+            if (candidate is null || !seen.Add(candidate))
+                continue;
+
+            if (fileExists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private bool ProbeAvailability()
+    {
+        try
+        {
+            using var process = Process.Start(CreateProcessStartInfo("--version"));
+            if (process is null)
+                return false;
+            if (!process.WaitForExit(30_000))
+            {
+                TryKill(process);
+                return false;
+            }
+
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<HzdbResult> RunAsync(string arguments, CancellationToken cancellationToken)
+    {
+        using var process = Process.Start(CreateProcessStartInfo(arguments))
             ?? throw new InvalidOperationException("Failed to start hzdb process.");
 
         var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
@@ -136,6 +172,243 @@ public sealed class WindowsHzdbService : IHzdbService
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
         return new HzdbResult(process.ExitCode, stdout.Trim(), stderr.Trim());
+    }
+
+    private ProcessStartInfo CreateProcessStartInfo(string arguments)
+    {
+        var npxCommandPath = _npxCommandPath.Value;
+        if (string.IsNullOrWhiteSpace(npxCommandPath))
+            throw new FileNotFoundException("Could not locate npx.cmd for hzdb.", "npx.cmd");
+
+        return new ProcessStartInfo(npxCommandPath)
+        {
+            Arguments = $"-y @meta-quest/hzdb {arguments}",
+            WorkingDirectory = Path.GetDirectoryName(npxCommandPath) ?? AppContext.BaseDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+    }
+
+    private static bool LooksLikeHzdbPerfCaptureFormatPanic(string detail)
+        => detail.Contains(HzdbPerfCaptureFormatPanicMarker, StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<OperationOutcome> CapturePerfTraceViaAdbFallbackAsync(
+        string deviceSerial,
+        int durationMs,
+        string hzdbFailureDetail,
+        CancellationToken cancellationToken)
+    {
+        var adbPath = AdbExecutableLocator.TryLocate();
+        if (string.IsNullOrWhiteSpace(adbPath))
+        {
+            return Outcome(
+                OperationOutcomeKind.Failure,
+                "Perf capture failed.",
+                $"{hzdbFailureDetail}\nFallback unavailable because adb.exe could not be located.");
+        }
+
+        var outputPath = CreatePerfTraceOutputPath(deviceSerial);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = adbPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in BuildAdbPerfettoArguments(deviceSerial, durationMs))
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+
+        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        try
+        {
+            await using var outputStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            await process.StandardOutput.BaseStream.CopyToAsync(outputStream, cancellationToken).ConfigureAwait(false);
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+            var stderr = (await stderrTask.ConfigureAwait(false)).Trim();
+            var fileInfo = new FileInfo(outputPath);
+            if (process.ExitCode == 0 && fileInfo.Exists && fileInfo.Length > 0)
+            {
+                var detail =
+                    $"{hzdbFailureDetail}\n" +
+                    $"hzdb perf capture crashed, so the companion fell back to adb exec-out / perfetto. " +
+                    $"Trace saved to {outputPath}.";
+
+                return new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    $"Perf trace captured ({durationMs}ms).",
+                    detail,
+                    Items: [outputPath]);
+            }
+
+            TryDelete(outputPath);
+            return Outcome(
+                OperationOutcomeKind.Failure,
+                "Perf capture failed.",
+                $"{hzdbFailureDetail}\nFallback via adb exec-out failed.\n{stderr}");
+        }
+        catch (OperationCanceledException)
+        {
+            TryDelete(outputPath);
+            TryKill(process);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            TryDelete(outputPath);
+            return Outcome(
+                OperationOutcomeKind.Failure,
+                "Perf capture failed.",
+                $"{hzdbFailureDetail}\nFallback via adb exec-out failed.\n{ex.Message}");
+        }
+    }
+
+    private static IEnumerable<string?> EnumerateNpxCommandCandidates()
+    {
+        yield return Environment.GetEnvironmentVariable("VISCEREALITY_NPX_CMD");
+
+        foreach (var pathValue in EnumeratePathValues())
+        {
+            foreach (var entry in SplitPathEntries(pathValue))
+                yield return Path.Combine(entry, "npx.cmd");
+        }
+
+        foreach (var wellKnownDirectory in EnumerateWellKnownNodeDirectories())
+            yield return Path.Combine(wellKnownDirectory, "npx.cmd");
+    }
+
+    private static IEnumerable<string?> EnumeratePathValues()
+    {
+        yield return Environment.GetEnvironmentVariable("PATH");
+        yield return Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User);
+        yield return Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine);
+    }
+
+    private static IEnumerable<string> SplitPathEntries(string? pathValue)
+    {
+        if (string.IsNullOrWhiteSpace(pathValue))
+            yield break;
+
+        foreach (var entry in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!string.IsNullOrWhiteSpace(entry))
+                yield return entry;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateWellKnownNodeDirectories()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+        {
+            var userNodeRoot = Path.Combine(localAppData, "Programs", "nodejs");
+            if (Directory.Exists(userNodeRoot))
+            {
+                yield return userNodeRoot;
+
+                foreach (var childDirectory in Directory.EnumerateDirectories(userNodeRoot))
+                    yield return childDirectory;
+            }
+        }
+
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (!string.IsNullOrWhiteSpace(programFiles))
+            yield return Path.Combine(programFiles, "nodejs");
+
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        if (!string.IsNullOrWhiteSpace(programFilesX86))
+            yield return Path.Combine(programFilesX86, "nodejs");
+    }
+
+    private static string? NormalizeCandidate(string? candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+            return null;
+
+        try
+        {
+            return Path.GetFullPath(candidate.Trim().Trim('"'));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+        }
+    }
+
+    private static IReadOnlyList<string> BuildAdbPerfettoArguments(string deviceSerial, int durationMs)
+    {
+        var durationSeconds = Math.Max(1, (int)Math.Ceiling(durationMs / 1000d));
+        return
+        [
+            "-s",
+            deviceSerial,
+            "exec-out",
+            "perfetto",
+            "-o",
+            "-",
+            "-t",
+            $"{durationSeconds}s",
+            "sched/sched_switch",
+            "wm",
+            "am",
+            "gfx",
+            "view",
+            "binder_driver",
+            "hal",
+            "dalvik",
+            "camera",
+            "input",
+            "res",
+            "memory"
+        ];
+    }
+
+    private static string CreatePerfTraceOutputPath(string deviceSerial)
+    {
+        var outputDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ViscerealityCompanion",
+            "perf-traces");
+        Directory.CreateDirectory(outputDirectory);
+
+        var sanitizedDeviceSerial = new string(deviceSerial
+            .Trim()
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '_')
+            .ToArray());
+
+        return Path.Combine(
+            outputDirectory,
+            $"perfetto_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}_{sanitizedDeviceSerial}.perfetto-trace");
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     private static OperationOutcome Outcome(OperationOutcomeKind kind, string summary, string detail)
@@ -157,7 +430,7 @@ public sealed class PreviewHzdbService : IHzdbService
     public Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default)
         => Preview("Perf capture requires hzdb (npx @meta-quest/hzdb).");
 
-    public Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, CancellationToken cancellationToken = default)
+    public Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default)
         => Preview("Proximity control requires hzdb (npx @meta-quest/hzdb).");
 
     public Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)

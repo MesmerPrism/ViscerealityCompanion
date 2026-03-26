@@ -8,7 +8,8 @@ cross-project patterns, or central-bureau maintenance, use
 
 - Build: `dotnet build ViscerealityCompanion.sln`
 - Test: `dotnet test ViscerealityCompanion.sln`
-- Run WPF app: `dotnet run --project src/ViscerealityCompanion.App`
+- Run WPF app (Smart App Control-safe): `powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1`
+- Run WPF app (direct dev loop): `dotnet run --project src/ViscerealityCompanion.App`
 - Run CLI: `dotnet run --project src/ViscerealityCompanion.Cli`
 - Run Sussex verification harness: `dotnet run --project tools/ViscerealityCompanion.VerificationHarness`
 - Build docs site: `npm run pages:build`
@@ -118,8 +119,8 @@ The `WindowsLslMonitorService` and `WindowsLslOutletService` use P/Invoke to
 The public twin bridge uses LSL streams compatible with the AstralKarateDojo
 twin architecture:
 
-- **Commands out**: `quest_twin_commands` / `quest.twin` (operator → headset)
-- **State in**: `quest_twin_state` / `quest.twin` (headset → operator)
+- **Commands out**: `quest_twin_commands` / `quest.twin.command` (operator → headset)
+- **State in**: `quest_twin_state` / `quest.twin.state` (headset → operator)
 - **Config out**: `quest_hotload_config` / `quest.config` (full config snapshots)
 
 Snapshot protocol: `begin → set key=value → end` frame sequence.
@@ -133,9 +134,13 @@ Snapshot protocol: `begin → set key=value → end` frame sequence.
 
 ## Smart App Control Note
 
-This machine may block `dotnet test` when unsigned assemblies are loaded.
-Workaround: single-file publish with
+This machine may block `dotnet test` and unpackaged multi-file WPF launches
+when unsigned repo assemblies are loaded. Use
+`powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1`
+for the companion app, or publish manually with
 `dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false`.
+To refresh the desktop shortcut onto that safe launcher path, run
+`powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Desktop-Launcher.ps1`.
 
 ## Available Skills
 

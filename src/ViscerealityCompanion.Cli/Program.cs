@@ -542,11 +542,11 @@ public static class Program
         var candidates = new[]
         {
             Environment.GetEnvironmentVariable("VISCEREALITY_QUEST_SESSION_KIT_ROOT"),
+            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit")),
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source", "repos", "AstralKarateDojo", "QuestSessionKit"),
-            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit"))
+                "source", "repos", "AstralKarateDojo", "QuestSessionKit")
         };
 
         return candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path!))

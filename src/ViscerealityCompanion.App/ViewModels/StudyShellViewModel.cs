@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -13,6 +14,10 @@ namespace ViscerealityCompanion.App.ViewModels;
 
 public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
+    private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
+    private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
+    private static readonly Regex CommandSequenceRegex = new(@"\bseq=(\d+)\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly StudyValueSection[] SectionCatalog =
     [
         new("lsl", "LSL Routing", "Track the stream target and current LSL input connectivity."),
@@ -27,8 +32,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private AppSessionState _appSessionState;
     private StudyShellSessionState _studySessionState;
     private readonly IQuestControlService _questService;
+    private readonly IHzdbService _hzdbService = HzdbServiceFactory.CreateDefault();
     private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateDefault();
+    private readonly ITestLslSignalService _testLslSignalService = TestLslSignalServiceFactory.CreateDefault();
     private readonly DispatcherTimer? _twinRefreshTimer;
+    private readonly DispatcherTimer? _benchRefreshTimer;
     private Window? _twinEventsWindow;
     private bool _initialized;
     private bool _twinRefreshPending;
@@ -66,6 +74,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _coherenceLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _recenterLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _particlesLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _proximityLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _testLslSenderLevel = OperationOutcomeKind.Preview;
     private string _deviceProfileSummary = "Pinned device profile has not been checked yet.";
     private string _deviceProfileDetail = "Refresh the study status after connecting to the headset.";
     private string _liveRuntimeSummary = "Waiting for quest_twin_state.";
@@ -84,6 +94,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _recenterDetail = "The recenter action is available, and camera drift will appear here once the study runtime starts publishing it.";
     private string _particlesSummary = "Waiting for runtime particle state.";
     private string _particlesDetail = "Particle visibility and render suppression will appear here once the study runtime starts publishing them.";
+    private string _proximitySummary = "Proximity hold has not been checked yet.";
+    private string _proximityDetail = "This shell tracks the last companion-issued proximity request because hzdb does not expose a live readback.";
+    private string _proximityActionLabel = "Disable for 8h";
+    private string _testLslSenderSummary = "Windows TEST sender off.";
+    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes synthetic 0..1 breath samples on the Sussex inlet.";
+    private string _testLslSenderValueLabel = "Not running";
+    private string _testLslSenderActionLabel = "Start TEST Sender";
     private string _lastTwinStateTimestampLabel = "No live app-state timestamp yet.";
     private string _lastActionLabel = "None";
     private string _lastActionDetail = "No study action has run yet.";
@@ -96,6 +113,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _coherenceValueLabel = "n/a";
     private double _recenterDistancePercent;
     private string _recenterDistanceLabel = "n/a";
+    private StudyTwinCommandRequest? _lastRecenterCommandRequest;
+    private StudyTwinCommandRequest? _lastParticlesCommandRequest;
     private StudyValueSection? _selectedLiveSection;
 
     public StudyShellViewModel(StudyShellDefinition study)
@@ -122,12 +141,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 Interval = TimeSpan.FromMilliseconds(180)
             };
             _twinRefreshTimer.Tick += OnTwinRefreshTimerTick;
+
+            _benchRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
+            {
+                Interval = BenchRefreshInterval
+            };
+            _benchRefreshTimer.Tick += OnBenchRefreshTimerTick;
         }
 
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
             lslBridge.StateChanged += OnTwinBridgeStateChanged;
         }
+
+        _testLslSignalService.StateChanged += OnTestLslSignalServiceStateChanged;
 
         ProbeUsbCommand = new AsyncRelayCommand(ProbeUsbAsync);
         DiscoverWifiCommand = new AsyncRelayCommand(DiscoverWifiAsync);
@@ -138,6 +165,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
         LaunchStudyAppCommand = new AsyncRelayCommand(LaunchStudyAppAsync);
         ApplyPinnedDeviceProfileCommand = new AsyncRelayCommand(ApplyPinnedDeviceProfileAsync);
+        ToggleProximityCommand = new AsyncRelayCommand(ToggleProximityAsync);
+        ToggleTestLslSenderCommand = new AsyncRelayCommand(ToggleTestLslSenderAsync);
         RecenterCommand = new AsyncRelayCommand(RecenterAsync);
         ParticlesOnCommand = new AsyncRelayCommand(ParticlesOnAsync);
         ParticlesOffCommand = new AsyncRelayCommand(ParticlesOffAsync);
@@ -153,7 +182,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string EndpointDraft
     {
         get => _endpointDraft;
-        set => SetProperty(ref _endpointDraft, value);
+        set
+        {
+            if (SetProperty(ref _endpointDraft, value))
+            {
+                OnPropertyChanged(nameof(CanToggleProximity));
+            }
+        }
     }
 
     public string ConnectionSummary
@@ -324,6 +359,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _particlesLevel, value);
     }
 
+    public OperationOutcomeKind ProximityLevel
+    {
+        get => _proximityLevel;
+        private set => SetProperty(ref _proximityLevel, value);
+    }
+
+    public OperationOutcomeKind TestLslSenderLevel
+    {
+        get => _testLslSenderLevel;
+        private set => SetProperty(ref _testLslSenderLevel, value);
+    }
+
     public string DeviceProfileSummary
     {
         get => _deviceProfileSummary;
@@ -432,6 +479,48 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _particlesDetail, value);
     }
 
+    public string ProximitySummary
+    {
+        get => _proximitySummary;
+        private set => SetProperty(ref _proximitySummary, value);
+    }
+
+    public string ProximityDetail
+    {
+        get => _proximityDetail;
+        private set => SetProperty(ref _proximityDetail, value);
+    }
+
+    public string ProximityActionLabel
+    {
+        get => _proximityActionLabel;
+        private set => SetProperty(ref _proximityActionLabel, value);
+    }
+
+    public string TestLslSenderSummary
+    {
+        get => _testLslSenderSummary;
+        private set => SetProperty(ref _testLslSenderSummary, value);
+    }
+
+    public string TestLslSenderDetail
+    {
+        get => _testLslSenderDetail;
+        private set => SetProperty(ref _testLslSenderDetail, value);
+    }
+
+    public string TestLslSenderValueLabel
+    {
+        get => _testLslSenderValueLabel;
+        private set => SetProperty(ref _testLslSenderValueLabel, value);
+    }
+
+    public string TestLslSenderActionLabel
+    {
+        get => _testLslSenderActionLabel;
+        private set => SetProperty(ref _testLslSenderActionLabel, value);
+    }
+
     public string LastTwinStateTimestampLabel
     {
         get => _lastTwinStateTimestampLabel;
@@ -516,6 +605,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         => !string.IsNullOrWhiteSpace(_study.Controls.ParticleVisibleOnActionId)
             && !string.IsNullOrWhiteSpace(_study.Controls.ParticleVisibleOffActionId);
 
+    public bool CanToggleProximity
+        => _hzdbService.IsAvailable
+            && !string.IsNullOrWhiteSpace(ResolveHzdbSelector());
+
+    public bool CanToggleTestLslSender
+        => _testLslSignalService.IsRunning
+            || _testLslSignalService.RuntimeState.Available;
+
     public ObservableCollection<StudyValueSection> LiveSections { get; } = new();
 
     public StudyValueSection? SelectedLiveSection
@@ -562,6 +659,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand InstallStudyAppCommand { get; }
     public AsyncRelayCommand LaunchStudyAppCommand { get; }
     public AsyncRelayCommand ApplyPinnedDeviceProfileCommand { get; }
+    public AsyncRelayCommand ToggleProximityCommand { get; }
+    public AsyncRelayCommand ToggleTestLslSenderCommand { get; }
     public AsyncRelayCommand RecenterCommand { get; }
     public AsyncRelayCommand ParticlesOnCommand { get; }
     public AsyncRelayCommand ParticlesOffCommand { get; }
@@ -576,6 +675,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         _initialized = true;
         EnsureTwinBridgeMonitoringStarted();
+        await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
         await RefreshStatusAsync().ConfigureAwait(false);
     }
 
@@ -586,13 +686,22 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             lslBridge.StateChanged -= OnTwinBridgeStateChanged;
         }
 
+        _testLslSignalService.StateChanged -= OnTestLslSignalServiceStateChanged;
+
         if (_twinRefreshTimer is not null)
         {
             _twinRefreshTimer.Tick -= OnTwinRefreshTimerTick;
             _twinRefreshTimer.Stop();
         }
 
+        if (_benchRefreshTimer is not null)
+        {
+            _benchRefreshTimer.Tick -= OnBenchRefreshTimerTick;
+            _benchRefreshTimer.Stop();
+        }
+
         CloseTwinEventsWindow();
+        _testLslSignalService.Dispose();
         (_twinBridge as IDisposable)?.Dispose();
     }
 
@@ -604,6 +713,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(outcome.Endpoint))
         {
             SaveSession(usbSerial: outcome.Endpoint);
+            await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
         }
     }
 
@@ -640,6 +750,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
         await DispatchAsync(UpdatePinnedBuildStatus).ConfigureAwait(false);
         await DispatchAsync(UpdateDeviceProfileRows).ConfigureAwait(false);
+        await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
         await DispatchAsync(RefreshLiveTwinState).ConfigureAwait(false);
     }
 
@@ -699,7 +810,26 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         var outcome = await _questService.LaunchAppAsync(CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false))).ConfigureAwait(false);
         await ApplyOutcomeAsync("Launch Sussex APK", outcome).ConfigureAwait(false);
-        await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+
+        await RefreshStatusAsync().ConfigureAwait(false);
+
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await DispatchAsync(() =>
+            {
+                if (!string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase))
+                {
+                    AppendLog(
+                        OperatorLogLevel.Warning,
+                        "Launch command sent, but Sussex is not foreground.",
+                        $"Foreground package is {_headsetStatus?.ForegroundPackageId ?? "unknown"}. The headset may be in Guardian, lockscreen, or the Meta shell instead of the study runtime.");
+                }
+            }).ConfigureAwait(false);
+        }
     }
 
     public async Task ApplyPinnedDeviceProfileAsync()
@@ -708,6 +838,76 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await ApplyOutcomeAsync("Apply Study Device Profile", outcome).ConfigureAwait(false);
         await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+    }
+
+    private async Task ToggleProximityAsync()
+    {
+        var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
+        if (!_hzdbService.IsAvailable)
+        {
+            await ApplyOutcomeAsync(
+                "Toggle proximity",
+                new OperationOutcome(
+                    OperationOutcomeKind.Preview,
+                    "hzdb not available.",
+                    "Install or expose @meta-quest/hzdb before using the experiment-shell proximity hold.")).ConfigureAwait(false);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            await DispatchAsync(() => AppendLog(
+                OperatorLogLevel.Warning,
+                "Proximity hold blocked.",
+                "Probe USB or connect the Quest first so the shell has a selector for hzdb.")).ConfigureAwait(false);
+            return;
+        }
+
+        var tracked = await DispatchAsync(() => _appSessionState.GetTrackedProximity(selector)).ConfigureAwait(false);
+        var disableHoldIsActive = tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired;
+        var enable = disableHoldIsActive;
+        var actionLabel = enable ? "Enable Proximity" : "Disable Proximity For 8h";
+        var disableUntilUtc = enable ? (DateTimeOffset?)null : DateTimeOffset.UtcNow.AddMilliseconds(ProximityDisableDurationMs);
+        var outcome = await _hzdbService
+            .SetProximityAsync(selector, enabled: enable, durationMs: enable ? null : ProximityDisableDurationMs)
+            .ConfigureAwait(false);
+
+        if (outcome.Kind == OperationOutcomeKind.Success)
+        {
+            await DispatchAsync(() =>
+            {
+                _appSessionState = _appSessionState.WithTrackedProximity(selector, enable, disableUntilUtc);
+                _appSessionState.Save();
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+        }
+
+        await ApplyOutcomeAsync(actionLabel, outcome).ConfigureAwait(false);
+        await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
+    }
+
+    private async Task ToggleTestLslSenderAsync()
+    {
+        var isRunning = _testLslSignalService.IsRunning;
+        var actionLabel = isRunning ? "Stop TEST Sender" : "Start TEST Sender";
+        var streamName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
+            ? "quest_biofeedback_in"
+            : _study.Monitoring.ExpectedLslStreamName;
+        var streamType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
+            ? "quest.biofeedback"
+            : _study.Monitoring.ExpectedLslStreamType;
+        var sourceId = $"viscereality.companion.study-shell.test.{_study.Id}";
+
+        var outcome = isRunning
+            ? _testLslSignalService.Stop()
+            : _testLslSignalService.Start(streamName, streamType, sourceId);
+
+        await ApplyOutcomeAsync(actionLabel, outcome).ConfigureAwait(false);
+        await DispatchAsync(() =>
+        {
+            RefreshBenchToolsStatus();
+            UpdateLslCard();
+        }).ConfigureAwait(false);
     }
 
     public Task RecenterAsync()
@@ -730,8 +930,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var previousConfirmation = await DispatchAsync(() => CaptureCommandConfirmation(actionId)).ConfigureAwait(false);
         var outcome = await _twinBridge.SendCommandAsync(new TwinModeCommand(actionId, label)).ConfigureAwait(false);
         await ApplyOutcomeAsync(label, outcome).ConfigureAwait(false);
+
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            var request = CreateCommandRequest(actionId, label, previousConfirmation, outcome);
+            await DispatchAsync(() =>
+            {
+                RememberCommandRequest(request);
+                UpdateRecenterCard();
+                UpdateParticlesCard();
+                RefreshFocusRows(forceRebuild: true);
+            }).ConfigureAwait(false);
+        }
     }
 
     private async Task HandleConnectionOutcomeAsync(string actionLabel, OperationOutcome outcome, bool refreshAfter = true)
@@ -968,11 +1181,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }).ConfigureAwait(false);
     }
 
+    private void RefreshBenchToolsStatus()
+    {
+        UpdateProximityCard();
+        UpdateTestLslSenderCard();
+        UpdateBenchRefreshTimerState();
+        OnPropertyChanged(nameof(CanToggleProximity));
+        OnPropertyChanged(nameof(CanToggleTestLslSender));
+    }
+
     private void RefreshLiveTwinState()
     {
         if (_twinBridge is not LslTwinModeBridge lslBridge)
         {
             _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            RefreshBenchToolsStatus();
             LiveRuntimeLevel = OperationOutcomeKind.Preview;
             LiveRuntimeSummary = _twinBridge.Status.Summary;
             LiveRuntimeDetail = _twinBridge.Status.Detail;
@@ -1003,8 +1226,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         LastTwinStateTimestampLabel = lslBridge.LastStateReceivedAt is null
             ? "No live app-state timestamp yet."
-            : $"Last app-state frame {lslBridge.LastStateReceivedAt.Value:HH:mm:ss}.";
+            : DateTimeOffset.UtcNow - lslBridge.LastStateReceivedAt.Value > TwinStateIdleThreshold
+                ? $"Last app-state frame {lslBridge.LastStateReceivedAt.Value.ToLocalTime():HH:mm:ss} (stale)."
+                : $"Last app-state frame {lslBridge.LastStateReceivedAt.Value.ToLocalTime():HH:mm:ss}.";
 
+        RefreshBenchToolsStatus();
         UpdateLiveRuntimeCard();
         UpdateLslCard();
         UpdateControllerCard();
@@ -1017,11 +1243,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void UpdateLiveRuntimeCard()
     {
+        var lastStateReceivedAt = _twinBridge is LslTwinModeBridge lslBridge
+            ? lslBridge.LastStateReceivedAt
+            : null;
+        var studyRuntimeForeground = string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
+
         if (_reportedTwinState.Count == 0)
         {
-            LiveRuntimeLevel = OperationOutcomeKind.Preview;
-            LiveRuntimeSummary = "Waiting for quest_twin_state.";
-            LiveRuntimeDetail = "Launch the Sussex runtime and wait for quest_twin_state to start publishing before relying on the live study monitor.";
+            LiveRuntimeLevel = studyRuntimeForeground ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview;
+            LiveRuntimeSummary = studyRuntimeForeground
+                ? "Study runtime is foreground, but quest_twin_state is idle."
+                : "Waiting for quest_twin_state.";
+            LiveRuntimeDetail = studyRuntimeForeground
+                ? $"The headset still reports the Sussex APK in front, but no fresh app-state frames are arriving yet. The Quest runtime may still be starting, paused, or off-face. {BuildTwinCommandTransportDetail()}".Trim()
+                : $"Launch the Sussex runtime and wait for quest_twin_state to start publishing before relying on the live study monitor. {BuildTwinCommandTransportDetail()}".Trim();
             return;
         }
 
@@ -1032,19 +1267,32 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         var matchesStudyRuntime = string.Equals(publisherPackage, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
-        LiveRuntimeLevel = matchesStudyRuntime ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
-        LiveRuntimeSummary = matchesStudyRuntime
-            ? "Live study runtime state is active."
-            : "Live state is active, but the publisher does not clearly match the pinned study runtime.";
-        LiveRuntimeDetail = string.IsNullOrWhiteSpace(publisherPackage)
-            ? $"Received {_reportedTwinState.Count} live key(s). The runtime did not include a package id in the current state frame."
-            : $"Received {_reportedTwinState.Count} live key(s) from {publisherPackage}.";
+        var isIdle = lastStateReceivedAt.HasValue && DateTimeOffset.UtcNow - lastStateReceivedAt.Value > TwinStateIdleThreshold;
+        LiveRuntimeLevel = isIdle || !matchesStudyRuntime
+            ? OperationOutcomeKind.Warning
+            : OperationOutcomeKind.Success;
+        LiveRuntimeSummary = isIdle
+            ? studyRuntimeForeground
+                ? "Live study state is stale. The headset may be paused or off-face."
+                : "Live study state is stale."
+            : matchesStudyRuntime
+                ? "Live study runtime state is active."
+                : "Live state is active, but the publisher does not clearly match the pinned study runtime.";
+        LiveRuntimeDetail = isIdle
+            ? $"The last quest_twin_state frame arrived at {lastStateReceivedAt!.Value.ToLocalTime():HH:mm:ss}. If the headset is not on-face, wake it or disable proximity before relying on live confirmation. {BuildTwinCommandTransportDetail()}".Trim()
+            : string.IsNullOrWhiteSpace(publisherPackage)
+                ? $"Received {_reportedTwinState.Count} live key(s). The runtime did not include a package id in the current state frame. {BuildTwinCommandTransportDetail()}".Trim()
+                : $"Received {_reportedTwinState.Count} live key(s) from {publisherPackage}. {BuildTwinCommandTransportDetail()}".Trim();
     }
 
     private void UpdateLslCard()
     {
         var expectedName = _study.Monitoring.ExpectedLslStreamName;
         var expectedType = _study.Monitoring.ExpectedLslStreamType;
+        var testSenderActive = _testLslSignalService.IsRunning;
+        var testSenderDetail = testSenderActive
+            ? $"Companion TEST sender is publishing synthetic 0..1 samples on {expectedName} / {expectedType}."
+            : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} without a live sensor.";
         var streamName = GetFirstValue("study.lsl.filter_name") ?? GetFirstValue(_study.Monitoring.LslStreamNameKeys);
         var streamType = GetFirstValue("study.lsl.filter_type") ?? GetFirstValue(_study.Monitoring.LslStreamTypeKeys);
         var hasInputValue = TryGetObservedLslValue(out var inputValue, out var inputValueKey);
@@ -1063,7 +1311,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             LslLevel = OperationOutcomeKind.Preview;
             LslSummary = "Waiting for LSL runtime state.";
-            LslDetail = $"Expected stream: {expectedName} / {expectedType}.";
+            LslDetail = $"Expected stream: {expectedName} / {expectedType}. {testSenderDetail}";
             return;
         }
 
@@ -1091,7 +1339,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
         else if (hasConnectedInput)
         {
-            LslSummary += " Waiting for a public breath-value echo.";
+            LslSummary += " Inlet connected; this public build does not echo the breath value yet.";
+        }
+        if (testSenderActive)
+        {
+            LslSummary += " Companion TEST sender active.";
         }
         LslDetail =
             $"Expected {expectedName} / {expectedType}. Runtime target {(string.IsNullOrWhiteSpace(streamName) ? "stream name unavailable" : streamName)} / {(string.IsNullOrWhiteSpace(streamType) ? "stream type unavailable" : streamType)}. " +
@@ -1099,8 +1351,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             $"Connected {connectedCount?.ToString() ?? (connectedFlag.HasValue ? (connectedFlag.Value ? "1" : "0") : "n/a")}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}. " +
             (hasInputValue
                 ? $"Latest normalized 0..1 breath value {inputValue:0.000} via {inputValueKey}. "
-                : "The current public state frame confirms inlet connectivity, but this build did not echo the normalized 0..1 breath value yet. ") +
-            $"{(string.IsNullOrWhiteSpace(statusLine) ? string.Empty : statusLine)}".Trim();
+                : "The current public state frame confirms inlet connectivity. The live link is healthy, but this build did not echo the normalized 0..1 breath value yet. ") +
+            $"{testSenderDetail} {(string.IsNullOrWhiteSpace(statusLine) ? string.Empty : statusLine)}".Trim();
     }
 
     private void UpdateControllerCard()
@@ -1210,11 +1462,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         var distance = ParseDouble(GetFirstValue(_study.Monitoring.RecenterDistanceKeys));
         var anchorRecorded = ParseBool(GetFirstValue("study.recenter.anchor_recorded"));
+        var confirmation = CaptureCommandConfirmation(_study.Controls.RecenterCommandActionId);
+        var commandDetail = BuildCommandTrackingDetail(_lastRecenterCommandRequest, confirmation, "recenter");
+        var waitingForConfirmation = IsCommandPending(_lastRecenterCommandRequest, confirmation);
+        var hasConfirmedCommand = IsCommandConfirmed(_lastRecenterCommandRequest, confirmation) || HasConfirmationSignal(confirmation);
+        var inferredEffect = CaptureRecenterEffect(_lastRecenterCommandRequest, distance);
         if (_reportedTwinState.Count == 0)
         {
-            RecenterLevel = OperationOutcomeKind.Preview;
-            RecenterSummary = "Waiting for recenter telemetry.";
-            RecenterDetail = "The recenter action is available, but the live drift distance appears only when the APK publishes it.";
+            RecenterLevel = waitingForConfirmation ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview;
+            RecenterSummary = waitingForConfirmation
+                ? "Recenter sent from companion. Waiting for live headset confirmation."
+                : "Waiting for recenter telemetry.";
+            RecenterDetail = waitingForConfirmation
+                ? $"{commandDetail} {BuildTwinCommandTransportDetail()}".Trim()
+                : "The recenter action is available, but the live drift distance appears only when the APK publishes it.";
+            RecenterDistancePercent = 0d;
+            RecenterDistanceLabel = "n/a";
+            return;
+        }
+
+        if (waitingForConfirmation && !inferredEffect.Observed)
+        {
+            RecenterLevel = OperationOutcomeKind.Warning;
+            RecenterSummary = "Recenter sent from companion. Waiting for headset confirmation.";
+            RecenterDetail = $"{commandDetail} {BuildTwinCommandTransportDetail()}".Trim();
             RecenterDistancePercent = 0d;
             RecenterDistanceLabel = "n/a";
             return;
@@ -1223,8 +1494,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (anchorRecorded == false)
         {
             RecenterLevel = OperationOutcomeKind.Preview;
-            RecenterSummary = "Waiting for the first recenter anchor.";
-            RecenterDetail = "The study runtime has not recorded a recenter anchor yet, so camera drift cannot be evaluated.";
+            RecenterSummary = hasConfirmedCommand
+                ? "Recenter confirmed. Waiting for the first recenter anchor."
+                : "Waiting for the first recenter anchor.";
+            RecenterDetail = $"{commandDetail} {BuildTwinCommandTransportDetail()} The study runtime has not recorded a recenter anchor yet, so camera drift cannot be evaluated.".Trim();
             RecenterDistancePercent = 0d;
             RecenterDistanceLabel = "n/a";
             return;
@@ -1232,9 +1505,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (!distance.HasValue)
         {
-            RecenterLevel = OperationOutcomeKind.Preview;
-            RecenterSummary = "Recenter drift telemetry not exposed yet.";
-            RecenterDetail = "The current public runtime does not publish camera distance from the last recenter point yet. The recenter action can still be sent.";
+            RecenterLevel = hasConfirmedCommand
+                ? OperationOutcomeKind.Preview
+                : inferredEffect.Observed
+                    ? OperationOutcomeKind.Warning
+                    : OperationOutcomeKind.Preview;
+            RecenterSummary = hasConfirmedCommand
+                ? "Recenter confirmed. Drift telemetry not exposed yet."
+                : inferredEffect.Observed
+                    ? "Recenter effect observed, but no explicit headset ack was published."
+                    : "Recenter drift telemetry not exposed yet.";
+            RecenterDetail = $"{commandDetail} {BuildTwinCommandTransportDetail()} {BuildRecenterEffectDetail(inferredEffect)} The current public runtime does not publish camera distance from the last recenter point yet. The recenter action can still be sent.".Trim();
             RecenterDistancePercent = 0d;
             RecenterDistanceLabel = "n/a";
             return;
@@ -1242,52 +1523,211 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         RecenterDistancePercent = Math.Clamp(distance.Value / Math.Max(_study.Monitoring.RecenterDistanceThresholdUnits, 0.01d), 0d, 1d) * 100d;
         RecenterDistanceLabel = $"{distance.Value:0.000} u";
-        RecenterLevel = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
-            ? OperationOutcomeKind.Warning
-            : OperationOutcomeKind.Success;
-        RecenterSummary = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
-            ? $"Camera drift is {distance.Value:0.000} units from the last recenter."
-            : $"Camera drift is within threshold at {distance.Value:0.000} units.";
-        RecenterDetail = $"Study threshold: {_study.Monitoring.RecenterDistanceThresholdUnits:0.000} units. Recenter anchor recorded: {(anchorRecorded == true ? "yes" : "unknown")}.";
+        if (hasConfirmedCommand)
+        {
+            RecenterLevel = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Success;
+            RecenterSummary = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
+                ? $"Recenter confirmed, but camera drift remains {distance.Value:0.000} units."
+                : $"Recenter confirmed. Camera drift is within threshold at {distance.Value:0.000} units.";
+        }
+        else if (inferredEffect.Observed)
+        {
+            RecenterLevel = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Warning;
+            RecenterSummary = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
+                ? $"Recenter effect observed, but camera drift still reads {distance.Value:0.000} units."
+                : $"Recenter effect observed. Camera drift is now {distance.Value:0.000} units, but the headset did not publish an explicit ack.";
+        }
+        else
+        {
+            RecenterLevel = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Success;
+            RecenterSummary = distance.Value > _study.Monitoring.RecenterDistanceThresholdUnits
+                ? $"Camera drift is {distance.Value:0.000} units from the last recenter."
+                : $"Camera drift is within threshold at {distance.Value:0.000} units.";
+        }
+
+        RecenterDetail = $"{commandDetail} {BuildTwinCommandTransportDetail()} {BuildRecenterEffectDetail(inferredEffect)} Study threshold: {_study.Monitoring.RecenterDistanceThresholdUnits:0.000} units. Recenter anchor recorded: {(anchorRecorded == true ? "yes" : "unknown")}.".Trim();
     }
 
     private void UpdateParticlesCard()
     {
-        var visibility = GetFirstValue(_study.Monitoring.ParticleVisibilityKeys);
+        var visibility = ParseBool(GetFirstValue(_study.Monitoring.ParticleVisibilityKeys));
+        var requestedVisible = ParseBool(GetFirstValue("study.particles.requested_visible"));
         var renderOutputEnabled = ParseBool(GetFirstValue("study.particles.render_output_enabled"));
         var suppressedByOperator = ParseBool(GetFirstValue("study.particles.suppressed_by_operator"));
         var suppressedByHud = ParseBool(GetFirstValue("study.particles.suppressed_by_hud"));
+        var confirmation = CaptureCommandConfirmation(_study.Controls.ParticleVisibleOnActionId);
+        var commandDetail = BuildCommandTrackingDetail(_lastParticlesCommandRequest, confirmation, "particle visibility");
+        var waitingForConfirmation = IsCommandPending(_lastParticlesCommandRequest, confirmation);
+        var hasExplicitRequestedVisibility = requestedVisible.HasValue;
+        var actualVisible = hasExplicitRequestedVisibility
+            ? visibility
+            : renderOutputEnabled ?? visibility;
+        var inferredEffect = CaptureParticleVisibilityEffect(_lastParticlesCommandRequest, actualVisible);
+
+        requestedVisible ??= visibility;
         if (_reportedTwinState.Count == 0)
         {
-            ParticlesLevel = OperationOutcomeKind.Preview;
-            ParticlesSummary = "Waiting for runtime particle state.";
-            ParticlesDetail = "Particle visibility reporting appears only if the study APK publishes it.";
+            ParticlesLevel = waitingForConfirmation ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview;
+            ParticlesSummary = waitingForConfirmation
+                ? $"{_lastParticlesCommandRequest?.Label ?? "Particle visibility"} sent from companion. Waiting for live headset confirmation."
+                : "Waiting for runtime particle state.";
+            ParticlesDetail = waitingForConfirmation
+                ? $"{commandDetail} {BuildTwinCommandTransportDetail()}".Trim()
+                : "Particle visibility reporting appears only if the study APK publishes it.";
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(visibility))
+        if (waitingForConfirmation && !inferredEffect.Observed)
+        {
+            ParticlesLevel = OperationOutcomeKind.Warning;
+            ParticlesSummary = $"{_lastParticlesCommandRequest?.Label ?? "Particle visibility"} sent from companion. Waiting for headset confirmation.";
+            ParticlesDetail = $"{commandDetail} {BuildTwinCommandTransportDetail()} {BuildParticleRuntimeDetail(requestedVisible, actualVisible, renderOutputEnabled, suppressedByOperator, suppressedByHud)}".Trim();
+            return;
+        }
+
+        if (!actualVisible.HasValue && !requestedVisible.HasValue)
         {
             ParticlesLevel = CanToggleParticles ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview;
             ParticlesSummary = "Particle visibility state not exposed yet.";
             ParticlesDetail = CanToggleParticles
-                ? "The study shell can still send particle visibility commands even though the current runtime is not reporting the resulting state."
+                ? $"{commandDetail} {BuildTwinCommandTransportDetail()} The study shell can still send particle visibility commands even though the current runtime is not reporting the resulting state.".Trim()
                 : "The current public runtime does not expose particle visibility commands or public state keys yet.";
             return;
         }
 
-        var visible = ParseBool(visibility);
-        ParticlesLevel = visible == true && renderOutputEnabled != false
-            ? OperationOutcomeKind.Success
-            : OperationOutcomeKind.Warning;
-        ParticlesSummary = visible == true
-            ? "Particles are visible."
-            : visible == false
-                ? "Particles are hidden."
-                : $"Particles currently report `{visibility}`.";
-        ParticlesDetail =
-            $"Render output {(renderOutputEnabled == true ? "enabled" : renderOutputEnabled == false ? "disabled" : "unknown")}. " +
-            $"Operator suppression {(suppressedByOperator == true ? "on" : suppressedByOperator == false ? "off" : "unknown")}. " +
-            $"HUD suppression {(suppressedByHud == true ? "on" : suppressedByHud == false ? "off" : "unknown")}.";
+        ParticlesLevel = actualVisible == true && requestedVisible != false
+            ? hasExplicitRequestedVisibility && inferredEffect.Observed && !IsCommandConfirmed(_lastParticlesCommandRequest, confirmation)
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Success
+            : actualVisible == false && requestedVisible == false
+                ? hasExplicitRequestedVisibility && inferredEffect.Observed && !IsCommandConfirmed(_lastParticlesCommandRequest, confirmation)
+                    ? OperationOutcomeKind.Warning
+                    : OperationOutcomeKind.Success
+                : OperationOutcomeKind.Warning;
+        ParticlesSummary = actualVisible == true && requestedVisible == false
+            ? "Particles are still visible even though the last operator request was Off."
+            : actualVisible == true
+                ? inferredEffect.Observed && !IsCommandConfirmed(_lastParticlesCommandRequest, confirmation)
+                    ? "Particles are visible, but the headset did not publish an explicit command ack."
+                    : "Particles are visible."
+                : actualVisible == false && requestedVisible == true
+                    ? "Particles were requested on, but render output is still suppressed."
+                    : actualVisible == false
+                        ? inferredEffect.Observed && !IsCommandConfirmed(_lastParticlesCommandRequest, confirmation)
+                            ? "Particles are hidden, but the headset did not publish an explicit command ack."
+                            : "Particles are hidden."
+                        : "Particle visibility is partially reported.";
+        ParticlesDetail = $"{commandDetail} {BuildTwinCommandTransportDetail()} {BuildParticleVisibilityEffectDetail(inferredEffect)} {BuildParticleRuntimeDetail(requestedVisible, actualVisible, renderOutputEnabled, suppressedByOperator, suppressedByHud)}".Trim();
+    }
+
+    private void UpdateProximityCard()
+    {
+        var selector = ResolveHzdbSelector();
+        ProximityActionLabel = "Disable for 8h";
+
+        if (!_hzdbService.IsAvailable)
+        {
+            ProximityLevel = OperationOutcomeKind.Preview;
+            ProximitySummary = "Proximity hold unavailable.";
+            ProximityDetail = "Install or expose @meta-quest/hzdb before using the experiment-shell proximity hold.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            ProximityLevel = OperationOutcomeKind.Preview;
+            ProximitySummary = "Quest selector needed for proximity hold.";
+            ProximityDetail = "Probe USB or connect the Quest first. The shell prefers the last USB serial and falls back to the active endpoint.";
+            return;
+        }
+
+        var tracked = _appSessionState.GetTrackedProximity(selector);
+        var updatedLabel = tracked.UpdatedAtUtc.HasValue
+            ? tracked.UpdatedAtUtc.Value.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)
+            : "n/a";
+
+        if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired && tracked.DisableUntilUtc.HasValue)
+        {
+            var untilLocal = tracked.DisableUntilUtc.Value.ToLocalTime();
+            ProximityLevel = OperationOutcomeKind.Warning;
+            ProximitySummary = $"Proximity sensor expected off until {untilLocal:HH:mm}.";
+            ProximityDetail =
+                $"Companion last sent an 8h disable for {selector} at {updatedLabel}. " +
+                $"This is tracked operator state only; hzdb does not expose a live headset readback.";
+            ProximityActionLabel = "Enable Proximity";
+            return;
+        }
+
+        if (tracked.DisableWindowExpired && tracked.UpdatedAtUtc.HasValue)
+        {
+            var expiredAt = tracked.DisableUntilUtc?.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture) ?? "n/a";
+            ProximityLevel = OperationOutcomeKind.Preview;
+            ProximitySummary = "Tracked proximity hold expired. Sensor expected on.";
+            ProximityDetail =
+                $"The last companion-issued disable window ended at {expiredAt}. " +
+                $"The shell now assumes the normal proximity sensor state is on because hzdb does not expose a live readback.";
+            return;
+        }
+
+        ProximityLevel = OperationOutcomeKind.Success;
+        ProximitySummary = "Proximity sensor expected on.";
+        ProximityDetail = tracked.Known
+            ? $"Companion last requested normal proximity behavior for {selector} at {updatedLabel}. hzdb does not expose a live readback, so this reflects the last operator request."
+            : $"No active companion-issued proximity hold is tracked for {selector}. The shell assumes the normal proximity sensor state is on.";
+    }
+
+    private void UpdateTestLslSenderCard()
+    {
+        var expectedName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
+            ? "quest_biofeedback_in"
+            : _study.Monitoring.ExpectedLslStreamName;
+        var expectedType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
+            ? "quest.biofeedback"
+            : _study.Monitoring.ExpectedLslStreamType;
+
+        TestLslSenderActionLabel = _testLslSignalService.IsRunning ? "Stop TEST Sender" : "Start TEST Sender";
+
+        if (_testLslSignalService.IsRunning)
+        {
+            TestLslSenderLevel = OperationOutcomeKind.Warning;
+            TestLslSenderSummary = "Windows TEST sender active.";
+            TestLslSenderValueLabel = _testLslSignalService.LastSentAtUtc.HasValue
+                ? $"Latest synthetic breath value {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
+                : "Starting synthetic breath signal...";
+            TestLslSenderDetail =
+                $"Synthetic 0..1 breath samples are publishing locally on {expectedName} / {expectedType}. Use this only for bench checks, not live study runs.";
+            return;
+        }
+
+        if (!_testLslSignalService.RuntimeState.Available)
+        {
+            TestLslSenderLevel = OperationOutcomeKind.Preview;
+            TestLslSenderSummary = "Windows TEST sender unavailable.";
+            TestLslSenderValueLabel = "Unavailable";
+            TestLslSenderDetail = _testLslSignalService.RuntimeState.Detail;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_testLslSignalService.LastFaultDetail))
+        {
+            TestLslSenderLevel = OperationOutcomeKind.Failure;
+            TestLslSenderSummary = "Windows TEST sender stopped after a local fault.";
+            TestLslSenderValueLabel = "Faulted";
+            TestLslSenderDetail = _testLslSignalService.LastFaultDetail;
+            return;
+        }
+
+        TestLslSenderLevel = OperationOutcomeKind.Preview;
+        TestLslSenderSummary = "Windows TEST sender off.";
+        TestLslSenderValueLabel = "Not running";
+        TestLslSenderDetail =
+            $"Start the Windows TEST sender to publish synthetic 0..1 breath samples on {expectedName} / {expectedType}. This is bench-only traffic.";
     }
 
     private void RefreshFocusRows(bool forceRebuild = false)
@@ -1400,12 +1840,23 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         return
         [
+            CreateTwinCommandOutletRow(),
+            CreateStudyRow("Last headset action id", ["study.command.last_action_id"], string.Empty, "Latest command action id acknowledged by the headset runtime."),
+            CreateStudyRow("Last headset action label", ["study.command.last_action_label"], string.Empty, "Latest command label acknowledged by the headset runtime."),
+            CreateStudyRow("Last headset action sequence", ["study.command.last_action_sequence"], string.Empty, "Latest command sequence acknowledged by the headset runtime."),
+            CreateStudyRow("Last headset action time", ["study.command.last_action_at_utc"], string.Empty, "Latest command timestamp acknowledged by the headset runtime."),
             CreateStudyRow("Recenter distance", _study.Monitoring.RecenterDistanceKeys, _study.Monitoring.RecenterDistanceThresholdUnits.ToString("0.000", CultureInfo.InvariantCulture), "Distance from the last recenter point."),
             CreateStudyRow("Recenter anchor", ["study.recenter.anchor_recorded"], string.Empty, "Whether the study runtime has recorded a recenter anchor."),
+            CreateStudyRow("Recenter command sequence", ["study.recenter.last_command_sequence"], string.Empty, "Latest headset-confirmed recenter command sequence."),
+            CreateStudyRow("Recenter command time", ["study.recenter.last_command_at_utc"], string.Empty, "Latest headset-confirmed recenter command timestamp."),
+            CreateStudyRow("Recenter anchor time", ["study.recenter.last_anchor_recorded_at_utc"], string.Empty, "Latest recenter-anchor timestamp reported by the headset."),
             CreateStudyRow("Particle visibility", _study.Monitoring.ParticleVisibilityKeys, string.Empty, "Published particle visibility state."),
+            CreateStudyRow("Particle requested visibility", ["study.particles.requested_visible"], string.Empty, "Latest operator-requested particle visibility reported by the headset."),
             CreateStudyRow("Particle render output", ["study.particles.render_output_enabled"], string.Empty, "Whether the particle engine currently renders output."),
             CreateStudyRow("Particle operator suppression", ["study.particles.suppressed_by_operator"], string.Empty, "Whether the operator has suppressed particle rendering."),
             CreateStudyRow("Particle HUD suppression", ["study.particles.suppressed_by_hud"], string.Empty, "Whether the in-headset HUD has suppressed particle rendering."),
+            CreateStudyRow("Particle command sequence", ["study.particles.last_command_sequence"], string.Empty, "Latest headset-confirmed particle-visibility command sequence."),
+            CreateStudyRow("Particle command time", ["study.particles.last_command_at_utc"], string.Empty, "Latest headset-confirmed particle-visibility command timestamp."),
             CreateSupportRow("Recenter command", CanSendRecenterCommand, "Twin command is configured for this study shell."),
             CreateSupportRow("Particle toggle commands", CanToggleParticles, "Twin commands are configured for particle visibility.")
         ];
@@ -1457,6 +1908,41 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             OperationOutcomeKind.Preview);
     }
 
+    private StudyStatusRow CreateTwinCommandOutletRow()
+    {
+        if (_twinBridge is not LslTwinModeBridge lslBridge)
+        {
+            return CreateComputedRow(
+                "Companion command outlet",
+                "local.twin.command_outlet",
+                "Unavailable",
+                string.Empty,
+                "The live command-outlet transport counters are only available when the public LSL twin bridge is active.",
+                OperationOutcomeKind.Preview);
+        }
+
+        var status = lslBridge.IsCommandOutletOpen ? "Publishing" : "Idle";
+        var renderedSequence = lslBridge.LastPublishedCommandSequence > 0
+            ? lslBridge.LastPublishedCommandSequence.ToString(CultureInfo.InvariantCulture)
+            : "n/a";
+        return CreateComputedRow(
+            "Companion command outlet",
+            "local.twin.command_outlet",
+            $"{status} | sent {lslBridge.PublishedCommandCount.ToString(CultureInfo.InvariantCulture)} | last seq {renderedSequence}",
+            string.Empty,
+            "Local twin-command outlet status, matching the Astral HUD transport counters on the sender side.",
+            lslBridge.IsCommandOutletOpen ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview);
+    }
+
+    private static StudyStatusRow CreateComputedRow(
+        string label,
+        string key,
+        string value,
+        string expected,
+        string detail,
+        OperationOutcomeKind level)
+        => new(label, key, value, expected, detail, level);
+
     private StudyStatusRow CreateSupportRow(string label, bool isAvailable, string detail)
         => new(
             label,
@@ -1497,6 +1983,52 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             LiveRuntimeSummary = outcome.Summary;
             LiveRuntimeDetail = outcome.Detail;
         }
+    }
+
+    private void UpdateBenchRefreshTimerState()
+    {
+        if (_benchRefreshTimer is null)
+        {
+            return;
+        }
+
+        var selector = ResolveHzdbSelector();
+        var tracked = _appSessionState.GetTrackedProximity(selector);
+        var needsLiveRefresh = _testLslSignalService.IsRunning
+            || (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired);
+
+        if (needsLiveRefresh)
+        {
+            if (!_benchRefreshTimer.IsEnabled)
+            {
+                _benchRefreshTimer.Start();
+            }
+
+            return;
+        }
+
+        _benchRefreshTimer.Stop();
+    }
+
+    private void OnBenchRefreshTimerTick(object? sender, EventArgs e)
+    {
+        RefreshBenchToolsStatus();
+        UpdateLslCard();
+    }
+
+    private void OnTestLslSignalServiceStateChanged(object? sender, EventArgs e)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            return;
+        }
+
+        _ = dispatcher.InvokeAsync(() =>
+        {
+            RefreshBenchToolsStatus();
+            UpdateLslCard();
+        });
     }
 
     private void OnTwinBridgeStateChanged(object? sender, EventArgs e)
@@ -1578,6 +2110,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return string.Empty;
     }
 
+    private string ResolveHzdbSelector()
+        => _appSessionState.LastUsbSerial
+            ?? _appSessionState.ActiveEndpoint
+            ?? (string.IsNullOrWhiteSpace(EndpointDraft) ? string.Empty : EndpointDraft.Trim());
+
     private void SaveSession(string? endpoint = null, string? usbSerial = null)
     {
         _appSessionState = _appSessionState
@@ -1656,6 +2193,266 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return false;
     }
 
+    private void RememberCommandRequest(StudyTwinCommandRequest request)
+    {
+        if (string.Equals(request.ActionId, _study.Controls.RecenterCommandActionId, StringComparison.OrdinalIgnoreCase))
+        {
+            _lastRecenterCommandRequest = request;
+            return;
+        }
+
+        if (MatchesParticleActionId(request.ActionId))
+        {
+            _lastParticlesCommandRequest = request;
+        }
+    }
+
+    private StudyTwinCommandRequest CreateCommandRequest(
+        string actionId,
+        string label,
+        StudyTwinCommandConfirmation previousConfirmation,
+        OperationOutcome outcome)
+    {
+        bool? requestedVisible = string.Equals(actionId, _study.Controls.ParticleVisibleOnActionId, StringComparison.OrdinalIgnoreCase)
+            ? true
+            : string.Equals(actionId, _study.Controls.ParticleVisibleOffActionId, StringComparison.OrdinalIgnoreCase)
+                ? false
+                : null;
+        var previousRecenterAnchorTimestampRaw = string.Equals(actionId, _study.Controls.RecenterCommandActionId, StringComparison.OrdinalIgnoreCase)
+            ? GetFirstValue("study.recenter.last_anchor_recorded_at_utc")
+            : null;
+        var previousRecenterDistance = string.Equals(actionId, _study.Controls.RecenterCommandActionId, StringComparison.OrdinalIgnoreCase)
+            ? ParseDouble(GetFirstValue(_study.Monitoring.RecenterDistanceKeys))
+            : null;
+        var previousObservedVisible = MatchesParticleActionId(actionId)
+            ? GetCurrentReportedParticleVisibility()
+            : null;
+
+        return new StudyTwinCommandRequest(
+            actionId,
+            label,
+            requestedVisible,
+            ParsePublishedCommandSequence(outcome.Detail),
+            DateTimeOffset.UtcNow,
+            previousConfirmation.Sequence,
+            previousConfirmation.TimestampRaw,
+            previousRecenterAnchorTimestampRaw,
+            previousRecenterDistance,
+            previousObservedVisible);
+    }
+
+    private bool? GetCurrentReportedParticleVisibility()
+    {
+        var visibility = ParseBool(GetFirstValue(_study.Monitoring.ParticleVisibilityKeys));
+        var requestedVisible = ParseBool(GetFirstValue("study.particles.requested_visible"));
+        var renderOutputEnabled = ParseBool(GetFirstValue("study.particles.render_output_enabled"));
+        return requestedVisible.HasValue
+            ? visibility
+            : renderOutputEnabled ?? visibility;
+    }
+
+    private StudyTwinCommandConfirmation CaptureCommandConfirmation(string actionId)
+    {
+        var candidates = new List<StudyTwinCommandConfirmation>(2);
+
+        if (string.Equals(actionId, _study.Controls.RecenterCommandActionId, StringComparison.OrdinalIgnoreCase))
+        {
+            var specific = CaptureCommandConfirmation(
+                "study.recenter.last_command_sequence",
+                "study.recenter.last_command_at_utc",
+                "study.recenter.last_command_label",
+                "study.recenter.last_command_source");
+            if (HasConfirmationSignal(specific))
+            {
+                candidates.Add(specific);
+            }
+        }
+        else if (MatchesParticleActionId(actionId))
+        {
+            var specific = CaptureCommandConfirmation(
+                "study.particles.last_command_sequence",
+                "study.particles.last_command_at_utc",
+                "study.particles.last_command_label",
+                "study.particles.last_command_source");
+            if (HasConfirmationSignal(specific))
+            {
+                candidates.Add(specific);
+            }
+        }
+
+        var generic = CaptureLatestActionConfirmation();
+        if (HasConfirmationSignal(generic))
+        {
+            candidates.Add(generic);
+        }
+
+        if (candidates.Count == 0)
+        {
+            return default;
+        }
+
+        return candidates
+            .OrderByDescending(candidate => ConfirmationMatchesAction(candidate, actionId))
+            .ThenByDescending(candidate => candidate.Sequence ?? int.MinValue)
+            .ThenByDescending(candidate => candidate.Timestamp ?? DateTimeOffset.MinValue)
+            .First();
+    }
+
+    private StudyTwinCommandConfirmation CaptureCommandConfirmation(
+        string sequenceKey,
+        string timestampKey,
+        string labelKey,
+        string sourceKey,
+        string? actionId = null)
+    {
+        var timestampRaw = GetFirstValue(timestampKey);
+        return new StudyTwinCommandConfirmation(
+            ParseInt(GetFirstValue(sequenceKey)),
+            timestampRaw,
+            ParseTimestamp(timestampRaw),
+            GetFirstValue(labelKey),
+            GetFirstValue(sourceKey),
+            actionId);
+    }
+
+    private StudyTwinCommandConfirmation CaptureLatestActionConfirmation()
+        => CaptureCommandConfirmation(
+            "study.command.last_action_sequence",
+            "study.command.last_action_at_utc",
+            "study.command.last_action_label",
+            "study.command.last_action_source",
+            GetFirstValue("study.command.last_action_id"));
+
+    private bool MatchesParticleActionId(string actionId)
+        => string.Equals(actionId, _study.Controls.ParticleVisibleOnActionId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(actionId, _study.Controls.ParticleVisibleOffActionId, StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildCommandTrackingDetail(
+        StudyTwinCommandRequest? request,
+        StudyTwinCommandConfirmation confirmation,
+        string fallbackLabel)
+    {
+        if (request is not null)
+        {
+            if (IsCommandConfirmed(request, confirmation))
+            {
+                return $"Companion sent {request.Label} {FormatCommandSequence(request.Sequence)} at {request.SentAtUtc:HH:mm:ss}. Headset confirmed {FormatCommandLabel(confirmation, fallbackLabel)} {FormatCommandSequence(confirmation.Sequence)} via {FormatCommandSource(confirmation.Source)} at {FormatCommandTime(confirmation.Timestamp)}.";
+            }
+
+            if (HasConfirmationSignal(confirmation))
+            {
+                return $"Companion sent {request.Label} {FormatCommandSequence(request.Sequence)} at {request.SentAtUtc:HH:mm:ss}. Headset last reported {FormatCommandLabel(confirmation, fallbackLabel)} {FormatCommandSequence(confirmation.Sequence)} via {FormatCommandSource(confirmation.Source)} at {FormatCommandTime(confirmation.Timestamp)}, which does not yet match that command.";
+            }
+
+            return $"Companion sent {request.Label} {FormatCommandSequence(request.Sequence)} at {request.SentAtUtc:HH:mm:ss}. Waiting for headset confirmation.";
+        }
+
+        if (HasConfirmationSignal(confirmation))
+        {
+            return $"Headset last confirmed {FormatCommandLabel(confirmation, fallbackLabel)} {FormatCommandSequence(confirmation.Sequence)} via {FormatCommandSource(confirmation.Source)} at {FormatCommandTime(confirmation.Timestamp)}.";
+        }
+
+        return "No headset command confirmation reported yet.";
+    }
+
+    private static string BuildParticleRuntimeDetail(
+        bool? requestedVisible,
+        bool? actualVisible,
+        bool? renderOutputEnabled,
+        bool? suppressedByOperator,
+        bool? suppressedByHud)
+    {
+        return
+            $"Requested visible {FormatVisibilityState(requestedVisible)}. " +
+            $"Current visible {FormatVisibilityState(actualVisible)}. " +
+            $"Render output {FormatEnabledState(renderOutputEnabled)}. " +
+            $"Operator suppression {FormatEnabledState(suppressedByOperator)}. " +
+            $"HUD suppression {FormatEnabledState(suppressedByHud)}.";
+    }
+
+    private RecenterEffectObservation CaptureRecenterEffect(StudyTwinCommandRequest? request, double? currentDistance)
+    {
+        if (request is null)
+        {
+            return default;
+        }
+
+        var currentAnchorTimestampRaw = GetFirstValue("study.recenter.last_anchor_recorded_at_utc");
+        var currentAnchorTimestamp = ParseTimestamp(currentAnchorTimestampRaw);
+        var anchorUpdated = !string.IsNullOrWhiteSpace(currentAnchorTimestampRaw) &&
+            !string.Equals(currentAnchorTimestampRaw, request.PreviousRecenterAnchorTimestampRaw, StringComparison.Ordinal);
+
+        var distanceImproved = request.PreviousRecenterDistance.HasValue &&
+            currentDistance.HasValue &&
+            currentDistance.Value + 0.05d < request.PreviousRecenterDistance.Value;
+
+        return new RecenterEffectObservation(
+            Observed: anchorUpdated || distanceImproved,
+            AnchorUpdated: anchorUpdated,
+            AnchorTimestampRaw: currentAnchorTimestampRaw,
+            AnchorTimestamp: currentAnchorTimestamp,
+            PreviousDistance: request.PreviousRecenterDistance,
+            CurrentDistance: currentDistance,
+            DistanceImproved: distanceImproved);
+    }
+
+    private static string BuildRecenterEffectDetail(RecenterEffectObservation observation)
+    {
+        if (!observation.Observed)
+        {
+            return "No recenter effect has been observed in the live state yet.";
+        }
+
+        var parts = new List<string>(2);
+        if (observation.AnchorUpdated)
+        {
+            parts.Add($"Observed recenter anchor update at {FormatCommandTime(observation.AnchorTimestamp)}.");
+        }
+
+        if (observation.DistanceImproved && observation.PreviousDistance.HasValue && observation.CurrentDistance.HasValue)
+        {
+            parts.Add(
+                $"Observed drift change from {observation.PreviousDistance.Value:0.000} to {observation.CurrentDistance.Value:0.000} units.");
+        }
+
+        return parts.Count == 0
+            ? "A recenter effect was inferred from the live state."
+            : string.Join(" ", parts);
+    }
+
+    private static ParticleVisibilityEffectObservation CaptureParticleVisibilityEffect(
+        StudyTwinCommandRequest? request,
+        bool? currentVisible)
+    {
+        if (request is null || !request.RequestedVisible.HasValue)
+        {
+            return default;
+        }
+
+        var matchedRequestedState = currentVisible.HasValue && currentVisible.Value == request.RequestedVisible.Value;
+        var visibilityChanged = request.PreviousObservedVisible.HasValue &&
+            currentVisible.HasValue &&
+            request.PreviousObservedVisible.Value != currentVisible.Value;
+
+        return new ParticleVisibilityEffectObservation(
+            Observed: matchedRequestedState && visibilityChanged,
+            PreviousVisible: request.PreviousObservedVisible,
+            CurrentVisible: currentVisible,
+            RequestedVisible: request.RequestedVisible);
+    }
+
+    private static string BuildParticleVisibilityEffectDetail(ParticleVisibilityEffectObservation observation)
+    {
+        if (!observation.Observed || !observation.PreviousVisible.HasValue || !observation.CurrentVisible.HasValue)
+        {
+            return "No particle-visibility effect has been observed in the live state yet.";
+        }
+
+        return
+            $"Observed particle visibility change from {FormatVisibilityState(observation.PreviousVisible)} " +
+            $"to {FormatVisibilityState(observation.CurrentVisible)} toward the requested {FormatVisibilityState(observation.RequestedVisible)} state.";
+    }
+
     private static bool HashMatches(string? left, string? right)
         => !string.IsNullOrWhiteSpace(left)
             && !string.IsNullOrWhiteSpace(right)
@@ -1674,8 +2471,26 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? parsed
             : null;
 
+    private static int? ParsePublishedCommandSequence(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            return null;
+        }
+
+        var match = CommandSequenceRegex.Match(detail);
+        return match.Success
+            ? ParseInt(match.Groups[1].Value)
+            : null;
+    }
+
     private static double? ParseDouble(string? value)
         => double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+
+    private static DateTimeOffset? ParseTimestamp(string? value)
+        => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
             ? parsed
             : null;
 
@@ -1698,6 +2513,114 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "0" or "false" or "no" or "off" => false,
             _ => null
         };
+    }
+
+    private static bool HasConfirmationSignal(StudyTwinCommandConfirmation confirmation)
+        => confirmation.Sequence.HasValue
+            || !string.IsNullOrWhiteSpace(confirmation.TimestampRaw)
+            || !string.IsNullOrWhiteSpace(confirmation.Label)
+            || !string.IsNullOrWhiteSpace(confirmation.Source);
+
+    private static bool IsCommandPending(StudyTwinCommandRequest? request, StudyTwinCommandConfirmation confirmation)
+        => request is not null && !IsCommandConfirmed(request, confirmation);
+
+    private static bool IsCommandConfirmed(StudyTwinCommandRequest? request, StudyTwinCommandConfirmation confirmation)
+    {
+        if (request is null || !HasConfirmationSignal(confirmation) || !HasConfirmationMoved(request, confirmation))
+        {
+            return false;
+        }
+
+        if (!ConfirmationMatchesAction(confirmation, request.ActionId))
+        {
+            return false;
+        }
+
+        if (request.Sequence.HasValue)
+        {
+            return confirmation.Sequence == request.Sequence.Value;
+        }
+
+        return true;
+    }
+
+    private static bool HasConfirmationMoved(StudyTwinCommandRequest request, StudyTwinCommandConfirmation confirmation)
+        => confirmation.Sequence != request.PreviousConfirmedSequence
+            || !string.Equals(confirmation.TimestampRaw, request.PreviousConfirmedTimestampRaw, StringComparison.Ordinal);
+
+    private static bool ConfirmationMatchesAction(StudyTwinCommandConfirmation confirmation, string actionId)
+        => string.IsNullOrWhiteSpace(confirmation.ActionId)
+            || string.IsNullOrWhiteSpace(actionId)
+            || string.Equals(confirmation.ActionId, actionId, StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatCommandLabel(StudyTwinCommandConfirmation confirmation, string fallbackLabel)
+        => !string.IsNullOrWhiteSpace(confirmation.Label)
+            ? confirmation.Label
+            : fallbackLabel;
+
+    private static string FormatCommandSequence(int? sequence)
+        => sequence.HasValue
+            ? $"seq {sequence.Value.ToString(CultureInfo.InvariantCulture)}"
+            : "without a reported sequence";
+
+    private static string FormatCommandSource(string? source)
+        => string.IsNullOrWhiteSpace(source)
+            ? "an unknown source"
+            : source.Trim();
+
+    private static string FormatCommandTime(DateTimeOffset? timestamp)
+        => timestamp.HasValue
+            ? timestamp.Value.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture)
+            : "an unspecified time";
+
+    private static string FormatVisibilityState(bool? visible)
+        => visible == true
+            ? "on"
+            : visible == false
+                ? "off"
+                : "unknown";
+
+    private static string FormatEnabledState(bool? enabled)
+        => enabled == true
+            ? "enabled"
+            : enabled == false
+                ? "disabled"
+                : "unknown";
+
+    private string BuildTwinCommandTransportDetail()
+    {
+        var parts = new List<string>(3);
+
+        if (_twinBridge is LslTwinModeBridge lslBridge)
+        {
+            var renderedSequence = lslBridge.LastPublishedCommandSequence > 0
+                ? lslBridge.LastPublishedCommandSequence.ToString(CultureInfo.InvariantCulture)
+                : "n/a";
+            parts.Add(
+                $"Companion command outlet {(lslBridge.IsCommandOutletOpen ? "publishing" : "idle")}: " +
+                $"sent {lslBridge.PublishedCommandCount.ToString(CultureInfo.InvariantCulture)}, last seq {renderedSequence}.");
+
+            if (!string.IsNullOrWhiteSpace(lslBridge.LastCommittedSnapshotRevision))
+            {
+                parts.Add(
+                    $"Latest quest snapshot rev {lslBridge.LastCommittedSnapshotRevision} " +
+                    $"({lslBridge.LastCommittedSnapshotEntryCount.ToString(CultureInfo.InvariantCulture)} entries).");
+            }
+        }
+
+        var latestAction = CaptureLatestActionConfirmation();
+        if (HasConfirmationSignal(latestAction))
+        {
+            parts.Add(
+                $"Headset last executed {FormatCommandLabel(latestAction, "command")} " +
+                $"{FormatCommandSequence(latestAction.Sequence)} via {FormatCommandSource(latestAction.Source)} at {FormatCommandTime(latestAction.Timestamp)}.");
+        }
+        else
+        {
+            parts.Add("Headset has not reported any executed twin command yet.");
+        }
+
+        return string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
     }
 
     private void AppendLog(OperatorLogLevel level, string message, string detail)
@@ -1792,6 +2715,41 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return dispatcher.InvokeAsync(action).Task;
     }
 }
+
+internal sealed record StudyTwinCommandRequest(
+    string ActionId,
+    string Label,
+    bool? RequestedVisible,
+    int? Sequence,
+    DateTimeOffset SentAtUtc,
+    int? PreviousConfirmedSequence,
+    string? PreviousConfirmedTimestampRaw,
+    string? PreviousRecenterAnchorTimestampRaw,
+    double? PreviousRecenterDistance,
+    bool? PreviousObservedVisible);
+
+internal readonly record struct StudyTwinCommandConfirmation(
+    int? Sequence,
+    string? TimestampRaw,
+    DateTimeOffset? Timestamp,
+    string? Label,
+    string? Source,
+    string? ActionId);
+
+internal readonly record struct RecenterEffectObservation(
+    bool Observed,
+    bool AnchorUpdated,
+    string? AnchorTimestampRaw,
+    DateTimeOffset? AnchorTimestamp,
+    double? PreviousDistance,
+    double? CurrentDistance,
+    bool DistanceImproved);
+
+internal readonly record struct ParticleVisibilityEffectObservation(
+    bool Observed,
+    bool? PreviousVisible,
+    bool? CurrentVisible,
+    bool? RequestedVisible);
 
 public sealed record StudyValueSection(string Id, string Label, string Description)
 {

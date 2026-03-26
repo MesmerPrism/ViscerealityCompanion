@@ -29,6 +29,16 @@ dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
 ```
 
+If Smart App Control or Windows code integrity blocks the multi-file repo build
+on this machine, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1
+```
+
+That path publishes a single-file `win-x64` app into
+`artifacts/publish/ViscerealityCompanion.App/` and launches it.
+
 The app runs against the committed sample session-kit catalogs under
 `samples/quest-session-kit/` and the public runtime-config profiles under
 `samples/oscillator-config/`.

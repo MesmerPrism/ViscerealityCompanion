@@ -64,6 +64,17 @@ dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
 ```
 
+If Windows Smart App Control or Code Integrity blocks the repo-built WPF app,
+use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1
+```
+
+That launcher keeps a single-file publish under
+`artifacts/publish/ViscerealityCompanion.App/` and refreshes it when the app
+sources or bundled sample assets change.
+
 Build the docs site locally with:
 
 ```powershell
@@ -91,6 +102,13 @@ The repo includes Windows packaging scaffolding under
 
 That path is meant to produce one branded launcher entry for the installed app,
 instead of asking operators to run the unpackaged repo build directly.
+
+For repo-local desktop launchers on machines with Smart App Control, refresh the
+shortcut to the safe single-file launcher with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Desktop-Launcher.ps1
+```
 
 ## Scope
 

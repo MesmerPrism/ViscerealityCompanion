@@ -193,6 +193,63 @@
 
                     <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
                         <StackPanel>
+                            <TextBlock Text="Bench Tools" Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="Use these only for headset bench checks. They expose the last companion-issued proximity hold and an explicitly synthetic Windows TEST LSL sender."
+                                       Style="{StaticResource SectionCaptionStyle}" />
+
+                            <Border Padding="12"
+                                    Margin="0,10,0,0"
+                                    Background="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                    BorderThickness="1"
+                                    CornerRadius="12">
+                                <StackPanel>
+                                    <TextBlock Text="Proximity Hold" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding ProximitySummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding ProximityLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding ProximityDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <Button Content="{Binding ProximityActionLabel}"
+                                            Command="{Binding ToggleProximityCommand}"
+                                            IsEnabled="{Binding CanToggleProximity}"
+                                            Margin="0,10,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Padding="12"
+                                    Margin="0,10,0,0"
+                                    Background="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                    BorderThickness="1"
+                                    CornerRadius="12">
+                                <StackPanel>
+                                    <TextBlock Text="Windows TEST LSL Sender" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding TestLslSenderSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding TestLslSenderValueLabel}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding TestLslSenderDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <Button Content="{Binding TestLslSenderActionLabel}"
+                                            Command="{Binding ToggleTestLslSenderCommand}"
+                                            IsEnabled="{Binding CanToggleTestLslSender}"
+                                            Margin="0,10,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
+                        <StackPanel>
                             <TextBlock Text="Pinned APK" Style="{StaticResource SectionTitleStyle}" />
                             <TextBlock Text="{Binding LocalApkSummary}"
                                        FontSize="16"
@@ -352,16 +409,17 @@
                                                    FontWeight="Bold"
                                                    Foreground="{Binding RecenterLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                    TextWrapping="Wrap" />
-                                        <ProgressBar Margin="0,10,0,0"
-                                                     Height="8"
-                                                     Maximum="100"
-                                                     Value="{Binding RecenterDistancePercent, Mode=OneWay}"
-                                                     Foreground="{Binding RecenterLevel, Converter={StaticResource OutcomeKindToBrush}}" />
-                                        <TextBlock Text="{Binding RecenterDistanceLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
-                                        <Button Content="Send Recenter"
-                                                Command="{Binding RecenterCommand}"
-                                                IsEnabled="{Binding CanSendRecenterCommand}"
-                                                Margin="0,12,0,0" />
+                                         <ProgressBar Margin="0,10,0,0"
+                                                      Height="8"
+                                                      Maximum="100"
+                                                      Value="{Binding RecenterDistancePercent, Mode=OneWay}"
+                                                      Foreground="{Binding RecenterLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                         <TextBlock Text="{Binding RecenterDistanceLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
+                                         <TextBlock Text="{Binding RecenterDetail}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                                         <Button Content="Send Recenter"
+                                                 Command="{Binding RecenterCommand}"
+                                                 IsEnabled="{Binding CanSendRecenterCommand}"
+                                                 Margin="0,12,0,0" />
                                     </StackPanel>
                                 </Border>
                             </Grid>

@@ -3,7 +3,13 @@ using System.Text.Json;
 
 namespace ViscerealityCompanion.App;
 
-internal sealed record AppSessionState(string? ActiveEndpoint, string? LastUsbSerial)
+internal sealed record AppSessionState(
+    string? ActiveEndpoint,
+    string? LastUsbSerial,
+    string? LastProximitySelector = null,
+    bool? LastProximityExpectedEnabled = null,
+    DateTimeOffset? LastProximityDisableUntilUtc = null,
+    DateTimeOffset? LastProximityUpdatedAtUtc = null)
 {
     private static readonly string SessionDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -48,6 +54,49 @@ internal sealed record AppSessionState(string? ActiveEndpoint, string? LastUsbSe
             ? this
             : this with { LastUsbSerial = serial };
 
+    public AppSessionState WithTrackedProximity(string? selector, bool expectedEnabled, DateTimeOffset? disableUntilUtc)
+        => string.IsNullOrWhiteSpace(selector)
+            ? this
+            : this with
+            {
+                LastProximitySelector = selector,
+                LastProximityExpectedEnabled = expectedEnabled,
+                LastProximityDisableUntilUtc = disableUntilUtc?.ToUniversalTime(),
+                LastProximityUpdatedAtUtc = DateTimeOffset.UtcNow
+            };
+
+    public TrackedQuestProximityState GetTrackedProximity(string? selector, DateTimeOffset? now = null)
+    {
+        if (string.IsNullOrWhiteSpace(selector) ||
+            string.IsNullOrWhiteSpace(LastProximitySelector) ||
+            !string.Equals(selector, LastProximitySelector, StringComparison.OrdinalIgnoreCase) ||
+            LastProximityExpectedEnabled is null)
+        {
+            return default;
+        }
+
+        var currentTime = (now ?? DateTimeOffset.UtcNow).ToUniversalTime();
+        var disableUntilUtc = LastProximityDisableUntilUtc?.ToUniversalTime();
+        if (LastProximityExpectedEnabled == false &&
+            disableUntilUtc.HasValue &&
+            disableUntilUtc.Value <= currentTime)
+        {
+            return new TrackedQuestProximityState(
+                Known: true,
+                ExpectedEnabled: true,
+                DisableUntilUtc: null,
+                UpdatedAtUtc: LastProximityUpdatedAtUtc,
+                DisableWindowExpired: true);
+        }
+
+        return new TrackedQuestProximityState(
+            Known: true,
+            ExpectedEnabled: LastProximityExpectedEnabled.Value,
+            DisableUntilUtc: disableUntilUtc,
+            UpdatedAtUtc: LastProximityUpdatedAtUtc,
+            DisableWindowExpired: false);
+    }
+
     private static AppSessionState? TryLoad(string path)
     {
         try
@@ -66,3 +115,10 @@ internal sealed record AppSessionState(string? ActiveEndpoint, string? LastUsbSe
         }
     }
 }
+
+internal readonly record struct TrackedQuestProximityState(
+    bool Known,
+    bool ExpectedEnabled,
+    DateTimeOffset? DisableUntilUtc,
+    DateTimeOffset? UpdatedAtUtc,
+    bool DisableWindowExpired);

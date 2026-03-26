@@ -225,11 +225,13 @@ internal interface ILslOutletBridge
 
 internal sealed class LslNativeOutletBridge : ILslOutletBridge
 {
+    private const int LslStringChannelFormat = 3;
+
     public LslRuntimeState GetRuntimeState() => OutletNativeMethods.GetRuntimeState();
     public string GetLastError() => OutletNativeMethods.GetLastError();
 
     public nint CreateStreamInfo(string name, string type, int channelCount)
-        => OutletNativeMethods.CreateStreamInfo(name, type, channelCount, 0d, 6, string.Empty);
+        => OutletNativeMethods.CreateStreamInfo(name, type, channelCount, 0d, LslStringChannelFormat, string.Empty);
 
     public void DestroyStreamInfo(nint streamInfo) => OutletNativeMethods.DestroyStreamInfo(streamInfo);
 

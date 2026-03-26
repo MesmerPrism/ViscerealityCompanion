@@ -171,15 +171,15 @@ public class EndToEndSessionTests
         if (!string.IsNullOrEmpty(envRoot) && Directory.Exists(envRoot))
             return envRoot;
 
-        var questSessionKit = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "source", "repos", "AstralKarateDojo", "QuestSessionKit");
-        if (Directory.Exists(questSessionKit))
-            return questSessionKit;
-
         var samples = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "source", "repos", "ViscerealityCompanion", "samples", "quest-session-kit");
-        return Directory.Exists(samples) ? samples : null;
+        if (Directory.Exists(samples))
+            return samples;
+
+        var questSessionKit = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "source", "repos", "AstralKarateDojo", "QuestSessionKit");
+        return Directory.Exists(questSessionKit) ? questSessionKit : null;
     }
 }

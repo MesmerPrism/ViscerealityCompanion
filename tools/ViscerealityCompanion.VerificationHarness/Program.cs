@@ -16,6 +16,15 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        HarnessScenarioRunner.RunOnceFromCurrentDirectory();
+    }
+}
+
+public static class HarnessScenarioRunner
+{
+    [STAThread]
+    public static void RunOnceFromCurrentDirectory()
+    {
         var repoRoot = Directory.GetCurrentDirectory();
         var outputRoot = Path.Combine(repoRoot, "artifacts", "verify", "sussex-study-mode-live");
         Directory.CreateDirectory(outputRoot);
@@ -97,18 +106,65 @@ internal static class Program
         await WarmUpLslAsync(outlet, studyViewModel);
         var latencyResults = await MeasureLslRoundTripAsync(outlet, studyViewModel);
 
+        var recenterBaseline = CaptureTwinValues(
+            studyViewModel,
+            "study.recenter.last_command_sequence",
+            "study.recenter.last_command_at_utc",
+            "study.recenter.last_anchor_recorded_at_utc");
         await studyViewModel.RecenterAsync();
-        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        var recenterResult = await WaitForTwinValueChangeAsync(
+            studyViewModel,
+            recenterBaseline,
+            TimeSpan.FromSeconds(8),
+            "Recenter confirmation");
+
+        var particlesOffBaseline = CaptureTwinValues(
+            studyViewModel,
+            "study.particles.last_command_sequence",
+            "study.particles.last_command_at_utc",
+            "study.particles.requested_visible",
+            "study.particles.visible",
+            "study.particles.render_output_enabled");
         await studyViewModel.ParticlesOffAsync();
-        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        var particlesOffResult = await WaitForTwinValueChangeAsync(
+            studyViewModel,
+            particlesOffBaseline,
+            TimeSpan.FromSeconds(8),
+            "Particles Off confirmation");
+        var particlesHidden = await WaitForTwinBoolAsync(
+            studyViewModel,
+            "Particles hidden",
+            false,
+            TimeSpan.FromSeconds(6),
+            "study.particles.visible",
+            "study.particles.render_output_enabled");
+
+        var particlesOnBaseline = CaptureTwinValues(
+            studyViewModel,
+            "study.particles.last_command_sequence",
+            "study.particles.last_command_at_utc",
+            "study.particles.requested_visible",
+            "study.particles.visible",
+            "study.particles.render_output_enabled");
         await studyViewModel.ParticlesOnAsync();
-        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        var particlesOnResult = await WaitForTwinValueChangeAsync(
+            studyViewModel,
+            particlesOnBaseline,
+            TimeSpan.FromSeconds(8),
+            "Particles On confirmation");
+        var particlesVisible = await WaitForTwinBoolAsync(
+            studyViewModel,
+            "Particles visible",
+            true,
+            TimeSpan.FromSeconds(6),
+            "study.particles.visible",
+            "study.particles.render_output_enabled");
 
         CaptureWindow(window, Path.Combine(outputRoot, "sussex-main-window-live.png"));
 
         await File.WriteAllTextAsync(
             Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
-            BuildReport(mainViewModel, studyViewModel, latencyResults));
+            BuildReport(mainViewModel, studyViewModel, latencyResults, recenterResult, particlesOffResult, particlesHidden, particlesOnResult, particlesVisible));
     }
 
     private static async Task WarmUpLslAsync(FloatLslTestOutlet outlet, StudyShellViewModel studyViewModel)
@@ -190,7 +246,12 @@ internal static class Program
     private static string BuildReport(
         MainWindowViewModel mainViewModel,
         StudyShellViewModel studyViewModel,
-        IReadOnlyList<LatencyResult> latencyResults)
+        IReadOnlyList<LatencyResult> latencyResults,
+        ObservationResult recenterResult,
+        ObservationResult particlesOffResult,
+        ObservationResult particlesHidden,
+        ObservationResult particlesOnResult,
+        ObservationResult particlesVisible)
     {
         var builder = new StringBuilder();
         builder.AppendLine($"Timestamp: {DateTimeOffset.Now:O}");
@@ -206,8 +267,17 @@ internal static class Program
         builder.AppendLine($"Controller: {studyViewModel.ControllerSummary}");
         builder.AppendLine($"Coherence: {studyViewModel.CoherenceSummary}");
         builder.AppendLine($"Recenter: {studyViewModel.RecenterSummary}");
+        builder.AppendLine($"Recenter detail: {studyViewModel.RecenterDetail}");
         builder.AppendLine($"Particles: {studyViewModel.ParticlesSummary}");
+        builder.AppendLine($"Particles detail: {studyViewModel.ParticlesDetail}");
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
+        builder.AppendLine();
+        builder.AppendLine("Command observations:");
+        builder.AppendLine($"- {recenterResult.Label}: {recenterResult.Detail}");
+        builder.AppendLine($"- {particlesOffResult.Label}: {particlesOffResult.Detail}");
+        builder.AppendLine($"- {particlesHidden.Label}: {particlesHidden.Detail}");
+        builder.AppendLine($"- {particlesOnResult.Label}: {particlesOnResult.Detail}");
+        builder.AppendLine($"- {particlesVisible.Label}: {particlesVisible.Detail}");
         builder.AppendLine();
         builder.AppendLine("Observed LSL loop latency:");
 
@@ -253,6 +323,89 @@ internal static class Program
         }
 
         return builder.ToString();
+    }
+
+    private static IReadOnlyDictionary<string, string?> CaptureTwinValues(StudyShellViewModel studyViewModel, params string[] keys)
+    {
+        var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+        return keys.ToDictionary(
+            key => key,
+            key => snapshot.TryGetValue(key, out var value) ? value : null,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task<ObservationResult> WaitForTwinValueChangeAsync(
+        StudyShellViewModel studyViewModel,
+        IReadOnlyDictionary<string, string?> baseline,
+        TimeSpan timeout,
+        string label)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+            foreach (var entry in baseline)
+            {
+                snapshot.TryGetValue(entry.Key, out var currentValue);
+                if (!string.Equals(currentValue, entry.Value, StringComparison.Ordinal))
+                {
+                    return new ObservationResult(
+                        label,
+                        true,
+                        $"changed {entry.Key} from `{entry.Value ?? "n/a"}` to `{currentValue ?? "n/a"}`");
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(120));
+        }
+
+        return new ObservationResult(label, false, "timed out waiting for the relevant twin-state keys to change");
+    }
+
+    private static async Task<ObservationResult> WaitForTwinBoolAsync(
+        StudyShellViewModel studyViewModel,
+        string label,
+        bool expectedValue,
+        TimeSpan timeout,
+        params string[] keys)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+            foreach (var key in keys)
+            {
+                if (!snapshot.TryGetValue(key, out var rawValue))
+                {
+                    continue;
+                }
+
+                var parsedValue = ParseBool(rawValue);
+                if (parsedValue == expectedValue)
+                {
+                    return new ObservationResult(label, true, $"{key} reported `{rawValue}`");
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(120));
+        }
+
+        return new ObservationResult(label, false, $"timed out waiting for `{expectedValue}` on {string.Join(", ", keys)}");
+    }
+
+    private static bool? ParseBool(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "1" or "true" or "yes" or "on" => true,
+            "0" or "false" or "no" or "off" => false,
+            _ => null
+        };
     }
 
     private static void CaptureWindow(Window window, string path)
@@ -314,6 +467,8 @@ internal static class Program
         foreach (var entry in snapshot.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
         {
             if (entry.Key.StartsWith("study.lsl", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.StartsWith("study.recenter", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.StartsWith("study.particles", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("connection.lsl", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("signal01.breathing_lsl", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.Contains("breathing_lsl", StringComparison.OrdinalIgnoreCase) ||
@@ -328,6 +483,7 @@ internal static class Program
 
     private sealed record LatencyResult(float Value, DateTimeOffset SentAt, DateTimeOffset? ObservedAt, string SourceKey, double? LatencyMs);
     private sealed record ObservedValueResult(DateTimeOffset? Timestamp, string SourceKey);
+    private sealed record ObservationResult(string Label, bool Success, string Detail);
 }
 
 internal sealed class FloatLslTestOutlet : IDisposable

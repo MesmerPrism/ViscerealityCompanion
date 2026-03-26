@@ -54,4 +54,10 @@ dotnet build ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
 ```
 
+If Windows Smart App Control blocks the unpackaged repo build, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1
+```
+
 Then continue with [First Session](first-session.md).

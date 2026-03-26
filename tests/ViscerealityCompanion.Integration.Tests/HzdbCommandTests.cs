@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using ViscerealityCompanion.Core.Models;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Integration.Tests;
 
@@ -10,13 +12,19 @@ namespace ViscerealityCompanion.Integration.Tests;
 public class HzdbCommandTests
 {
     private readonly QuestDeviceFixture _device;
+    private static readonly Lazy<string?> _npxCommandPath = new(WindowsHzdbService.ResolveNpxCommandPath);
     private static readonly Lazy<bool> _hzdbAvailable = new(() =>
     {
         try
         {
-            var psi = new ProcessStartInfo("npx.cmd")
+            var npxCommandPath = _npxCommandPath.Value;
+            if (string.IsNullOrWhiteSpace(npxCommandPath))
+                return false;
+
+            var psi = new ProcessStartInfo(npxCommandPath)
             {
                 Arguments = "-y @meta-quest/hzdb --version",
+                WorkingDirectory = Path.GetDirectoryName(npxCommandPath) ?? AppContext.BaseDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -56,7 +64,7 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var result = await RunHzdb($"device battery -d {_device.UsbSerial}");
+        var result = await RunHzdb($"device battery --device {_device.UsbSerial}");
         Assert.Contains("level", result, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -65,7 +73,7 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var result = await RunHzdb($"app info -d {_device.UsbSerial} com.Viscereality.KarateBio");
+        var result = await RunHzdb($"app info --device {_device.UsbSerial} com.Viscereality.KarateBio");
         Assert.Contains("com.Viscereality.KarateBio", result);
     }
 
@@ -74,7 +82,7 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var result = await RunHzdb($"app list -d {_device.UsbSerial} --json");
+        var result = await RunHzdb($"app list --device {_device.UsbSerial} --json");
         Assert.Contains("com.Viscereality.KarateBio", result);
     }
 
@@ -89,7 +97,7 @@ public class HzdbCommandTests
 
         try
         {
-            var result = await RunHzdb($"capture screenshot -d {_device.UsbSerial} -o \"{outputPath}\"");
+            var result = await RunHzdb($"capture screenshot --device {_device.UsbSerial} -o \"{outputPath}\"");
             // hzdb creates the file with .png extension
             var pngFile = Directory.GetFiles(tempDir, "test-screenshot*").FirstOrDefault();
             Assert.NotNull(pngFile);
@@ -107,10 +115,17 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        // 2-second Perfetto trace
-        var result = await RunHzdb($"perf capture -d {_device.UsbSerial} --duration 2000");
-        // Should either succeed or report that it captured, not fail
-        Assert.DoesNotContain("error", result, StringComparison.OrdinalIgnoreCase);
+        var service = new WindowsHzdbService();
+        var outcome = await service.CapturePerfTraceAsync(_device.UsbSerial, 2000);
+
+        Assert.Equal(OperationOutcomeKind.Success, outcome.Kind);
+
+        var tracePath = outcome.SafeItems.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(tracePath))
+        {
+            Assert.True(File.Exists(tracePath), $"Expected local trace at {tracePath}");
+            Assert.True(new FileInfo(tracePath).Length > 0, "Expected non-empty local perf trace");
+        }
     }
 
     [Fact]
@@ -118,7 +133,7 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var result = await RunHzdb($"files ls -d {_device.UsbSerial} /sdcard/Android/data/com.Viscereality.KarateBio/files/");
+        var result = await RunHzdb($"files ls --device {_device.UsbSerial} /sdcard/Android/data/com.Viscereality.KarateBio/files/");
         // Should list files we know exist (deformable-room-cache, etc.)
         Assert.True(result.Length > 10, "Expected file listing output");
     }
@@ -129,7 +144,7 @@ public class HzdbCommandTests
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
         // This is critical for off-face testing
-        var result = await RunHzdb($"device proximity -d {_device.UsbSerial} --disable");
+        var result = await RunHzdb($"device proximity --device {_device.UsbSerial} --disable");
         Assert.DoesNotContain("error", result, StringComparison.OrdinalIgnoreCase);
 
         // Re-enable to not leave device in weird state? Actually user said it's already off
@@ -140,7 +155,7 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var result = await RunHzdb($"device wake -d {_device.UsbSerial}");
+        var result = await RunHzdb($"device wake --device {_device.UsbSerial}");
         Assert.DoesNotContain("error", result, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -164,9 +179,13 @@ public class HzdbCommandTests
 
     private static async Task<string> RunHzdb(string arguments)
     {
-        var psi = new ProcessStartInfo("npx.cmd")
+        var npxCommandPath = _npxCommandPath.Value
+            ?? throw new InvalidOperationException("Could not locate npx.cmd for hzdb integration tests.");
+
+        var psi = new ProcessStartInfo(npxCommandPath)
         {
             Arguments = $"-y @meta-quest/hzdb {arguments}",
+            WorkingDirectory = Path.GetDirectoryName(npxCommandPath) ?? AppContext.BaseDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

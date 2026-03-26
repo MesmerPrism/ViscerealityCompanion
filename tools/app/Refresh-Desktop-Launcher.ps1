@@ -5,23 +5,36 @@
 [CmdletBinding()]
 param(
     [string]$DesktopPath = [Environment]::GetFolderPath('Desktop'),
-    [string]$ShortcutName = 'Viscereality Companion.lnk'
+    [string]$ShortcutName = 'Viscereality Companion.lnk',
+    [switch]$RefreshPublishedBuild
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
-$appDir = Join-Path $repoRoot 'src\ViscerealityCompanion.App\bin\Debug\net10.0-windows'
-$targetPath = Join-Path $appDir 'ViscerealityCompanion.exe'
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$launcherScriptPath = Join-Path $repoRoot 'tools\app\Start-Desktop-App.ps1'
 $iconPath = Join-Path $repoRoot 'src\ViscerealityCompanion.App\Assets\viscereality-companion.ico'
+$shellHost = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+if ($null -eq $shellHost) {
+    $shellHost = Get-Command powershell.exe -ErrorAction SilentlyContinue
+}
 
-if (-not (Test-Path $targetPath)) {
-    throw "Target executable not found at $targetPath. Build the app first."
+if (-not (Test-Path $launcherScriptPath)) {
+    throw "Launcher script not found at $launcherScriptPath."
 }
 
 if (-not (Test-Path $iconPath)) {
     throw "Launcher icon not found at $iconPath."
+}
+
+if ($null -eq $shellHost) {
+    throw 'Neither pwsh.exe nor powershell.exe was found on PATH.'
+}
+
+$arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$launcherScriptPath`""
+if ($RefreshPublishedBuild) {
+    $arguments += ' -Refresh'
 }
 
 $obsoleteLaunchers = @(
@@ -40,16 +53,18 @@ foreach ($name in $obsoleteLaunchers) {
 $shell = New-Object -ComObject WScript.Shell
 $shortcutPath = Join-Path $DesktopPath $ShortcutName
 $shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $targetPath
-$shortcut.WorkingDirectory = $appDir
+$shortcut.TargetPath = $shellHost.Source
+$shortcut.Arguments = $arguments
+$shortcut.WorkingDirectory = $repoRoot
 $shortcut.IconLocation = "$iconPath,0"
-$shortcut.Description = 'Launch Viscereality Companion'
+$shortcut.Description = 'Launch Viscereality Companion via the single-file publish path'
 $shortcut.Save()
 
 $created = $shell.CreateShortcut($shortcutPath)
 [PSCustomObject]@{
     Shortcut = $shortcutPath
     TargetPath = $created.TargetPath
+    Arguments = $created.Arguments
     WorkingDirectory = $created.WorkingDirectory
     IconLocation = $created.IconLocation
 }

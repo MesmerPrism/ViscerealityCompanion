@@ -1830,7 +1830,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             : OperationOutcomeKind.Preview;
         LastTwinStateTimestampLabel = lslBridge.LastStateReceivedAt is null
             ? "No live LSL app-state timestamp yet."
-            : $"Last app-state frame {lslBridge.LastStateReceivedAt.Value:HH:mm:ss}.";
+            : $"Last app-state frame {lslBridge.LastStateReceivedAt.Value.ToLocalTime():HH:mm:ss}.";
         RefreshRuntimeContextLabels();
         RefreshTwinBridgeStatus(deltas);
         NotifyOverviewStateChanged();
@@ -2489,34 +2489,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private (string Label, string Detail, OperationOutcomeKind Level, bool IsOverlay) DescribeComponent(string packageId, string? component)
     {
-        var activityName = string.Empty;
-        if (!string.IsNullOrWhiteSpace(component))
+        if (QuestShellOverlayClassifier.TryClassify(packageId, component) is { } overlayClassification)
         {
-            var slashIndex = component.IndexOf('/');
-            if (slashIndex >= 0 && slashIndex < component.Length - 1)
-            {
-                activityName = component[(slashIndex + 1)..];
-            }
-        }
-
-        if (string.Equals(packageId, "com.oculus.systemux", StringComparison.OrdinalIgnoreCase))
-        {
-            return ("Meta popup open", "A Meta system overlay is visible on the headset.", OperationOutcomeKind.Warning, true);
-        }
-
-        if (string.Equals(packageId, "com.oculus.vrshell", StringComparison.OrdinalIgnoreCase))
-        {
-            if (activityName.Contains("ControlBarActivity", StringComparison.OrdinalIgnoreCase))
-            {
-                return ("Meta control bar open", "The Quest control bar is visible over the current scene.", OperationOutcomeKind.Warning, true);
-            }
-
-            return ("Quest Home active", "The headset is on the Meta home shell rather than in a Viscereality APK.", OperationOutcomeKind.Warning, false);
-        }
-
-        if (string.Equals(packageId, "com.oculus.browser", StringComparison.OrdinalIgnoreCase))
-        {
-            return ("Meta Browser active", "The Meta browser is the current foreground app.", OperationOutcomeKind.Preview, false);
+            return (overlayClassification.Label, overlayClassification.Detail, overlayClassification.Level, overlayClassification.IsOverlay);
         }
 
         var knownApp = Apps.FirstOrDefault(app => string.Equals(app.PackageId, packageId, StringComparison.OrdinalIgnoreCase));

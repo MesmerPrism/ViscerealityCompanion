@@ -38,6 +38,19 @@ public class LslTwinModeBridgeTests
     }
 
     [Fact]
+    public async Task SendCommandAsync_updates_transport_counters()
+    {
+        using var bridge = CreateBridge();
+
+        await bridge.SendCommandAsync(new TwinModeCommand("2", "Recenter"));
+
+        Assert.True(bridge.IsCommandOutletOpen);
+        Assert.Equal(1, bridge.PublishedCommandCount);
+        Assert.Equal(1, bridge.LastPublishedCommandSequence);
+        Assert.Contains("sent 1 command", bridge.Status.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task PublishRuntimeConfigAsync_tracks_requested_settings()
     {
         using var bridge = CreateBridge(out _, out var configOutlet, out _);
@@ -102,6 +115,39 @@ public class LslTwinModeBridgeTests
         var result = await bridge.ApplyConfigAsync(profile, target);
 
         Assert.Equal(OperationOutcomeKind.Success, result.Kind);
+    }
+
+    [Fact]
+    public async Task Structured_snapshot_updates_revision_and_last_remote_command_detail()
+    {
+        using var bridge = CreateBridge(out _, out _, out var stateMonitor);
+        var timestamp = DateTimeOffset.UtcNow;
+
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["begin", "7", string.Empty, "hash-7"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["set", "7", "study.command.last_action_sequence", "3"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["set", "7", "study.command.last_action_label", "Particles On"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["set", "7", "study.command.last_action_source", "lsl twin command"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["set", "7", "study.command.last_action_at_utc", "2026-03-26T11:24:32.1135492+00:00"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["end", "7", "4", "hash-7"]));
+
+        bridge.Open();
+        await Task.Delay(200);
+
+        Assert.Equal("7", bridge.LastCommittedSnapshotRevision);
+        Assert.Equal(4, bridge.LastCommittedSnapshotEntryCount);
+        Assert.Contains("Headset last executed Particles On seq 3", bridge.Status.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     private static LslTwinModeBridge CreateBridge() =>
