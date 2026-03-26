@@ -112,6 +112,7 @@ public static class HarnessScenarioRunner
 
         await WarmUpLslAsync(outlet, studyViewModel);
         var latencyResults = await MeasureLslRoundTripAsync(outlet, studyViewModel);
+        var senderRestartResult = await VerifyLslSenderRestartRecoveryAsync(outlet, studyViewModel);
 
         var recenterBaseline = CaptureTwinValues(
             studyViewModel,
@@ -171,7 +172,7 @@ public static class HarnessScenarioRunner
 
         await File.WriteAllTextAsync(
             Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
-            BuildReport(mainViewModel, studyViewModel, latencyResults, recenterResult, particlesOffResult, particlesHidden, particlesOnResult, particlesVisible));
+            BuildReport(mainViewModel, studyViewModel, latencyResults, senderRestartResult, recenterResult, particlesOffResult, particlesHidden, particlesOnResult, particlesVisible));
     }
 
     private static async Task WarmUpLslAsync(FloatLslTestOutlet outlet, StudyShellViewModel studyViewModel)
@@ -214,6 +215,37 @@ public static class HarnessScenarioRunner
         return results;
     }
 
+    private static async Task<ObservationResult> VerifyLslSenderRestartRecoveryAsync(
+        FloatLslTestOutlet outlet,
+        StudyShellViewModel studyViewModel)
+    {
+        const float expectedValue = 0.71f;
+        outlet.Dispose();
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        outlet.Open("quest_biofeedback_in", "quest.biofeedback", "viscereality.sussex.harness.restart");
+
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            outlet.PushSample(expectedValue);
+            if (studyViewModel.TryGetObservedLslValue(out var observedValue, out var sourceKey) &&
+                Math.Abs(observedValue - expectedValue) <= 0.035f)
+            {
+                return new ObservationResult(
+                    "Sender restart recovery",
+                    true,
+                    $"Quest resumed echoing {observedValue:0.000} via {sourceKey} after the Windows LSL sender was restarted without restarting the APK.");
+            }
+
+            await Task.Delay(MockHeartbeatInterval);
+        }
+
+        return new ObservationResult(
+            "Sender restart recovery",
+            false,
+            "Quest did not resume echoing the restarted Windows LSL sender within the recovery window; this usually means the inlet stayed latched to a dead stream handle.");
+    }
+
     private static async Task<ObservedValueResult> WaitForObservedValueAsync(
         StudyShellViewModel studyViewModel,
         float expectedValue,
@@ -254,6 +286,7 @@ public static class HarnessScenarioRunner
         MainWindowViewModel mainViewModel,
         StudyShellViewModel studyViewModel,
         IReadOnlyList<LatencyResult> latencyResults,
+        ObservationResult senderRestartResult,
         ObservationResult recenterResult,
         ObservationResult particlesOffResult,
         ObservationResult particlesHidden,
@@ -285,6 +318,7 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
         builder.AppendLine();
         builder.AppendLine("Command observations:");
+        builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
         builder.AppendLine($"- {recenterResult.Label}: {recenterResult.Detail}");
         builder.AppendLine($"- {particlesOffResult.Label}: {particlesOffResult.Detail}");
         builder.AppendLine($"- {particlesHidden.Label}: {particlesHidden.Detail}");

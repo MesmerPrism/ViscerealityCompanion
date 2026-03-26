@@ -5,6 +5,7 @@ namespace ViscerealityCompanion.Core.Services;
 public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 {
     private const int TwinMessageChannelCount = 4;
+    private static readonly TimeSpan KeepaliveInterval = TimeSpan.FromMilliseconds(750);
     private const string DefaultCommandStreamName = "quest_twin_commands";
     private const string DefaultCommandStreamType = "quest.twin.command";
     private const string DefaultStateStreamName = "quest_twin_state";
@@ -21,8 +22,12 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     private readonly Dictionary<string, string> _pendingStructuredSnapshot = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<TwinStateEvent> _stateEvents = [];
     private readonly Lock _settingsSync = new();
+    private readonly Lock _commandOutletSync = new();
+    private readonly Lock _configOutletSync = new();
 
     private CancellationTokenSource? _monitorCts;
+    private CancellationTokenSource? _keepaliveCts;
+    private Task? _keepaliveTask;
     private bool _commandOutletOpened;
     private bool _configOutletOpened;
     private DateTimeOffset? _lastStateReceivedAt;
@@ -251,6 +256,7 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         }
 
         StartStateMonitor();
+        StartKeepaliveLoop();
 
         return new OperationOutcome(
             OperationOutcomeKind.Success,
@@ -264,7 +270,12 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     {
         EnsureOpen();
         var sequence = _commandSequenceStore.Next();
-        var result = _commandOutlet.PublishCommand(command, sequence);
+        OperationOutcome result;
+        lock (_commandOutletSync)
+        {
+            result = _commandOutlet.PublishCommand(command, sequence);
+        }
+
         if (result.Kind != OperationOutcomeKind.Failure)
         {
             lock (_settingsSync)
@@ -309,7 +320,11 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
         StateChanged?.Invoke(this, EventArgs.Empty);
 
-        var result = _configOutlet.PublishConfigSnapshot(profile.Entries);
+        OperationOutcome result;
+        lock (_configOutletSync)
+        {
+            result = _configOutlet.PublishConfigSnapshot(profile.Entries);
+        }
 
         return Task.FromResult(result.Kind == OperationOutcomeKind.Success
             ? new OperationOutcome(
@@ -323,10 +338,20 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
     public void Dispose()
     {
+        _keepaliveCts?.Cancel();
+        _keepaliveCts?.Dispose();
         _monitorCts?.Cancel();
         _monitorCts?.Dispose();
-        _commandOutlet.Dispose();
-        _configOutlet.Dispose();
+
+        lock (_commandOutletSync)
+        {
+            _commandOutlet.Dispose();
+        }
+
+        lock (_configOutletSync)
+        {
+            _configOutlet.Dispose();
+        }
     }
 
     private void EnsureOpen()
@@ -366,6 +391,65 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             {
             }
         });
+    }
+
+    private void StartKeepaliveLoop()
+    {
+        if (_keepaliveTask is not null)
+        {
+            return;
+        }
+
+        _keepaliveCts = new CancellationTokenSource();
+        var cancellationToken = _keepaliveCts.Token;
+        _keepaliveTask = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(KeepaliveInterval);
+                PublishKeepalives();
+                while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    PublishKeepalives();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }, cancellationToken);
+    }
+
+    private void PublishKeepalives()
+    {
+        var timestamp = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+
+        if (_commandOutletOpened)
+        {
+            try
+            {
+                lock (_commandOutletSync)
+                {
+                    _commandOutlet.PushSample(["keepalive", timestamp, string.Empty, string.Empty]);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        if (_configOutletOpened)
+        {
+            try
+            {
+                lock (_configOutletSync)
+                {
+                    _configOutlet.PushSample(["keepalive", timestamp, string.Empty, string.Empty]);
+                }
+            }
+            catch
+            {
+            }
+        }
     }
 
     private void ParseStateReading(LslMonitorReading reading)

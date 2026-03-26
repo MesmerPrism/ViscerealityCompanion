@@ -21,6 +21,7 @@ public interface IQuestControlService
         CancellationToken cancellationToken = default);
     Task<OperationOutcome> ApplyDeviceProfileAsync(DeviceProfile profile, CancellationToken cancellationToken = default);
     Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default);
+    Task<OperationOutcome> StopAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default);
     Task<OperationOutcome> OpenBrowserAsync(
         string url,
         QuestAppTarget browserTarget,
@@ -129,6 +130,12 @@ public sealed class PreviewQuestControlService : IQuestControlService
             string.IsNullOrWhiteSpace(target.LaunchComponent)
                 ? "The target does not define an explicit component; the transport would launch by package id."
                 : $"Launch component: {target.LaunchComponent}",
+            PackageId: target.PackageId));
+
+    public Task<OperationOutcome> StopAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default)
+        => Task.FromResult(Preview(
+            $"Stop queued for {target.Label}.",
+            $"The preview transport would force-stop {target.PackageId}.",
             PackageId: target.PackageId));
 
     public Task<OperationOutcome> OpenBrowserAsync(

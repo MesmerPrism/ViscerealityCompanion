@@ -20,6 +20,8 @@ public sealed class WindowsLslOutletService : ILslOutletService
     private readonly ILslOutletBridge _bridge;
     private nint _outlet;
     private nint _streamInfo;
+    private string _streamName = string.Empty;
+    private string _streamType = string.Empty;
     private int _publishedRevision;
     private int _publishedCommandSequence;
 
@@ -50,7 +52,14 @@ public sealed class WindowsLslOutletService : ILslOutletService
 
         Close();
 
-        _streamInfo = _bridge.CreateStreamInfo(streamName, streamType, channelCount);
+        _streamName = streamName ?? string.Empty;
+        _streamType = streamType ?? string.Empty;
+
+        _streamInfo = _bridge.CreateStreamInfo(
+            _streamName,
+            _streamType,
+            channelCount,
+            BuildSourceId(_streamName, _streamType));
         if (_streamInfo == IntPtr.Zero)
         {
             return new OperationOutcome(
@@ -70,8 +79,8 @@ public sealed class WindowsLslOutletService : ILslOutletService
                 _bridge.GetLastError());
         }
 
-            _publishedRevision = 0;
-            _publishedCommandSequence = 0;
+        _publishedRevision = 0;
+        _publishedCommandSequence = 0;
 
         return new OperationOutcome(
             OperationOutcomeKind.Success,
@@ -92,6 +101,9 @@ public sealed class WindowsLslOutletService : ILslOutletService
             _bridge.DestroyStreamInfo(_streamInfo);
             _streamInfo = IntPtr.Zero;
         }
+
+        _streamName = string.Empty;
+        _streamType = string.Empty;
     }
 
     public void PushSample(string[] values)
@@ -169,6 +181,56 @@ public sealed class WindowsLslOutletService : ILslOutletService
         return Convert.ToHexString(sha256.ComputeHash(bytes)).ToLowerInvariant();
     }
 
+    private static string BuildSourceId(string streamName, string streamType)
+    {
+        var nameToken = SanitizeSourceToken(streamName);
+        var typeToken = SanitizeSourceToken(streamType);
+        if (string.IsNullOrWhiteSpace(nameToken))
+        {
+            nameToken = "stream";
+        }
+
+        if (string.IsNullOrWhiteSpace(typeToken))
+        {
+            typeToken = "lsl";
+        }
+
+        return $"viscereality.companion.{nameToken}.{typeToken}";
+    }
+
+    private static string SanitizeSourceToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        Span<char> buffer = stackalloc char[value.Length];
+        var count = 0;
+        var lastWasSeparator = false;
+
+        foreach (var character in value.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                buffer[count++] = character;
+                lastWasSeparator = false;
+                continue;
+            }
+
+            if (lastWasSeparator)
+            {
+                continue;
+            }
+
+            buffer[count++] = '-';
+            lastWasSeparator = true;
+        }
+
+        var token = new string(buffer[..count]).Trim('-');
+        return token;
+    }
+
     public void Dispose()
     {
         Close();
@@ -216,7 +278,7 @@ internal interface ILslOutletBridge
 {
     LslRuntimeState GetRuntimeState();
     string GetLastError();
-    nint CreateStreamInfo(string name, string type, int channelCount);
+    nint CreateStreamInfo(string name, string type, int channelCount, string sourceId);
     void DestroyStreamInfo(nint streamInfo);
     nint CreateOutlet(nint streamInfo);
     void DestroyOutlet(nint outlet);
@@ -230,8 +292,8 @@ internal sealed class LslNativeOutletBridge : ILslOutletBridge
     public LslRuntimeState GetRuntimeState() => OutletNativeMethods.GetRuntimeState();
     public string GetLastError() => OutletNativeMethods.GetLastError();
 
-    public nint CreateStreamInfo(string name, string type, int channelCount)
-        => OutletNativeMethods.CreateStreamInfo(name, type, channelCount, 0d, LslStringChannelFormat, string.Empty);
+    public nint CreateStreamInfo(string name, string type, int channelCount, string sourceId)
+        => OutletNativeMethods.CreateStreamInfo(name, type, channelCount, 0d, LslStringChannelFormat, sourceId);
 
     public void DestroyStreamInfo(nint streamInfo) => OutletNativeMethods.DestroyStreamInfo(streamInfo);
 

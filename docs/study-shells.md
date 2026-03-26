@@ -39,7 +39,7 @@ It currently pins:
 
 - package id: `com.Viscereality.LslTwin`
 - version: `0.1.0`
-- SHA256: `E22396E38394DD7EC186E7CEDCEDCC21BAD47D16A8572C7311B8AADDB104AC50`
+- SHA256: `1E2344DA34CBF22BA45BE129C7F7B0B45ED6B321154D0120889543B99D1D81C2`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `quest_biofeedback_in / quest.biofeedback`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`

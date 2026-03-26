@@ -364,6 +364,18 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         return Failure($"Launch failed for {target.Label}.", launch.CombinedOutput, packageId: target.PackageId);
     }
 
+    public async Task<OperationOutcome> StopAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default)
+    {
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
+        var stop = await RunShellAsync(selector, AdbShellSupport.BuildForceStopCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
+        return stop.ExitCode == 0
+            ? Success(
+                $"Stop command sent for {target.Label}.",
+                AdbShellSupport.Collapse(stop.CombinedOutput),
+                packageId: target.PackageId)
+            : Failure($"Stop failed for {target.Label}.", stop.CombinedOutput, packageId: target.PackageId);
+    }
+
     public async Task<OperationOutcome> OpenBrowserAsync(
         string url,
         QuestAppTarget browserTarget,
@@ -639,14 +651,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             var summary = target is null
                 ? $"Quest connected on {selector}."
                 : targetForeground
-                    ? $"{target.Label} is in the foreground."
+                    ? $"{target.Label} is active."
                     : targetRunning
                         ? $"{target.Label} is running in the background."
                         : targetInstalled
                             ? $"{target.Label} is installed but not running."
                             : $"{target.Label} is not installed on the headset.";
 
-            var detail = $"Model {model}; battery {(batteryLevel is null ? "n/a" : $"{batteryLevel}%")}; CPU {(cpuLevel?.ToString() ?? "n/a")}; GPU {(gpuLevel?.ToString() ?? "n/a")}; foreground {(string.IsNullOrWhiteSpace(foregroundComponent) ? (string.IsNullOrWhiteSpace(foregroundPackage) ? "n/a" : foregroundPackage) : foregroundComponent)}.";
+            var detail = $"Model {model}; battery {(batteryLevel is null ? "n/a" : $"{batteryLevel}%")}; CPU {(cpuLevel?.ToString() ?? "n/a")}; GPU {(gpuLevel?.ToString() ?? "n/a")}; active {(string.IsNullOrWhiteSpace(foregroundComponent) ? (string.IsNullOrWhiteSpace(foregroundPackage) ? "n/a" : foregroundPackage) : foregroundComponent)}.";
 
             return new HeadsetAppStatus(
                 true,

@@ -52,7 +52,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _browserUrlDraft = "https://www.aliusresearch.org/viscereality.html";
     private string _connectionSummary = "No Quest endpoint action has run yet.";
     private string _usbSummary = "USB ADB probe has not run yet.";
-    private string _foregroundSummary = "Foreground app query has not run yet.";
+    private string _foregroundSummary = "Active app query has not run yet.";
     private string _selectedAppApkPath = string.Empty;
     private string _cpuLevelText = "2";
     private string _gpuLevelText = "2";
@@ -864,12 +864,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string RuntimeConfigPublishSummary
         => SelectedApp is null
             ? "No target selected yet. Refresh Device Snapshot to adopt the current headset app automatically, or choose one manually before install, launch, preset staging, or Publish over Twin."
-            : $"Selected target: {SelectedApp.Label} ({SelectedApp.PackageId}). Install, launch, preset staging, and Publish over Twin actions use this target even when another app is currently foreground on the headset.";
+            : $"Selected target: {SelectedApp.Label} ({SelectedApp.PackageId}). Install, launch, preset staging, and Publish over Twin actions use this target even when another app is currently active on the headset.";
 
     public string RuntimeConfigDeviceModeSummary
         => IsQuestConnected
-            ? $"ADB/hzdb is on-demand only. Current device snapshot shows {HeadsetActivityLabel}. Use it for install, launch, battery, CPU/GPU, and foreground checks, not for live runtime values."
-            : "ADB/hzdb is the on-demand device path. Connect to the headset to read foreground app, install state, battery, and performance hints.";
+            ? $"ADB/hzdb is on-demand only. Current device snapshot shows {HeadsetActivityLabel}. Use it for install, launch, battery, CPU/GPU, and active-app checks, not for live runtime values."
+            : "ADB/hzdb is the on-demand device path. Connect to the headset to read the active app, install state, battery, and performance hints.";
 
     public string RuntimeConfigPublishChannelSummary
         => SelectedApp is null
@@ -878,7 +878,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 ? $"Selected target is {SelectedApp.Label}, but no runtime config profile is selected for it. Choose a profile before publishing on quest_hotload_config."
                 : _runtimeConfig.SelectedProfile.MatchesPackage(SelectedApp.PackageId)
                     ? $"Publishing is configured for {SelectedApp.Label}. The selected profile targets this app and is sent on quest_hotload_config; no live values come back on this publish channel."
-                    : $"Selected profile targets {FormatPackageTargets(_runtimeConfig.SelectedProfile.PackageIds)}, but the selected target app is {SelectedApp.Label}. In Astral twin mode, keep the publish target on the runtime app whose profile you are editing; the live twin publisher can still be a different foreground APK.";
+                    : $"Selected profile targets {FormatPackageTargets(_runtimeConfig.SelectedProfile.PackageIds)}, but the selected target app is {SelectedApp.Label}. In Astral twin mode, keep the publish target on the runtime app whose profile you are editing; the live twin publisher can still be a different active APK.";
 
     public string RuntimeConfigLiveSummary
         => "Live runtime state is passive. Values arrive on quest_twin_state only. They appear below in Live Runtime Values and in Twin Monitor > Live Twin Monitor, without polling ADB.";
@@ -1032,7 +1032,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string RemoteControlLiveContextSummary
         => string.IsNullOrWhiteSpace(_liveTwinPublisherPackageId)
-            ? "No live quest_twin_state publisher detected yet. When one appears, this pane will identify it separately from the selected target and ADB foreground app."
+            ? "No live quest_twin_state publisher detected yet. When one appears, this pane will identify it separately from the selected target and the ADB active app."
             : $"Live publisher: {DescribeAppIdentity(_liveTwinPublisherPackageId, null)}. This pane reflects that APK's reported state, not necessarily the selected target.";
 
     public async Task InitializeAsync()
@@ -1616,9 +1616,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                         ? "Waiting for current headset app."
                         : $"{status.ForegroundPackageId} is active, but not in the Quest library yet."
                 : adoptedDetectedTarget
-                    ? $"{SelectedApp.Label} is foreground."
+                    ? $"{SelectedApp.Label} is active."
                 : status.IsTargetForeground
-                    ? $"{SelectedApp.Label} is foreground."
+                    ? $"{SelectedApp.Label} is active."
                     : status.IsTargetRunning
                         ? $"{SelectedApp.Label} is running."
                         : status.IsTargetInstalled
@@ -1898,7 +1898,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             publisherContext = (
                 $"{DescribeAppIdentity(_activeForegroundPackageId, _activeForegroundComponent)} publishing over LSL",
-                $"quest_twin_state is active, but the APK did not include its package id in the state frame. Falling back to the current ADB foreground app {_activeForegroundPackageId}.",
+                $"quest_twin_state is active, but the APK did not include its package id in the state frame. Falling back to the current ADB active app {_activeForegroundPackageId}.",
                 _activeForegroundPackageId);
         }
 
@@ -2214,10 +2214,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             && string.Equals(_liveTwinPublisherPackageId, _activeForegroundPackageId, StringComparison.OrdinalIgnoreCase);
 
         ForegroundMismatchLabel = livePublisherMatchesSelected
-            ? $"Selected target is {SelectedApp.Label}, and live LSL state also matches that target, but the current foreground app is {foregroundLabel}. This usually means the headset is showing a launcher transition or overlay while the selected runtime is still the one publishing quest_twin_state."
+            ? $"Selected target is {SelectedApp.Label}, and live LSL state also matches that target, but the current active app is {foregroundLabel}. This usually means the headset is showing a launcher transition or overlay while the selected runtime is still the one publishing quest_twin_state."
             : livePublisherMatchesForeground
-                ? $"Selected target is {SelectedApp.Label}, while the headset foreground and live LSL publisher are {livePublisherLabel}. Install, launch, preset staging, and Publish over Twin actions still target {SelectedApp.Label}; live runtime state reflects {livePublisherLabel} until you switch apps or change the selected target."
-                : $"Selected target is {SelectedApp.Label}, but the current foreground app is {foregroundLabel}. Install, launch, preset staging, and Publish over Twin actions still target {SelectedApp.Label}. Live runtime state follows whichever APK is publishing quest_twin_state.";
+                ? $"Selected target is {SelectedApp.Label}, while the headset active app and live LSL publisher are {livePublisherLabel}. Install, launch, preset staging, and Publish over Twin actions still target {SelectedApp.Label}; live runtime state reflects {livePublisherLabel} until you switch apps or change the selected target."
+                : $"Selected target is {SelectedApp.Label}, but the current active app is {foregroundLabel}. Install, launch, preset staging, and Publish over Twin actions still target {SelectedApp.Label}. Live runtime state follows whichever APK is publishing quest_twin_state.";
     }
 
     private void NotifyOverviewStateChanged()
@@ -2255,7 +2255,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
             return (
                 $"{DescribeAppIdentity(packageId, component)} publishing over LSL",
-                $"Live quest_twin_state reports foreground component {component}.",
+                $"Live quest_twin_state reports active component {component}.",
                 packageId);
         }
 
@@ -2303,7 +2303,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         AppendLog(
             OperatorLogLevel.Info,
             "Selected target adopted from headset state.",
-            $"{knownApp.Label} became the selected target because it is the current foreground app on the headset.");
+            $"{knownApp.Label} became the selected target because it is the current active app on the headset.");
         return true;
     }
 

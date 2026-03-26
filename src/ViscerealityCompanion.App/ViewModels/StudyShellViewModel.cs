@@ -202,6 +202,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         BrowseApkCommand = new AsyncRelayCommand(BrowseApkAsync);
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
         LaunchStudyAppCommand = new AsyncRelayCommand(LaunchStudyAppAsync);
+        StopStudyAppCommand = new AsyncRelayCommand(StopStudyAppAsync);
         ApplyPinnedDeviceProfileCommand = new AsyncRelayCommand(ApplyPinnedDeviceProfileAsync);
         ToggleProximityCommand = new AsyncRelayCommand(ToggleProximityAsync);
         ToggleTestLslSenderCommand = new AsyncRelayCommand(ToggleTestLslSenderAsync);
@@ -856,6 +857,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand BrowseApkCommand { get; }
     public AsyncRelayCommand InstallStudyAppCommand { get; }
     public AsyncRelayCommand LaunchStudyAppCommand { get; }
+    public AsyncRelayCommand StopStudyAppCommand { get; }
     public AsyncRelayCommand ApplyPinnedDeviceProfileCommand { get; }
     public AsyncRelayCommand ToggleProximityCommand { get; }
     public AsyncRelayCommand ToggleTestLslSenderCommand { get; }
@@ -1034,11 +1036,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 {
                     AppendLog(
                         OperatorLogLevel.Warning,
-                        "Launch command sent, but Sussex is not foreground.",
-                        $"Foreground package is {_headsetStatus?.ForegroundPackageId ?? "unknown"}. The headset may be in Guardian, lockscreen, or the Meta shell instead of the study runtime.");
+                        "Launch command sent, but Sussex is not active.",
+                        $"Active app is {_headsetStatus?.ForegroundPackageId ?? "unknown"}. The headset may be in Guardian, lockscreen, or the Meta shell instead of the study runtime.");
                 }
             }).ConfigureAwait(false);
         }
+    }
+
+    public async Task StopStudyAppAsync()
+    {
+        var outcome = await _questService.StopAppAsync(CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false))).ConfigureAwait(false);
+        await ApplyOutcomeAsync("Stop Sussex APK", outcome).ConfigureAwait(false);
+        await RefreshStatusAsync().ConfigureAwait(false);
     }
 
     public async Task ApplyPinnedDeviceProfileAsync()
@@ -1525,8 +1534,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     ? "unknown"
                     : _headsetStatus.ForegroundPackageId;
                 QuestStatusLevel = OperationOutcomeKind.Warning;
-                QuestStatusSummary = $"{_study.App.Label} is not in the foreground.";
-                QuestStatusDetail = $"Connected to the headset, but the foreground package is {foregroundPackage}. Refresh foreground or relaunch the Sussex APK before relying on session controls.";
+                QuestStatusSummary = $"{_study.App.Label} is not active.";
+                QuestStatusDetail = $"Connected to the headset, but the active app is {foregroundPackage}. Refresh the active app or relaunch the Sussex APK before relying on session controls.";
             }
 
             HeadsetModel = string.IsNullOrWhiteSpace(_headsetStatus.DeviceModel) ? "Quest" : _headsetStatus.DeviceModel;
@@ -1534,7 +1543,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             HeadsetBatteryLabel = _headsetStatus.BatteryLevel is null ? "Battery n/a" : $"{_headsetStatus.BatteryLevel}%";
             HeadsetPerformanceLabel = $"CPU {(_headsetStatus.CpuLevel?.ToString() ?? "n/a")} / GPU {(_headsetStatus.GpuLevel?.ToString() ?? "n/a")}";
             HeadsetForegroundLabel = string.IsNullOrWhiteSpace(_headsetStatus.ForegroundPackageId)
-                ? "Foreground n/a"
+                ? "Active app n/a"
                 : _headsetStatus.ForegroundPackageId;
             UpdateConnectionCardState();
         }).ConfigureAwait(false);
@@ -1877,7 +1886,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             LiveRuntimeLevel = studyRuntimeForeground ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview;
             LiveRuntimeSummary = studyRuntimeForeground
-                ? "Study runtime is foreground, but quest_twin_state is idle."
+                ? "Study runtime is active, but quest_twin_state is idle."
                 : "Waiting for quest_twin_state.";
             LiveRuntimeDetail = studyRuntimeForeground
                 ? $"The headset still reports the Sussex APK in front, but no fresh app-state frames are arriving yet. The Quest runtime may still be starting, paused, or off-face. {BuildTwinCommandTransportDetail()}".Trim()

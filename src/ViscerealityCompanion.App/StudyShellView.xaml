@@ -167,6 +167,7 @@
                                                 <Button Content="Choose Study APK" Command="{Binding BrowseApkCommand}" />
                                                 <Button Content="Install Pinned Build" Command="{Binding InstallStudyAppCommand}" />
                                                 <Button Content="Launch Study Runtime" Command="{Binding LaunchStudyAppCommand}" />
+                                                <Button Content="Stop Study Runtime" Command="{Binding StopStudyAppCommand}" />
                                             </WrapPanel>
                                             <Expander Style="{StaticResource CompactStatusExpanderStyle}">
                                                 <Expander.Header>
