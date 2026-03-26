@@ -167,6 +167,24 @@ public class LslTwinModeBridgeTests
         Assert.Contains("Headset last executed Particles On seq 3", bridge.Status.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void CreateShared_returns_same_bridge_instance()
+    {
+        var first = TwinModeBridgeFactory.CreateShared();
+        var second = TwinModeBridgeFactory.CreateShared();
+        var isolated = TwinModeBridgeFactory.CreateDefault();
+
+        try
+        {
+            Assert.Same(first, second);
+            Assert.NotSame(first, isolated);
+        }
+        finally
+        {
+            (isolated as IDisposable)?.Dispose();
+        }
+    }
+
     private static LslTwinModeBridge CreateBridge() =>
         CreateBridge(out _, out _, out _, out _);
 

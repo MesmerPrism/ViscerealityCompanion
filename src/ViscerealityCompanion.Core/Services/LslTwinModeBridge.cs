@@ -604,7 +604,15 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
 public static class TwinModeBridgeFactory
 {
+    private static readonly Lazy<ITwinModeBridge> SharedBridge = new(CreateBridge);
+
     public static ITwinModeBridge CreateDefault()
+        => CreateBridge();
+
+    public static ITwinModeBridge CreateShared()
+        => SharedBridge.Value;
+
+    private static ITwinModeBridge CreateBridge()
     {
         var commandOutlet = LslOutletServiceFactory.CreateDefault();
         var configOutlet = LslOutletServiceFactory.CreateDefault();

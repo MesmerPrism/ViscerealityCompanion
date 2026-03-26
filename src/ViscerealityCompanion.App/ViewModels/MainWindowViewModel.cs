@@ -27,7 +27,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IQuestControlService _questService;
     private readonly IHzdbService _hzdbService = HzdbServiceFactory.CreateDefault();
     private readonly ILslMonitorService _monitorService = LslMonitorServiceFactory.CreateDefault();
-    private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateDefault();
+    private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateShared();
     private readonly SessionManifestWriter _manifestWriter = new();
     private readonly RuntimeConfigWorkspaceViewModel _runtimeConfig = new();
     private readonly Dictionary<string, string> _apkOverrides = new(StringComparer.OrdinalIgnoreCase);
@@ -999,7 +999,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             _twinRefreshTimer.Stop();
         }
 
-        (_twinBridge as IDisposable)?.Dispose();
     }
 
     private async Task RefreshCatalogAsync()

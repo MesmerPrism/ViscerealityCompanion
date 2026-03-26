@@ -20,6 +20,11 @@ public interface ITestLslSignalService : IDisposable
 public sealed class WindowsTestLslSignalService : ITestLslSignalService
 {
     private static readonly TimeSpan SampleInterval = TimeSpan.FromMilliseconds(50);
+    private const float PulseBaseline01 = 0.1f;
+    private const float PulsePeak01 = 1.0f;
+    private const float PulsePeriodSeconds = 1.0f;
+    private const float PulsePeakWindowSeconds = 0.08f;
+    private const float PulseDecayWindowSeconds = 0.24f;
     private readonly Lock _sync = new();
     private nint _streamInfo;
     private nint _outlet;
@@ -99,7 +104,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
                 return new OperationOutcome(
                     OperationOutcomeKind.Success,
                     "Windows TEST sender already active.",
-                    $"Streaming synthetic 0..1 values on {streamName} / {streamType}.");
+                    $"Streaming synthetic heartbeat pulse values on {streamName} / {streamType}.");
             }
 
             _lastFaultDetail = string.Empty;
@@ -133,7 +138,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         return new OperationOutcome(
             OperationOutcomeKind.Success,
             "Windows TEST sender active.",
-            $"Streaming synthetic 0..1 breath values on {streamName} / {streamType}. Use this only for bench checks.");
+            $"Streaming synthetic heartbeat pulse values on {streamName} / {streamType}. Use this only for bench checks.");
     }
 
     public OperationOutcome Stop()
@@ -147,7 +152,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
                 return new OperationOutcome(
                     OperationOutcomeKind.Preview,
                     "Windows TEST sender already off.",
-                    "No synthetic LSL breath stream is active.");
+                    "No synthetic LSL heartbeat-pulse stream is active.");
             }
 
             pumpCts = _pumpCts;
@@ -166,7 +171,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         return new OperationOutcome(
             OperationOutcomeKind.Success,
             "Windows TEST sender stopped.",
-            "Synthetic quest_biofeedback_in publishing has stopped.");
+            "Synthetic heartbeat-pulse publishing has stopped.");
     }
 
     public void Dispose()
@@ -183,8 +188,15 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         {
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                var elapsedSeconds = (DateTime.UtcNow - startedAt).TotalSeconds;
-                var value = 0.5f + 0.5f * MathF.Sin((float)(elapsedSeconds * (Math.PI * 2d / 6d)));
+                var elapsedSeconds = (float)(DateTime.UtcNow - startedAt).TotalSeconds;
+                var phaseSeconds = elapsedSeconds % PulsePeriodSeconds;
+                float value = phaseSeconds switch
+                {
+                    <= PulsePeakWindowSeconds => PulsePeak01,
+                    <= PulseDecayWindowSeconds => PulseBaseline01 + (PulsePeak01 - PulseBaseline01) *
+                        MathF.Exp(-(phaseSeconds - PulsePeakWindowSeconds) / 0.05f),
+                    _ => PulseBaseline01
+                };
 
                 lock (_sync)
                 {
@@ -347,13 +359,13 @@ public sealed class PreviewTestLslSignalService : ITestLslSignalService
         => new(
             OperationOutcomeKind.Preview,
             "Windows TEST sender unavailable.",
-            "No real LSL float samples will be published in preview mode.");
+            "No real LSL heartbeat-pulse samples will be published in preview mode.");
 
     public OperationOutcome Stop()
         => new(
             OperationOutcomeKind.Preview,
             "Windows TEST sender unavailable.",
-            "No real LSL float samples are active in preview mode.");
+            "No real LSL heartbeat-pulse samples are active in preview mode.");
 
     public void Dispose()
     {

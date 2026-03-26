@@ -15,6 +15,8 @@ namespace ViscerealityCompanion.App.ViewModels;
 public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
+    private const string TestSenderHeartbeatMode = "3";
+    private const string TestSenderCoherenceMode = "0";
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ProximityReadbackRefreshInterval = TimeSpan.FromSeconds(3);
@@ -34,7 +36,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private StudyShellSessionState _studySessionState;
     private readonly IQuestControlService _questService;
     private readonly IHzdbService _hzdbService = HzdbServiceFactory.CreateDefault();
-    private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateDefault();
+    private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateShared();
     private readonly ITestLslSignalService _testLslSignalService = TestLslSignalServiceFactory.CreateDefault();
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
@@ -103,7 +105,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _proximityDetail = "Quest vrpowermanager readback will appear here once the shell can reach the active headset selector.";
     private string _proximityActionLabel = "Disable for 8h";
     private string _testLslSenderSummary = "Windows TEST sender off.";
-    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes synthetic 0..1 breath samples on the Sussex inlet.";
+    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes synthetic heartbeat pulses and requests the Sussex coherence route over the shared inlet.";
     private string _testLslSenderValueLabel = "Not running";
     private string _testLslSenderActionLabel = "Start TEST Sender";
     private string _lastTwinStateTimestampLabel = "No live app-state timestamp yet.";
@@ -120,6 +122,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _recenterDistanceLabel = "n/a";
     private StudyTwinCommandRequest? _lastRecenterCommandRequest;
     private StudyTwinCommandRequest? _lastParticlesCommandRequest;
+    private string? _testSenderRestoreHeartbeatMode;
+    private string? _testSenderRestoreCoherenceMode;
     private StudyValueSection? _selectedLiveSection;
 
     public StudyShellViewModel(StudyShellDefinition study)
@@ -707,7 +711,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         CloseTwinEventsWindow();
         _testLslSignalService.Dispose();
-        (_twinBridge as IDisposable)?.Dispose();
     }
 
     private async Task ProbeUsbAsync()
@@ -913,9 +916,34 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : _study.Monitoring.ExpectedLslStreamType;
         var sourceId = $"viscereality.companion.study-shell.test.{_study.Id}";
 
-        var outcome = isRunning
-            ? _testLslSignalService.Stop()
-            : _testLslSignalService.Start(streamName, streamType, sourceId);
+        OperationOutcome outcome;
+        if (isRunning)
+        {
+            var stopOutcome = _testLslSignalService.Stop();
+            var restoreOutcome = await RestoreTestSenderRoutingAsync().ConfigureAwait(false);
+            outcome = CombineTestSenderOutcomes(stopOutcome, restoreOutcome);
+        }
+        else
+        {
+            var routeOutcome = await ApplyTestSenderRoutingAsync().ConfigureAwait(false);
+            if (routeOutcome.Kind == OperationOutcomeKind.Failure)
+            {
+                outcome = routeOutcome;
+            }
+            else
+            {
+                var startOutcome = _testLslSignalService.Start(streamName, streamType, sourceId);
+                if (startOutcome.Kind == OperationOutcomeKind.Failure)
+                {
+                    var restoreOutcome = await RestoreTestSenderRoutingAsync().ConfigureAwait(false);
+                    outcome = CombineTestSenderOutcomes(startOutcome, restoreOutcome);
+                }
+                else
+                {
+                    outcome = CombineTestSenderOutcomes(routeOutcome, startOutcome);
+                }
+            }
+        }
 
         await ApplyOutcomeAsync(actionLabel, outcome).ConfigureAwait(false);
         await DispatchAsync(() =>
@@ -923,6 +951,118 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             RefreshBenchToolsStatus();
             UpdateLslCard();
         }).ConfigureAwait(false);
+    }
+
+    private async Task<OperationOutcome> ApplyTestSenderRoutingAsync()
+    {
+        _testSenderRestoreHeartbeatMode ??= GetFirstValue(
+            "showcase_heartbeat_mode",
+            "hotload.showcase_heartbeat_mode",
+            "routing.heartbeat.mode");
+        _testSenderRestoreCoherenceMode ??= GetFirstValue(
+            "showcase_coherence_mode",
+            "hotload.showcase_coherence_mode",
+            "routing.coherence.mode");
+
+        return await PublishTestSenderRoutingAsync(
+            TestSenderHeartbeatMode,
+            TestSenderCoherenceMode,
+            "test-sender-coherence-route",
+            "Bench route for TEST sender-driven coherence checks.",
+            "TEST sender routing enabled.",
+            "Heartbeat mode switched to LSL and coherence mode switched to heartbeat-derived for bench checks.")
+            .ConfigureAwait(false);
+    }
+
+    private async Task<OperationOutcome> RestoreTestSenderRoutingAsync()
+    {
+        var heartbeatMode = _testSenderRestoreHeartbeatMode;
+        var coherenceMode = _testSenderRestoreCoherenceMode;
+        _testSenderRestoreHeartbeatMode = null;
+        _testSenderRestoreCoherenceMode = null;
+
+        if (string.IsNullOrWhiteSpace(heartbeatMode) || string.IsNullOrWhiteSpace(coherenceMode))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "TEST sender route restore skipped.",
+                "No prior heartbeat/coherence routing snapshot was available to restore.");
+        }
+
+        return await PublishTestSenderRoutingAsync(
+            heartbeatMode,
+            coherenceMode,
+            "test-sender-route-restore",
+            "Restore heartbeat/coherence routing after TEST sender stop.",
+            "TEST sender routing restored.",
+            $"Heartbeat mode restored to {heartbeatMode} and coherence mode restored to {coherenceMode}.")
+            .ConfigureAwait(false);
+    }
+
+    private async Task<OperationOutcome> PublishTestSenderRoutingAsync(
+        string heartbeatMode,
+        string coherenceMode,
+        string profileId,
+        string description,
+        string summary,
+        string detail)
+    {
+        var profile = new RuntimeConfigProfile(
+            profileId,
+            "Study Shell TEST Sender Route",
+            string.Empty,
+            DateTime.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
+            "bench",
+            false,
+            description,
+            [_study.App.PackageId],
+            [
+                new RuntimeConfigEntry("showcase_heartbeat_mode", heartbeatMode),
+                new RuntimeConfigEntry("showcase_coherence_mode", coherenceMode)
+            ]);
+        var target = new QuestAppTarget(
+            _study.Id,
+            _study.App.Label,
+            _study.App.PackageId,
+            _study.App.ApkPath,
+            _study.App.LaunchComponent,
+            string.Empty,
+            _study.Description,
+            []);
+
+        var outcome = await _twinBridge.PublishRuntimeConfigAsync(profile, target).ConfigureAwait(false);
+        return outcome.Kind == OperationOutcomeKind.Failure
+            ? outcome
+            : new OperationOutcome(outcome.Kind, summary, detail);
+    }
+
+    private static OperationOutcome CombineTestSenderOutcomes(OperationOutcome first, OperationOutcome second)
+    {
+        if (first.Kind == OperationOutcomeKind.Failure)
+        {
+            return first;
+        }
+
+        if (second.Kind == OperationOutcomeKind.Failure)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                first.Summary,
+                $"{first.Detail} {second.Detail}".Trim());
+        }
+
+        var kind = first.Kind == OperationOutcomeKind.Warning || second.Kind == OperationOutcomeKind.Warning
+            ? OperationOutcomeKind.Warning
+            : first.Kind == OperationOutcomeKind.Preview || second.Kind == OperationOutcomeKind.Preview
+                ? OperationOutcomeKind.Preview
+                : OperationOutcomeKind.Success;
+
+        var detail = string.Join(
+            " ",
+            new[] { first.Detail, second.Detail }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim()));
+        return new OperationOutcome(kind, first.Summary, detail);
     }
 
     public Task RecenterAsync()
@@ -1306,8 +1446,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var expectedType = _study.Monitoring.ExpectedLslStreamType;
         var testSenderActive = _testLslSignalService.IsRunning;
         var testSenderDetail = testSenderActive
-            ? $"Companion TEST sender is publishing synthetic 0..1 samples on {expectedName} / {expectedType}."
-            : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} without a live sensor.";
+            ? $"Companion TEST sender is publishing heartbeat-pulse bench traffic on {expectedName} / {expectedType} and requesting the heartbeat-derived coherence route."
+            : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} and the headset coherence path without a live sensor.";
         var streamName = GetFirstValue("study.lsl.filter_name") ?? GetFirstValue(_study.Monitoring.LslStreamNameKeys);
         var streamType = GetFirstValue("study.lsl.filter_type") ?? GetFirstValue(_study.Monitoring.LslStreamTypeKeys);
         var hasInputValue = TryGetObservedLslValue(out var inputValue, out var inputValueKey);
@@ -1350,11 +1490,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : "No live LSL input reported yet.";
         if (hasInputValue)
         {
-            LslSummary += $" Breath value {inputValue:0.000}.";
+            LslSummary += $" Inlet value {inputValue:0.000}.";
         }
         else if (hasConnectedInput)
         {
-            LslSummary += " Inlet connected; this public build does not echo the breath value yet.";
+            LslSummary += " Inlet connected; this public build does not echo the routed inlet value yet.";
         }
         if (testSenderActive)
         {
@@ -1365,8 +1505,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             $"Connected {(string.IsNullOrWhiteSpace(connectedName) ? "stream name unavailable" : connectedName)} / {(string.IsNullOrWhiteSpace(connectedType) ? "stream type unavailable" : connectedType)}. " +
             $"Connected {connectedCount?.ToString() ?? (connectedFlag.HasValue ? (connectedFlag.Value ? "1" : "0") : "n/a")}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}. " +
             (hasInputValue
-                ? $"Latest normalized 0..1 breath value {inputValue:0.000} via {inputValueKey}. "
-                : "The current public state frame confirms inlet connectivity. The live link is healthy, but this build did not echo the normalized 0..1 breath value yet. ") +
+                ? $"Latest normalized inlet value {inputValue:0.000} via {inputValueKey}. "
+                : "The current public state frame confirms inlet connectivity. The live link is healthy, but this build did not echo the routed inlet value yet. ") +
             $"{testSenderDetail} {(string.IsNullOrWhiteSpace(statusLine) ? string.Empty : statusLine)}".Trim();
     }
 
@@ -1771,10 +1911,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             TestLslSenderLevel = OperationOutcomeKind.Warning;
             TestLslSenderSummary = "Windows TEST sender active.";
             TestLslSenderValueLabel = _testLslSignalService.LastSentAtUtc.HasValue
-                ? $"Latest synthetic breath value {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
-                : "Starting synthetic breath signal...";
+                ? $"Latest synthetic heartbeat pulse {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
+                : "Starting synthetic heartbeat pulse stream...";
             TestLslSenderDetail =
-                $"Synthetic 0..1 breath samples are publishing locally on {expectedName} / {expectedType}. Use this only for bench checks, not live study runs.";
+                $"Synthetic heartbeat-pulse samples are publishing locally on {expectedName} / {expectedType}. The study shell also requests Heartbeat Mode = LSL and Coherence Mode = Heartbeat Derived while this bench sender is active.";
             return;
         }
 
@@ -1800,7 +1940,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         TestLslSenderSummary = "Windows TEST sender off.";
         TestLslSenderValueLabel = "Not running";
         TestLslSenderDetail =
-            $"Start the Windows TEST sender to publish synthetic 0..1 breath samples on {expectedName} / {expectedType}. This is bench-only traffic.";
+            $"Start the Windows TEST sender to publish synthetic heartbeat pulses on {expectedName} / {expectedType}. This is bench-only traffic and temporarily routes the Sussex coherence path to LSL heartbeat.";
     }
 
     private void RefreshFocusRows(bool forceRebuild = false)
@@ -1964,20 +2104,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (TryGetObservedLslValue(out var value, out var sourceKey))
         {
             return new StudyStatusRow(
-                "Breath value",
+                "Inlet value",
                 sourceKey,
                 value.ToString("0.000", CultureInfo.InvariantCulture),
                 string.Empty,
-                "Latest normalized 0..1 breath-volume value echoed by quest_twin_state when public signal mirroring is available.",
+                "Latest normalized inlet value echoed by quest_twin_state when public signal mirroring is available.",
                 OperationOutcomeKind.Success);
         }
 
         return new StudyStatusRow(
-            "Breath value",
+            "Inlet value",
             configuredKey,
             "Not echoed by current public build",
             string.Empty,
-            "The Sussex runtime consumes a normalized 0..1 LSL breath value, but the current public twin-state frame only confirms inlet connectivity unless signal mirroring is enabled.",
+            "The Sussex runtime confirms inlet connectivity here, but the current public twin-state frame only echoes the routed inlet value when signal mirroring is enabled.",
             OperationOutcomeKind.Preview);
     }
 

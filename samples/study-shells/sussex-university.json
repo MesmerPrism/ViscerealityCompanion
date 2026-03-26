@@ -8,7 +8,7 @@
     "packageId": "com.Viscereality.LslTwin",
     "apkPath": "",
     "launchComponent": "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
-    "sha256": "098B667C928354BD884BA7172346D943DD82554041A100BF486A639769978E51",
+    "sha256": "4C3C75967D72DB39EC7C8E088C421BE2E91ED86C146B34D7F3F2B6BE1CEFE119",
     "versionName": "0.1.0",
     "notes": "Select the supplied Sussex APK file once. The operator shell will keep checking the local file hash and the installed headset hash against this pinned build."
   },

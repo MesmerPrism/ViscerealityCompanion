@@ -296,9 +296,9 @@ public static class HarnessScenarioRunner
         else
         {
             builder.AppendLine("No round-trip latency samples were observed.");
-            builder.AppendLine("The harness publishes normalized 0..1 breath-volume samples on quest_biofeedback_in / quest.biofeedback from this Windows machine.");
-            builder.AppendLine("The current public Sussex telemetry confirmed study.lsl.* inlet connectivity on this pass, but it did not echo that normalized breath value back over quest_twin_state.");
-            builder.AppendLine("Value-level round-trip latency therefore still needs a public breath-value echo or inlet sample timestamp in the runtime state frame.");
+            builder.AppendLine("The harness publishes normalized 0..1 bench inlet samples on quest_biofeedback_in / quest.biofeedback from this Windows machine.");
+            builder.AppendLine("The current public Sussex telemetry confirmed study.lsl.* inlet connectivity on this pass, but it did not echo that routed inlet value back over quest_twin_state.");
+            builder.AppendLine("Value-level round-trip latency therefore still needs a public inlet-value echo or inlet sample timestamp in the runtime state frame.");
         }
 
         builder.AppendLine();
