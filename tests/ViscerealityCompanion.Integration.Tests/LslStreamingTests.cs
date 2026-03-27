@@ -54,8 +54,8 @@ public class LslStreamingTests
             "Breathing belt biofeedback control parameters",
             ["com.Viscereality.KarateBio"],
             [
-                new RuntimeConfigEntry("showcase_lsl_in_stream_name", "quest_biofeedback_in"),
-                new RuntimeConfigEntry("showcase_lsl_in_stream_type", "quest.biofeedback"),
+                new RuntimeConfigEntry("showcase_lsl_in_stream_name", HrvBiofeedbackStreamContract.StreamName),
+                new RuntimeConfigEntry("showcase_lsl_in_stream_type", HrvBiofeedbackStreamContract.StreamType),
                 new RuntimeConfigEntry("showcase_lsl_in_auto_connect", "true"),
                 new RuntimeConfigEntry("showcase_lsl_in_default_channel", "0"),
                 new RuntimeConfigEntry("breathing_modulate_particle_speed", "0.8"),
@@ -72,7 +72,7 @@ public class LslStreamingTests
         Assert.Equal(7, configOutlet.PublishedEntryCount);
 
         var requested = bridge.RequestedSettings;
-        Assert.Equal("quest_biofeedback_in", requested["showcase_lsl_in_stream_name"]);
+        Assert.Equal(HrvBiofeedbackStreamContract.StreamName, requested["showcase_lsl_in_stream_name"]);
         Assert.Equal("true", requested["showcase_lsl_in_auto_connect"]);
     }
 

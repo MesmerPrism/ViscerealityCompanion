@@ -7,19 +7,19 @@ companion and the Windows shell:
 - `HotloadProfiles/profiles.json`
 - `DeviceProfiles/profiles.json`
 
-The committed files are curated public defaults for the current `LslTwin`
+The committed files are curated public defaults for the current Sussex
 operator flow. The repo now defaults to this local session-kit mirror before it
 falls back to any broader AstralKarateDojo workspace on the same machine.
 
-Only the current `LslTwin` app target and one scene-matched hotload baseline
+Only the current Sussex app target and one scene-matched hotload baseline
 ship here, so stale APK or profile entries from older internal experiments do
 not leak into the public operator shell by default.
 
-The committed `APKs/LslTwin.apk` currently mirrors the pinned Sussex
-controller-breathing build. That keeps the packaged Windows install and the
-Sussex study shell self-contained: the app bundle already has the APK it needs
-for `Install Pinned Build`.
+The committed `APKs/SussexControllerStudy.apk` currently mirrors the bundled
+Sussex controller-breathing build. That keeps the packaged Windows install and
+the Sussex study shell self-contained: the app bundle already has the APK it
+needs for `Install Sussex APK`.
 
 That APK now lives in Git LFS. If you clone the repo for development or local
 packaging, run `git lfs pull` before expecting the real APK bytes to be
-available under `APKs/LslTwin.apk`.
+available under `APKs/SussexControllerStudy.apk`.

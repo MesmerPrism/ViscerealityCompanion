@@ -19,8 +19,9 @@ public interface ITestLslSignalService : IDisposable
 
 public sealed class WindowsTestLslSignalService : ITestLslSignalService
 {
-    private const float MockHeartbeatBpm = 66f;
-    private static readonly TimeSpan PacketInterval = TimeSpan.FromMilliseconds(Math.Round(60000d / MockHeartbeatBpm));
+    private const int StreamChannelCount = 1;
+    private const int OutletChunkSize = 1;
+    private const int OutletMaxBuffered = 1;
     private readonly Lock _sync = new();
     private nint _streamInfo;
     private nint _outlet;
@@ -100,11 +101,17 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
                 return new OperationOutcome(
                     OperationOutcomeKind.Success,
                     "Windows TEST sender already active.",
-                    $"Streaming synthetic direct-coherence packets on {streamName} / {streamType} at roughly {MockHeartbeatBpm:0} BPM.");
+                    $"Streaming synthetic smoothed-HRV packets on {streamName} / {streamType} with irregular beat-timed spacing.");
             }
 
             _lastFaultDetail = string.Empty;
-            _streamInfo = TestOutletNativeMethods.CreateStreamInfo(streamName, streamType, 1, 0d, TestOutletNativeMethods.FloatChannelFormat, sourceId);
+            _streamInfo = TestOutletNativeMethods.CreateStreamInfo(
+                streamName,
+                streamType,
+                StreamChannelCount,
+                0d,
+                TestOutletNativeMethods.FloatChannelFormat,
+                sourceId);
             if (_streamInfo == IntPtr.Zero)
             {
                 return new OperationOutcome(
@@ -113,7 +120,12 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
                     TestOutletNativeMethods.GetLastError());
             }
 
-            _outlet = TestOutletNativeMethods.CreateOutlet(_streamInfo, 0, 120);
+            TestOutletNativeMethods.AppendSingleChannelMetadata(
+                _streamInfo,
+                HrvBiofeedbackStreamContract.ChannelLabel,
+                HrvBiofeedbackStreamContract.ChannelUnit);
+
+            _outlet = TestOutletNativeMethods.CreateOutlet(_streamInfo, OutletChunkSize, OutletMaxBuffered);
             if (_outlet == IntPtr.Zero)
             {
                 TestOutletNativeMethods.DestroyStreamInfo(_streamInfo);
@@ -134,7 +146,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         return new OperationOutcome(
             OperationOutcomeKind.Success,
             "Windows TEST sender active.",
-            $"Streaming synthetic direct-coherence packets on {streamName} / {streamType} at roughly {MockHeartbeatBpm:0} BPM. Each packet arrival is a bench heartbeat trigger.");
+            $"Streaming synthetic smoothed-HRV packets on {streamName} / {streamType}. Samples follow an irregular beat-timed profile with a {HrvBiofeedbackStreamContract.FeedbackDispatchDelayMs} ms post-beat dispatch offset.");
     }
 
     public OperationOutcome Stop()
@@ -148,7 +160,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
                 return new OperationOutcome(
                     OperationOutcomeKind.Preview,
                     "Windows TEST sender already off.",
-                    "No synthetic direct-coherence LSL stream is active.");
+                    "No synthetic smoothed-HRV LSL stream is active.");
             }
 
             pumpCts = _pumpCts;
@@ -167,7 +179,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         return new OperationOutcome(
             OperationOutcomeKind.Success,
             "Windows TEST sender stopped.",
-            "Synthetic direct-coherence publishing has stopped.");
+            "Synthetic smoothed-HRV publishing has stopped.");
     }
 
     public void Dispose()
@@ -177,17 +189,19 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
 
     private async Task PumpAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(PacketInterval);
-        var beatIndex = 0;
+        var profile = new MockHrvBiofeedbackProfile();
 
         try
         {
-            PushBeatSample(beatIndex);
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(HrvBiofeedbackStreamContract.FeedbackDispatchDelayMs),
+                cancellationToken).ConfigureAwait(false);
 
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            while (true)
             {
-                beatIndex++;
-                PushBeatSample(beatIndex);
+                var packet = profile.NextPacket();
+                PushBeatSample(packet.Value01);
+                await Task.Delay(packet.IntervalUntilNextSend, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -205,10 +219,8 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         }
     }
 
-    private void PushBeatSample(int beatIndex)
+    private void PushBeatSample(float value)
     {
-        var value = BuildCoherenceValue(beatIndex);
-
         lock (_sync)
         {
             if (_outlet == IntPtr.Zero)
@@ -220,16 +232,6 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
             _lastValue = value;
             _lastSentAtUtc = DateTimeOffset.UtcNow;
         }
-    }
-
-    private static float BuildCoherenceValue(int beatIndex)
-    {
-        var phase = beatIndex * 0.63f;
-        var value =
-            0.5f +
-            0.26f * MathF.Sin(phase) +
-            0.12f * MathF.Sin((phase * 0.41f) + 0.85f);
-        return Math.Clamp(value, 0.05f, 0.95f);
     }
 
     private void DisposeNativeHandles()
@@ -249,6 +251,97 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
 
     private void RaiseStateChanged()
         => StateChanged?.Invoke(this, EventArgs.Empty);
+
+    private readonly record struct MockHrvPacket(float Value01, TimeSpan IntervalUntilNextSend, bool IsHoldover);
+
+    private sealed class MockHrvBiofeedbackProfile
+    {
+        private const float MinIbiMs = 400f;
+        private const float MaxIbiMs = 1200f;
+        private const float MeanIbiMs = 910f;
+        private const float EmaAlpha = 0.3f;
+        private const int WarmupBeatCount = 5;
+
+        private readonly Random _random = new(20260323);
+        private int _beatIndex;
+        private float _phase = 0.4f;
+        private float _lastIbiMs = MeanIbiMs;
+        private float? _smoothedValue;
+        private float _lastPublishedValue = 0.5f;
+
+        public MockHrvPacket NextPacket()
+        {
+            var ibiMs = BuildIbiMs();
+            var rawFeedback = BuildRawFeedback();
+
+            var isWarmup = _beatIndex < WarmupBeatCount;
+            var isHoldover = isWarmup || ShouldReusePriorFeedback();
+            float value01;
+
+            if (_smoothedValue is null)
+            {
+                _smoothedValue = rawFeedback;
+            }
+            else
+            {
+                _smoothedValue = (EmaAlpha * rawFeedback) + ((1f - EmaAlpha) * _smoothedValue.Value);
+            }
+
+            if (isWarmup)
+            {
+                var settle01 = (_beatIndex + 1f) / WarmupBeatCount;
+                var blend = settle01 * 0.35f;
+                value01 = 0.5f + ((_smoothedValue.Value - 0.5f) * blend);
+                _lastPublishedValue = value01;
+            }
+            else if (isHoldover)
+            {
+                value01 = _lastPublishedValue;
+            }
+            else
+            {
+                value01 = _smoothedValue.Value;
+                _lastPublishedValue = value01;
+            }
+
+            _beatIndex++;
+            return new MockHrvPacket(
+                Math.Clamp(value01, 0.05f, 0.95f),
+                TimeSpan.FromMilliseconds(ibiMs),
+                isHoldover);
+        }
+
+        private float BuildIbiMs()
+        {
+            _phase += 0.57f + NextCentered(0.05f);
+
+            var respiration = MathF.Sin(_phase);
+            var harmonic = MathF.Sin((_phase * 0.5f) + 0.9f);
+            var jitterMs = NextCentered(28f);
+
+            var ibiMs = MeanIbiMs + (125f * respiration) + (42f * harmonic) + jitterMs;
+            ibiMs = Math.Clamp(ibiMs, MinIbiMs, MaxIbiMs);
+            _lastIbiMs = ibiMs;
+            return ibiMs;
+        }
+
+        private float BuildRawFeedback()
+        {
+            var zScoreLike =
+                (1.12f * MathF.Sin(_phase - 0.35f)) +
+                (0.34f * MathF.Sin((_phase * 0.5f) + 1.1f)) +
+                NextCentered(0.09f);
+
+            var mapped01 = (zScoreLike + 2f) / 4f;
+            return Math.Clamp(mapped01, 0.05f, 0.95f);
+        }
+
+        private bool ShouldReusePriorFeedback()
+            => _beatIndex > WarmupBeatCount && (_random.NextDouble() < 0.12d || (_lastIbiMs > 1040f && _random.NextDouble() < 0.2d));
+
+        private float NextCentered(float halfRange)
+            => ((float)_random.NextDouble() * 2f * halfRange) - halfRange;
+    }
 
     private static class TestOutletNativeMethods
     {
@@ -312,6 +405,15 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
         [DllImport("lsl", EntryPoint = "lsl_destroy_outlet", CallingConvention = CallingConvention.Cdecl)]
         private static extern void lsl_destroy_outlet(nint outlet);
 
+        [DllImport("lsl", EntryPoint = "lsl_get_desc", CallingConvention = CallingConvention.Cdecl)]
+        private static extern nint lsl_get_desc(nint streamInfo);
+
+        [DllImport("lsl", EntryPoint = "lsl_append_child", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern nint lsl_append_child(nint element, string name);
+
+        [DllImport("lsl", EntryPoint = "lsl_append_child_value", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern nint lsl_append_child_value(nint element, string name, string value);
+
         [DllImport("lsl", EntryPoint = "lsl_local_clock", CallingConvention = CallingConvention.Cdecl)]
         private static extern double lsl_local_clock();
 
@@ -340,6 +442,30 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
 
         internal static void DestroyOutlet(nint outlet) => lsl_destroy_outlet(outlet);
 
+        internal static void AppendSingleChannelMetadata(nint streamInfo, string label, string unit)
+        {
+            var desc = lsl_get_desc(streamInfo);
+            if (desc == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var channels = lsl_append_child(desc, "channels");
+            if (channels == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var channel = lsl_append_child(channels, "channel");
+            if (channel == IntPtr.Zero)
+            {
+                return;
+            }
+
+            lsl_append_child_value(channel, "label", label);
+            lsl_append_child_value(channel, "unit", unit);
+        }
+
         internal static double LocalClock() => lsl_local_clock();
 
         internal static void PushFloatSample(nint outlet, float[] values, double timestamp)
@@ -365,13 +491,13 @@ public sealed class PreviewTestLslSignalService : ITestLslSignalService
         => new(
             OperationOutcomeKind.Preview,
             "Windows TEST sender unavailable.",
-            "No real LSL heartbeat-pulse samples will be published in preview mode.");
+            "No real smoothed-HRV LSL samples will be published in preview mode.");
 
     public OperationOutcome Stop()
         => new(
             OperationOutcomeKind.Preview,
             "Windows TEST sender unavailable.",
-            "No real LSL heartbeat-pulse samples are active in preview mode.");
+            "No real smoothed-HRV LSL samples are active in preview mode.");
 
     public void Dispose()
     {

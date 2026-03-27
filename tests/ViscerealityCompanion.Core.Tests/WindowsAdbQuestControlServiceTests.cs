@@ -317,11 +317,11 @@ public sealed class WindowsAdbQuestControlServiceTests
     {
         var wakeOutcome = new OperationOutcome(
             OperationOutcomeKind.Warning,
-            "Wake before launching Sussex LslTwin Build left the headset blocked.",
+            "Wake before launching Sussex Controller Study APK left the headset blocked.",
             "Initial: wakefulness Asleep; foreground com.oculus.vrshell/.FocusPlaceholderActivity");
         var launchOutcome = new OperationOutcome(
             OperationOutcomeKind.Success,
-            "Launch command sent for Sussex LslTwin Build.",
+            "Launch command sent for Sussex Controller Study APK.",
             "Events injected: 1");
 
         var merged = WindowsAdbQuestControlService.MergeWakeWarning(launchOutcome, wakeOutcome);
@@ -337,11 +337,11 @@ public sealed class WindowsAdbQuestControlServiceTests
     {
         var wakeOutcome = new OperationOutcome(
             OperationOutcomeKind.Warning,
-            "Wake before stopping Sussex LslTwin Build left the headset blocked.",
+            "Wake before stopping Sussex Controller Study APK left the headset blocked.",
             "Initial: wakefulness Awake; foreground com.oculus.guardian/com.oculus.vrguardianservice.guardiandialog.GuardianDialogActivity");
         var stopOutcome = new OperationOutcome(
             OperationOutcomeKind.Failure,
-            "Stop failed for Sussex LslTwin Build.",
+            "Stop failed for Sussex Controller Study APK.",
             "device offline");
 
         var merged = WindowsAdbQuestControlService.MergeWakeWarning(stopOutcome, wakeOutcome);

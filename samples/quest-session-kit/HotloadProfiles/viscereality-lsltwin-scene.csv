@@ -55,8 +55,8 @@ showcase_breathing_mode,4
 showcase_heartbeat_mode,3
 showcase_coherence_mode,2
 showcase_adaptive_pacer_enabled,false
-showcase_lsl_in_stream_name,quest_biofeedback_in
-showcase_lsl_in_stream_type,quest.biofeedback
+showcase_lsl_in_stream_name,HRV_Biofeedback
+showcase_lsl_in_stream_type,HRV
 showcase_lsl_in_auto_connect,false
 showcase_lsl_in_auto_reconnect,true
 showcase_lsl_in_default_channel,0

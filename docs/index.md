@@ -24,7 +24,7 @@ watch live state, and keep session control on the operator side.
 ## If You Are Here For Sussex
 
 - use the packaged Windows preview unless you are actively changing the repo
-- the dedicated Sussex package already includes the pinned Sussex APK
+- the dedicated Sussex package already includes the bundled Sussex APK
 - the app opens directly into `Sussex University experiment mode`
 - the operator only needs Windows, a Quest in developer mode, one USB cable, and a shared Wi-Fi network for Wi-Fi ADB
 
@@ -32,7 +32,7 @@ watch live state, and keep session control on the operator side.
 
 - the WPF operator app
 - the dedicated Sussex study shell with startup lock enabled
-- the pinned Sussex APK mirrored from the Astral build used for the study
+- the bundled Sussex APK mirrored from the Astral build used for the study
 - the pinned Quest device profile and study-specific monitoring surface
 - the release assets needed to install the whole setup on another machine
 
@@ -62,7 +62,7 @@ Use these three pages in order:
   </a>
   <a class="path-card" href="first-session.md">
     <h3>First Sussex Session</h3>
-    <p>Connect Quest, approve USB debugging, install the pinned build, switch to Wi-Fi ADB, and launch Sussex in one pass.</p>
+    <p>Connect Quest, approve USB debugging, install the Sussex APK, switch to Wi-Fi ADB, and launch Sussex in one pass.</p>
   </a>
   <a class="path-card" href="study-shells.md">
     <h3>Dedicated Study Shell</h3>

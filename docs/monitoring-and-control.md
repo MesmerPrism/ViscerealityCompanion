@@ -74,18 +74,18 @@ crashing.
 For study-specific modes such as the Sussex shell, the same twin-state stream
 is reduced to a much narrower monitor:
 
-- pinned build verification
+- Sussex APK verification
 - pinned device-profile verification
 - LSL routing and connectivity
 - controller breathing, heartbeat, and coherence values
 - only the study trigger buttons that are actually allowed
 
 The Sussex verification harness now also spins up a local Windows LSL sender on
-`quest_biofeedback_in / quest.biofeedback` so the operator app can verify that
+`HRV_Biofeedback / HRV` so the operator app can verify that
 the headset is actually resolving and connecting to a live sender on this
 machine, not just carrying stale stream configuration. The test signal is the
-current Sussex app-side contract: direct `0..1` coherence values, where each
-packet arrival is also treated as a heartbeat event.
+current Sussex app-side contract: smoothed `0..1` HRV biofeedback values,
+where each packet arrival is also treated as a heartbeat event.
 
 ## What The Operator Can Control Today
 
@@ -109,8 +109,8 @@ drift from the last recenter anchor, particle visibility and suppression state,
 and performance telemetry from the public `quest_twin_state` surface.
 
 The current public Sussex telemetry always confirms LSL inlet connectivity
-through `study.lsl.*`. If a verified build also echoes the direct coherence
+through `study.lsl.*`. If a verified build also echoes the routed biofeedback
 value on `signal01.coherence_lsl` or a `driver.stream.*.value01` mirror entry,
 the harness will derive value-level latency. On the currently verified public
-build, that value is echoed, so the public harness can now report direct
-coherence round-trip latency.
+build, that value is echoed, so the public harness can now report routed
+biofeedback round-trip latency.

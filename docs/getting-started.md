@@ -54,11 +54,11 @@ can also point the app at an external study-shell folder with
 without changing the main app binary.
 
 The repo-local session-kit sample is now the preferred default source. It
-currently contains one public Quest target, `LslTwin`, plus one scene-matched
+currently contains one public Sussex Quest target plus one scene-matched
 runtime baseline. That keeps older internal APK and profile variants out of the
 public operator shell unless you explicitly point it at another catalog root.
-The committed `samples/quest-session-kit/APKs/LslTwin.apk` is the same
-Sussex-pinned APK used by the packaged study shell, so run `git lfs pull`
+The committed `samples/quest-session-kit/APKs/SussexControllerStudy.apk` is the same
+Sussex APK used by the packaged study shell, so run `git lfs pull`
 before assuming the repo copy is present locally.
 
 If `adb` is available, the Windows shell will use it automatically for:

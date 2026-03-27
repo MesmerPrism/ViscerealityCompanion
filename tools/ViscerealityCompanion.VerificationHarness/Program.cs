@@ -36,7 +36,10 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-live.png"));
 
         using var outlet = new FloatLslTestOutlet();
-        outlet.Open("quest_biofeedback_in", "quest.biofeedback", "viscereality.sussex.harness");
+        outlet.Open(
+            HrvBiofeedbackStreamContract.StreamName,
+            HrvBiofeedbackStreamContract.StreamType,
+            "viscereality.sussex.harness");
 
         var app = new ViscerealityCompanion.App.App();
         app.InitializeComponent();
@@ -222,7 +225,10 @@ public static class HarnessScenarioRunner
         const float expectedValue = 0.71f;
         outlet.Dispose();
         await Task.Delay(TimeSpan.FromSeconds(2));
-        outlet.Open("quest_biofeedback_in", "quest.biofeedback", "viscereality.sussex.harness.restart");
+        outlet.Open(
+            HrvBiofeedbackStreamContract.StreamName,
+            HrvBiofeedbackStreamContract.StreamType,
+            "viscereality.sussex.harness.restart");
 
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
         while (DateTimeOffset.UtcNow < deadline)
@@ -342,9 +348,9 @@ public static class HarnessScenarioRunner
         else
         {
             builder.AppendLine("No round-trip latency samples were observed.");
-            builder.AppendLine("The harness publishes normalized 0..1 coherence samples on quest_biofeedback_in / quest.biofeedback from this Windows machine at a bench heartbeat cadence.");
-            builder.AppendLine("The current public Sussex telemetry confirmed study.lsl.* inlet connectivity on this pass, but it did not echo that routed coherence value back over quest_twin_state.");
-            builder.AppendLine("Value-level round-trip latency therefore still needs a public coherence echo or inlet sample timestamp in the runtime state frame.");
+            builder.AppendLine($"The harness publishes normalized smoothed-HRV samples on {HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType} from this Windows machine using irregular heartbeat-timed spacing.");
+            builder.AppendLine("The current public Sussex telemetry confirmed study.lsl.* inlet connectivity on this pass, but it did not echo that routed biofeedback value back over quest_twin_state.");
+            builder.AppendLine("Value-level round-trip latency therefore still needs a public routed-biofeedback echo or inlet sample timestamp in the runtime state frame.");
         }
 
         builder.AppendLine();
@@ -588,7 +594,12 @@ internal sealed class FloatLslTestOutlet : IDisposable
             throw new InvalidOperationException("Could not create LSL stream info for the harness outlet.");
         }
 
-        _outlet = LslNative.CreateOutlet(_streamInfo, 0, 120);
+        LslNative.AppendSingleChannelMetadata(
+            _streamInfo,
+            HrvBiofeedbackStreamContract.ChannelLabel,
+            HrvBiofeedbackStreamContract.ChannelUnit);
+
+        _outlet = LslNative.CreateOutlet(_streamInfo, 1, 1);
         if (_outlet == IntPtr.Zero)
         {
             throw new InvalidOperationException("Could not create the LSL harness outlet.");
@@ -648,6 +659,30 @@ internal sealed class FloatLslTestOutlet : IDisposable
         public static void DestroyStreamInfo(nint streamInfo) => lsl_destroy_streaminfo(streamInfo);
         public static nint CreateOutlet(nint streamInfo, int chunkSize, int maxBuffered) => lsl_create_outlet(streamInfo, chunkSize, maxBuffered);
         public static void DestroyOutlet(nint outlet) => lsl_destroy_outlet(outlet);
+        public static void AppendSingleChannelMetadata(nint streamInfo, string label, string unit)
+        {
+            var desc = lsl_get_desc(streamInfo);
+            if (desc == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var channels = lsl_append_child(desc, "channels");
+            if (channels == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var channel = lsl_append_child(channels, "channel");
+            if (channel == IntPtr.Zero)
+            {
+                return;
+            }
+
+            lsl_append_child_value(channel, "label", label);
+            lsl_append_child_value(channel, "unit", unit);
+        }
+
         public static double LocalClock() => lsl_local_clock();
         public static int PushFloatSample(nint outlet, float[] values, double timestamp) => lsl_push_sample_ftp(outlet, values, timestamp, 1);
 
@@ -724,6 +759,15 @@ internal sealed class FloatLslTestOutlet : IDisposable
 
         [DllImport("lsl", EntryPoint = "lsl_destroy_outlet", CallingConvention = CallingConvention.Cdecl)]
         private static extern void lsl_destroy_outlet(nint outlet);
+
+        [DllImport("lsl", EntryPoint = "lsl_get_desc", CallingConvention = CallingConvention.Cdecl)]
+        private static extern nint lsl_get_desc(nint streamInfo);
+
+        [DllImport("lsl", EntryPoint = "lsl_append_child", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern nint lsl_append_child(nint element, string name);
+
+        [DllImport("lsl", EntryPoint = "lsl_append_child_value", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        private static extern nint lsl_append_child_value(nint element, string name, string value);
 
         [DllImport("lsl", EntryPoint = "lsl_local_clock", CallingConvention = CallingConvention.Cdecl)]
         private static extern double lsl_local_clock();

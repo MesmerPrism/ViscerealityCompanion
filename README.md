@@ -19,7 +19,7 @@ desktop release needs:
 - WPF desktop app for Quest connection, install, launch, monitoring, and runtime-config staging
 - reusable study-shell windows for simplified experiment-specific operator flows
 - CLI for scriptable ADB, LSL, and twin command workflows
-- repo-local `LslTwin` sample catalog, scene-matched hotload baseline, device profiles, and the bundled Sussex-pinned APK
+- repo-local Sussex sample catalog, scene-matched hotload baseline, device profiles, and the bundled Sussex APK
 - public runtime-config editor that mirrors the Astral inspector layout
 - Pages docs and release automation
 - Windows packaging scaffolding for a single branded launcher install path
@@ -55,7 +55,7 @@ Verified on March 25, 2026 against a live Quest reachable over Wi-Fi ADB:
 ## Install Or Build
 
 For operators, the intended path is the packaged launcher once preview releases
-are published. The Sussex preview path now bundles the pinned Sussex APK inside
+are published. The Sussex preview path now bundles the Sussex APK inside
 the installed app payload, so operators do not need a separate APK download for
 that study shell.
 
@@ -75,8 +75,8 @@ dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
 ```
 
-`git lfs pull` matters here because the committed `samples/quest-session-kit/APKs/LslTwin.apk`
-is the real Sussex-pinned APK bundled into the public package, not a placeholder.
+`git lfs pull` matters here because the committed `samples/quest-session-kit/APKs/SussexControllerStudy.apk`
+is the real Sussex APK bundled into the public package, not a placeholder.
 
 If Windows Smart App Control or Code Integrity blocks the repo-built WPF app,
 use:

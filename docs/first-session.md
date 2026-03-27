@@ -1,7 +1,7 @@
 ---
 title: First Session
 description: Connect Quest, install the bundled Sussex APK or another supplied APK, launch it, and verify live monitoring from the Windows app.
-summary: This is the operator-first walkthrough. Sussex operators can use the bundled pinned APK from the packaged app; other teams can still point the app at a supplied APK.
+summary: This is the operator-first walkthrough. Sussex operators can use the bundled Sussex APK from the packaged app; other teams can still point the app at a supplied APK.
 nav_label: First Session
 nav_group: Start Here
 nav_order: 20
@@ -46,20 +46,20 @@ In the app:
 - if you installed the dedicated Sussex preview, stay in `Sussex University experiment mode`
 - if you are in the full app, open the supplied study shell from `Start Here` when available
 - browse to an APK only if the study shell or supplied target did not already ship it
-- if Sussex mode is active, the bundled pinned APK should already be staged for you
+- if Sussex mode is active, the bundled Sussex APK should already be staged for you
 
 In the committed public sample catalog, that target is currently `LslTwin`.
 
 If the study team already gave you a dedicated study shell, that path pins the
 expected build and device profile for you and keeps the live monitor narrower.
-The Sussex shell now stages its bundled pinned APK automatically, and the
+The Sussex shell now stages its bundled Sussex APK automatically, and the
 dedicated Sussex package opens directly into that shell instead of the full
 operator workspace.
 
 ## 3. Install The Study Build
 
-**WPF App:** In a study shell, click **Install Pinned Build**. In the Sussex
-shell that uses the bundled pinned APK by default. In the full app, click
+**WPF App:** In a study shell, click **Install Sussex APK**. In the Sussex
+shell that uses the bundled Sussex APK by default. In the full app, click
 **Install App**.
 
 **CLI:**
@@ -90,7 +90,7 @@ click **Launch App**.
 
 Use the app to confirm:
 
-- the top status cards show Quest connected, the pinned build installed, the device profile active, and live runtime active
+- the top status cards show Quest connected, the Sussex APK installed, the device profile active, and live runtime active
 - the foreground package is the one you launched
 - the headset snapshot reports the expected model, battery, and CPU/GPU state
 - `quest_monitor` is live if the build publishes the lightweight monitor outlet
@@ -140,7 +140,7 @@ viscereality twin send twin-pause
 - the dedicated Sussex package is meant to reduce researcher mistakes by hiding the broader operator tabs
 - the bundled APK and pinned device profile should already match each other
 - the top status cards should be treated as the main pre-session checklist
-- if `Install Pinned Build` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
+- if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 
 ## Catalog Discovery
 

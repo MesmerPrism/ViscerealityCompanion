@@ -79,10 +79,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _headsetSnapshotModeSummary = "Regular ADB readouts off. Use Refresh Snapshot when you need a fresh device state.";
     private string _deviceSnapshotTimestampLabel = "No headset snapshot received yet.";
     private OperationOutcomeKind _headsetSnapshotModeLevel = OperationOutcomeKind.Success;
-    private string _pinnedBuildSummary = "Waiting for the bundled Sussex build.";
-    private string _pinnedBuildDetail = "The window will compare both the local file and the installed Quest build against the pinned Sussex hash.";
+    private string _pinnedBuildSummary = "Waiting for the bundled Sussex APK.";
+    private string _pinnedBuildDetail = "The window will compare the bundled Sussex APK and the installed Quest build against the Sussex study hash.";
     private string _localApkSummary = "Waiting for the bundled Sussex APK.";
-    private string _localApkDetail = "The Sussex shell prefers the APK bundled with the app. Browse to an equivalent pinned copy only if you need to override it on this machine.";
+    private string _localApkDetail = "The Sussex shell installs the bundled Sussex APK and checks it against the Sussex study hash.";
     private string _installedApkSummary = "Installed build has not been checked yet.";
     private string _installedApkDetail = "Refresh the study status after connecting to the headset.";
     private string _stagedApkPath;
@@ -114,7 +114,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _liveRuntimeDetail = "Once the study APK starts publishing quest_twin_state, this window will focus on the Sussex-specific signals instead of the full raw keyspace.";
     private string _lslSummary = "Waiting for LSL runtime state.";
     private string _lslDetail = "The pinned stream target and live LSL connectivity will appear here once the study runtime is active.";
-    private string _lslExpectedStreamLabel = "quest_biofeedback_in / quest.biofeedback";
+    private string _lslExpectedStreamLabel = $"{HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType}";
     private string _lslRuntimeTargetLabel = "Runtime target n/a";
     private string _lslConnectedStreamLabel = "Connected stream n/a";
     private string _lslConnectionStateLabel = "Connection counts n/a";
@@ -142,7 +142,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _proximityActionLabel = "Disable for 8h";
     private string _benchToolsSummary = "Bench tools need attention before bench checks.";
     private string _testLslSenderSummary = "Windows TEST sender off.";
-    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes direct coherence packets at a bench heartbeat cadence; each packet arrival is treated as a heartbeat in the Sussex LSL route.";
+    private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes smoothed HRV biofeedback samples on an irregular heartbeat-timed profile; Sussex treats packet arrival as heartbeat timing and the payload as the routed coherence value.";
     private string _testLslSenderValueLabel = "Not running";
     private string _testLslSenderActionLabel = "Start TEST Sender";
     private string _lastTwinStateTimestampLabel = "No live app-state timestamp yet.";
@@ -248,6 +248,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string PinnedLaunchComponent => string.IsNullOrWhiteSpace(_study.App.LaunchComponent) ? "n/a" : _study.App.LaunchComponent;
     public string PinnedAppNotes => string.IsNullOrWhiteSpace(_study.App.Notes) ? "No extra study-build notes." : _study.App.Notes;
     public string PinnedDeviceProfileLabel => _study.DeviceProfile.Label;
+    public bool CanChooseStudyApk => _study.App.AllowManualSelection;
+    public string StudyApkStepTitle => CanChooseStudyApk ? "2. Verify study APK" : "2. Verify Sussex APK";
+    public string StudyApkInstallButtonLabel => CanChooseStudyApk ? "Install Study APK" : "Install Sussex APK";
+    public string StudyApkSourceLabel => CanChooseStudyApk ? "Selected study APK" : "Bundled Sussex APK";
 
     public string EndpointDraft
     {
@@ -1054,7 +1058,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private async Task EnableWifiAsync()
     {
         var outcome = await _questService.EnableWifiFromUsbAsync().ConfigureAwait(false);
-        await HandleConnectionOutcomeAsync("Enable Wi-Fi ADB", outcome, refreshAfter: false).ConfigureAwait(false);
+        await HandleConnectionOutcomeAsync("Enable Wi-Fi ADB", outcome).ConfigureAwait(false);
     }
 
     private async Task ConnectQuestAsync()
@@ -1108,7 +1112,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() => AppendLog(
                 OperatorLogLevel.Warning,
                 "Study install blocked.",
-                "Pinned Sussex APK not available locally. Keep the bundled APK with the app or browse to an equivalent pinned copy first.")).ConfigureAwait(false);
+                CanChooseStudyApk
+                    ? "Study APK not available locally. Keep the bundled Sussex APK with the app or choose the approved Sussex APK before installing."
+                    : "Bundled Sussex APK not available locally. Restore the shipped Sussex APK before installing.")).ConfigureAwait(false);
             return;
         }
 
@@ -1117,7 +1123,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() => AppendLog(
                 OperatorLogLevel.Failure,
                 "Study install blocked.",
-                "The selected APK does not match the pinned Sussex hash. Choose the supplied study build before installing.")).ConfigureAwait(false);
+                CanChooseStudyApk
+                    ? "The selected study APK does not match the Sussex study hash. Choose the approved Sussex APK before installing."
+                    : "The bundled Sussex APK does not match the Sussex study hash. Replace it with the approved Sussex APK before installing.")).ConfigureAwait(false);
             return;
         }
 
@@ -1284,10 +1292,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var isRunning = _testLslSignalService.IsRunning;
         var actionLabel = isRunning ? "Stop TEST Sender" : "Start TEST Sender";
         var streamName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
-            ? "quest_biofeedback_in"
+            ? HrvBiofeedbackStreamContract.StreamName
             : _study.Monitoring.ExpectedLslStreamName;
         var streamType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
-            ? "quest.biofeedback"
+            ? HrvBiofeedbackStreamContract.StreamType
             : _study.Monitoring.ExpectedLslStreamType;
         var sourceId = $"viscereality.companion.study-shell.test.{_study.Id}";
 
@@ -1638,7 +1646,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 LocalApkSummary = "Waiting for the bundled Sussex APK.";
                 LocalApkDetail = string.IsNullOrWhiteSpace(stagedPath)
                     ? _study.App.Notes
-                    : $"Saved study APK path not found: {stagedPath}";
+                    : CanChooseStudyApk
+                        ? $"Saved study APK path not found: {stagedPath}"
+                        : $"Bundled Sussex APK not found: {stagedPath}";
                 OnPropertyChanged(nameof(HasValidPinnedLocalApk));
             }).ConfigureAwait(false);
             return;
@@ -1654,8 +1664,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 LocalApkHash = hash;
                 LocalApkLevel = matches ? OperationOutcomeKind.Success : OperationOutcomeKind.Failure;
                 LocalApkSummary = matches
-                    ? "Selected local file matches the pinned Sussex build."
-                    : "Selected local file does not match the pinned Sussex build.";
+                    ? CanChooseStudyApk
+                        ? "Selected study APK matches the Sussex study hash."
+                        : "Bundled Sussex APK matches the Sussex study hash."
+                    : CanChooseStudyApk
+                        ? "Selected study APK does not match the Sussex study hash."
+                        : "Bundled Sussex APK does not match the Sussex study hash.";
                 LocalApkDetail = $"Path: {stagedPath}. SHA256 {hash}. Expected {_study.App.Sha256}.";
                 OnPropertyChanged(nameof(HasValidPinnedLocalApk));
             }).ConfigureAwait(false);
@@ -1666,7 +1680,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 LocalApkHash = string.Empty;
                 LocalApkLevel = OperationOutcomeKind.Failure;
-                LocalApkSummary = "Could not verify the selected APK file.";
+                LocalApkSummary = CanChooseStudyApk
+                    ? "Could not verify the selected study APK."
+                    : "Could not verify the bundled Sussex APK.";
                 LocalApkDetail = ex.Message;
                 OnPropertyChanged(nameof(HasValidPinnedLocalApk));
             }).ConfigureAwait(false);
@@ -1883,40 +1899,44 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 HashMatches(_installedAppStatus.InstalledSha256, _study.App.Sha256))
             {
                 PinnedBuildLevel = OperationOutcomeKind.Success;
-                PinnedBuildSummary = "Pinned Sussex build is installed on the headset.";
+                PinnedBuildSummary = "Sussex APK is installed on the headset.";
             }
             else if (string.IsNullOrWhiteSpace(_installedAppStatus.InstalledSha256))
             {
                 PinnedBuildLevel = OperationOutcomeKind.Warning;
-                PinnedBuildSummary = "Sussex runtime is installed, but the headset build hash could not be verified.";
+                PinnedBuildSummary = "Sussex runtime is installed, but the headset APK hash could not be verified.";
             }
             else
             {
                 PinnedBuildLevel = OperationOutcomeKind.Warning;
-                PinnedBuildSummary = "A different LslTwin build is installed on the headset.";
+                PinnedBuildSummary = "A different Sussex APK build is installed on the headset.";
             }
         }
         else if (HashMatches(LocalApkHash, _study.App.Sha256))
         {
             PinnedBuildLevel = OperationOutcomeKind.Warning;
-            PinnedBuildSummary = "Pinned Sussex build is ready to install.";
+            PinnedBuildSummary = CanChooseStudyApk
+                ? "Approved Sussex APK is ready to install."
+                : "Bundled Sussex APK is ready to install.";
         }
         else if (!string.IsNullOrWhiteSpace(StagedApkPath) && File.Exists(StagedApkPath))
         {
             PinnedBuildLevel = OperationOutcomeKind.Failure;
-            PinnedBuildSummary = "Selected local file does not match the pinned Sussex build.";
+            PinnedBuildSummary = CanChooseStudyApk
+                ? "Selected study APK does not match the Sussex study hash."
+                : "Bundled Sussex APK does not match the Sussex study hash.";
         }
         else
         {
             PinnedBuildLevel = OperationOutcomeKind.Preview;
-            PinnedBuildSummary = "Waiting for the bundled Sussex build.";
+            PinnedBuildSummary = "Waiting for the bundled Sussex APK.";
         }
 
         var details = new List<string>
         {
-            $"Pinned package: {_study.App.PackageId}",
-            $"Pinned version: {_study.App.VersionName}",
-            $"Pinned SHA256: {_study.App.Sha256}"
+            $"Study package: {_study.App.PackageId}",
+            $"Study version: {_study.App.VersionName}",
+            $"Study SHA256: {_study.App.Sha256}"
         };
 
         if (!string.IsNullOrWhiteSpace(StagedApkPath))
@@ -2423,8 +2443,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? lslBridge.LastStateReceivedAt
             : null;
         var testSenderDetail = testSenderActive
-            ? $"Companion TEST sender is publishing direct coherence packets on {expectedName} / {expectedType} at a bench heartbeat cadence. Packet arrival is the bench heartbeat trigger, and the payload is the coherence value."
-            : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} with direct coherence payloads and packet-paced heartbeat triggers.";
+            ? $"Companion TEST sender is publishing smoothed HRV biofeedback samples on {expectedName} / {expectedType}. Samples follow the study-style irregular heartbeat rhythm, packet arrival acts as the bench heartbeat trigger, and the payload is the routed coherence value."
+            : $"Start the Windows TEST sender below to bench-check {expectedName} / {expectedType} with study-style smoothed-HRV payloads and irregular heartbeat-paced packet timing.";
         var streamName = GetFirstValue("study.lsl.filter_name") ?? GetFirstValue(_study.Monitoring.LslStreamNameKeys);
         var streamType = GetFirstValue("study.lsl.filter_type") ?? GetFirstValue(_study.Monitoring.LslStreamTypeKeys);
         var hasInputValue = TryGetObservedLslValue(out var inputValue, out var inputValueKey);
@@ -2452,8 +2472,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             $"Connected {connectedCount?.ToString() ?? (connectedFlag.HasValue ? (connectedFlag.Value ? "1" : "0") : "n/a")}, connecting {connectingCount?.ToString() ?? "n/a"}, total {totalCount?.ToString() ?? "n/a"}";
         LslBenchStateLabel = testSenderActive
             ? lastBenchSendLabel is not null
-                ? $"Windows TEST sender active. Latest local send {lastBenchSendLabel}. Bench packets arrive at heartbeat pace and carry coherence 0..1."
-                : "Windows TEST sender active. Bench packets arrive at heartbeat pace and carry coherence 0..1."
+                ? $"Windows TEST sender active. Latest local send {lastBenchSendLabel}. Bench packets follow irregular heartbeat timing and carry smoothed HRV feedback 0..1."
+                : "Windows TEST sender active. Bench packets follow irregular heartbeat timing and carry smoothed HRV feedback 0..1."
             : "Companion TEST sender off.";
         LslStatusLineLabel = string.IsNullOrWhiteSpace(statusLine)
             ? "Runtime did not publish an extra LSL status line."
@@ -2638,11 +2658,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         CoherenceSummary = value.HasValue || !string.IsNullOrWhiteSpace(rawValue)
             ? $"Coherence live value: {CoherenceValueLabel}."
             : routeMatchesExpected
-                ? "Coherence route is LSL Direct, but no live coherence value is reported yet."
+                ? "Coherence route is LSL Direct, but no live routed biofeedback value is reported yet."
                 : "Coherence route visible, but no live coherence value yet.";
         CoherenceDetail = routeMatchesExpected
             ? _testLslSignalService.IsRunning
-                ? "The runtime is reporting the expected direct-LSL coherence route. This field shows the current Quest-reported value, not the latest local TEST packet, so it can briefly lag or return to baseline between beats."
+                ? "The runtime is reporting the expected direct-LSL coherence route. This field shows the current Quest-reported routed biofeedback value, not the latest local TEST packet, so it can briefly lag or return to baseline between beats."
                 : "The runtime is reporting the expected direct-LSL coherence route."
             : "The runtime is reporting a non-study coherence route.";
     }
@@ -2986,10 +3006,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void UpdateTestLslSenderCard()
     {
         var expectedName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
-            ? "quest_biofeedback_in"
+            ? HrvBiofeedbackStreamContract.StreamName
             : _study.Monitoring.ExpectedLslStreamName;
         var expectedType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
-            ? "quest.biofeedback"
+            ? HrvBiofeedbackStreamContract.StreamType
             : _study.Monitoring.ExpectedLslStreamType;
 
         TestLslSenderActionLabel = _testLslSignalService.IsRunning ? "Stop TEST Sender" : "Start TEST Sender";
@@ -3000,9 +3020,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             TestLslSenderSummary = "Windows TEST sender active.";
             TestLslSenderValueLabel = _testLslSignalService.LastSentAtUtc.HasValue
                 ? $"Latest local send {_testLslSignalService.LastValue:0.000} at {_testLslSignalService.LastSentAtUtc.Value.ToLocalTime():HH:mm:ss}."
-                : "Starting local direct-coherence stream...";
+                : "Starting local smoothed-HRV stream...";
             TestLslSenderDetail =
-                $"Direct coherence packets are publishing locally on {expectedName} / {expectedType} at a bench heartbeat cadence. The study shell also requests Heartbeat Mode = LSL and Coherence Mode = LSL Direct while this bench sender is active.";
+                $"Smoothed HRV biofeedback samples are publishing locally on {expectedName} / {expectedType} with irregular beat-timed spacing and a {HrvBiofeedbackStreamContract.FeedbackDispatchDelayMs} ms post-beat dispatch profile. The study shell also requests Heartbeat Mode = LSL and Coherence Mode = LSL Direct while this bench sender is active.";
             return;
         }
 
@@ -3028,7 +3048,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         TestLslSenderSummary = "Windows TEST sender off.";
         TestLslSenderValueLabel = "Not running";
         TestLslSenderDetail =
-            $"Start the Windows TEST sender to publish direct coherence packets on {expectedName} / {expectedType}. This is bench-only traffic; packet arrival acts as heartbeat and the payload is the current coherence value.";
+            $"Start the Windows TEST sender to publish smoothed HRV biofeedback samples on {expectedName} / {expectedType}. This is bench-only traffic; packet arrival acts as heartbeat timing and the payload is the routed coherence value.";
     }
 
     private void RefreshFocusRows(bool forceRebuild = false)
@@ -3209,7 +3229,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 sourceKey,
                 value.ToString("0.000", CultureInfo.InvariantCulture),
                 string.Empty,
-                "Latest direct coherence value echoed by quest_twin_state when public signal mirroring is available.",
+                "Latest routed HRV biofeedback value echoed by quest_twin_state when public signal mirroring is available.",
                 OperationOutcomeKind.Success);
         }
 
@@ -3218,7 +3238,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             configuredKey,
             "Not echoed by current public build",
             string.Empty,
-            "The Sussex runtime confirms inlet connectivity here, but the current public twin-state frame only echoes the routed direct coherence value when signal mirroring is enabled.",
+            "The Sussex runtime confirms inlet connectivity here, but the current public twin-state frame only echoes the routed biofeedback value when signal mirroring is enabled.",
             OperationOutcomeKind.Preview);
     }
 
@@ -3420,6 +3440,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrWhiteSpace(_study.App.ApkPath) && File.Exists(_study.App.ApkPath))
         {
             return Path.GetFullPath(_study.App.ApkPath);
+        }
+
+        if (!_study.App.AllowManualSelection)
+        {
+            return string.Empty;
         }
 
         var savedPath = _studySessionState.GetApkPath(_study.Id);

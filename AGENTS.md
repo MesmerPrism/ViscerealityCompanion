@@ -34,9 +34,10 @@ cross-project patterns, or central-bureau maintenance, use
   University experiment mode` tab and header, because that is the current
   operator-facing surface.
 - The Sussex verification harness brings up a local float LSL sender on
-  `quest_biofeedback_in / quest.biofeedback` and publishes direct `0..1`
-  coherence packets at a bench heartbeat cadence. Each packet arrival is the
-  heartbeat event, and the packet value itself is the current coherence.
+  `HRV_Biofeedback / HRV` and publishes smoothed `0..1` HRV biofeedback
+  packets on an irregular heartbeat-timed cadence. Each packet arrival is the
+  heartbeat event, and the packet value itself is the routed coherence /
+  biofeedback value.
 - The current public Sussex telemetry only confirms that path through
   `study.lsl.connected_*` and `study.lsl.status`, and some builds may also echo
   the normalized `0..1` value on `signal01.coherence_lsl` or a

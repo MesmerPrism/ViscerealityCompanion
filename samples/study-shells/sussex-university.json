@@ -2,15 +2,16 @@
   "id": "sussex-university",
   "label": "Sussex University",
   "partner": "University of Sussex",
-  "description": "Simplified operator window for the Sussex controller-breathing study. The shell pins a single LslTwin build, one Quest device profile, and the live monitoring fields the experimenter needs during a session.",
+  "description": "Simplified operator window for the Sussex controller-breathing study. The shell stages a dedicated Sussex Quest APK, one Quest device profile, and the live monitoring fields the experimenter needs during a session.",
   "app": {
-    "label": "Sussex LslTwin Build",
+    "label": "Sussex Controller Study APK",
     "packageId": "com.Viscereality.LslTwin",
-    "apkPath": "../quest-session-kit/APKs/LslTwin.apk",
+    "apkPath": "../quest-session-kit/APKs/SussexControllerStudy.apk",
     "launchComponent": "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
-    "sha256": "1E2344DA34CBF22BA45BE129C7F7B0B45ED6B321154D0120889543B99D1D81C2",
+    "sha256": "1155F28643901543ACEE8DED52E84DD8CEF5C3FCF07B65DAF4181B5B5A4CE8A1",
     "versionName": "0.1.0",
-    "notes": "The Sussex shell ships with a bundled pinned APK. The operator shell keeps checking the bundled or manually selected local file hash and the installed headset hash against this pinned build."
+    "notes": "The Sussex shell ships with a bundled Sussex APK. The operator shell keeps checking the bundled APK hash and the installed headset hash against the approved Sussex study build.",
+    "allowManualSelection": false
   },
   "deviceProfile": {
     "id": "sussex-study-profile",
@@ -27,8 +28,8 @@
     "expectedBreathingLabel": "Controller Volume",
     "expectedHeartbeatLabel": "LSL Heartbeat",
     "expectedCoherenceLabel": "LSL Direct",
-    "expectedLslStreamName": "quest_biofeedback_in",
-    "expectedLslStreamType": "quest.biofeedback",
+    "expectedLslStreamName": "HRV_Biofeedback",
+    "expectedLslStreamType": "HRV",
     "recenterDistanceThresholdUnits": 0.2,
     "lslConnectivityKeys": [
       "study.lsl.connected",

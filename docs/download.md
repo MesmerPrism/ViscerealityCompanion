@@ -29,7 +29,7 @@ and immediate access to the bundled Sussex APK inside the app payload.
 
 - the Windows operator app
 - the dedicated `Sussex University experiment mode` shell
-- the pinned Sussex APK used by the public Sussex study workflow
+- the bundled Sussex APK used by the public Sussex study workflow
 - the pinned Quest device profile and study-specific monitoring surface
 - the install assets needed to put the Windows app on another machine
 
@@ -53,7 +53,7 @@ expecting the companion to install or launch anything.
 2. Accept the admin prompt so the helper can trust the preview certificate and open App Installer.
 3. Finish the Windows install and launch `Viscereality Companion` from the Start menu.
 4. Plug the Quest in once over USB, approve the USB debugging prompt in-headset, then use **Probe USB** and **Enable Wi-Fi ADB** if you want the session on Wi-Fi.
-5. Stay in `Sussex University experiment mode`, confirm the bundled pinned APK, and click **Install Pinned Build**.
+5. Stay in `Sussex University experiment mode`, confirm the bundled Sussex APK, and click **Install Sussex APK**.
 6. Click **Apply Study Device Profile**, then **Launch Study Runtime**.
 
 If you see the full app instead of Sussex mode, you are probably running an

@@ -19,7 +19,7 @@ Many sessions do not need the full `Quest Library`, `Runtime Config`, or raw
 `Twin Monitor` surfaces during the run itself. A study shell trims the operator
 view down to:
 
-- one pinned APK identity
+- one approved APK identity
 - one pinned Quest device profile
 - the live signals the experimenter actually needs to watch
 - only the trigger buttons the study protocol allows
@@ -68,33 +68,33 @@ It currently pins:
 
 - package id: `com.Viscereality.LslTwin`
 - version: `0.1.0`
-- SHA256: `1E2344DA34CBF22BA45BE129C7F7B0B45ED6B321154D0120889543B99D1D81C2`
-- bundled APK path: `../quest-session-kit/APKs/LslTwin.apk`
+- SHA256: `1155F28643901543ACEE8DED52E84DD8CEF5C3FCF07B65DAF4181B5B5A4CE8A1`
+- bundled APK path: `../quest-session-kit/APKs/SussexControllerStudy.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
-- expected LSL input target: `quest_biofeedback_in / quest.biofeedback`
+- expected LSL input target: `HRV_Biofeedback / HRV`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
 
 ## Self-Contained Sussex Package
 
 The public Sussex preview is supposed to be self-contained:
 
-- the packaged Windows install already includes the pinned Sussex APK
-- the study shell already knows the pinned hash and device profile
+- the packaged Windows install already includes the bundled Sussex APK
+- the study shell already knows the approved hash and device profile
 - the operator should not need a separate Astral checkout or a second APK handoff
 
-The committed `samples/quest-session-kit/APKs/LslTwin.apk` is intentionally the
+The committed `samples/quest-session-kit/APKs/SussexControllerStudy.apk` is intentionally the
 same Sussex APK mirrored from the Astral build used for the study. It is stored
 through Git LFS in the source repo, but the packaged Windows install exposes
 the real file directly to the app at runtime.
 
 The embedded Sussex workspace checks:
 
-- whether the bundled or manually staged APK matches the pinned study hash
+- whether the bundled APK matches the approved study hash
 - whether the same build is already installed on the headset
 - whether the pinned Quest device profile is currently active
 - live LSL target, connected stream, and inlet status from `quest_twin_state`
 
-- direct `0..1` inbound coherence when the runtime publicly echoes it
+- routed `0..1` inbound HRV biofeedback when the runtime publicly echoes it
 - controller breathing, heartbeat, and coherence values from the study runtime
 - camera drift from the last recenter anchor
 - particle visibility and whether rendering is suppressed by the operator or HUD
@@ -102,17 +102,16 @@ The embedded Sussex workspace checks:
 
 The active Sussex shell is organized into three operator views:
 
-- `Pre-session` for connection, pinned-build verification, and device-profile setup
+- `Pre-session` for connection, Sussex APK verification, and device-profile setup
 - `During session` for the live monitoring and command surface
-- `Inspect` for detailed pinned-runtime settings, focused live values, and recent twin events
+- `Inspect` for detailed study-runtime settings, focused live values, and recent twin events
 
 The current public shell can also send the study recenter command and the
 dedicated particle visibility on/off commands.
 
-The Sussex shell now prefers the bundled APK path from the app payload on
+The Sussex shell now uses the bundled APK path from the app payload on
 startup, so packaged Windows installs do not depend on a machine-local Astral
-workspace just to find the pinned build. Manual APK browsing is still available
-as an override when you need to verify another file with the same pinned hash.
+workspace just to find the Sussex APK.
 
 ## Sussex Verification Harness
 
@@ -125,9 +124,9 @@ That harness:
 
 - opens the main WPF app
 - activates `Sussex University experiment mode`
-- starts a local float LSL sender on `quest_biofeedback_in / quest.biofeedback`
-- publishes direct `0..1` coherence packets from this Windows machine at a bench heartbeat cadence
-- installs, launches, and profiles the pinned Sussex APK
+- starts a local float LSL sender on `HRV_Biofeedback / HRV`
+- publishes smoothed `0..1` HRV biofeedback packets from this Windows machine on an irregular heartbeat-timed cadence
+- installs, launches, and profiles the bundled Sussex APK
 - captures screenshots plus a text report
 
 At the moment, the public study telemetry confirms full sender -> headset inlet

@@ -1,3 +1,4 @@
+using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Core.Tests;
@@ -20,6 +21,7 @@ public sealed class StudyShellCatalogLoaderTests
             var study = Assert.Single(catalog.Studies);
             Assert.Equal("sussex-university", study.Id);
             Assert.Equal("com.Viscereality.LslTwin", study.App.PackageId);
+            Assert.False(study.App.AllowManualSelection);
             Assert.Equal("2", study.Controls.RecenterCommandActionId);
             Assert.Contains("debug.oculus.gpuLevel", study.DeviceProfile.Properties.Keys);
             Assert.Contains("connection.lsl.connected_count", study.Monitoring.LslConnectivityKeys);
@@ -82,13 +84,14 @@ public sealed class StudyShellCatalogLoaderTests
               "partner": "University of Sussex",
               "description": "Controller breathing study shell.",
               "app": {
-                "label": "Sussex LslTwin Build",
+                "label": "Sussex Controller Study APK",
                 "packageId": "com.Viscereality.LslTwin",
                 "apkPath": "{{(withRelativeApkPath ? "payload/Sussex.apk" : "")}}",
                 "launchComponent": "",
                 "sha256": "ABC123",
                 "versionName": "0.1.0",
-                "notes": "Pinned build."
+                "notes": "Bundled Sussex APK.",
+                "allowManualSelection": false
               },
               "deviceProfile": {
                 "id": "sussex-study-profile",
@@ -103,8 +106,8 @@ public sealed class StudyShellCatalogLoaderTests
                 "expectedBreathingLabel": "",
                 "expectedHeartbeatLabel": "",
                 "expectedCoherenceLabel": "",
-                "expectedLslStreamName": "quest_biofeedback_in",
-                "expectedLslStreamType": "quest.biofeedback",
+                "expectedLslStreamName": "{{HrvBiofeedbackStreamContract.StreamName}}",
+                "expectedLslStreamType": "{{HrvBiofeedbackStreamContract.StreamType}}",
                 "recenterDistanceThresholdUnits": 0.2,
                 "lslConnectivityKeys": ["connection.lsl.connected_count"],
                 "lslStreamNameKeys": ["showcase_lsl_in_stream_name"],

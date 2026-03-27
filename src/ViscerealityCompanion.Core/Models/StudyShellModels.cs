@@ -45,7 +45,8 @@ public sealed record StudyPinnedApp(
     string LaunchComponent,
     string Sha256,
     string VersionName,
-    string Notes);
+    string Notes,
+    bool AllowManualSelection);
 
 public sealed record StudyPinnedDeviceProfile(
     string Id,
