@@ -14,6 +14,13 @@ study team already gave you a dedicated study shell such as Sussex, use that
 surface first. The current Sussex package now opens there automatically on
 launch. Otherwise use `Start Here`.
 
+## Before You Touch The App
+
+- make sure the Quest is in **developer mode**
+- have one USB cable available for the first ADB trust step
+- put the Windows machine and Quest on the same Wi-Fi network if you plan to use Wi-Fi ADB
+- if this is Sussex, prefer the packaged preview install because it already bundles the pinned APK and opens directly into the Sussex shell
+
 ## 1. Connect Your Quest
 
 Plug the Quest into your Windows machine via USB cable, then:
@@ -32,18 +39,14 @@ viscereality connect 192.168.43.1:5555
 The first time you do this on a machine, approve the USB debugging prompt in
 the headset.
 
-## 2. Open The Right Operator Surface
+## 2. Use The Right Operator Surface
 
 In the app:
 
-- open the supplied study shell from `Start Here` if one is available
-- otherwise stay in `Start Here` or move to `Quest Library`
-- run `Refresh Device Snapshot` first if you want the app to adopt a known
-  foreground target automatically
-- if Quest Home or another non-catalog app is foreground, select the supplied
-  target manually
-- confirm the bundle, runtime preset, and device profile
-- browse to the APK file only if the target or study shell did not already ship it
+- if you installed the dedicated Sussex preview, stay in `Sussex University experiment mode`
+- if you are in the full app, open the supplied study shell from `Start Here` when available
+- browse to an APK only if the study shell or supplied target did not already ship it
+- if Sussex mode is active, the bundled pinned APK should already be staged for you
 
 In the committed public sample catalog, that target is currently `LslTwin`.
 
@@ -64,6 +67,9 @@ shell that uses the bundled pinned APK by default. In the full app, click
 ```powershell
 viscereality install path/to/viscereality.apk
 ```
+
+If you are using the packaged Sussex preview, you should not need to browse for
+another APK at this step.
 
 ## 4. Apply The Study Device Profile
 
@@ -128,6 +134,13 @@ Before the participant starts, a good operator state is:
 ```powershell
 viscereality twin send twin-pause
 ```
+
+## Sussex-Specific Operator Notes
+
+- the dedicated Sussex package is meant to reduce researcher mistakes by hiding the broader operator tabs
+- the bundled APK and pinned device profile should already match each other
+- the top status cards should be treated as the main pre-session checklist
+- if `Install Pinned Build` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 
 ## Catalog Discovery
 

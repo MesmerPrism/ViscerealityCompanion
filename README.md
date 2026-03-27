@@ -68,10 +68,15 @@ For local development:
 ```powershell
 git clone <repo-url> ViscerealityCompanion
 cd ViscerealityCompanion
+git lfs install
+git lfs pull
 dotnet build ViscerealityCompanion.sln
 dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
 ```
+
+`git lfs pull` matters here because the committed `samples/quest-session-kit/APKs/LslTwin.apk`
+is the real Sussex-pinned APK bundled into the public package, not a placeholder.
 
 If Windows Smart App Control or Code Integrity blocks the repo-built WPF app,
 use:

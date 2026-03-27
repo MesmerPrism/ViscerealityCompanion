@@ -19,3 +19,7 @@ The committed `APKs/LslTwin.apk` currently mirrors the pinned Sussex
 controller-breathing build. That keeps the packaged Windows install and the
 Sussex study shell self-contained: the app bundle already has the APK it needs
 for `Install Pinned Build`.
+
+That APK now lives in Git LFS. If you clone the repo for development or local
+packaging, run `git lfs pull` before expecting the real APK bytes to be
+available under `APKs/LslTwin.apk`.

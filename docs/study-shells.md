@@ -61,6 +61,9 @@ The committed public Sussex package now uses the dedicated mode above:
 - startup study: `sussex-university`
 - startup lock: `true`
 
+That means the public Sussex preview is intended to behave like a dedicated
+researcher-facing operator surface, not like the broader multi-study app.
+
 It currently pins:
 
 - package id: `com.Viscereality.LslTwin`
@@ -70,6 +73,19 @@ It currently pins:
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `quest_biofeedback_in / quest.biofeedback`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
+
+## Self-Contained Sussex Package
+
+The public Sussex preview is supposed to be self-contained:
+
+- the packaged Windows install already includes the pinned Sussex APK
+- the study shell already knows the pinned hash and device profile
+- the operator should not need a separate Astral checkout or a second APK handoff
+
+The committed `samples/quest-session-kit/APKs/LslTwin.apk` is intentionally the
+same Sussex APK mirrored from the Astral build used for the study. It is stored
+through Git LFS in the source repo, but the packaged Windows install exposes
+the real file directly to the app at runtime.
 
 The embedded Sussex workspace checks:
 

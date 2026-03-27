@@ -16,10 +16,25 @@ watch live state, and keep session control on the operator side.
 
 <div class="action-row">
   <a class="button primary" href="download.md">Install The App</a>
-  <a class="button" href="first-session.md">Run A First Session</a>
-  <a class="button" href="study-shells.md">Open A Study Shell</a>
-  <a class="button" href="monitoring-and-control.md">Monitoring And Control</a>
+  <a class="button" href="first-session.md">Run A Sussex Session</a>
+  <a class="button" href="study-shells.md">Study Shells</a>
+  <a class="button" href="troubleshooting.md">Troubleshooting</a>
 </div>
+
+## If You Are Here For Sussex
+
+- use the packaged Windows preview unless you are actively changing the repo
+- the dedicated Sussex package already includes the pinned Sussex APK
+- the app opens directly into `Sussex University experiment mode`
+- the operator only needs Windows, a Quest in developer mode, one USB cable, and a shared Wi-Fi network for Wi-Fi ADB
+
+## What The Public Sussex Package Already Includes
+
+- the WPF operator app
+- the dedicated Sussex study shell with startup lock enabled
+- the pinned Sussex APK mirrored from the Astral build used for the study
+- the pinned Quest device profile and study-specific monitoring surface
+- the release assets needed to install the whole setup on another machine
 
 ## Use This Repo When You Need To
 
@@ -43,11 +58,15 @@ Use these three pages in order:
 <div class="card-grid">
   <a class="path-card" href="download.md">
     <h3>Install The Launcher</h3>
-    <p>Preferred path for operators. Use the packaged desktop app when a preview release is available.</p>
+    <p>Preferred path for operators. The Sussex preview already bundles the pinned APK and opens in the dedicated study shell.</p>
   </a>
   <a class="path-card" href="first-session.md">
-    <h3>First Session</h3>
-    <p>Connect Quest, install the bundled Sussex APK or another supplied study APK, launch it, and verify live monitoring in one pass.</p>
+    <h3>First Sussex Session</h3>
+    <p>Connect Quest, approve USB debugging, install the pinned build, switch to Wi-Fi ADB, and launch Sussex in one pass.</p>
+  </a>
+  <a class="path-card" href="study-shells.md">
+    <h3>Dedicated Study Shell</h3>
+    <p>Understand what the Sussex package pins, hides, and bundles so researchers stay on the safe operator path.</p>
   </a>
   <a class="path-card" href="runtime-config.md">
     <h3>Runtime Config</h3>
@@ -55,7 +74,7 @@ Use these three pages in order:
   </a>
   <a class="path-card" href="getting-started.md">
     <h3>Build From Source</h3>
-    <p>Use this only if you are validating or changing the repo itself.</p>
+    <p>Use this only if you are validating or changing the repo itself, and remember to pull the Git LFS APK mirror.</p>
   </a>
 </div>
 

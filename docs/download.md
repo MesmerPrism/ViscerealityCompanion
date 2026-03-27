@@ -25,25 +25,39 @@ and immediate access to the bundled Sussex APK inside the app payload.
   <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases">Open releases</a>
 </div>
 
-## Fast path
+## What The Sussex Preview Already Includes
 
-1. Download `ViscerealityCompanion-Preview-Setup.exe` from the latest release.
-2. Accept the Windows admin prompt so the helper can trust the published preview certificate.
-3. Let the helper open `ViscerealityCompanion.appinstaller` in App Installer.
-4. Finish the install and launch Viscereality Companion from the Start menu.
-5. Open the Sussex study shell if that is your experiment. The packaged app already includes the pinned Sussex APK under `samples/quest-session-kit/APKs/LslTwin.apk`.
+- the Windows operator app
+- the dedicated `Sussex University experiment mode` shell
+- the pinned Sussex APK used by the public Sussex study workflow
+- the pinned Quest device profile and study-specific monitoring surface
+- the install assets needed to put the Windows app on another machine
 
-## What ships in the preview install
+Sussex operators should not need a separate APK download if they are using the
+packaged preview install.
 
-The packaged Windows install now includes:
+## Before You Start
 
-- the WPF operator app
-- the sample Quest session kit
-- the public study-shell catalog
-- the bundled pinned Sussex APK used by `Sussex University experiment mode`
+- Windows 10 or later
+- a Quest headset with **developer mode enabled**
+- one USB cable for the first ADB trust step
+- the Windows machine and Quest on the same Wi-Fi network if you want Wi-Fi ADB
+- local admin approval for the preview certificate trust step
 
-That means Sussex operators do not need a second manual APK handoff just to use
-`Install Pinned Build`.
+If developer mode is not already enabled on the headset, fix that before
+expecting the companion to install or launch anything.
+
+## Fast Path
+
+1. Download `ViscerealityCompanion-Preview-Setup.exe`.
+2. Accept the admin prompt so the helper can trust the preview certificate and open App Installer.
+3. Finish the Windows install and launch `Viscereality Companion` from the Start menu.
+4. Plug the Quest in once over USB, approve the USB debugging prompt in-headset, then use **Probe USB** and **Enable Wi-Fi ADB** if you want the session on Wi-Fi.
+5. Stay in `Sussex University experiment mode`, confirm the bundled pinned APK, and click **Install Pinned Build**.
+6. Click **Apply Study Device Profile**, then **Launch Study Runtime**.
+
+If you see the full app instead of Sussex mode, you are probably running an
+older build or a repo-local source build instead of the packaged Sussex preview.
 
 ## Manual fallback
 
@@ -60,6 +74,10 @@ certificate yourself.
 Until the project uses a certificate from a publicly trusted CA, Windows needs
 that trust step before App Installer will accept the research preview package.
 
+If the browser refuses the `ms-appinstaller:` link, download
+`ViscerealityCompanion.appinstaller` and open it from disk after trusting
+`ViscerealityCompanion.cer`.
+
 ## Release assets
 
 Tagged preview releases are set up to publish:
@@ -75,6 +93,36 @@ Tagged preview releases are set up to publish:
 Use the portable zip only if you need a no-installer build for a controlled lab
 machine. Use the source-build path only when you are validating or changing the
 repo itself.
+
+## Common First-Run Problems
+
+<div class="card-grid">
+  <a class="path-card" href="first-session.md">
+    <h3>Windows app installed, but Quest install or launch does nothing</h3>
+    <p>Check Quest developer mode, USB debugging approval, and the first-session ADB path before assuming the APK is wrong.</p>
+  </a>
+  <a class="path-card" href="study-shells.md">
+    <h3>Sussex mode is missing or the full app opened instead</h3>
+    <p>The dedicated Sussex package should start in the locked Sussex shell. If it does not, you are probably on an older build.</p>
+  </a>
+  <a class="path-card" href="troubleshooting.md">
+    <h3>The app installed, but Quest connection still fails</h3>
+    <p>Move straight to the troubleshooting guide for USB trust, Wi-Fi ADB, and headset-state issues.</p>
+  </a>
+  <a class="path-card" href="getting-started.md">
+    <h3>No preview release yet</h3>
+    <p>Use the source-build path only when the packaged preview is missing or you need to change the repo.</p>
+  </a>
+</div>
+
+## What You Do Not Need Separately
+
+For the packaged Sussex preview you do not need:
+
+- a local AstralKarateDojo checkout
+- a second Sussex APK handoff by email or USB stick
+- a separate device-profile file
+- the full operator workspace if the Sussex study shell is the intended surface
 
 ## If no public release exists yet
 

@@ -16,6 +16,7 @@ If you are not changing code and a public preview release exists, use
 
 - Windows 10 or later
 - .NET SDK 10.0 or later
+- Git LFS if you want the committed Sussex APK mirror instead of only the pointer file
 - Android platform-tools with `adb` on `PATH` if you want live Quest install and launch
 - Node.js 24 or later if you want to build the docs site
 
@@ -24,6 +25,8 @@ If you are not changing code and a public preview release exists, use
 ```powershell
 git clone <repo-url> ViscerealityCompanion
 cd ViscerealityCompanion
+git lfs install
+git lfs pull
 dotnet build ViscerealityCompanion.sln
 dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
@@ -54,6 +57,9 @@ The repo-local session-kit sample is now the preferred default source. It
 currently contains one public Quest target, `LslTwin`, plus one scene-matched
 runtime baseline. That keeps older internal APK and profile variants out of the
 public operator shell unless you explicitly point it at another catalog root.
+The committed `samples/quest-session-kit/APKs/LslTwin.apk` is the same
+Sussex-pinned APK used by the packaged study shell, so run `git lfs pull`
+before assuming the repo copy is present locally.
 
 If `adb` is available, the Windows shell will use it automatically for:
 

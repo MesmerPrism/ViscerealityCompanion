@@ -108,7 +108,7 @@ function renderPage(page, pages) {
         homePage,
         downloadPage,
         firstSessionPage,
-        gettingStartedPage
+        studyShellsPage
     ]
         .filter(Boolean)
         .map(candidate => {
@@ -160,9 +160,9 @@ function renderPage(page, pages) {
       <aside class="hero-aside panel">
         <h2>New here?</h2>
         <ol class="quick-steps">
-          <li>Install the Windows app or launcher you were given.</li>
-          <li>Connect the Quest, then open <strong>Start Here</strong> or the study shell your team uses.</li>
-          <li>Install the bundled Sussex APK or another supplied study APK, launch it, and keep status monitoring on Windows.</li>
+          <li>Install the Windows preview package or guided setup helper.</li>
+          <li>Make sure the Quest is in developer mode, then approve USB debugging once on that headset.</li>
+          <li>The Sussex package already includes the pinned APK, device profile, and study shell, so you can connect Quest and run the session from Windows without a separate APK handoff.</li>
         </ol>
         <div class="aside-links">${onboardingLinks}</div>
         <p class="aside-note">This repo is the public Windows operator surface. The Unity runtime and study APK development stay in AstralKarateDojo.</p>
