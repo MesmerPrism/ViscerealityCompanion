@@ -19,7 +19,7 @@ launch. Otherwise use `Start Here`.
 - make sure the Quest is in **developer mode**
 - have one USB cable available for the first ADB trust step
 - put the Windows machine and Quest on the same Wi-Fi network if you plan to use Wi-Fi ADB
-- if this is Sussex, prefer the packaged preview install because it already bundles the pinned APK and opens directly into the Sussex shell
+- if this is Sussex, prefer the packaged preview install because it already bundles the Sussex APK and opens directly into the Sussex shell
 
 ## 1. Connect Your Quest
 

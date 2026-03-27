@@ -58,7 +58,7 @@ Use these three pages in order:
 <div class="card-grid">
   <a class="path-card" href="download.md">
     <h3>Install The Launcher</h3>
-    <p>Preferred path for operators. The Sussex preview already bundles the pinned APK and opens in the dedicated study shell.</p>
+    <p>Preferred path for operators. The Sussex preview already bundles the Sussex APK and opens in the dedicated study shell.</p>
   </a>
   <a class="path-card" href="first-session.md">
     <h3>First Sussex Session</h3>

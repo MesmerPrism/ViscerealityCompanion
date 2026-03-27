@@ -1,7 +1,7 @@
 ---
 title: Study Shells
 description: Reusable simplified operator modes for specific studies such as the Sussex University controller-breathing session.
-summary: Study shells can either live inside the full operator app or, when the manifest requests it, open directly into a pinned study workspace and hide the broader operator surfaces.
+summary: Study shells can either live inside the full operator app or, when the manifest requests it, open directly into an approved study workspace and hide the broader operator surfaces.
 nav_label: Study Shells
 nav_group: Operator Guides
 nav_order: 35
@@ -20,7 +20,7 @@ Many sessions do not need the full `Quest Library`, `Runtime Config`, or raw
 view down to:
 
 - one approved APK identity
-- one pinned Quest device profile
+- one dedicated Quest device profile
 - the live signals the experimenter actually needs to watch
 - only the trigger buttons the study protocol allows
 
@@ -149,7 +149,7 @@ That means new simplified study windows are primarily a data/config task:
 
 - add a JSON definition
 - optionally choose a startup study and whether that package should lock to it
-- point it at the pinned package, hash, and device profile
+- point it at the study package, hash, and device profile
 - list the live keys and study commands to expose
 - reopen the app and launch the shell from `Start Here`
 
