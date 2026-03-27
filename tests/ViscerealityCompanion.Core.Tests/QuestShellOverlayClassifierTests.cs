@@ -57,6 +57,19 @@ public sealed class QuestShellOverlayClassifierTests
     }
 
     [Fact]
+    public void TryClassify_VrShellFocusPlaceholder_IsOverlayWarning()
+    {
+        var result = QuestShellOverlayClassifier.TryClassify(
+            "com.oculus.vrshell",
+            "com.oculus.vrshell/.FocusPlaceholderActivity");
+
+        Assert.NotNull(result);
+        Assert.Equal("Meta shell placeholder active", result!.Label);
+        Assert.True(result.IsOverlay);
+        Assert.Equal(OperationOutcomeKind.Warning, result.Level);
+    }
+
+    [Fact]
     public void TryClassify_VrShellHome_IsNotOverlay()
     {
         var result = QuestShellOverlayClassifier.TryClassify(

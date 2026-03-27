@@ -2,7 +2,23 @@ namespace ViscerealityCompanion.Core.Models;
 
 public sealed record StudyShellCatalog(
     StudyShellSource Source,
-    IReadOnlyList<StudyShellDefinition> Studies);
+    IReadOnlyList<StudyShellDefinition> Studies,
+    StudyShellLaunchOptions LaunchOptions)
+{
+    public StudyShellCatalog(
+        StudyShellSource Source,
+        IReadOnlyList<StudyShellDefinition> Studies)
+        : this(Source, Studies, new StudyShellLaunchOptions(string.Empty, false))
+    {
+    }
+}
+
+public sealed record StudyShellLaunchOptions(
+    string StartupStudyId,
+    bool LockToStartupStudy)
+{
+    public bool HasStartupStudy => !string.IsNullOrWhiteSpace(StartupStudyId);
+}
 
 public sealed record StudyShellSource(string Label, string RootPath)
 {

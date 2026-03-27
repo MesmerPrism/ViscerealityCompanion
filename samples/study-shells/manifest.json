@@ -1,5 +1,7 @@
 {
   "label": "Public study shells",
+  "startupStudyId": "sussex-university",
+  "lockToStartupStudy": true,
   "studies": [
     {
       "file": "sussex-university.json"

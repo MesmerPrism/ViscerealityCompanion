@@ -1,7 +1,7 @@
 ---
 title: First Session
-description: Connect Quest, install the supplied APK, launch it, and verify live monitoring from the Windows app.
-summary: This is the operator-first walkthrough. It assumes the research team already gave you the APK and the app target to use.
+description: Connect Quest, install the bundled Sussex APK or another supplied APK, launch it, and verify live monitoring from the Windows app.
+summary: This is the operator-first walkthrough. Sussex operators can use the bundled pinned APK from the packaged app; other teams can still point the app at a supplied APK.
 nav_label: First Session
 nav_group: Start Here
 nav_order: 20
@@ -11,7 +11,8 @@ nav_order: 20
 
 This guide walks through the clean operator path in the desktop app. If your
 study team already gave you a dedicated study shell such as Sussex, use that
-surface first. Otherwise use `Start Here`.
+surface first. The current Sussex package now opens there automatically on
+launch. Otherwise use `Start Here`.
 
 ## 1. Connect Your Quest
 
@@ -42,17 +43,21 @@ In the app:
 - if Quest Home or another non-catalog app is foreground, select the supplied
   target manually
 - confirm the bundle, runtime preset, and device profile
-- browse to the APK file if it is not already staged in the catalog
+- browse to the APK file only if the target or study shell did not already ship it
 
 In the committed public sample catalog, that target is currently `LslTwin`.
 
 If the study team already gave you a dedicated study shell, that path pins the
 expected build and device profile for you and keeps the live monitor narrower.
+The Sussex shell now stages its bundled pinned APK automatically, and the
+dedicated Sussex package opens directly into that shell instead of the full
+operator workspace.
 
 ## 3. Install The Study Build
 
-**WPF App:** In a study shell, click **Install Pinned Build**. In the full app,
-click **Install App**.
+**WPF App:** In a study shell, click **Install Pinned Build**. In the Sussex
+shell that uses the bundled pinned APK by default. In the full app, click
+**Install App**.
 
 **CLI:**
 

@@ -162,7 +162,7 @@ function renderPage(page, pages) {
         <ol class="quick-steps">
           <li>Install the Windows app or launcher you were given.</li>
           <li>Connect the Quest, then open <strong>Start Here</strong> or the study shell your team uses.</li>
-          <li>Install the supplied APK, launch it, and keep status monitoring on Windows.</li>
+          <li>Install the bundled Sussex APK or another supplied study APK, launch it, and keep status monitoring on Windows.</li>
         </ol>
         <div class="aside-links">${onboardingLinks}</div>
         <p class="aside-note">This repo is the public Windows operator surface. The Unity runtime and study APK development stay in AstralKarateDojo.</p>

@@ -10,6 +10,7 @@ param(
     [string]$RuntimeIdentifier = 'win-x64',
     [string]$OutputRelativePath = 'artifacts\publish\ViscerealityCompanion.App',
     [switch]$Refresh,
+    [switch]$SkipLauncherRefresh,
     [switch]$Wait
 )
 
@@ -67,7 +68,16 @@ if ($needsPublish) {
     & $publishScript `
         -Configuration $Configuration `
         -RuntimeIdentifier $RuntimeIdentifier `
-        -OutputRelativePath $OutputRelativePath | Out-Null
+        -OutputRelativePath $OutputRelativePath `
+        -RefreshLaunchers:(-not $SkipLauncherRefresh) | Out-Null
+}
+elseif (-not $SkipLauncherRefresh) {
+    $refreshLauncherScript = Join-Path $PSScriptRoot 'Refresh-Desktop-Launcher.ps1'
+    if (-not (Test-Path $refreshLauncherScript)) {
+        throw "Launcher refresh script not found at $refreshLauncherScript"
+    }
+
+    & $refreshLauncherScript | Out-Null
 }
 
 if (-not (Test-Path $exePath)) {

@@ -1,7 +1,7 @@
 ---
 title: Study Shells
 description: Reusable simplified operator modes for specific studies such as the Sussex University controller-breathing session.
-summary: Study shells keep the full operator app available, but let the first tab switch into a pinned study workspace with one build, one device profile, and only the live metrics that a specific experimenter needs.
+summary: Study shells can either live inside the full operator app or, when the manifest requests it, open directly into a pinned study workspace and hide the broader operator surfaces.
 nav_label: Study Shells
 nav_group: Operator Guides
 nav_order: 35
@@ -11,7 +11,7 @@ nav_order: 35
 
 The main app now supports dedicated study shells: focused operator modes that
 sit inside the same public operator window without requiring a separate app
-build.
+codebase.
 
 ## Why They Exist
 
@@ -24,29 +24,56 @@ view down to:
 - the live signals the experimenter actually needs to watch
 - only the trigger buttons the study protocol allows
 
-That keeps the participant-facing runtime simple while still leaving the full
-desktop shell available when the study team needs deeper diagnostics.
+That keeps the participant-facing runtime simple while still letting the study
+team choose between two packaging modes:
+
+- embedded study mode, where the operator can still return to the full app
+- dedicated study package, where the app opens straight into one shell and
+  keeps the broader operator surfaces hidden
 
 When a study shell is activated from `Start Here`, the first tab becomes the
-study workspace and the main header switches into that study mode as well.
+study workspace and the main header switches into that study mode as well. If
+the catalog manifest sets a startup study plus `lockToStartupStudy`, the app
+opens there immediately on launch and does not expose the route back to the
+main operator tabs.
+
+## Startup And Locking
+
+Study-shell startup behavior is controlled in `samples/study-shells/manifest.json`:
+
+- `startupStudyId`: opens that study automatically when the app starts
+- `lockToStartupStudy`: hides the broader operator tabs and the `Exit Study Mode`
+  action for that package
+
+That means dedicated study packages are now mainly a config choice:
+
+- keep both fields empty/default for the full operator app
+- set `startupStudyId` only if you want a shell to open first but still allow return to the main app
+- set both fields when you want the packaged app to behave like a study-specific operator surface
 
 ## Sussex University Shell
 
 The first committed study shell is `Sussex University`, backed by
 `samples/study-shells/sussex-university.json`.
 
+The committed public Sussex package now uses the dedicated mode above:
+
+- startup study: `sussex-university`
+- startup lock: `true`
+
 It currently pins:
 
 - package id: `com.Viscereality.LslTwin`
 - version: `0.1.0`
 - SHA256: `1E2344DA34CBF22BA45BE129C7F7B0B45ED6B321154D0120889543B99D1D81C2`
+- bundled APK path: `../quest-session-kit/APKs/LslTwin.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `quest_biofeedback_in / quest.biofeedback`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
 
 The embedded Sussex workspace checks:
 
-- whether the locally staged APK matches the pinned study hash
+- whether the bundled or manually staged APK matches the pinned study hash
 - whether the same build is already installed on the headset
 - whether the pinned Quest device profile is currently active
 - live LSL target, connected stream, and inlet status from `quest_twin_state`
@@ -65,6 +92,11 @@ The active Sussex shell is organized into three operator views:
 
 The current public shell can also send the study recenter command and the
 dedicated particle visibility on/off commands.
+
+The Sussex shell now prefers the bundled APK path from the app payload on
+startup, so packaged Windows installs do not depend on a machine-local Astral
+workspace just to find the pinned build. Manual APK browsing is still available
+as an override when you need to verify another file with the same pinned hash.
 
 ## Sussex Verification Harness
 
@@ -101,6 +133,7 @@ The app looks for study-shell definitions in this order:
 That means new simplified study windows are primarily a data/config task:
 
 - add a JSON definition
+- optionally choose a startup study and whether that package should lock to it
 - point it at the pinned package, hash, and device profile
 - list the live keys and study commands to expose
 - reopen the app and launch the shell from `Start Here`

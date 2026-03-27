@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-    Replaces old desktop launchers with one clean Viscereality Companion shortcut.
+    Replaces old launchers with one clean Viscereality Companion shortcut on Desktop and Start Menu.
 #>
 [CmdletBinding()]
 param(
     [string]$DesktopPath = [Environment]::GetFolderPath('Desktop'),
+    [string]$StartMenuPath = [Environment]::GetFolderPath('Programs'),
     [string]$ShortcutName = 'Viscereality Companion.lnk',
     [switch]$RefreshPublishedBuild
 )
@@ -45,28 +46,59 @@ $obsoleteLaunchers = @(
     'Viscereality Companion.lnk'
 )
 
-foreach ($name in $obsoleteLaunchers) {
-    $candidate = Join-Path $DesktopPath $name
-    if (Test-Path $candidate) {
-        Remove-Item $candidate -Force
+function Remove-ObsoleteLaunchers {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath
+    )
+
+    if (-not (Test-Path $RootPath)) {
+        return
+    }
+
+    foreach ($name in $obsoleteLaunchers) {
+        $candidate = Join-Path $RootPath $name
+        if (Test-Path $candidate) {
+            Remove-Item $candidate -Force
+        }
     }
 }
 
-$shell = New-Object -ComObject WScript.Shell
-$shortcutPath = Join-Path $DesktopPath $ShortcutName
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $scriptHost
-$shortcut.Arguments = $arguments
-$shortcut.WorkingDirectory = $repoRoot
-$shortcut.IconLocation = "$iconPath,0"
-$shortcut.Description = 'Launch Viscereality Companion via the single-file publish path without a console window'
-$shortcut.Save()
+function New-LauncherShortcut {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Shell,
+        [Parameter(Mandatory = $true)]
+        [string]$ShortcutPath
+    )
 
-$created = $shell.CreateShortcut($shortcutPath)
+    New-Item -ItemType Directory -Force -Path (Split-Path $ShortcutPath -Parent) | Out-Null
+
+    $shortcut = $Shell.CreateShortcut($ShortcutPath)
+    $shortcut.TargetPath = $scriptHost
+    $shortcut.Arguments = $arguments
+    $shortcut.WorkingDirectory = $repoRoot
+    $shortcut.IconLocation = "$iconPath,0"
+    $shortcut.Description = 'Launch Viscereality Companion via the verified single-file publish path without a console window'
+    $shortcut.Save()
+
+    return $Shell.CreateShortcut($ShortcutPath)
+}
+
+Remove-ObsoleteLaunchers -RootPath $DesktopPath
+Remove-ObsoleteLaunchers -RootPath $StartMenuPath
+
+$shell = New-Object -ComObject WScript.Shell
+$desktopShortcutPath = Join-Path $DesktopPath $ShortcutName
+$startMenuShortcutPath = Join-Path $StartMenuPath $ShortcutName
+$desktopShortcut = New-LauncherShortcut -Shell $shell -ShortcutPath $desktopShortcutPath
+$startMenuShortcut = New-LauncherShortcut -Shell $shell -ShortcutPath $startMenuShortcutPath
+
 [PSCustomObject]@{
-    Shortcut = $shortcutPath
-    TargetPath = $created.TargetPath
-    Arguments = $created.Arguments
-    WorkingDirectory = $created.WorkingDirectory
-    IconLocation = $created.IconLocation
+    DesktopShortcut = $desktopShortcutPath
+    StartMenuShortcut = $startMenuShortcutPath
+    TargetPath = $desktopShortcut.TargetPath
+    Arguments = $desktopShortcut.Arguments
+    WorkingDirectory = $desktopShortcut.WorkingDirectory
+    IconLocation = $desktopShortcut.IconLocation
 }

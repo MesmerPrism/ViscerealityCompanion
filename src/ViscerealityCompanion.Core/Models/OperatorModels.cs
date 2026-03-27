@@ -105,13 +105,17 @@ public sealed record QuestProximityStatus(
     int? AutoSleepTimeMs,
     DateTimeOffset RetrievedAtUtc,
     DateTimeOffset? HoldUntilUtc,
-    string StatusDetail);
+    string StatusDetail,
+    string LastBroadcastAction = "",
+    int? LastBroadcastDurationMs = null,
+    double? LastBroadcastAgeSeconds = null);
 
 public enum QuestUtilityAction
 {
     Home,
     Back,
     Wake,
+    Sleep,
     ListInstalledPackages,
     Reboot
 }

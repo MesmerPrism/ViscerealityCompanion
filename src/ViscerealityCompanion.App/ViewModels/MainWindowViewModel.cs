@@ -47,6 +47,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _catalogSourcePath = string.Empty;
     private string _studyShellCatalogStatus = "Loading study shells...";
     private string _studyShellCatalogSourcePath = string.Empty;
+    private StudyShellLaunchOptions _studyShellLaunchOptions = new(string.Empty, false);
+    private bool _startupStudyAutoOpened;
     private StudyShellViewModel? _activeStudyShell;
     private string _endpointDraft = string.Empty;
     private string _browserUrlDraft = "https://www.aliusresearch.org/viscereality.html";
@@ -201,33 +203,37 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     value.PropertyChanged += OnActiveStudyShellPropertyChanged;
                 }
 
-                OnPropertyChanged(nameof(HasActiveStudyShell));
-                OnPropertyChanged(nameof(PrimaryWorkflowTabLabel));
-                OnPropertyChanged(nameof(CurrentModeLabel));
-                OnPropertyChanged(nameof(CurrentModeDetail));
-                OnPropertyChanged(nameof(HeaderModeSummary));
-                OnPropertyChanged(nameof(TargetSelectionHeadline));
-                OnPropertyChanged(nameof(TargetSelectionDetail));
-                OnPropertyChanged(nameof(SessionHealthSummary));
-                OnPropertyChanged(nameof(OnDeviceStatusDetail));
-                OnPropertyChanged(nameof(LiveSignalHeadline));
-                OnPropertyChanged(nameof(LiveSignalDetail));
-                OnPropertyChanged(nameof(HeaderTargetLevel));
-                OnPropertyChanged(nameof(HeaderConnectionLevel));
-                OnPropertyChanged(nameof(HeaderLiveLevel));
-                OnPropertyChanged(nameof(ShowStudyModeAction));
+                NotifyStudyModeStateChanged();
             }
         }
     }
 
     public bool HasActiveStudyShell => ActiveStudyShell is not null;
 
+    public StudyShellDefinition? StartupStudyShell
+        => _studyShellLaunchOptions.HasStartupStudy
+            ? StudyShells.FirstOrDefault(
+                study => string.Equals(study.Id, _studyShellLaunchOptions.StartupStudyId, StringComparison.OrdinalIgnoreCase))
+            : null;
+
     public StudyShellDefinition? FeaturedStudyShell
-        => StudyShells.Count > 0 ? StudyShells[0] : null;
+        => StartupStudyShell ?? (StudyShells.Count > 0 ? StudyShells[0] : null);
 
     public bool HasFeaturedStudyShell => FeaturedStudyShell is not null;
 
-    public bool ShowStudyModeAction => ActiveStudyShell is null && FeaturedStudyShell is not null;
+    public bool HasLockedStartupStudy => _studyShellLaunchOptions.LockToStartupStudy && StartupStudyShell is not null;
+
+    public bool IsStudyModeLocked => HasLockedStartupStudy && ActiveStudyShell is not null;
+
+    public bool CanExitStudyMode => ActiveStudyShell is not null && !HasLockedStartupStudy;
+
+    public bool ShowOperatorHeaderUtilities => !HasLockedStartupStudy;
+
+    public bool ShowStandardOperatorSurface => ActiveStudyShell is null && !HasLockedStartupStudy;
+
+    public bool ShowStudyShellStartupLoading => ActiveStudyShell is null && HasLockedStartupStudy;
+
+    public bool ShowStudyModeAction => ActiveStudyShell is null && FeaturedStudyShell is not null && !HasLockedStartupStudy;
 
     public string FeaturedStudyShellLabel
         => FeaturedStudyShell?.Label ?? "No study mode is available yet.";
@@ -250,6 +256,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string FeaturedStudyShellActionLabel
         => FeaturedStudyShell is null ? "Study mode unavailable" : "Open Study Mode";
 
+    public string LockedStudyShellStartupLabel
+        => StartupStudyShell is null
+            ? "Opening dedicated study shell..."
+            : $"Opening {StartupStudyShell.Label} experiment mode...";
+
+    public string LockedStudyShellStartupDetail
+        => string.IsNullOrWhiteSpace(StudyShellCatalogStatus)
+            ? "The dedicated study shell is loading."
+            : $"{StudyShellCatalogStatus} The full operator workspace stays hidden for this package.";
+
     public ObservableCollection<HotloadProfile> AvailableHotloadProfiles { get; } = new();
 
     public ObservableCollection<DeviceProfile> DeviceProfiles { get; } = new();
@@ -271,6 +287,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         new ActionChoice<QuestUtilityAction>("Home", "Return to the Quest launcher.", QuestUtilityAction.Home),
         new ActionChoice<QuestUtilityAction>("Back", "Send a back event to the active Quest app.", QuestUtilityAction.Back),
         new ActionChoice<QuestUtilityAction>("Wake", "Wake the Quest display before other commands.", QuestUtilityAction.Wake),
+        new ActionChoice<QuestUtilityAction>("Sleep", "Put the Quest display to sleep without changing the proximity mode.", QuestUtilityAction.Sleep),
         new ActionChoice<QuestUtilityAction>("List Apps", "Read the Quest package list over ADB.", QuestUtilityAction.ListInstalledPackages),
         new ActionChoice<QuestUtilityAction>("Reboot", "Reboot the Quest from the active ADB session.", QuestUtilityAction.Reboot)
     ]);
@@ -342,13 +359,25 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string StudyShellCatalogStatus
     {
         get => _studyShellCatalogStatus;
-        private set => SetProperty(ref _studyShellCatalogStatus, value);
+        private set
+        {
+            if (SetProperty(ref _studyShellCatalogStatus, value))
+            {
+                OnPropertyChanged(nameof(LockedStudyShellStartupDetail));
+            }
+        }
     }
 
     public string StudyShellCatalogSourcePath
     {
         get => _studyShellCatalogSourcePath;
-        private set => SetProperty(ref _studyShellCatalogSourcePath, value);
+        private set
+        {
+            if (SetProperty(ref _studyShellCatalogSourcePath, value))
+            {
+                OnPropertyChanged(nameof(LockedStudyShellStartupDetail));
+            }
+        }
     }
 
     public int SelectedTabIndex
@@ -809,30 +838,40 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         => ActiveStudyShell is not null
             ? $"{ActiveStudyShell.PinnedPackageId}. {ActiveStudyShell.PinnedBuildSummary}"
             : SelectedApp is null
-            ? ActiveStudyShell is null
-                ? "Refresh Device Snapshot to adopt the current headset app automatically, or choose one manually in Quest Library."
-                : $"{ActiveStudyShell.PinnedPackageId}. Study mode is active, so the main window is pinned to the Sussex operator surface while the headset snapshot catches up."
+            ? "Refresh Device Snapshot to adopt the current headset app automatically, or choose one manually in Quest Library."
             : $"{SelectedApp.PackageId}. Install, launch, preset staging, and publish actions use this target until you change it.";
 
     public string PrimaryWorkflowTabLabel
-        => ActiveStudyShell is null
-            ? "Start Here"
-            : $"{ActiveStudyShell.StudyLabel} Experiment";
+        => ActiveStudyShell is not null
+            ? $"{ActiveStudyShell.StudyLabel} Experiment"
+            : StartupStudyShell is not null && HasLockedStartupStudy
+                ? $"{StartupStudyShell.Label} Experiment"
+                : "Start Here";
 
     public string CurrentModeLabel
-        => ActiveStudyShell is null
-            ? "Standard operator mode"
-            : $"{ActiveStudyShell.StudyLabel} experiment mode";
+        => ActiveStudyShell is not null
+            ? $"{ActiveStudyShell.StudyLabel} experiment mode"
+            : ShowStudyShellStartupLoading
+                ? "Dedicated study package"
+                : "Standard operator mode";
 
     public string CurrentModeDetail
-        => ActiveStudyShell is null
-            ? "Use Start Here for the direct operator path, or open the pinned study mode when a session needs one controlled surface."
-            : $"{ActiveStudyShell.StudyPartner}. Study mode now stays inside one Sussex shell with pre-session, during-session, and inspect views, while the generic tabs stay hidden until you exit study mode.";
+        => ActiveStudyShell is not null
+            ? IsStudyModeLocked
+                ? $"{ActiveStudyShell.StudyPartner}. This package stays inside one pinned study shell with pre-session, during-session, and inspect views. The full operator tabs and the exit path are hidden for this build."
+                : $"{ActiveStudyShell.StudyPartner}. Study mode now stays inside one pinned study shell with pre-session, during-session, and inspect views, while the generic tabs stay hidden until you exit study mode."
+            : ShowStudyShellStartupLoading
+                ? "This package is configured to open directly into the pinned study shell instead of the general operator workspace."
+                : "Use Start Here for the direct operator path, or open the pinned study mode when a session needs one controlled surface.";
 
     public string HeaderModeSummary
-        => ActiveStudyShell is null
-            ? "Standard operator workflow. Keep the generic tools here, or jump straight into the pinned study mode from the button above."
-            : $"{ActiveStudyShell.StudyPartner}. Pinned target {ActiveStudyShell.PinnedPackageId}.";
+        => ActiveStudyShell is not null
+            ? IsStudyModeLocked
+                ? $"{ActiveStudyShell.StudyPartner}. Dedicated study package pinned to {ActiveStudyShell.PinnedPackageId}."
+                : $"{ActiveStudyShell.StudyPartner}. Pinned target {ActiveStudyShell.PinnedPackageId}."
+            : ShowStudyShellStartupLoading
+                ? $"{FeaturedStudyShellLabel}. Opening the pinned study shell and keeping the general operator surfaces hidden for this package."
+                : "Standard operator workflow. Keep the generic tools here, or jump straight into the pinned study mode from the button above.";
 
     public string SelectedAppSummary
         => SelectedApp is null
@@ -1045,7 +1084,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _initialized = true;
         EnsureTwinBridgeMonitoringStarted();
         await RefreshCatalogAsync().ConfigureAwait(false);
-        await RefreshStudyShellCatalogAsync().ConfigureAwait(false);
         await RestartMonitorAsync().ConfigureAwait(false);
     }
 
@@ -1140,6 +1178,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 await DispatchAsync(() =>
                 {
                     StudyShells.Clear();
+                    _studyShellLaunchOptions = new StudyShellLaunchOptions(string.Empty, false);
                     StudyShellCatalogStatus = "No study-shell catalog found.";
                     StudyShellCatalogSourcePath = "Set VISCEREALITY_STUDY_SHELL_ROOT or keep samples/study-shells available next to the app.";
                     NotifyStudyShellEntryPointsChanged();
@@ -1148,6 +1187,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             }
 
             var catalog = await _studyShellCatalogLoader.LoadAsync(rootPath).ConfigureAwait(false);
+            StudyShellDefinition? startupStudy = catalog.LaunchOptions.HasStartupStudy
+                ? catalog.Studies.FirstOrDefault(
+                    study => string.Equals(study.Id, catalog.LaunchOptions.StartupStudyId, StringComparison.OrdinalIgnoreCase))
+                : null;
+
             await DispatchAsync(() =>
             {
                 StudyShells.Clear();
@@ -1156,6 +1200,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                     StudyShells.Add(study);
                 }
 
+                _studyShellLaunchOptions = catalog.LaunchOptions;
                 StudyShellCatalogStatus = $"Loaded {catalog.Studies.Count} study shell(s) from {catalog.Source.Label}.";
                 StudyShellCatalogSourcePath = catalog.Source.RootPath;
                 NotifyStudyShellEntryPointsChanged();
@@ -1169,6 +1214,32 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 {
                     await ActivateStudyModeAsync(refreshedStudy).ConfigureAwait(false);
                 }
+                return;
+            }
+
+            if (catalog.LaunchOptions.LockToStartupStudy && startupStudy is not null)
+            {
+                await ActivateStudyModeAsync(startupStudy).ConfigureAwait(false);
+                _startupStudyAutoOpened = true;
+                return;
+            }
+
+            if (startupStudy is not null && !_startupStudyAutoOpened)
+            {
+                await ActivateStudyModeAsync(startupStudy).ConfigureAwait(false);
+                _startupStudyAutoOpened = true;
+                return;
+            }
+
+            if (catalog.LaunchOptions.HasStartupStudy)
+            {
+                await DispatchAsync(() =>
+                {
+                    AppendLog(
+                        OperatorLogLevel.Warning,
+                        "Startup study shell not found.",
+                        $"Configured startup study id `{catalog.LaunchOptions.StartupStudyId}` was not found in {catalog.Source.Label}.");
+                }).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -1176,6 +1247,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             await DispatchAsync(() =>
             {
                 StudyShells.Clear();
+                _studyShellLaunchOptions = new StudyShellLaunchOptions(string.Empty, false);
                 StudyShellCatalogStatus = "Study-shell catalog refresh failed.";
                 StudyShellCatalogSourcePath = ex.Message;
                 AppendLog(OperatorLogLevel.Warning, "Study-shell catalog refresh failed.", ex.Message);
@@ -1186,6 +1258,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void NotifyStudyShellEntryPointsChanged()
     {
+        OnPropertyChanged(nameof(StartupStudyShell));
         OnPropertyChanged(nameof(FeaturedStudyShell));
         OnPropertyChanged(nameof(HasFeaturedStudyShell));
         OnPropertyChanged(nameof(ShowStudyModeAction));
@@ -1194,6 +1267,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(FeaturedStudyShellTargetLabel));
         OnPropertyChanged(nameof(StudyModeHeaderButtonLabel));
         OnPropertyChanged(nameof(FeaturedStudyShellActionLabel));
+        OnPropertyChanged(nameof(LockedStudyShellStartupLabel));
+        OnPropertyChanged(nameof(LockedStudyShellStartupDetail));
+        NotifyStudyModeStateChanged();
     }
 
     private async Task OpenStudyShellAsync(object? parameter)
@@ -1231,6 +1307,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         return DispatchAsync(() =>
         {
+            if (HasLockedStartupStudy)
+            {
+                AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Study mode exit blocked.",
+                    "This package is pinned to its startup study shell and does not expose the full operator workspace.");
+                return;
+            }
+
             if (ActiveStudyShell is null)
             {
                 return;
@@ -1590,7 +1675,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             IsQuestConnected = status.IsConnected;
             BatteryPercent = status.BatteryLevel ?? 0;
             HeadsetModel = status.IsConnected ? $"Model {status.DeviceModel}" : "Not connected";
-            HeadsetBatteryLabel = status.BatteryLevel is null ? "Battery n/a" : $"Battery {status.BatteryLevel}%";
+            HeadsetBatteryLabel = BuildHeadsetBatteryLabel(status);
             HeadsetPerformanceLabel = $"CPU {(status.CpuLevel?.ToString() ?? "n/a")} / GPU {(status.GpuLevel?.ToString() ?? "n/a")}";
             _activeForegroundPackageId = status.ForegroundPackageId;
             _activeForegroundComponent = status.ForegroundComponent;
@@ -2373,6 +2458,31 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void NotifyStudyModeStateChanged()
+    {
+        OnPropertyChanged(nameof(HasActiveStudyShell));
+        OnPropertyChanged(nameof(HasLockedStartupStudy));
+        OnPropertyChanged(nameof(IsStudyModeLocked));
+        OnPropertyChanged(nameof(CanExitStudyMode));
+        OnPropertyChanged(nameof(ShowOperatorHeaderUtilities));
+        OnPropertyChanged(nameof(ShowStandardOperatorSurface));
+        OnPropertyChanged(nameof(ShowStudyShellStartupLoading));
+        OnPropertyChanged(nameof(PrimaryWorkflowTabLabel));
+        OnPropertyChanged(nameof(CurrentModeLabel));
+        OnPropertyChanged(nameof(CurrentModeDetail));
+        OnPropertyChanged(nameof(HeaderModeSummary));
+        OnPropertyChanged(nameof(TargetSelectionHeadline));
+        OnPropertyChanged(nameof(TargetSelectionDetail));
+        OnPropertyChanged(nameof(SessionHealthSummary));
+        OnPropertyChanged(nameof(OnDeviceStatusDetail));
+        OnPropertyChanged(nameof(LiveSignalHeadline));
+        OnPropertyChanged(nameof(LiveSignalDetail));
+        OnPropertyChanged(nameof(HeaderTargetLevel));
+        OnPropertyChanged(nameof(HeaderConnectionLevel));
+        OnPropertyChanged(nameof(HeaderLiveLevel));
+        OnPropertyChanged(nameof(ShowStudyModeAction));
+    }
+
     private static string BuildSelectedAppCapabilitySummary(QuestAppTarget app)
     {
         if (app.CompatibilityStatus == ApkCompatibilityStatus.Incompatible)
@@ -2650,6 +2760,50 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         return ($"{packageId} active", $"Foreground package: {packageId}.", OperationOutcomeKind.Preview, false);
+    }
+
+    private static string BuildHeadsetBatteryLabel(HeadsetAppStatus status)
+    {
+        var headsetLabel = status.BatteryLevel is null ? "Battery n/a" : $"Battery {status.BatteryLevel}%";
+        var controllerLabel = BuildControllerBatteryLabel(status.Controllers);
+        return string.IsNullOrWhiteSpace(controllerLabel)
+            ? headsetLabel
+            : $"{headsetLabel} | {controllerLabel}";
+    }
+
+    private static string BuildControllerBatteryLabel(IReadOnlyList<QuestControllerStatus>? controllers)
+    {
+        if (controllers is not { Count: > 0 })
+        {
+            return string.Empty;
+        }
+
+        var left = controllers.FirstOrDefault(controller => string.Equals(controller.HandLabel, "Left", StringComparison.OrdinalIgnoreCase));
+        var right = controllers.FirstOrDefault(controller => string.Equals(controller.HandLabel, "Right", StringComparison.OrdinalIgnoreCase));
+        return $"Controllers {FormatControllerBatteryLabel("L", left)} / {FormatControllerBatteryLabel("R", right)}";
+    }
+
+    private static string FormatControllerBatteryLabel(string shortHandLabel, QuestControllerStatus? controller)
+    {
+        if (controller is null)
+        {
+            return $"{shortHandLabel} n/a";
+        }
+
+        var batteryLabel = controller.BatteryLevel is null ? "n/a" : $"{controller.BatteryLevel}%";
+        var connectionLabel = controller.ConnectionState switch
+        {
+            "CONNECTED_ACTIVE" => "active",
+            "CONNECTED_INACTIVE" => "idle",
+            "DISCONNECTED" => "off",
+            _ => string.IsNullOrWhiteSpace(controller.ConnectionState)
+                ? string.Empty
+                : controller.ConnectionState.Replace('_', ' ').ToLowerInvariant()
+        };
+
+        return string.IsNullOrWhiteSpace(connectionLabel)
+            ? $"{shortHandLabel} {batteryLabel}"
+            : $"{shortHandLabel} {batteryLabel} {connectionLabel}";
     }
 
     private void AppendLog(OperatorLogLevel level, string message, string detail)

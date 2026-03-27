@@ -17,8 +17,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
     private const string TestSenderHeartbeatMode = "3";
     private const string TestSenderCoherenceMode = "2";
+    private const string QuestSensorLockActivity = "SensorLockActivity";
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DeviceSnapshotRefreshInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ProximityReadbackRefreshInterval = TimeSpan.FromSeconds(3);
     private static readonly Regex CommandSequenceRegex = new(@"\bseq=(\d+)\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly StudyValueSection[] SectionCatalog =
@@ -41,10 +43,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly ITestLslSignalService _testLslSignalService = TestLslSignalServiceFactory.CreateDefault();
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
+    private readonly DispatcherTimer? _deviceSnapshotRefreshTimer;
     private Window? _twinEventsWindow;
     private bool _initialized;
     private bool _twinRefreshPending;
     private bool _proximityRefreshPending;
+    private bool _deviceSnapshotRefreshPending;
     private string _activeFocusSectionId = string.Empty;
     private IReadOnlyDictionary<string, string> _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private HeadsetAppStatus? _headsetStatus;
@@ -53,10 +57,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private QuestProximityStatus? _liveProximityStatus;
     private string? _liveProximitySelector;
     private DateTimeOffset? _lastProximityRefreshAtUtc;
+    private DateTimeOffset? _lastDeviceSnapshotAtUtc;
+    private bool _regularAdbSnapshotEnabled;
     private string _endpointDraft;
     private string _connectionSummary = "Quest connection has not been checked yet.";
-    private string _connectionTransportSummary = "Wi-Fi ADB not active yet.";
+    private string _connectionTransportSummary = "ADB over Wi-Fi: off.";
     private string _connectionTransportDetail = "Connect the Quest and switch to Wi-Fi ADB before relying on remote-only study control.";
+    private string _headsetWifiSummary = "Headset Wi-Fi n/a.";
+    private string _hostWifiSummary = "This PC Wi-Fi n/a.";
+    private string _wifiNetworkMatchSummary = "Wi-Fi match unknown.";
     private string _questStatusSummary = "Waiting for Quest connection.";
     private string _questStatusDetail = "Connect to the headset to verify the Sussex study runtime and profile.";
     private string _headsetModel = "Unknown";
@@ -67,10 +76,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _headsetAwakeSummary = "Awake status not checked yet.";
     private string _headsetAwakeDetail = "Quest vrpowermanager readback will appear here once the shell can query the active headset selector.";
     private OperationOutcomeKind _headsetAwakeLevel = OperationOutcomeKind.Preview;
-    private string _pinnedBuildSummary = "Choose the supplied Sussex APK.";
+    private string _headsetSnapshotModeSummary = "Regular ADB readouts off. Use Refresh Snapshot when you need a fresh device state.";
+    private string _deviceSnapshotTimestampLabel = "No headset snapshot received yet.";
+    private OperationOutcomeKind _headsetSnapshotModeLevel = OperationOutcomeKind.Success;
+    private string _pinnedBuildSummary = "Waiting for the bundled Sussex build.";
     private string _pinnedBuildDetail = "The window will compare both the local file and the installed Quest build against the pinned Sussex hash.";
-    private string _localApkSummary = "Waiting for the supplied Sussex APK file.";
-    private string _localApkDetail = "Browse to the supplied APK once. The study shell will remember that file path on this machine.";
+    private string _localApkSummary = "Waiting for the bundled Sussex APK.";
+    private string _localApkDetail = "The Sussex shell prefers the APK bundled with the app. Browse to an equivalent pinned copy only if you need to override it on this machine.";
     private string _installedApkSummary = "Installed build has not been checked yet.";
     private string _installedApkDetail = "Refresh the study status after connecting to the headset.";
     private string _stagedApkPath;
@@ -78,6 +90,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _questStatusLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _connectionCardLevel = OperationOutcomeKind.Warning;
     private OperationOutcomeKind _connectionTransportLevel = OperationOutcomeKind.Warning;
+    private OperationOutcomeKind _wifiNetworkMatchLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _pinnedBuildLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _pinnedBuildCardLevel = OperationOutcomeKind.Warning;
     private OperationOutcomeKind _localApkLevel = OperationOutcomeKind.Preview;
@@ -125,6 +138,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _particlesDetail = "Particle visibility and render suppression will appear here once the study runtime starts publishing them.";
     private string _proximitySummary = "Proximity sensor state has not been checked yet.";
     private string _proximityDetail = "Quest vrpowermanager readback will appear here once the shell can reach the active headset selector.";
+    private string _proximityEvidenceLabel = "Latest readback n/a.";
     private string _proximityActionLabel = "Disable for 8h";
     private string _benchToolsSummary = "Bench tools need attention before bench checks.";
     private string _testLslSenderSummary = "Windows TEST sender off.";
@@ -160,6 +174,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _study = study;
         _appSessionState = AppSessionState.Load();
         _studySessionState = StudyShellSessionState.Load();
+        _regularAdbSnapshotEnabled = _appSessionState.RegularAdbSnapshotEnabled;
         _questService = QuestControlServiceFactory.CreateDefault(_appSessionState.ActiveEndpoint);
         _endpointDraft = _appSessionState.ActiveEndpoint ?? string.Empty;
         _stagedApkPath = ResolveInitialApkPath();
@@ -185,6 +200,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 Interval = BenchRefreshInterval
             };
             _benchRefreshTimer.Tick += OnBenchRefreshTimerTick;
+
+            _deviceSnapshotRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
+            {
+                Interval = DeviceSnapshotRefreshInterval
+            };
+            _deviceSnapshotRefreshTimer.Tick += OnDeviceSnapshotRefreshTimerTick;
         }
 
         if (_twinBridge is LslTwinModeBridge lslBridge)
@@ -199,17 +220,22 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         EnableWifiCommand = new AsyncRelayCommand(EnableWifiAsync);
         ConnectQuestCommand = new AsyncRelayCommand(ConnectQuestAsync);
         RefreshStatusCommand = new AsyncRelayCommand(RefreshStatusAsync);
+        RefreshDeviceSnapshotCommand = new AsyncRelayCommand(RefreshDeviceSnapshotAsync);
         BrowseApkCommand = new AsyncRelayCommand(BrowseApkAsync);
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
         LaunchStudyAppCommand = new AsyncRelayCommand(LaunchStudyAppAsync);
         StopStudyAppCommand = new AsyncRelayCommand(StopStudyAppAsync);
+        ToggleStudyRuntimeCommand = new AsyncRelayCommand(ToggleStudyRuntimeAsync);
         ApplyPinnedDeviceProfileCommand = new AsyncRelayCommand(ApplyPinnedDeviceProfileAsync);
+        ToggleHeadsetPowerCommand = new AsyncRelayCommand(ToggleHeadsetPowerAsync);
         ToggleProximityCommand = new AsyncRelayCommand(ToggleProximityAsync);
         ToggleTestLslSenderCommand = new AsyncRelayCommand(ToggleTestLslSenderAsync);
         RecenterCommand = new AsyncRelayCommand(RecenterAsync);
         ParticlesOnCommand = new AsyncRelayCommand(ParticlesOnAsync);
         ParticlesOffCommand = new AsyncRelayCommand(ParticlesOffAsync);
         OpenTwinEventsWindowCommand = new AsyncRelayCommand(OpenTwinEventsWindowAsync);
+        UpdateHeadsetSnapshotModeState();
+        UpdateDeviceSnapshotTimerState();
     }
 
     public string StudyLabel => _study.Label;
@@ -230,6 +256,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _endpointDraft, value))
             {
+                OnPropertyChanged(nameof(CanToggleHeadsetPower));
                 OnPropertyChanged(nameof(CanToggleProximity));
             }
         }
@@ -251,6 +278,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _connectionTransportDetail;
         private set => SetProperty(ref _connectionTransportDetail, value);
+    }
+
+    public string HeadsetWifiSummary
+    {
+        get => _headsetWifiSummary;
+        private set => SetProperty(ref _headsetWifiSummary, value);
+    }
+
+    public string HostWifiSummary
+    {
+        get => _hostWifiSummary;
+        private set => SetProperty(ref _hostWifiSummary, value);
+    }
+
+    public string WifiNetworkMatchSummary
+    {
+        get => _wifiNetworkMatchSummary;
+        private set => SetProperty(ref _wifiNetworkMatchSummary, value);
     }
 
     public string QuestStatusSummary
@@ -311,6 +356,46 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _headsetAwakeLevel;
         private set => SetProperty(ref _headsetAwakeLevel, value);
+    }
+
+    public string HeadsetSnapshotModeSummary
+    {
+        get => _headsetSnapshotModeSummary;
+        private set => SetProperty(ref _headsetSnapshotModeSummary, value);
+    }
+
+    public string DeviceSnapshotTimestampLabel
+    {
+        get => _deviceSnapshotTimestampLabel;
+        private set => SetProperty(ref _deviceSnapshotTimestampLabel, value);
+    }
+
+    public OperationOutcomeKind HeadsetSnapshotModeLevel
+    {
+        get => _headsetSnapshotModeLevel;
+        private set => SetProperty(ref _headsetSnapshotModeLevel, value);
+    }
+
+    public bool RegularAdbSnapshotEnabled
+    {
+        get => _regularAdbSnapshotEnabled;
+        set
+        {
+            if (!SetProperty(ref _regularAdbSnapshotEnabled, value))
+            {
+                return;
+            }
+
+            _appSessionState = _appSessionState.WithRegularAdbSnapshotEnabled(value);
+            _appSessionState.Save();
+            UpdateHeadsetSnapshotModeState();
+            UpdateDeviceSnapshotTimerState();
+
+            if (value)
+            {
+                _ = RefreshDeviceSnapshotBundleAsync(forceProximity: true);
+            }
+        }
     }
 
     public string PinnedBuildSummary
@@ -377,6 +462,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _connectionTransportLevel;
         private set => SetProperty(ref _connectionTransportLevel, value);
+    }
+
+    public OperationOutcomeKind WifiNetworkMatchLevel
+    {
+        get => _wifiNetworkMatchLevel;
+        private set => SetProperty(ref _wifiNetworkMatchLevel, value);
     }
 
     public OperationOutcomeKind PinnedBuildLevel
@@ -667,11 +758,27 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _proximityDetail, value);
     }
 
+    public string ProximityEvidenceLabel
+    {
+        get => _proximityEvidenceLabel;
+        private set => SetProperty(ref _proximityEvidenceLabel, value);
+    }
+
     public string ProximityActionLabel
     {
         get => _proximityActionLabel;
         private set => SetProperty(ref _proximityActionLabel, value);
     }
+
+    public string HeadsetAwakeActionLabel
+        => _headsetStatus is { IsAwake: true, IsInWakeLimbo: false } && !IsHeadsetWakeBlockedByLockScreen()
+            ? "Sleep Headset"
+            : "Wake Headset";
+
+    public string StudyRuntimeActionLabel
+        => IsStudyRuntimeForeground()
+            ? "Stop Study Runtime"
+            : "Launch Study Runtime";
 
     public string TestLslSenderSummary
     {
@@ -801,7 +908,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public bool CanToggleProximity
         => _hzdbService.IsAvailable
-            && !string.IsNullOrWhiteSpace(ResolveHzdbSelector());
+            && !string.IsNullOrWhiteSpace(ResolveHeadsetActionSelector());
+
+    public bool CanToggleHeadsetPower
+        => !string.IsNullOrWhiteSpace(ResolveHeadsetActionSelector());
 
     public bool CanToggleTestLslSender
         => _testLslSignalService.IsRunning
@@ -854,11 +964,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand EnableWifiCommand { get; }
     public AsyncRelayCommand ConnectQuestCommand { get; }
     public AsyncRelayCommand RefreshStatusCommand { get; }
+    public AsyncRelayCommand RefreshDeviceSnapshotCommand { get; }
     public AsyncRelayCommand BrowseApkCommand { get; }
     public AsyncRelayCommand InstallStudyAppCommand { get; }
     public AsyncRelayCommand LaunchStudyAppCommand { get; }
     public AsyncRelayCommand StopStudyAppCommand { get; }
+    public AsyncRelayCommand ToggleStudyRuntimeCommand { get; }
     public AsyncRelayCommand ApplyPinnedDeviceProfileCommand { get; }
+    public AsyncRelayCommand ToggleHeadsetPowerCommand { get; }
     public AsyncRelayCommand ToggleProximityCommand { get; }
     public AsyncRelayCommand ToggleTestLslSenderCommand { get; }
     public AsyncRelayCommand RecenterCommand { get; }
@@ -909,6 +1022,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _benchRefreshTimer.Stop();
         }
 
+        if (_deviceSnapshotRefreshTimer is not null)
+        {
+            _deviceSnapshotRefreshTimer.Tick -= OnDeviceSnapshotRefreshTimerTick;
+            _deviceSnapshotRefreshTimer.Stop();
+        }
+
         CloseTwinEventsWindow();
         _testLslSignalService.Dispose();
     }
@@ -946,15 +1065,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public async Task RefreshStatusAsync()
     {
         await RefreshLocalApkStatusAsync().ConfigureAwait(false);
-        await RefreshHeadsetStatusAsync().ConfigureAwait(false);
-        await RefreshInstalledAppStatusAsync().ConfigureAwait(false);
-        await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
-        await RefreshProximityStatusAsync(force: true).ConfigureAwait(false);
-        await DispatchAsync(UpdatePinnedBuildStatus).ConfigureAwait(false);
-        await DispatchAsync(UpdateDeviceProfileRows).ConfigureAwait(false);
-        await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
-        await DispatchAsync(RefreshLiveTwinState).ConfigureAwait(false);
+        await RefreshDeviceSnapshotBundleAsync(forceProximity: true).ConfigureAwait(false);
     }
+
+    public Task RefreshDeviceSnapshotAsync()
+        => RefreshDeviceSnapshotBundleAsync(forceProximity: true);
 
     private async Task BrowseApkAsync()
     {
@@ -990,7 +1105,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var localPath = await DispatchAsync(() => StagedApkPath).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(localPath) || !File.Exists(localPath))
         {
-            await DispatchAsync(() => AppendLog(OperatorLogLevel.Warning, "Study install blocked.", "Choose the supplied Sussex APK first.")).ConfigureAwait(false);
+            await DispatchAsync(() => AppendLog(
+                OperatorLogLevel.Warning,
+                "Study install blocked.",
+                "Pinned Sussex APK not available locally. Keep the bundled APK with the app or browse to an equivalent pinned copy first.")).ConfigureAwait(false);
             return;
         }
 
@@ -1021,15 +1139,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
-            var performanceOutcome = await TryStabilizeStudyPerformancePolicyAsync().ConfigureAwait(false);
-            if (performanceOutcome is not null)
+            var runtimeForeground = await DispatchAsync(IsStudyRuntimeForeground).ConfigureAwait(false);
+            if (runtimeForeground)
             {
-                await DispatchAsync(() => AppendLog(MapLevel(performanceOutcome.Kind), performanceOutcome.Summary, performanceOutcome.Detail)).ConfigureAwait(false);
-                await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
-                await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+                var performanceOutcome = await TryStabilizeStudyPerformancePolicyAsync().ConfigureAwait(false);
+                if (performanceOutcome is not null)
+                {
+                    await DispatchAsync(() => AppendLog(MapLevel(performanceOutcome.Kind), performanceOutcome.Summary, performanceOutcome.Detail)).ConfigureAwait(false);
+                    await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
+                    await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+                }
+
+                await DispatchAsync(() => SelectedPhaseTabIndex = 1).ConfigureAwait(false);
             }
 
-            await DispatchAsync(() => SelectedPhaseTabIndex = 1).ConfigureAwait(false);
             await DispatchAsync(() =>
             {
                 if (!string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase))
@@ -1050,6 +1173,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await RefreshStatusAsync().ConfigureAwait(false);
     }
 
+    public async Task ToggleStudyRuntimeAsync()
+    {
+        if (IsStudyRuntimeForeground())
+        {
+            await StopStudyAppAsync().ConfigureAwait(false);
+            return;
+        }
+
+        await LaunchStudyAppAsync().ConfigureAwait(false);
+    }
+
     public async Task ApplyPinnedDeviceProfileAsync()
     {
         var outcome = await TryStabilizeStudyPerformancePolicyAsync().ConfigureAwait(false)
@@ -1059,8 +1193,38 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
     }
 
+    private async Task ToggleHeadsetPowerAsync()
+    {
+        var action = _headsetStatus is { IsAwake: true, IsInWakeLimbo: false } && !IsHeadsetWakeBlockedByLockScreen()
+            ? QuestUtilityAction.Sleep
+            : QuestUtilityAction.Wake;
+        var actionLabel = action == QuestUtilityAction.Sleep ? "Sleep Headset" : "Wake Headset";
+        var outcome = await _questService.RunUtilityAsync(action).ConfigureAwait(false);
+
+        if (action == QuestUtilityAction.Wake)
+        {
+            if (outcome.Kind != OperationOutcomeKind.Failure)
+            {
+                await Task.Delay(350).ConfigureAwait(false);
+            }
+
+            await RefreshStatusAsync().ConfigureAwait(false);
+            await ApplyOutcomeAsync(actionLabel, BuildWakeActionOutcome(outcome)).ConfigureAwait(false);
+            return;
+        }
+
+        await ApplyOutcomeAsync(actionLabel, outcome).ConfigureAwait(false);
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await Task.Delay(350).ConfigureAwait(false);
+        }
+
+        await RefreshStatusAsync().ConfigureAwait(false);
+    }
+
     private async Task ToggleProximityAsync()
     {
+        await TryWakeHeadsetBeforeStudyActionAsync("Toggle proximity hold").ConfigureAwait(false);
         var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
         if (!_hzdbService.IsAvailable)
         {
@@ -1116,6 +1280,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private async Task ToggleTestLslSenderAsync()
     {
+        await TryWakeHeadsetBeforeStudyActionAsync("Toggle TEST sender route").ConfigureAwait(false);
         var isRunning = _testLslSignalService.IsRunning;
         var actionLabel = isRunning ? "Stop TEST Sender" : "Start TEST Sender";
         var streamName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
@@ -1250,6 +1415,37 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         => _headsetStatus?.IsTargetForeground == true
             || string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
 
+    private bool IsHeadsetWakeBlockedByLockScreen()
+        => _headsetStatus?.IsConnected == true &&
+           _headsetStatus.IsAwake == true &&
+           !IsStudyRuntimeForeground() &&
+           !string.IsNullOrWhiteSpace(_headsetStatus.ForegroundComponent) &&
+           _headsetStatus.ForegroundComponent.Contains(QuestSensorLockActivity, StringComparison.OrdinalIgnoreCase);
+
+    private OperationOutcome BuildWakeActionOutcome(OperationOutcome outcome)
+    {
+        if (outcome.Kind == OperationOutcomeKind.Failure || !IsHeadsetWakeBlockedByLockScreen())
+        {
+            return outcome;
+        }
+
+        var detailParts = new List<string>(3);
+        if (!string.IsNullOrWhiteSpace(outcome.Detail))
+        {
+            detailParts.Add(outcome.Detail);
+        }
+
+        detailParts.Add("Quest woke into SensorLockActivity instead of returning to the previous app.");
+        detailParts.Add(_headsetStatus?.IsTargetRunning == true
+            ? "Use Launch Study Runtime to bring Sussex back to the foreground."
+            : "Use Launch Study Runtime if you want to start Sussex from this state.");
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            "Headset wake ended in the Quest lock screen.",
+            string.Join(" ", detailParts));
+    }
+
     private async Task<OperationOutcome?> TryStabilizeStudyPerformancePolicyAsync()
     {
         if (!IsStudyRuntimeForeground())
@@ -1341,6 +1537,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        await TryWakeHeadsetBeforeStudyActionAsync(label).ConfigureAwait(false);
         var previousConfirmation = await DispatchAsync(() => CaptureCommandConfirmation(actionId)).ConfigureAwait(false);
         var outcome = await _twinBridge.SendCommandAsync(new TwinModeCommand(actionId, label)).ConfigureAwait(false);
         await ApplyOutcomeAsync(label, outcome).ConfigureAwait(false);
@@ -1355,6 +1552,31 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 UpdateParticlesCard();
                 RefreshFocusRows(forceRebuild: true);
             }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task TryWakeHeadsetBeforeStudyActionAsync(string actionLabel)
+    {
+        var selector = await DispatchAsync(ResolveHeadsetActionSelector).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return;
+        }
+
+        var wakeOutcome = await _questService.RunUtilityAsync(QuestUtilityAction.Wake).ConfigureAwait(false);
+        if (wakeOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            await DispatchAsync(() => AppendLog(
+                OperatorLogLevel.Warning,
+                $"Wake before {actionLabel} failed.",
+                wakeOutcome.Detail)).ConfigureAwait(false);
+            return;
+        }
+
+        if (wakeOutcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await Task.Delay(250).ConfigureAwait(false);
+            await RefreshHeadsetStatusAsync().ConfigureAwait(false);
         }
     }
 
@@ -1413,7 +1635,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 LocalApkHash = string.Empty;
                 LocalApkLevel = OperationOutcomeKind.Preview;
-                LocalApkSummary = "Waiting for the supplied Sussex APK file.";
+                LocalApkSummary = "Waiting for the bundled Sussex APK.";
                 LocalApkDetail = string.IsNullOrWhiteSpace(stagedPath)
                     ? _study.App.Notes
                     : $"Saved study APK path not found: {stagedPath}";
@@ -1451,6 +1673,88 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    private async Task RefreshDeviceSnapshotBundleAsync(bool forceProximity)
+    {
+        var entered = await DispatchAsync(() =>
+        {
+            if (_deviceSnapshotRefreshPending)
+            {
+                return false;
+            }
+
+            _deviceSnapshotRefreshPending = true;
+            return true;
+        }).ConfigureAwait(false);
+
+        if (!entered)
+        {
+            return;
+        }
+
+        try
+        {
+            await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+            await RefreshInstalledAppStatusAsync().ConfigureAwait(false);
+            await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
+            await RefreshProximityStatusAsync(force: forceProximity).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                UpdatePinnedBuildStatus();
+                UpdateDeviceProfileRows();
+                RefreshBenchToolsStatus();
+                RefreshLiveTwinState();
+                UpdateHeadsetSnapshotModeState();
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            await DispatchAsync(() => _deviceSnapshotRefreshPending = false).ConfigureAwait(false);
+        }
+    }
+
+    private static string BuildSnapshotInlineSuffix(DateTimeOffset? snapshotAtUtc)
+        => snapshotAtUtc.HasValue
+            ? $" | snapshot {snapshotAtUtc.Value.ToLocalTime():HH:mm:ss}"
+            : string.Empty;
+
+    private void UpdateHeadsetSnapshotModeState()
+    {
+        HeadsetSnapshotModeLevel = RegularAdbSnapshotEnabled
+            ? OperationOutcomeKind.Warning
+            : OperationOutcomeKind.Success;
+        HeadsetSnapshotModeSummary = RegularAdbSnapshotEnabled
+            ? "Regular ADB readouts are on. Useful for debugging, but they add headset-query overhead during a live run."
+            : "Regular ADB readouts are off. Use Refresh Snapshot when you want a fresh device state.";
+        DeviceSnapshotTimestampLabel = _lastDeviceSnapshotAtUtc.HasValue
+            ? $"Last headset snapshot {_lastDeviceSnapshotAtUtc.Value.ToLocalTime():HH:mm:ss}."
+            : "No headset snapshot received yet.";
+    }
+
+    private void UpdateDeviceSnapshotTimerState()
+    {
+        if (_deviceSnapshotRefreshTimer is null)
+        {
+            return;
+        }
+
+        if (RegularAdbSnapshotEnabled)
+        {
+            if (!_deviceSnapshotRefreshTimer.IsEnabled)
+            {
+                _deviceSnapshotRefreshTimer.Start();
+            }
+
+            return;
+        }
+
+        _deviceSnapshotRefreshTimer.Stop();
+    }
+
+    private void OnDeviceSnapshotRefreshTimerTick(object? sender, EventArgs e)
+    {
+        _ = RefreshDeviceSnapshotBundleAsync(forceProximity: true);
+    }
+
     private async Task RefreshInstalledAppStatusAsync()
     {
         var target = CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false));
@@ -1458,6 +1762,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         await DispatchAsync(() =>
         {
+            var snapshotSuffix = _headsetStatus?.IsConnected == true
+                ? BuildSnapshotInlineSuffix(_lastDeviceSnapshotAtUtc)
+                : string.Empty;
+
             if (_installedAppStatus is null)
             {
                 InstalledApkLevel = OperationOutcomeKind.Preview;
@@ -1473,7 +1781,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         : HashMatches(_installedAppStatus.InstalledSha256, _study.App.Sha256)
                             ? OperationOutcomeKind.Success
                             : OperationOutcomeKind.Warning;
-                InstalledApkSummary = _installedAppStatus.Summary;
+                InstalledApkSummary = _installedAppStatus.Summary + snapshotSuffix;
                 InstalledApkDetail = _installedAppStatus.Detail;
             }
         }).ConfigureAwait(false);
@@ -1485,6 +1793,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         await DispatchAsync(() =>
         {
+            var snapshotSuffix = _headsetStatus?.IsConnected == true
+                ? BuildSnapshotInlineSuffix(_lastDeviceSnapshotAtUtc)
+                : string.Empty;
+
             if (_deviceProfileStatus is null)
             {
                 DeviceProfileLevel = OperationOutcomeKind.Preview;
@@ -1496,7 +1808,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             }
 
             DeviceProfileLevel = _deviceProfileStatus.IsActive ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
-            DeviceProfileSummary = _deviceProfileStatus.Summary;
+            DeviceProfileSummary = _deviceProfileStatus.Summary + snapshotSuffix;
             DeviceProfileDetail = _deviceProfileStatus.Detail;
             UpdateDeviceProfileRows();
             UpdateDeviceProfileCardState();
@@ -1513,6 +1825,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 return;
             }
+
+            if (_headsetStatus.IsConnected)
+            {
+                _lastDeviceSnapshotAtUtc = _headsetStatus.Timestamp;
+            }
+
+            var snapshotSuffix = _headsetStatus.IsConnected
+                ? BuildSnapshotInlineSuffix(_lastDeviceSnapshotAtUtc)
+                : string.Empty;
 
             var studyRuntimeForeground = string.Equals(_headsetStatus.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
             ConnectionSummary = _headsetStatus.ConnectionLabel;
@@ -1540,12 +1861,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
             HeadsetModel = string.IsNullOrWhiteSpace(_headsetStatus.DeviceModel) ? "Quest" : _headsetStatus.DeviceModel;
             BatteryPercent = Math.Clamp(_headsetStatus.BatteryLevel ?? 0, 0, 100);
-            HeadsetBatteryLabel = _headsetStatus.BatteryLevel is null ? "Battery n/a" : $"{_headsetStatus.BatteryLevel}%";
-            HeadsetPerformanceLabel = $"CPU {(_headsetStatus.CpuLevel?.ToString() ?? "n/a")} / GPU {(_headsetStatus.GpuLevel?.ToString() ?? "n/a")}";
+            HeadsetBatteryLabel = BuildHeadsetBatteryLabel(_headsetStatus) + snapshotSuffix;
+            HeadsetPerformanceLabel = $"CPU {(_headsetStatus.CpuLevel?.ToString() ?? "n/a")} / GPU {(_headsetStatus.GpuLevel?.ToString() ?? "n/a")}{snapshotSuffix}";
             HeadsetForegroundLabel = string.IsNullOrWhiteSpace(_headsetStatus.ForegroundPackageId)
-                ? "Active app n/a"
-                : _headsetStatus.ForegroundPackageId;
+                ? $"Active app n/a{snapshotSuffix}"
+                : $"{_headsetStatus.ForegroundPackageId}{snapshotSuffix}";
             UpdateConnectionCardState();
+            UpdateHeadsetSnapshotModeState();
+            RefreshBenchToolsStatus();
+            OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
+            OnPropertyChanged(nameof(StudyRuntimeActionLabel));
+            OnPropertyChanged(nameof(CanToggleHeadsetPower));
         }).ConfigureAwait(false);
     }
 
@@ -1583,7 +1909,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         else
         {
             PinnedBuildLevel = OperationOutcomeKind.Preview;
-            PinnedBuildSummary = "Choose the supplied Sussex APK.";
+            PinnedBuildSummary = "Waiting for the bundled Sussex build.";
         }
 
         var details = new List<string>
@@ -1638,18 +1964,28 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void UpdateConnectionCardState()
     {
         var selector = _headsetStatus?.ConnectionLabel ?? string.Empty;
-        var isWifiAdbActive = LooksLikeTcpSelector(selector);
+        var isWifiAdbActive = _headsetStatus?.IsWifiAdbTransport == true;
         var lastConnectionFailed = _lastConnectionLevel == OperationOutcomeKind.Failure;
         var wifiPreparedButNotConnected =
             string.Equals(_lastConnectionActionLabel, "Enable Wi-Fi ADB", StringComparison.Ordinal)
             && _lastConnectionLevel == OperationOutcomeKind.Success
             && !isWifiAdbActive;
+        var headsetWifiLabel = FormatHeadsetWifiLabel(_headsetStatus)
+            + (_headsetStatus?.IsConnected == true ? BuildSnapshotInlineSuffix(_lastDeviceSnapshotAtUtc) : string.Empty);
+        var hostWifiLabel = string.IsNullOrWhiteSpace(_headsetStatus?.HostWifiSsid)
+            ? "This PC Wi-Fi: n/a"
+            : $"This PC Wi-Fi: {_headsetStatus.HostWifiSsid}";
+
+        HeadsetWifiSummary = headsetWifiLabel;
+        HostWifiSummary = hostWifiLabel;
+        WifiNetworkMatchLevel = OperationOutcomeKind.Preview;
+        WifiNetworkMatchSummary = "Wi-Fi match unknown.";
 
         if (_headsetStatus is null)
         {
             ConnectionCardLevel = OperationOutcomeKind.Warning;
             ConnectionTransportLevel = OperationOutcomeKind.Warning;
-            ConnectionTransportSummary = "Headset connection has not been checked yet.";
+            ConnectionTransportSummary = "ADB over Wi-Fi: unknown.";
             ConnectionTransportDetail = "Connect the Quest and switch to Wi-Fi ADB before relying on remote-only study control.";
             return;
         }
@@ -1659,31 +1995,200 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ConnectionCardLevel = lastConnectionFailed ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning;
             ConnectionTransportLevel = ConnectionCardLevel;
             ConnectionTransportSummary = lastConnectionFailed
-                ? "Quest connection failed."
-                : "Quest not connected yet.";
+                ? "ADB over Wi-Fi: unavailable."
+                : "ADB over Wi-Fi: off.";
             ConnectionTransportDetail = lastConnectionFailed && !string.IsNullOrWhiteSpace(_lastConnectionDetail)
                 ? _lastConnectionDetail
                 : "Probe USB or connect a known Wi-Fi ADB endpoint before starting the session.";
             return;
         }
 
+        WifiNetworkMatchLevel = _headsetStatus.WifiSsidMatchesHost switch
+        {
+            true => OperationOutcomeKind.Success,
+            false => OperationOutcomeKind.Failure,
+            _ => OperationOutcomeKind.Warning
+        };
+        WifiNetworkMatchSummary = _headsetStatus.WifiSsidMatchesHost switch
+        {
+            true => "Wi-Fi names match.",
+            false => "Wi-Fi names do not match.",
+            _ => "Wi-Fi match unknown."
+        };
+
         if (isWifiAdbActive)
         {
-            ConnectionCardLevel = OperationOutcomeKind.Success;
-            ConnectionTransportLevel = OperationOutcomeKind.Success;
-            ConnectionTransportSummary = "Wi-Fi ADB active.";
-            ConnectionTransportDetail = $"Remote control is using {selector}.";
+            ConnectionCardLevel = _headsetStatus.WifiSsidMatchesHost == false
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Success;
+            ConnectionTransportLevel = _headsetStatus.WifiSsidMatchesHost == false
+                ? OperationOutcomeKind.Failure
+                : OperationOutcomeKind.Success;
+            ConnectionTransportSummary = _headsetStatus.WifiSsidMatchesHost == false
+                ? "ADB over Wi-Fi: on, but network names do not match."
+                : "ADB over Wi-Fi: on.";
+            ConnectionTransportDetail = _headsetStatus.WifiSsidMatchesHost switch
+            {
+                true => $"Remote control is using {selector}, and the headset Wi-Fi matches this PC.",
+                false => $"Remote control is using {selector}, but the headset Wi-Fi does not match this PC.",
+                _ => $"Remote control is using {selector}. Verify the headset Wi-Fi name before starting the session."
+            };
             return;
         }
 
         ConnectionCardLevel = OperationOutcomeKind.Warning;
         ConnectionTransportLevel = OperationOutcomeKind.Warning;
         ConnectionTransportSummary = wifiPreparedButNotConnected
-            ? "USB ADB active. Wi-Fi ADB is prepared but not connected yet."
-            : "USB ADB active only.";
+            ? "ADB over Wi-Fi: off. USB only, but Wi-Fi is prepared."
+            : "ADB over Wi-Fi: off. USB only.";
         ConnectionTransportDetail = wifiPreparedButNotConnected
             ? "Run Connect Quest to switch the session from USB to the prepared Wi-Fi ADB endpoint."
             : "Enable Wi-Fi ADB and reconnect before leaving the headset unattended or relying on remote-only control.";
+    }
+
+    private static string FormatHeadsetWifiLabel(HeadsetAppStatus? status)
+    {
+        if (status is null)
+        {
+            return "Headset Wi-Fi: n/a";
+        }
+
+        if (!string.IsNullOrWhiteSpace(status.HeadsetWifiSsid) && !string.IsNullOrWhiteSpace(status.HeadsetWifiIpAddress))
+        {
+            return $"Headset Wi-Fi: {status.HeadsetWifiSsid} ({status.HeadsetWifiIpAddress})";
+        }
+
+        if (!string.IsNullOrWhiteSpace(status.HeadsetWifiSsid))
+        {
+            return $"Headset Wi-Fi: {status.HeadsetWifiSsid}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(status.HeadsetWifiIpAddress))
+        {
+            return $"Headset Wi-Fi IP: {status.HeadsetWifiIpAddress}";
+        }
+
+        return "Headset Wi-Fi: n/a";
+    }
+
+    private static string FormatAutoSleepLabel(int? autoSleepTimeMs)
+        => autoSleepTimeMs is > 0
+            ? $"{autoSleepTimeMs.Value / 1000d:0.#} s"
+            : "n/a";
+
+    private static string FormatBroadcastLabel(QuestProximityStatus status)
+    {
+        if (string.IsNullOrWhiteSpace(status.LastBroadcastAction))
+        {
+            return "no recent control broadcast";
+        }
+
+        var label = status.LastBroadcastDurationMs.HasValue
+            ? $"{status.LastBroadcastAction} ({status.LastBroadcastDurationMs.Value} ms)"
+            : status.LastBroadcastAction;
+
+        return status.LastBroadcastAgeSeconds.HasValue
+            ? $"{label}, {status.LastBroadcastAgeSeconds.Value:0.#} s ago"
+            : label;
+    }
+
+    private static string BuildProximityEvidenceLabel(QuestProximityStatus status)
+    {
+        var virtualState = string.IsNullOrWhiteSpace(status.VirtualState) ? "unknown" : status.VirtualState;
+        var headsetState = string.IsNullOrWhiteSpace(status.HeadsetState) ? "unknown" : status.HeadsetState;
+        return $"Latest readback {status.RetrievedAtUtc.ToLocalTime():HH:mm:ss}: control {FormatBroadcastLabel(status)} | virtual {virtualState} | headset {headsetState} | auto-sleep {FormatAutoSleepLabel(status.AutoSleepTimeMs)}.";
+    }
+
+    private static string BuildProximityControlInterpretation(QuestProximityStatus status)
+    {
+        if (string.Equals(status.LastBroadcastAction, "prox_close", StringComparison.OrdinalIgnoreCase) &&
+            status.LastBroadcastDurationMs is > 0)
+        {
+            return "The last control broadcast is a timed virtual-close hold, so normal wear-sensor sleep is bypassed.";
+        }
+
+        if (string.Equals(status.LastBroadcastAction, "prox_close", StringComparison.OrdinalIgnoreCase))
+        {
+            return "The last control broadcast is a normal prox_close event with no timed hold, so this is not a forced bypass.";
+        }
+
+        if (string.Equals(status.LastBroadcastAction, "automation_disable", StringComparison.OrdinalIgnoreCase))
+        {
+            return "The last control broadcast cleared automation control, so the physical wear sensor is in charge again.";
+        }
+
+        return "No recent proximity control broadcast was parsed, so the shell is relying on the latest vrpowermanager state lines.";
+    }
+
+    private static string BuildHeadsetPowerEvidenceLabel(HeadsetAppStatus? status)
+    {
+        if (status is null || string.IsNullOrWhiteSpace(status.PowerStatusDetail))
+        {
+            return "Power readback unavailable.";
+        }
+
+        return $"Power readback: {status.PowerStatusDetail}.";
+    }
+
+    private static string BuildHeadsetBatteryLabel(HeadsetAppStatus status)
+    {
+        var headsetLabel = status.BatteryLevel is null ? "Battery n/a" : $"Battery {status.BatteryLevel}%";
+        var controllerLabel = BuildControllerBatteryLabel(status.Controllers);
+        return string.IsNullOrWhiteSpace(controllerLabel)
+            ? headsetLabel
+            : $"{headsetLabel} | {controllerLabel}";
+    }
+
+    private static string BuildControllerBatteryLabel(IReadOnlyList<QuestControllerStatus>? controllers)
+    {
+        if (controllers is not { Count: > 0 })
+        {
+            return string.Empty;
+        }
+
+        var left = controllers.FirstOrDefault(controller => string.Equals(controller.HandLabel, "Left", StringComparison.OrdinalIgnoreCase));
+        var right = controllers.FirstOrDefault(controller => string.Equals(controller.HandLabel, "Right", StringComparison.OrdinalIgnoreCase));
+        return $"Controllers {FormatControllerBatteryLabel("L", left)} / {FormatControllerBatteryLabel("R", right)}";
+    }
+
+    private static string FormatControllerBatteryLabel(string shortHandLabel, QuestControllerStatus? controller)
+    {
+        if (controller is null)
+        {
+            return $"{shortHandLabel} n/a";
+        }
+
+        var batteryLabel = controller.BatteryLevel is null ? "n/a" : $"{controller.BatteryLevel}%";
+        var connectionLabel = controller.ConnectionState switch
+        {
+            "CONNECTED_ACTIVE" => "active",
+            "CONNECTED_INACTIVE" => "idle",
+            "DISCONNECTED" => "off",
+            _ => string.IsNullOrWhiteSpace(controller.ConnectionState)
+                ? string.Empty
+                : controller.ConnectionState.Replace('_', ' ').ToLowerInvariant()
+        };
+
+        return string.IsNullOrWhiteSpace(connectionLabel)
+            ? $"{shortHandLabel} {batteryLabel}"
+            : $"{shortHandLabel} {batteryLabel} {connectionLabel}";
+    }
+
+    private static string BuildHeadsetPowerProximityContext(TrackedQuestProximityState tracked, QuestProximityStatus? liveStatus)
+    {
+        if (liveStatus?.HoldActive == true)
+        {
+            return liveStatus.HoldUntilUtc.HasValue
+                ? $"Proximity bypass remains active until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}, but that bypass only affects wear-sensor sleep and does not keep the display awake after a manual power-button sleep."
+                : "Proximity bypass is active, but it only affects wear-sensor sleep and does not keep the display awake after a manual power-button sleep.";
+        }
+
+        if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired && tracked.DisableUntilUtc.HasValue)
+        {
+            return $"Companion still expects a proximity bypass until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}, but headset sleep/wake is tracked separately from that hold.";
+        }
+
+        return "Headset sleep/wake is tracked separately from the proximity setting.";
     }
 
     private void UpdatePinnedBuildCardState()
@@ -1734,71 +2239,54 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void UpdateHeadsetAwakeStatus(string selector, TrackedQuestProximityState tracked, QuestProximityStatus? liveStatus)
     {
-        if (!_hzdbService.IsAvailable)
-        {
-            HeadsetAwakeLevel = OperationOutcomeKind.Preview;
-            HeadsetAwakeSummary = "Awake status unavailable.";
-            HeadsetAwakeDetail = "Install or expose @meta-quest/hzdb to show live headset awake state.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(selector))
+        if (_headsetStatus?.IsConnected != true)
         {
             HeadsetAwakeLevel = OperationOutcomeKind.Preview;
             HeadsetAwakeSummary = "Awake status not checked yet.";
-            HeadsetAwakeDetail = "Connect the headset first so the shell has an active selector for vrpowermanager readback.";
-            return;
+            HeadsetAwakeDetail = "Connect the headset first so the shell can read the actual Quest power state.";
         }
-
-        if (liveStatus?.Available == true)
+        else
         {
-            bool mounted = string.Equals(liveStatus.HeadsetState, "HEADSET_MOUNTED", StringComparison.OrdinalIgnoreCase);
-            bool virtualClose = string.Equals(liveStatus.VirtualState, "CLOSE", StringComparison.OrdinalIgnoreCase);
-            var autoSleepLabel = liveStatus.AutoSleepTimeMs is > 0
-                ? $"{liveStatus.AutoSleepTimeMs.Value / 1000d:0.#} s"
-                : "system default";
+            var powerEvidence = BuildHeadsetPowerEvidenceLabel(_headsetStatus);
+            var proximityContext = BuildHeadsetPowerProximityContext(tracked, liveStatus);
 
-            if (liveStatus.HoldActive)
+            if (IsHeadsetWakeBlockedByLockScreen())
             {
-                HeadsetAwakeLevel = OperationOutcomeKind.Success;
-                HeadsetAwakeSummary = liveStatus.HoldUntilUtc.HasValue
-                    ? $"Headset awake hold active; proximity sensor disabled until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
-                    : "Headset awake hold active; proximity sensor disabled.";
-                HeadsetAwakeDetail =
-                    $"Virtual proximity {liveStatus.VirtualState}. The proximity sensor is currently disabled. Headset state {liveStatus.HeadsetState}. Autosleep disabled {liveStatus.IsAutosleepDisabled}. Auto-sleep timer {autoSleepLabel}.";
-                return;
+                HeadsetAwakeLevel = OperationOutcomeKind.Warning;
+                HeadsetAwakeSummary = "Headset wake blocked by lock screen.";
+                HeadsetAwakeDetail = $"{powerEvidence} Quest woke into SensorLockActivity instead of returning to the previous app. Use Launch Study Runtime to resume Sussex from this state. {proximityContext}".Trim();
             }
-
-            if (mounted || virtualClose)
+            else if (_headsetStatus.IsInWakeLimbo)
+            {
+                HeadsetAwakeLevel = OperationOutcomeKind.Warning;
+                HeadsetAwakeSummary = "Headset in slumber state.";
+                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but a Meta visual blocker is still active, so the headset can stay black even though Android says it is awake. The companion now retries this state with a power-style wake cycle before reporting it, and study launches only proceed once the headset leaves that blocked shell state. {proximityContext}".Trim();
+            }
+            else if (_headsetStatus.IsAwake == true)
             {
                 HeadsetAwakeLevel = OperationOutcomeKind.Success;
                 HeadsetAwakeSummary = "Headset awake.";
-                HeadsetAwakeDetail =
-                    $"Virtual proximity {liveStatus.VirtualState}. Headset state {liveStatus.HeadsetState}. Autosleep disabled {liveStatus.IsAutosleepDisabled}. Auto-sleep timer {autoSleepLabel}.";
-                return;
+                HeadsetAwakeDetail = $"{powerEvidence} {proximityContext}".Trim();
             }
-
-            HeadsetAwakeLevel = OperationOutcomeKind.Warning;
-            HeadsetAwakeSummary = "Headset may sleep normally.";
-            HeadsetAwakeDetail =
-                $"Virtual proximity {liveStatus.VirtualState}. Headset state {liveStatus.HeadsetState}. Autosleep disabled {liveStatus.IsAutosleepDisabled}. Auto-sleep timer {autoSleepLabel}.";
-            return;
+            else if (_headsetStatus.IsAwake == false)
+            {
+                HeadsetAwakeLevel = OperationOutcomeKind.Warning;
+                HeadsetAwakeSummary = "Headset asleep.";
+                HeadsetAwakeDetail = $"{powerEvidence} {proximityContext} Any headset action button will wake the device before its command is sent.".Trim();
+            }
+            else
+            {
+                HeadsetAwakeLevel = OperationOutcomeKind.Preview;
+                HeadsetAwakeSummary = string.IsNullOrWhiteSpace(selector)
+                    ? "Awake status unavailable."
+                    : "Headset power state unavailable.";
+                HeadsetAwakeDetail = $"{powerEvidence} {proximityContext}".Trim();
+            }
         }
 
-        if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired)
-        {
-            var untilLocal = tracked.DisableUntilUtc?.ToLocalTime();
-            HeadsetAwakeLevel = OperationOutcomeKind.Warning;
-            HeadsetAwakeSummary = untilLocal.HasValue
-                ? $"Awake hold expected until {untilLocal.Value:HH:mm}."
-                : "Awake hold expected from companion.";
-            HeadsetAwakeDetail = "The companion last requested a proximity hold, but live vrpowermanager readback is unavailable right now.";
-            return;
-        }
-
-        HeadsetAwakeLevel = OperationOutcomeKind.Preview;
-        HeadsetAwakeSummary = "Awake status unavailable.";
-        HeadsetAwakeDetail = liveStatus?.StatusDetail ?? "vrpowermanager did not return a usable awake-state readback for the active headset selector.";
+        OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
+        OnPropertyChanged(nameof(StudyRuntimeActionLabel));
+        OnPropertyChanged(nameof(CanToggleHeadsetPower));
     }
 
     private async Task ApplyOutcomeAsync(string actionLabel, OperationOutcome outcome)
@@ -1818,6 +2306,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdateTestLslSenderCard();
         UpdateBenchToolsCardState();
         UpdateBenchRefreshTimerState();
+        OnPropertyChanged(nameof(CanToggleHeadsetPower));
+        OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
+        OnPropertyChanged(nameof(StudyRuntimeActionLabel));
         OnPropertyChanged(nameof(CanToggleProximity));
         OnPropertyChanged(nameof(CanToggleTestLslSender));
     }
@@ -2375,6 +2866,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? _liveProximitySelector
             : ResolveHzdbSelector();
         ProximityActionLabel = "Disable for 8h";
+        ProximityEvidenceLabel = "Latest readback n/a.";
         var tracked = _appSessionState.GetTrackedProximity(selector);
         var liveStatus = string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
             ? _liveProximityStatus
@@ -2387,6 +2879,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ProximityLevel = OperationOutcomeKind.Preview;
             ProximitySummary = "Proximity hold unavailable.";
             ProximityDetail = "Install or expose @meta-quest/hzdb before using the experiment-shell proximity hold.";
+            ProximityEvidenceLabel = "Latest readback unavailable because hzdb is not available.";
             return;
         }
 
@@ -2395,6 +2888,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ProximityLevel = OperationOutcomeKind.Preview;
             ProximitySummary = "Quest selector needed for proximity hold.";
             ProximityDetail = "Probe USB or connect the Quest first. The shell prefers the live ADB transport and falls back across saved Wi-Fi and USB selectors.";
+            ProximityEvidenceLabel = "Latest readback unavailable because no active headset selector is available.";
             return;
         }
 
@@ -2404,22 +2898,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (liveStatus?.Available == true)
         {
-            var readAt = liveStatus.RetrievedAtUtc.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
-            var autoSleepLabel = liveStatus.AutoSleepTimeMs.HasValue
-                ? $"{liveStatus.AutoSleepTimeMs.Value / 1000d:0.#}s"
-                : "n/a";
-            var stateLabel = string.IsNullOrWhiteSpace(liveStatus.HeadsetState) ? "unknown" : liveStatus.HeadsetState;
+            ProximityEvidenceLabel = BuildProximityEvidenceLabel(liveStatus);
+            var mountedCloseWithoutHold =
+                string.Equals(liveStatus.VirtualState, "CLOSE", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(liveStatus.HeadsetState, "HEADSET_MOUNTED", StringComparison.OrdinalIgnoreCase);
+            var controlInterpretation = BuildProximityControlInterpretation(liveStatus);
 
             if (liveStatus.HoldActive)
             {
                 ProximityLevel = OperationOutcomeKind.Success;
                 ProximityActionLabel = "Enable Proximity";
                 ProximitySummary = liveStatus.HoldUntilUtc.HasValue
-                    ? $"Proximity sensor disabled on headset until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
-                    : "Proximity sensor disabled on headset.";
+                    ? $"Proximity bypass active on headset until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
+                    : "Proximity bypass active on headset.";
                 ProximityDetail =
-                    $"Quest vrpowermanager reports virtual proximity {liveStatus.VirtualState} at {readAt}, so the proximity sensor is currently disabled and normal wear-sensor sleep is bypassed. " +
-                    $"Headset state {stateLabel}. Base auto-sleep {autoSleepLabel}. " +
+                    $"{controlInterpretation} Normal wear-sensor sleep is bypassed until the hold is cleared or expires. " +
                     (tracked.Known && !tracked.ExpectedEnabled && tracked.DisableUntilUtc.HasValue
                         ? $"Companion last requested a hold until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}."
                         : "Quest readback is authoritative even if the hold was toggled outside the companion.");
@@ -2427,10 +2920,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             }
 
             ProximityLevel = OperationOutcomeKind.Success;
-            ProximitySummary = "Proximity sensor enabled on headset.";
+            ProximitySummary = "Normal proximity sensor behavior is active.";
             ProximityDetail =
-                $"Quest vrpowermanager reports virtual proximity {liveStatus.VirtualState} at {readAt}, so normal wear-sensor behavior is active. " +
-                $"Headset state {stateLabel}. Base auto-sleep {autoSleepLabel}. " +
+                $"{controlInterpretation} " +
+                (mountedCloseWithoutHold
+                    ? "The current CLOSE readback reflects a normal mounted/on-face state, not a forced bypass. "
+                    : string.Empty) +
                 (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired
                     ? "The last companion-tracked hold is no longer active, which usually means the headset rebooted or proximity was re-enabled outside the companion."
                     : tracked.Known
@@ -2444,6 +2939,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ProximityLevel = OperationOutcomeKind.Warning;
             ProximitySummary = "Live proximity readback unavailable.";
             ProximityDetail = $"{liveStatus.StatusDetail} Falling back to companion-tracked proximity state.";
+            ProximityEvidenceLabel = "Latest readback unavailable; falling back to companion-tracked state.";
         }
 
         if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired && tracked.DisableUntilUtc.HasValue)
@@ -2813,7 +3309,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var selector = ResolveHzdbSelector();
         var tracked = _appSessionState.GetTrackedProximity(selector);
         var needsLiveRefresh = _testLslSignalService.IsRunning
-            || (_hzdbService.IsAvailable && !string.IsNullOrWhiteSpace(selector))
+            || (RegularAdbSnapshotEnabled && _hzdbService.IsAvailable && !string.IsNullOrWhiteSpace(selector))
             || (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired);
 
         if (needsLiveRefresh)
@@ -2833,7 +3329,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         RefreshBenchToolsStatus();
         UpdateLslCard();
-        _ = RefreshProximityStatusAsync();
+        var selector = ResolveHzdbSelector();
+        var tracked = _appSessionState.GetTrackedProximity(selector);
+        if (RegularAdbSnapshotEnabled || (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired))
+        {
+            _ = RefreshProximityStatusAsync();
+        }
     }
 
     private void OnTestLslSignalServiceStateChanged(object? sender, EventArgs e)
@@ -2916,24 +3417,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private string ResolveInitialApkPath()
     {
+        if (!string.IsNullOrWhiteSpace(_study.App.ApkPath) && File.Exists(_study.App.ApkPath))
+        {
+            return Path.GetFullPath(_study.App.ApkPath);
+        }
+
         var savedPath = _studySessionState.GetApkPath(_study.Id);
         if (!string.IsNullOrWhiteSpace(savedPath) && File.Exists(savedPath))
         {
             return Path.GetFullPath(savedPath);
         }
 
-        if (!string.IsNullOrWhiteSpace(_study.App.ApkPath) && File.Exists(_study.App.ApkPath))
-        {
-            return Path.GetFullPath(_study.App.ApkPath);
-        }
-
         return string.Empty;
     }
 
-    private string ResolveHzdbSelector()
-        => ResolveHzdbSelectorCandidates().FirstOrDefault() ?? string.Empty;
+    private string ResolveHeadsetActionSelector()
+        => ResolveHeadsetActionSelectorCandidates().FirstOrDefault() ?? string.Empty;
 
-    private IReadOnlyList<string> ResolveHzdbSelectorCandidates()
+    private IReadOnlyList<string> ResolveHeadsetActionSelectorCandidates()
     {
         var connectedSelector = _headsetStatus?.IsConnected == true ? _headsetStatus.ConnectionLabel : null;
         var endpointDraft = string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim();
@@ -2946,6 +3447,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         return candidates;
     }
+
+    private string ResolveHzdbSelector()
+        => ResolveHeadsetActionSelector();
+
+    private IReadOnlyList<string> ResolveHzdbSelectorCandidates()
+        => ResolveHeadsetActionSelectorCandidates();
 
     private async Task<QuestProximityStatus?> RefreshProximityStatusAsync(bool force = false)
     {

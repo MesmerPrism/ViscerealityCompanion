@@ -13,7 +13,8 @@ Do not submit private compute or orchestration code here. In particular:
 
 - do not add the coupled oscillator implementation
 - do not add private twin-mode runtime code
-- do not commit private APKs, study presets, or device-specific secrets
+- do not commit private APKs, unpublished study presets, or device-specific secrets
+- curated public study bundles that intentionally ship with the docs and release assets are acceptable when they are explicitly approved for this repo
 
 ## Local workflow
 

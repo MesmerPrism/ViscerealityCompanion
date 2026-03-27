@@ -26,7 +26,9 @@ public sealed class WindowsHzdbService : IHzdbService
     private static readonly Regex VrPowerManagerAutosleepDisabledRegex = new(@"^isAutosleepDisabled:\s*(true|false)$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
     private static readonly Regex VrPowerManagerAutoSleepTimeRegex = new(@"^AutoSleepTime:\s*(\d+)\s*ms$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
     private static readonly Regex VrPowerManagerHeadsetStateRegex = new(@"^State:\s*(.+)$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
-    private static readonly Regex VrPowerManagerProxCloseRegex = new(@"^\s*\d+(?:\.\d+)?s \(([\d\.]+)s ago\) - received com\.oculus\.vrpowermanager\.prox_close broadcast: duration=(\d+)", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerBroadcastRegex = new(
+        @"^\s*\d+(?:\.\d+)?s \(([\d\.]+)s ago\) - received com\.oculus\.vrpowermanager\.(prox_close|automation_disable) broadcast: duration=(\d+)",
+        RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
     private readonly Lazy<string?> _npxCommandPath;
     private readonly Lazy<bool> _available;
 
@@ -248,8 +250,9 @@ public sealed class WindowsHzdbService : IHzdbService
         var autoSleepTimeMs = int.TryParse(MatchValue(VrPowerManagerAutoSleepTimeRegex, rawOutput), NumberStyles.Integer, CultureInfo.InvariantCulture, out var autoSleepMs)
             ? autoSleepMs
             : (int?)null;
-        var holdActive = !string.Equals(virtualState, "DISABLED", StringComparison.OrdinalIgnoreCase);
-        var holdUntilUtc = holdActive && TryParseHoldUntilUtc(rawOutput, observedAtUtc, out var parsedHoldUntilUtc)
+        var latestBroadcast = TryParseLatestBroadcast(rawOutput);
+        var holdActive = latestBroadcast is { Action: "prox_close", DurationMs: > 0 };
+        var holdUntilUtc = holdActive && latestBroadcast is { } broadcast && TryComputeHoldUntilUtc(broadcast, observedAtUtc, out var parsedHoldUntilUtc)
             ? (DateTimeOffset?)parsedHoldUntilUtc
             : null;
 
@@ -262,7 +265,10 @@ public sealed class WindowsHzdbService : IHzdbService
             AutoSleepTimeMs: autoSleepTimeMs,
             RetrievedAtUtc: observedAtUtc,
             HoldUntilUtc: holdUntilUtc,
-            StatusDetail: "Read from adb shell dumpsys vrpowermanager.");
+            StatusDetail: "Read from adb shell dumpsys vrpowermanager.",
+            LastBroadcastAction: latestBroadcast?.Action ?? string.Empty,
+            LastBroadcastDurationMs: latestBroadcast?.DurationMs,
+            LastBroadcastAgeSeconds: latestBroadcast?.AgeSeconds);
         return true;
     }
 
@@ -542,29 +548,46 @@ public sealed class WindowsHzdbService : IHzdbService
     private static OperationOutcome Outcome(OperationOutcomeKind kind, string summary, string detail)
         => new(kind, summary, string.IsNullOrWhiteSpace(detail) ? string.Empty : detail);
 
-    private static bool TryParseHoldUntilUtc(string rawOutput, DateTimeOffset observedAtUtc, out DateTimeOffset holdUntilUtc)
+    private static bool TryComputeHoldUntilUtc(ProximityBroadcastInfo broadcast, DateTimeOffset observedAtUtc, out DateTimeOffset holdUntilUtc)
     {
         holdUntilUtc = default;
-        var match = VrPowerManagerProxCloseRegex.Match(rawOutput);
-        if (!match.Success)
+        if (!string.Equals(broadcast.Action, "prox_close", StringComparison.OrdinalIgnoreCase) || broadcast.DurationMs <= 0)
             return false;
 
-        if (!double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ageSeconds) ||
-            !double.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var durationMs))
-        {
-            return false;
-        }
-
-        if (durationMs <= 0)
-            return false;
-
-        var eventTimeUtc = observedAtUtc - TimeSpan.FromSeconds(Math.Max(0, ageSeconds));
-        var candidate = eventTimeUtc.AddMilliseconds(durationMs);
+        var eventTimeUtc = observedAtUtc - TimeSpan.FromSeconds(Math.Max(0, broadcast.AgeSeconds));
+        var candidate = eventTimeUtc.AddMilliseconds(broadcast.DurationMs);
         if (candidate <= observedAtUtc)
             return false;
 
         holdUntilUtc = candidate;
         return true;
+    }
+
+    private static ProximityBroadcastInfo? TryParseLatestBroadcast(string rawOutput)
+    {
+        ProximityBroadcastInfo? latest = null;
+
+        foreach (Match match in VrPowerManagerBroadcastRegex.Matches(rawOutput))
+        {
+            if (!match.Success ||
+                !double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ageSeconds) ||
+                !int.TryParse(match.Groups[3].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var durationMs))
+            {
+                continue;
+            }
+
+            var candidate = new ProximityBroadcastInfo(
+                match.Groups[2].Value.Trim(),
+                ageSeconds,
+                durationMs);
+
+            if (latest is null || candidate.AgeSeconds < latest.AgeSeconds)
+            {
+                latest = candidate;
+            }
+        }
+
+        return latest;
     }
 
     private static string? MatchValue(Regex regex, string input)
@@ -577,6 +600,11 @@ public sealed class WindowsHzdbService : IHzdbService
     {
         public string Combined => string.IsNullOrWhiteSpace(StdErr) ? StdOut : $"{StdOut}\n{StdErr}";
     }
+
+    private sealed record ProximityBroadcastInfo(
+        string Action,
+        double AgeSeconds,
+        int DurationMs);
 }
 
 public sealed class PreviewHzdbService : IHzdbService

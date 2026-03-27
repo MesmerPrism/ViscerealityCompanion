@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ViscerealityCompanion.PreviewInstaller</RootNamespace>
+    <AssemblyName>ViscerealityCompanion.PreviewInstaller</AssemblyName>
+    <Description>Guided bootstrapper for installing the Viscereality Companion research preview on Windows.</Description>
+    <ApplicationIcon>..\ViscerealityCompanion.App\Assets\viscereality-companion.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+</Project>

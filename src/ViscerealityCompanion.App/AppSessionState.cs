@@ -9,7 +9,8 @@ internal sealed record AppSessionState(
     string? LastProximitySelector = null,
     bool? LastProximityExpectedEnabled = null,
     DateTimeOffset? LastProximityDisableUntilUtc = null,
-    DateTimeOffset? LastProximityUpdatedAtUtc = null)
+    DateTimeOffset? LastProximityUpdatedAtUtc = null,
+    bool RegularAdbSnapshotEnabled = false)
 {
     private static readonly string SessionDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -96,6 +97,9 @@ internal sealed record AppSessionState(
             UpdatedAtUtc: LastProximityUpdatedAtUtc,
             DisableWindowExpired: false);
     }
+
+    public AppSessionState WithRegularAdbSnapshotEnabled(bool enabled)
+        => this with { RegularAdbSnapshotEnabled = enabled };
 
     private static AppSessionState? TryLoad(string path)
     {

@@ -14,3 +14,8 @@ falls back to any broader AstralKarateDojo workspace on the same machine.
 Only the current `LslTwin` app target and one scene-matched hotload baseline
 ship here, so stale APK or profile entries from older internal experiments do
 not leak into the public operator shell by default.
+
+The committed `APKs/LslTwin.apk` currently mirrors the pinned Sussex
+controller-breathing build. That keeps the packaged Windows install and the
+Sussex study shell self-contained: the app bundle already has the APK it needs
+for `Install Pinned Build`.

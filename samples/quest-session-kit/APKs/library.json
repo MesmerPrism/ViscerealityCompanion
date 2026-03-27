@@ -7,7 +7,7 @@
       "apkFile": "LslTwin.apk",
       "launchComponent": "",
       "browserPackageId": "com.oculus.browser",
-      "description": "Current public Viscereality Quest runtime. It publishes quest_twin_state, accepts quest_twin_commands, and exposes the public runtime-config surface tracked by the Windows app.",
+      "description": "Bundled Sussex-compatible Viscereality Quest runtime. It matches the pinned Sussex study shell build, publishes quest_twin_state, accepts quest_twin_commands, and exposes the public runtime-config surface tracked by the Windows app.",
       "tags": [
         "viscereality",
         "runtime",

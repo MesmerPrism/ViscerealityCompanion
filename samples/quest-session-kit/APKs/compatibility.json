@@ -1,3 +1,17 @@
 {
-  "apps": []
+  "apps": [
+    {
+      "sha256": "1E2344DA34CBF22BA45BE129C7F7B0B45ED6B321154D0120889543B99D1D81C2",
+      "status": "compatible",
+      "label": "Sussex LslTwin build",
+      "notes": "Bundled Sussex controller-breathing runtime. Matches the pinned Sussex study shell hash.",
+      "tags": [
+        "viscereality",
+        "runtime",
+        "lsl",
+        "twin",
+        "sussex"
+      ]
+    }
+  ]
 }

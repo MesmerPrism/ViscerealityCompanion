@@ -70,12 +70,13 @@ This is the **public** repo. It ships:
 - LSL monitoring and outlet services (real Windows P/Invoke + preview mock)
 - Twin mode command/state bridge (public contract + LSL transport)
 - Sample configs, onboarding docs, CI/release automation
+- Curated public study bundles when the packaged Windows install depends on them
 
 It does **not** ship:
 
 - Coupled oscillator dynamics runtime
 - Private twin orchestration backend
-- Private APKs or study presets
+- Private APKs or unpublished study presets
 - Study-locked runtime configurations
 
 ### Service Abstraction Pattern
@@ -150,7 +151,7 @@ when unsigned repo assemblies are loaded. Use
 `powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1`
 for the companion app, or publish manually with
 `dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false`.
-To refresh the desktop shortcut onto that safe launcher path, run
+To refresh the Desktop/Start Menu shortcut onto that safe launcher path, run
 `powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Desktop-Launcher.ps1`.
 
 ## Available Skills

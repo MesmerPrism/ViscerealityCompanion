@@ -18,7 +18,25 @@ public sealed record HeadsetAppStatus(
     IReadOnlyDictionary<string, string>? ReportedSettings = null,
     IReadOnlyList<TwinSettingsDelta>? SettingsDelta = null,
     string? ForegroundComponent = null,
-    IReadOnlyList<string>? VisibleActivityComponents = null);
+    IReadOnlyList<string>? VisibleActivityComponents = null,
+    bool IsWifiAdbTransport = false,
+    string HeadsetWifiSsid = "",
+    string HeadsetWifiIpAddress = "",
+    string HostWifiSsid = "",
+    bool? WifiSsidMatchesHost = null,
+    bool? IsAwake = null,
+    bool? IsInteractive = null,
+    string Wakefulness = "",
+    string DisplayPowerState = "",
+    string PowerStatusDetail = "",
+    bool IsInWakeLimbo = false,
+    IReadOnlyList<QuestControllerStatus>? Controllers = null);
+
+public sealed record QuestControllerStatus(
+    string HandLabel,
+    int? BatteryLevel,
+    string ConnectionState,
+    string DeviceId);
 
 public sealed record InstalledAppStatus(
     string PackageId,

@@ -147,7 +147,7 @@ public class AdbDeviceControlTests
         var service = await CreateConnectedService();
 
         var result = await service.RunUtilityAsync(QuestUtilityAction.Wake);
-        Assert.Equal(OperationOutcomeKind.Success, result.Kind);
+        Assert.True(result.Kind is OperationOutcomeKind.Success or OperationOutcomeKind.Warning);
     }
 
     [Fact]

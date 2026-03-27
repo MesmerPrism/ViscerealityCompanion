@@ -28,6 +28,10 @@ public sealed class HzdbServiceTests
         Assert.Equal(15000, status.AutoSleepTimeMs);
         Assert.False(status.IsAutosleepDisabled);
         Assert.True(status.HoldUntilUtc.HasValue);
+        Assert.Equal("prox_close", status.LastBroadcastAction);
+        Assert.Equal(28800000, status.LastBroadcastDurationMs);
+        Assert.NotNull(status.LastBroadcastAgeSeconds);
+        Assert.InRange(status.LastBroadcastAgeSeconds!.Value, 5.28d, 5.30d);
         Assert.Equal(
             observedAtUtc.AddHours(8).AddSeconds(-5.29),
             status.HoldUntilUtc!.Value,
@@ -55,6 +59,62 @@ public sealed class HzdbServiceTests
         Assert.False(status.HoldActive);
         Assert.Equal("DISABLED", status.VirtualState);
         Assert.Equal("WAITING_FOR_SLEEP_MSG", status.HeadsetState);
+        Assert.Equal("automation_disable", status.LastBroadcastAction);
+        Assert.Equal(0, status.LastBroadcastDurationMs);
+        Assert.NotNull(status.LastBroadcastAgeSeconds);
+        Assert.InRange(status.LastBroadcastAgeSeconds!.Value, 0.25d, 0.27d);
+        Assert.Null(status.HoldUntilUtc);
+    }
+
+    [Fact]
+    public void TryParseQuestProximityStatus_treats_close_without_duration_as_normal_sensor_state()
+    {
+        var observedAtUtc = new DateTimeOffset(2026, 03, 27, 08, 40, 05, TimeSpan.Zero);
+        var rawOutput = """
+            Virtual proximity state: CLOSE
+            isAutosleepDisabled: false
+            AutoSleepTime: 15000 ms
+            State: HEADSET_MOUNTED
+            Device idle state: Idle
+            Event log:
+              8139.75s (5.00s ago) - received com.oculus.vrpowermanager.prox_close broadcast: duration=0
+            """;
+
+        var parsed = WindowsHzdbService.TryParseQuestProximityStatus(rawOutput, observedAtUtc, out var status);
+
+        Assert.True(parsed);
+        Assert.True(status.Available);
+        Assert.False(status.HoldActive);
+        Assert.Equal("CLOSE", status.VirtualState);
+        Assert.Equal("HEADSET_MOUNTED", status.HeadsetState);
+        Assert.Equal("prox_close", status.LastBroadcastAction);
+        Assert.Equal(0, status.LastBroadcastDurationMs);
+        Assert.Null(status.HoldUntilUtc);
+    }
+
+    [Fact]
+    public void TryParseQuestProximityStatus_uses_newest_relevant_broadcast()
+    {
+        var observedAtUtc = new DateTimeOffset(2026, 03, 27, 08, 40, 05, TimeSpan.Zero);
+        var rawOutput = """
+            Virtual proximity state: DISABLED
+            isAutosleepDisabled: false
+            AutoSleepTime: 15000 ms
+            State: STANDBY
+            Device idle state: Idle
+            Event log:
+              8120.75s (24.00s ago) - received com.oculus.vrpowermanager.prox_close broadcast: duration=600000
+              8139.75s (5.00s ago) - received com.oculus.vrpowermanager.automation_disable broadcast: duration=0
+            """;
+
+        var parsed = WindowsHzdbService.TryParseQuestProximityStatus(rawOutput, observedAtUtc, out var status);
+
+        Assert.True(parsed);
+        Assert.False(status.HoldActive);
+        Assert.Equal("automation_disable", status.LastBroadcastAction);
+        Assert.Equal(0, status.LastBroadcastDurationMs);
+        Assert.NotNull(status.LastBroadcastAgeSeconds);
+        Assert.InRange(status.LastBroadcastAgeSeconds!.Value, 4.99d, 5.01d);
         Assert.Null(status.HoldUntilUtc);
     }
 

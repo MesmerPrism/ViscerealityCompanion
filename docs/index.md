@@ -1,6 +1,6 @@
 ---
 title: Docs Home
-description: Start here if you need the Windows operator app for installing, launching, monitoring, and remotely supervising a supplied Quest build.
+description: Start here if you need the Windows operator app for installing, launching, monitoring, and remotely supervising a bundled Sussex build or another supplied Quest build.
 summary: Use the packaged app or repo build to get from Quest headset to monitored live session first. The detailed tabs and CLI come after the operator path is clear.
 nav_label: Docs Home
 nav_group: Start Here
@@ -23,7 +23,7 @@ watch live state, and keep session control on the operator side.
 
 ## Use This Repo When You Need To
 
-- install a supplied APK directly onto a Quest from Windows
+- install the bundled Sussex APK or another supplied study APK directly from Windows
 - set Quest CPU and GPU levels before or during a session
 - launch the study app and confirm the foreground package
 - watch `quest_monitor`, twin-state, and operator log output
@@ -47,7 +47,7 @@ Use these three pages in order:
   </a>
   <a class="path-card" href="first-session.md">
     <h3>First Session</h3>
-    <p>Connect Quest, install the supplied APK, launch it, and verify live monitoring in one pass.</p>
+    <p>Connect Quest, install the bundled Sussex APK or another supplied study APK, launch it, and verify live monitoring in one pass.</p>
   </a>
   <a class="path-card" href="runtime-config.md">
     <h3>Runtime Config</h3>

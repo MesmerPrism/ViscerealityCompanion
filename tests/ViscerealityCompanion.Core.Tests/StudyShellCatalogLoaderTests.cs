@@ -15,6 +15,8 @@ public sealed class StudyShellCatalogLoaderTests
             var catalog = await loader.LoadAsync(root);
 
             Assert.Equal("Public study shells", catalog.Source.Label);
+            Assert.Equal("sussex-university", catalog.LaunchOptions.StartupStudyId);
+            Assert.True(catalog.LaunchOptions.LockToStartupStudy);
             var study = Assert.Single(catalog.Studies);
             Assert.Equal("sussex-university", study.Id);
             Assert.Equal("com.Viscereality.LslTwin", study.App.PackageId);
@@ -63,6 +65,8 @@ public sealed class StudyShellCatalogLoaderTests
             """
             {
               "label": "Public study shells",
+              "startupStudyId": "sussex-university",
+              "lockToStartupStudy": true,
               "studies": [
                 { "file": "sussex.json" }
               ]

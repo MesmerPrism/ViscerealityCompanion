@@ -100,6 +100,26 @@ public sealed class AdbShellSupportTests
     }
 
     [Fact]
+    public void ParseForegroundSnapshot_prefers_authoritative_focused_component_over_historical_visible_entries()
+    {
+        const string output = """
+        topResumedActivity=ActivityRecord{c61340f u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity t5749}
+        topResumedActivity=ActivityRecord{f3d8c93 u0 com.oculus.os.vrlockscreen/.SensorLockActivity t5709}
+        ResumedActivity: ActivityRecord{c61340f u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity t5749}
+        mCurrentFocus=Window{461264c u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity}
+        mFocusedApp=ActivityRecord{c61340f u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity t5749}
+        """;
+
+        var snapshot = AdbShellSupport.ParseForegroundSnapshot(output);
+
+        Assert.NotNull(snapshot);
+        Assert.Equal("com.Viscereality.LslTwin", snapshot!.PackageId);
+        Assert.Equal("com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity", snapshot.PrimaryComponent);
+        Assert.Equal(2, snapshot.VisibleComponents.Count);
+        Assert.Contains("com.oculus.os.vrlockscreen/.SensorLockActivity", snapshot.VisibleComponents);
+    }
+
+    [Fact]
     public void ParseForegroundPackage_ExtractsFromTopFullscreen()
     {
         const string output = """

@@ -463,17 +463,22 @@
                                 Visibility="{Binding ShowStudyModeAction, Converter={StaticResource BoolToVisibility}}" />
                         <Button Content="Exit Study Mode"
                                 Command="{Binding ExitStudyModeCommand}"
-                                Visibility="{Binding HasActiveStudyShell, Converter={StaticResource BoolToVisibility}}" />
+                                Visibility="{Binding CanExitStudyMode, Converter={StaticResource BoolToVisibility}}" />
                         <CheckBox Content="Remote-only research control"
                                   Margin="0,6,10,0"
-                                  IsChecked="{Binding RemoteOnlyControlEnabled}" />
-                        <Button Content="Refresh Snapshot" Command="{Binding RefreshHeadsetStatusCommand}" />
-                        <Button Content="Refresh Active App" Command="{Binding RefreshForegroundCommand}" />
+                                  IsChecked="{Binding RemoteOnlyControlEnabled}"
+                                  Visibility="{Binding ShowOperatorHeaderUtilities, Converter={StaticResource BoolToVisibility}}" />
+                        <Button Content="Refresh Snapshot"
+                                Command="{Binding RefreshHeadsetStatusCommand}"
+                                Visibility="{Binding ShowOperatorHeaderUtilities, Converter={StaticResource BoolToVisibility}}" />
+                        <Button Content="Refresh Active App"
+                                Command="{Binding RefreshForegroundCommand}"
+                                Visibility="{Binding ShowOperatorHeaderUtilities, Converter={StaticResource BoolToVisibility}}" />
                     </WrapPanel>
                 </Grid>
 
                 <Grid Grid.Row="2"
-                      Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                      Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="10" />
@@ -595,15 +600,39 @@
                                        TextWrapping="NoWrap"
                                        TextTrimming="CharacterEllipsis" />
                             <TextBlock Text="{Binding ActiveStudyShell.HeadsetAwakeSummary}"
+                                       FontWeight="SemiBold"
                                        Style="{StaticResource MicroCaptionStyle}"
                                        Margin="0,4,0,0"
                                        Foreground="{Binding ActiveStudyShell.HeadsetAwakeLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                        TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.HeadsetBatteryLabel}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       Foreground="{Binding ActiveStudyShell.BatteryPercent, Converter={StaticResource BatteryToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.HeadsetSnapshotModeSummary}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       Foreground="{Binding ActiveStudyShell.HeadsetSnapshotModeLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.DeviceSnapshotTimestampLabel}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap" />
+                            <CheckBox Content="Regular ADB readouts"
+                                      Margin="0,8,0,0"
+                                      Foreground="{Binding ActiveStudyShell.HeadsetSnapshotModeLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                      IsChecked="{Binding ActiveStudyShell.RegularAdbSnapshotEnabled}" />
                             <WrapPanel Margin="0,8,0,0">
-                                <Button Content="Launch Study Runtime"
-                                        Command="{Binding ActiveStudyShell.LaunchStudyAppCommand}" />
-                                <Button Content="Stop Study Runtime"
-                                        Command="{Binding ActiveStudyShell.StopStudyAppCommand}" />
+                                <Button Content="Refresh Snapshot"
+                                        Command="{Binding ActiveStudyShell.RefreshDeviceSnapshotCommand}" />
+                                <Button Content="{Binding ActiveStudyShell.HeadsetAwakeActionLabel}"
+                                        Command="{Binding ActiveStudyShell.ToggleHeadsetPowerCommand}"
+                                        IsEnabled="{Binding ActiveStudyShell.CanToggleHeadsetPower}" />
+                            </WrapPanel>
+                            <WrapPanel Margin="0,8,0,0">
+                                <Button Content="{Binding ActiveStudyShell.StudyRuntimeActionLabel}"
+                                        Command="{Binding ActiveStudyShell.ToggleStudyRuntimeCommand}" />
                             </WrapPanel>
                             <Expander Style="{StaticResource CompactStatusExpanderStyle}">
                                 <Expander.Header>
@@ -612,6 +641,15 @@
                                 <StackPanel Margin="0,6,0,0">
                                     <TextBlock Text="{Binding ActiveStudyShell.ConnectionSummary}"
                                                Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.ConnectionTransportSummary}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetWifiSummary}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.DeviceSnapshotTimestampLabel}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,6,0,0" />
                                     <TextBlock Text="{Binding ActiveStudyShell.HeadsetAwakeDetail}"
                                                Style="{StaticResource MicroCaptionStyle}"
                                                Margin="0,6,0,0" />
@@ -740,7 +778,7 @@
                 Margin="0,12,0,0"
                 Style="{StaticResource PanelBorderStyle}"
                 Padding="12"
-                Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -866,8 +904,25 @@
                                               DataContext="{Binding ActiveStudyShell}" />
                     </Grid>
 
+                    <Border Margin="0,8,0,0"
+                            Style="{StaticResource PanelBorderStyle}"
+                            Visibility="{Binding ShowStudyShellStartupLoading, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding LockedStudyShellStartupLabel}"
+                                       Style="{StaticResource SectionTitleStyle}" />
+                            <TextBlock Text="{Binding LockedStudyShellStartupDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding StudyShellCatalogSourcePath}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,10,0,0"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                                  Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
                     <Grid Margin="4,16,4,6">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -1151,7 +1206,7 @@
             </TabItem>
 
             <TabItem Header="Session"
-                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                     Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                         <Grid.ColumnDefinitions>
@@ -1365,7 +1420,7 @@
             </TabItem>
 
             <TabItem Header="Quest Library"
-                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                     Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                         <Grid.ColumnDefinitions>
@@ -1518,7 +1573,7 @@
             </TabItem>
 
             <TabItem Header="Runtime Config"
-                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                     Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
                 <Grid Margin="4,16,4,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="340" />
@@ -1629,7 +1684,7 @@
             </TabItem>
 
             <TabItem Header="Twin Monitor"
-                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                     Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                     <Grid.RowDefinitions>
@@ -1939,7 +1994,7 @@
             </TabItem>
 
             <TabItem Header="LSL Monitor"
-                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                     Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                     <Grid.ColumnDefinitions>
@@ -2025,7 +2080,7 @@
             </TabItem>
 
             <TabItem Header="Diagnostics"
-                     Visibility="{Binding HasActiveStudyShell, Converter={StaticResource InverseBoolToVisibility}}">
+                     Visibility="{Binding ShowStandardOperatorSurface, Converter={StaticResource BoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Grid Margin="4,16,4,6">
                     <Grid.ColumnDefinitions>

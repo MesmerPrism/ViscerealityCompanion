@@ -196,7 +196,17 @@ public sealed class PreviewQuestControlService : IQuestControlService
             RemoteOnlyControlEnabled: remoteOnlyControlEnabled,
             Timestamp: DateTimeOffset.UtcNow,
             Summary: "Preview status available.",
-            Detail: "Attach the Windows ADB backend to read live foreground, install state, battery, and CPU/GPU levels from the headset."));
+            Detail: "Attach the Windows ADB backend to read live foreground, install state, battery, CPU/GPU levels, and power state from the headset.",
+            IsAwake: true,
+            IsInteractive: true,
+            Wakefulness: "Awake",
+            DisplayPowerState: "ON",
+            PowerStatusDetail: "wakefulness Awake; interactive true; display ON",
+            Controllers:
+            [
+                new QuestControllerStatus("Left", 88, "CONNECTED_ACTIVE", "preview-left"),
+                new QuestControllerStatus("Right", 91, "CONNECTED_ACTIVE", "preview-right")
+            ]));
 
     public Task<OperationOutcome> RunUtilityAsync(QuestUtilityAction action, CancellationToken cancellationToken = default)
         => Task.FromResult(Preview(

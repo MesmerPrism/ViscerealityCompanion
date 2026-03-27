@@ -14,7 +14,7 @@ internal static partial class AdbShellSupport
         => $"am force-stop {Quote(packageId)}";
 
     public static string BuildExplicitLaunchCommand(string component)
-        => $"am start -W -n {Quote(component)}";
+        => $"am start -n {Quote(component)}";
 
     public static string BuildMonkeyLaunchCommand(string packageId)
         => $"monkey -p {Quote(packageId)} -c android.intent.category.LAUNCHER 1";
@@ -33,25 +33,39 @@ internal static partial class AdbShellSupport
 
     public static ForegroundAppSnapshot? ParseForegroundSnapshot(string output)
     {
+        var primaryComponent = ParsePrimaryForegroundComponent(output);
         var visibleComponents = ParseVisibleActivityComponents(output);
+        if (!string.IsNullOrWhiteSpace(primaryComponent))
+        {
+            return BuildSnapshot(
+                primaryComponent,
+                visibleComponents.Count > 0
+                    ? visibleComponents
+                    : [primaryComponent]);
+        }
+
         if (visibleComponents.Count > 0)
         {
             return BuildSnapshot(visibleComponents[0], visibleComponents);
         }
 
-        foreach (var pattern in ForegroundPatterns())
+        return null;
+    }
+
+    private static string? ParsePrimaryForegroundComponent(string output)
+    {
+        foreach (var pattern in PrimaryForegroundPatterns())
         {
             var match = pattern.Match(output);
             if (match.Success)
             {
                 var packageId = match.Groups["package"].Value;
                 var activityName = match.Groups["activity"].Value;
-                var component = BuildComponent(packageId, activityName);
-                return new ForegroundAppSnapshot(packageId, activityName, component, [component]);
+                return BuildComponent(packageId, activityName);
             }
         }
 
-        return null;
+        return string.Empty;
     }
 
     public static IReadOnlyList<string> ParseVisibleActivityComponents(string output)
@@ -101,23 +115,35 @@ internal static partial class AdbShellSupport
     public static string Collapse(string value)
         => string.Join(" ", value.Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
 
-    [GeneratedRegex(@"(?:topResumedActivity|mResumedActivity|ResumedActivity).*\s(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
-    private static partial Regex ForegroundPattern1();
+    [GeneratedRegex(@"(?:ResumedActivity:|Resumed:\s+ActivityRecord\{[^}]*\s)(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
+    private static partial Regex PrimaryForegroundPattern1();
 
     [GeneratedRegex(@"mCurrentFocus=Window\{[^}]*\s(?<package>[A-Za-z0-9_\.]+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
-    private static partial Regex ForegroundPattern2();
+    private static partial Regex PrimaryForegroundPattern2();
 
     [GeneratedRegex(@"mFocusedApp=.*\s(?<package>[A-Za-z0-9_\.]+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
-    private static partial Regex ForegroundPattern3();
+    private static partial Regex PrimaryForegroundPattern3();
+
+    [GeneratedRegex(@"mFocusedWindow=Window\{[^}]*\s(?<package>[A-Za-z0-9_\.]+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
+    private static partial Regex PrimaryForegroundPattern4();
 
     [GeneratedRegex(@"mTopFullscreenOpaqueOrDimmingWindowState.*\s(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
-    private static partial Regex ForegroundPattern4();
+    private static partial Regex PrimaryForegroundPattern5();
+
+    [GeneratedRegex(@"mTopFullscreenOpaqueWindowState.*\s(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
+    private static partial Regex PrimaryForegroundPattern6();
 
     [GeneratedRegex(@"mCurrentFocus=Window\{[^}]*\s(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+){2,})\}", RegexOptions.Compiled)]
-    private static partial Regex ForegroundPattern5();
+    private static partial Regex PrimaryForegroundPattern7();
+
+    [GeneratedRegex(@"mResumedActivity:?\s*ActivityRecord\{[^}]*\s(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
+    private static partial Regex PrimaryForegroundPattern8();
+
+    [GeneratedRegex(@"topResumedActivity=ActivityRecord\{[^}]*\s(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)\s+t\d+\}", RegexOptions.Compiled)]
+    private static partial Regex PrimaryForegroundPattern9();
 
     [GeneratedRegex(@"Window\s+#\d+\s+Window\{[^}]*\su\d+\s(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)\}:", RegexOptions.Compiled)]
-    private static partial Regex ForegroundPattern6();
+    private static partial Regex PrimaryForegroundPattern10();
 
     [GeneratedRegex(@"topResumedActivity=ActivityRecord\{[^}]*\s(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)\s+t\d+\}", RegexOptions.Compiled)]
     private static partial Regex VisibleActivityPattern();
@@ -125,8 +151,19 @@ internal static partial class AdbShellSupport
     [GeneratedRegex(@"level:\s*(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex BatteryLevelPattern();
 
-    private static IReadOnlyList<Regex> ForegroundPatterns()
-        => [ForegroundPattern1(), ForegroundPattern2(), ForegroundPattern3(), ForegroundPattern4(), ForegroundPattern5(), ForegroundPattern6()];
+    private static IReadOnlyList<Regex> PrimaryForegroundPatterns()
+        => [
+            PrimaryForegroundPattern1(),
+            PrimaryForegroundPattern2(),
+            PrimaryForegroundPattern3(),
+            PrimaryForegroundPattern4(),
+            PrimaryForegroundPattern5(),
+            PrimaryForegroundPattern6(),
+            PrimaryForegroundPattern8(),
+            PrimaryForegroundPattern9(),
+            PrimaryForegroundPattern10(),
+            PrimaryForegroundPattern7()
+        ];
 
     private static ForegroundAppSnapshot? BuildSnapshot(string component, IReadOnlyList<string> visibleComponents)
     {

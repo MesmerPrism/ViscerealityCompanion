@@ -97,7 +97,10 @@ public sealed class StudyShellCatalogLoader
 
         return new StudyShellCatalog(
             new StudyShellSource(manifest.Label ?? "Study shells", fullRoot),
-            studies);
+            studies,
+            new StudyShellLaunchOptions(
+                manifest.StartupStudyId?.Trim() ?? string.Empty,
+                manifest.LockToStartupStudy));
     }
 
     private static IReadOnlyList<string> CloneList(string[]? values)
@@ -123,6 +126,12 @@ public sealed class StudyShellCatalogLoader
     {
         [JsonPropertyName("label")]
         public string? Label { get; init; }
+
+        [JsonPropertyName("startupStudyId")]
+        public string? StartupStudyId { get; init; }
+
+        [JsonPropertyName("lockToStartupStudy")]
+        public bool LockToStartupStudy { get; init; }
 
         [JsonPropertyName("studies")]
         public StudyShellItemDto[] Studies { get; init; } = Array.Empty<StudyShellItemDto>();

@@ -40,6 +40,15 @@ public static class QuestShellOverlayClassifier
 
         if (string.Equals(packageId, "com.oculus.vrshell", StringComparison.OrdinalIgnoreCase))
         {
+            if (activityName.Contains("FocusPlaceholderActivity", StringComparison.OrdinalIgnoreCase))
+            {
+                return new QuestShellOverlayClassification(
+                    "Meta shell placeholder active",
+                    "Quest shell focus moved into FocusPlaceholderActivity. This usually means a Meta menu or control-bar transition intercepted the runtime, and if it persists while the study app keeps publishing quest_twin_state the menu is likely blocked or not visibly surfaced.",
+                    OperationOutcomeKind.Warning,
+                    true);
+            }
+
             if (activityName.Contains("ControlBarActivity", StringComparison.OrdinalIgnoreCase))
             {
                 return new QuestShellOverlayClassification(

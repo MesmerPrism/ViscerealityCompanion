@@ -37,7 +37,9 @@ powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1
 ```
 
 That path publishes a single-file `win-x64` app into
-`artifacts/publish/ViscerealityCompanion.App/` and launches it.
+`artifacts/publish/ViscerealityCompanion.App/`, prunes stale repo-local
+`ViscerealityCompanion.exe` copies, refreshes the canonical Desktop/Start Menu
+launcher, and launches the verified build.
 
 The app runs against the committed sample session-kit catalogs under
 `samples/quest-session-kit/` and the public runtime-config profiles under
