@@ -122,7 +122,7 @@ Before the participant starts, a good operator state is:
 - the Quest is connected over USB or Wi-Fi ADB
 - the intended study APK is selected and installed
 - the headset reports the study runtime in front
-- the pinned device profile has been applied
+- the study device profile has been applied
 - the live runtime or study shell shows fresh twin-state timestamps
 
 ## 7. End Session
@@ -138,7 +138,7 @@ viscereality twin send twin-pause
 ## Sussex-Specific Operator Notes
 
 - the dedicated Sussex package is meant to reduce researcher mistakes by hiding the broader operator tabs
-- the bundled APK and pinned device profile should already match each other
+- the bundled APK and study device profile should already match each other
 - the top status cards should be treated as the main pre-session checklist
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 
