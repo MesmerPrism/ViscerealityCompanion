@@ -288,6 +288,32 @@ public sealed class WindowsAdbQuestControlServiceTests
     }
 
     [Fact]
+    public void EvaluateWakeReadiness_keeps_home_shell_awake_when_focus_placeholder_is_only_visible_companion_layer()
+    {
+        var powerStatus = new WindowsAdbQuestControlService.QuestPowerStatus(
+            "Awake",
+            true,
+            "ON",
+            true,
+            "wakefulness Awake; interactive true; display ON");
+        var snapshot = new AdbShellSupport.ForegroundAppSnapshot(
+            "com.oculus.vrshell",
+            ".HomeActivity",
+            "com.oculus.vrshell/.HomeActivity",
+            [
+                "com.oculus.vrshell/.HomeActivity",
+                "com.oculus.vrshell/.FocusPlaceholderActivity",
+                "com.oculus.systemux/com.oculus.panelapp.virtualobjects.VirtualObjectsActivity"
+            ]);
+
+        var readiness = WindowsAdbQuestControlService.EvaluateWakeReadiness(powerStatus, snapshot);
+
+        Assert.True(readiness.IsAwake);
+        Assert.False(readiness.IsInWakeLimbo);
+        Assert.DoesNotContain("FocusPlaceholderActivity", readiness.Detail);
+    }
+
+    [Fact]
     public void EvaluateWakeReadiness_flags_focus_placeholder_as_slumber()
     {
         var powerStatus = new WindowsAdbQuestControlService.QuestPowerStatus(

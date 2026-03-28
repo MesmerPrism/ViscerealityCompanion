@@ -185,6 +185,10 @@ Astral/companion sync.
 Freshly republished local harness executables can still be blocked by Windows
 Application Control on this machine; treat that as a launcher-path issue, not
 as evidence that the Sussex APK, scene config, or LSL contract regressed.
+For Quest wake / Guardian tracking-loss debugging, keep
+`docs/quest-adb-hzdb-recovery-notes.md` up to date. It is the repo-local memory
+for tested `adb` / `hzdb` commands, observed shell states, and the current best
+recovery sequence.
 
 ## Available Skills
 

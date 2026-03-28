@@ -20,8 +20,8 @@ public interface IQuestControlService
         QuestAppTarget target,
         CancellationToken cancellationToken = default);
     Task<OperationOutcome> ApplyDeviceProfileAsync(DeviceProfile profile, CancellationToken cancellationToken = default);
-    Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default);
-    Task<OperationOutcome> StopAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default);
+    Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, bool kioskMode = false, CancellationToken cancellationToken = default);
+    Task<OperationOutcome> StopAppAsync(QuestAppTarget target, bool exitKioskMode = false, CancellationToken cancellationToken = default);
     Task<OperationOutcome> OpenBrowserAsync(
         string url,
         QuestAppTarget browserTarget,
@@ -124,18 +124,26 @@ public sealed class PreviewQuestControlService : IQuestControlService
             $"The preview transport would write {profile.Properties.Count} debug/system properties over ADB.",
             Items: profile.Properties.Select(pair => $"{pair.Key}={pair.Value}").ToArray()));
 
-    public Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default)
+    public Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, bool kioskMode = false, CancellationToken cancellationToken = default)
         => Task.FromResult(Preview(
-            $"Launch queued for {target.Label}.",
-            string.IsNullOrWhiteSpace(target.LaunchComponent)
-                ? "The target does not define an explicit component; the transport would launch by package id."
-                : $"Launch component: {target.LaunchComponent}",
+            kioskMode
+                ? $"Kiosk launch queued for {target.Label}."
+                : $"Launch queued for {target.Label}.",
+            kioskMode
+                ? "The preview transport would launch the app and pin its task in front."
+                : string.IsNullOrWhiteSpace(target.LaunchComponent)
+                    ? "The target does not define an explicit component; the transport would launch by package id."
+                    : $"Launch component: {target.LaunchComponent}",
             PackageId: target.PackageId));
 
-    public Task<OperationOutcome> StopAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default)
+    public Task<OperationOutcome> StopAppAsync(QuestAppTarget target, bool exitKioskMode = false, CancellationToken cancellationToken = default)
         => Task.FromResult(Preview(
-            $"Stop queued for {target.Label}.",
-            $"The preview transport would force-stop {target.PackageId}.",
+            exitKioskMode
+                ? $"Kiosk exit queued for {target.Label}."
+                : $"Stop queued for {target.Label}.",
+            exitKioskMode
+                ? $"The preview transport would unwind kiosk mode, return Home, and then stop {target.PackageId}."
+                : $"The preview transport would force-stop {target.PackageId}.",
             PackageId: target.PackageId));
 
     public Task<OperationOutcome> OpenBrowserAsync(

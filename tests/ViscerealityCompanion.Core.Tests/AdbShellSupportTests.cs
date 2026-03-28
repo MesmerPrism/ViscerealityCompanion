@@ -140,4 +140,44 @@ public sealed class AdbShellSupportTests
 
         Assert.Null(packageId);
     }
+
+    [Fact]
+    public void ParseRecentTaskId_ExtractsTaskIdForPackage()
+    {
+        const string output = """
+        * Recent #3: Task{f7032e0 #6247 type=standard A=10237:com.Viscereality.LslTwin}
+          userId=0 effectiveUid=u0a237 mCallingUid=2000
+        * Recent #4: Task{7a32bb6 #6246 type=standard A=10043:com.oculus.systemux:2065988206}
+        """;
+
+        var taskId = AdbShellSupport.ParseRecentTaskId(output, "com.Viscereality.LslTwin");
+
+        Assert.Equal(6247, taskId);
+    }
+
+    [Fact]
+    public void ParseRecentTaskId_IgnoresCallingUidInsideMatchingTaskBlock()
+    {
+        const string output = """
+        ACTIVITY MANAGER RECENT TASKS (dumpsys activity recents)
+          Recent tasks:
+          * Recent #0: Task{1814e4e #6668 type=standard A=10237:com.Viscereality.LslTwin}
+            userId=0 effectiveUid=u0a237 mCallingUid=2000 mUserSetupComplete=true mCallingPackage=com.android.shell mCallingFeatureId=null
+            affinity=10237:com.Viscereality.LslTwin
+            intent={act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10a10100 cmp=com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity}
+            mActivityComponent=com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity
+            rootWasReset=true mNeverRelinquishIdentity=true mReuseTask=false mLockTaskAuth=LOCK_TASK_AUTH_PINNABLE
+            Activities=[ActivityRecord{1bb2549 u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity t6668}]
+            askedCompatMode=false inRecents=true isAvailable=true
+            taskId=6668 rootTaskId=3
+            hasChildPipActivity=false
+          * Recent #1: Task{8891174 #6518 type=standard A=10066:com.oculus.store}
+            userId=0 effectiveUid=u0a66 mCallingUid=u0a29
+            taskId=6518 rootTaskId=6517
+        """;
+
+        var taskId = AdbShellSupport.ParseRecentTaskId(output, "com.Viscereality.LslTwin");
+
+        Assert.Equal(6668, taskId);
+    }
 }

@@ -8,7 +8,7 @@ namespace ViscerealityCompanion.Core.Services;
 public interface IHzdbService
 {
     bool IsAvailable { get; }
-    Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, CancellationToken cancellationToken = default);
+    Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, string? method = null, CancellationToken cancellationToken = default);
     Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default);
     Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default);
     Task<QuestProximityStatus> GetProximityStatusAsync(string deviceSerial, CancellationToken cancellationToken = default);
@@ -40,13 +40,16 @@ public sealed class WindowsHzdbService : IHzdbService
 
     public bool IsAvailable => _available.Value;
 
-    public async Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, CancellationToken cancellationToken = default)
+    public async Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, string? method = null, CancellationToken cancellationToken = default)
     {
         var dir = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);
 
-        var result = await RunAsync($"capture screenshot --device \"{deviceSerial}\" -o \"{outputPath}\"", cancellationToken).ConfigureAwait(false);
+        var methodArg = string.IsNullOrWhiteSpace(method)
+            ? string.Empty
+            : $" --method \"{method}\"";
+        var result = await RunAsync($"capture screenshot --device \"{deviceSerial}\"{methodArg} -o \"{outputPath}\"", cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0
             ? Outcome(OperationOutcomeKind.Success, "Screenshot captured.", result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "Screenshot capture failed.", result.Combined);
@@ -611,7 +614,7 @@ public sealed class PreviewHzdbService : IHzdbService
 {
     public bool IsAvailable => false;
 
-    public Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, CancellationToken cancellationToken = default)
+    public Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, string? method = null, CancellationToken cancellationToken = default)
         => Preview("Screenshot capture requires hzdb (npx @meta-quest/hzdb).");
 
     public Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default)

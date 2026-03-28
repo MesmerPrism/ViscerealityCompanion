@@ -73,6 +73,44 @@ It currently pins:
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
+- runtime launch mode: `launchInKioskMode=true`
+
+For the committed Sussex shell, the runtime toggle is intentionally a kiosk
+toggle rather than a plain launch/stop button:
+
+- `Launch Kiosk Runtime` launches the Sussex APK, resolves the live Unity task,
+  and pins it with `am task lock <TASK_ID>`
+- `Exit Kiosk Runtime` sends the confirmed Home-return stack:
+  `automation_disable -> task lock stop -> HomeActivity -> force-stop Sussex`
+- `Capture Quest Screenshot` uses `hzdb capture screenshot --method metacam`
+  and is the required operator-side truth source whenever HorizonOS shell state
+  and the visible headset scene disagree
+
+That behavior is specific to the Sussex study shell config and is meant to keep
+accidental controller Meta / menu presses from visually interrupting the
+experiment while the runtime is active.
+
+Current operator rule:
+
+- if kiosk launch or exit only reaches shell-level confirmation, the Sussex
+  shell must leave a visual-confirmation warning in place instead of claiming
+  success
+- on this machine, the shell can still end up in black / Guardian-blocked
+  states where `HomeActivity`, `FocusPlaceholderActivity`, or even a resumed
+  Sussex task is reported without a usable visible scene
+- treat the screenshot card as mandatory for launch/exit verification in those
+  cases
+
+Current confirmed GUI behavior on this machine:
+
+- from visible Meta Home, `Launch Kiosk Runtime` now reaches a working Sussex
+  kiosk state again
+- in that confirmed kiosk state, the controller Meta/menu button is visually
+  neutralized while the Unity runtime stays in front
+- `Exit Kiosk Runtime` then returns the headset to visible Meta Home and the
+  controller Meta/menu button works normally again
+- if the headset is already in black `SensorLock` limbo before the operator
+  starts, a physical power-button recovery can still be required first
 
 ## Self-Contained Sussex Package
 
@@ -153,6 +191,11 @@ mirror entry, the harness will measure round-trip latency for the direct
 coherence value. The currently verified public Sussex build does expose that
 value, so the harness now reports measured coherence loop latency in the text
 report.
+
+If the Quest launches drift into Guardian / SensorLock / FocusPlaceholder
+limbo, use `docs/quest-adb-hzdb-recovery-notes.md` as the source of truth for
+tested `adb` / `hzdb` recovery commands and the observed Meta shell state
+machine on this setup.
 
 ## How Study Shell Discovery Works
 

@@ -60,7 +60,8 @@ public sealed class StudyShellCatalogLoader
                     dto.App?.Sha256 ?? string.Empty,
                     dto.App?.VersionName ?? string.Empty,
                     dto.App?.Notes ?? string.Empty,
-                    dto.App?.AllowManualSelection ?? true),
+                    dto.App?.AllowManualSelection ?? true,
+                    dto.App?.LaunchInKioskMode ?? false),
                 new StudyPinnedDeviceProfile(
                     dto.DeviceProfile?.Id ?? "study-device-profile",
                     dto.DeviceProfile?.Label ?? "Study Device Profile",
@@ -196,6 +197,9 @@ public sealed class StudyShellCatalogLoader
 
         [JsonPropertyName("allowManualSelection")]
         public bool? AllowManualSelection { get; init; }
+
+        [JsonPropertyName("launchInKioskMode")]
+        public bool? LaunchInKioskMode { get; init; }
     }
 
     private sealed class StudyPinnedDeviceProfileDto

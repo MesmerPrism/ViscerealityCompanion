@@ -17,6 +17,17 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     private const string QuestHomeActivity = "HomeActivity";
     private const string QuestMainActivity = "MainActivity";
     private const string QuestFocusPlaceholderActivity = "FocusPlaceholderActivity";
+    private const string QuestSystemUxPackage = "com.oculus.systemux";
+    private const string QuestVirtualObjectsActivity = "VirtualObjectsActivity";
+    private const string QuestQuickSettingsPackage = "com.oculus.panelapp.settings";
+    private const string QuestQuickSettingsActivity = "QuickSettingsActivity";
+    private const string QuestVrPowerManagerAutomationDisableAction = "com.oculus.vrpowermanager.automation_disable";
+    private const string QuestVrPowerManagerProxCloseAction = "com.oculus.vrpowermanager.prox_close";
+    private static readonly TimeSpan WakeGuardianRecoveryStepDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan WakePowerRecoveryPollInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan KioskVerificationPollInterval = TimeSpan.FromMilliseconds(500);
+    private const int WakePowerRecoveryPollCount = 6;
+    private const int KioskVerificationPollCount = 6;
 
     private readonly string _adbPath;
     private readonly Lock _sync = new();
@@ -389,7 +400,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             wakeOutcome);
     }
 
-    public async Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default)
+    public async Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, bool kioskMode = false, CancellationToken cancellationToken = default)
     {
         var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         var wakeOutcome = await WakeSelectorBeforeActionAsync(selector, $"launching {target.Label}", cancellationToken).ConfigureAwait(false);
@@ -398,48 +409,29 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             return wakeOutcome!;
         }
 
-        await RunShellAsync(selector, AdbShellSupport.BuildForceStopCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
-
-        var monkeyLaunch = await RunShellAsync(selector, AdbShellSupport.BuildMonkeyLaunchCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
-        if (LaunchSucceeded(monkeyLaunch))
+        var launchOutcome = await LaunchAppCoreAsync(selector, target, cancellationToken).ConfigureAwait(false);
+        if (launchOutcome.Kind == OperationOutcomeKind.Failure)
         {
-            return MergeWakeWarning(
-                Success(
-                    $"Launch command sent for {target.Label}.",
-                    AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput),
-                    packageId: target.PackageId),
-                wakeOutcome);
+            return MergeWakeWarning(launchOutcome, wakeOutcome);
         }
 
-        if (!string.IsNullOrWhiteSpace(target.LaunchComponent))
+        if (!kioskMode)
         {
-            var explicitLaunch = await RunShellAsync(selector, AdbShellSupport.BuildExplicitLaunchCommand(target.LaunchComponent), cancellationToken).ConfigureAwait(false);
-            if (LaunchSucceeded(explicitLaunch))
-            {
-                return MergeWakeWarning(
-                    Success(
-                        $"Launch command sent for {target.Label}.",
-                        AdbShellSupport.Collapse(explicitLaunch.CombinedOutput),
-                        packageId: target.PackageId),
-                    wakeOutcome);
-            }
-
-            return MergeWakeWarning(
-                Failure(
-                    $"Launch failed for {target.Label}.",
-                    $"{AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)} {AdbShellSupport.Collapse(explicitLaunch.CombinedOutput)}".Trim(),
-                    packageId: target.PackageId),
-                wakeOutcome);
+            return MergeWakeWarning(launchOutcome, wakeOutcome);
         }
 
-        return MergeWakeWarning(
-            Failure($"Launch failed for {target.Label}.", monkeyLaunch.CombinedOutput, packageId: target.PackageId),
-            wakeOutcome);
+        var kioskOutcome = await EnterKioskModeAsync(selector, target, launchOutcome, cancellationToken).ConfigureAwait(false);
+        return MergeWakeWarning(kioskOutcome, wakeOutcome);
     }
 
-    public async Task<OperationOutcome> StopAppAsync(QuestAppTarget target, CancellationToken cancellationToken = default)
+    public async Task<OperationOutcome> StopAppAsync(QuestAppTarget target, bool exitKioskMode = false, CancellationToken cancellationToken = default)
     {
         var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
+        if (exitKioskMode)
+        {
+            return await ExitKioskModeAsync(selector, target, cancellationToken).ConfigureAwait(false);
+        }
+
         var wakeOutcome = await WakeSelectorBeforeActionAsync(selector, $"stopping {target.Label}", cancellationToken).ConfigureAwait(false);
         if (IsWakeFailure(wakeOutcome))
         {
@@ -454,6 +446,130 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 packageId: target.PackageId)
             : Failure($"Stop failed for {target.Label}.", stop.CombinedOutput, packageId: target.PackageId);
         return MergeWakeWarning(outcome, wakeOutcome);
+    }
+
+    private async Task<OperationOutcome> LaunchAppCoreAsync(
+        string selector,
+        QuestAppTarget target,
+        CancellationToken cancellationToken)
+    {
+        await RunShellAsync(selector, AdbShellSupport.BuildForceStopCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
+
+        var monkeyLaunch = await RunShellAsync(selector, AdbShellSupport.BuildMonkeyLaunchCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
+        if (LaunchSucceeded(monkeyLaunch))
+        {
+            return Success(
+                $"Launch command sent for {target.Label}.",
+                AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput),
+                packageId: target.PackageId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(target.LaunchComponent))
+        {
+            var explicitLaunch = await RunShellAsync(selector, AdbShellSupport.BuildExplicitLaunchCommand(target.LaunchComponent), cancellationToken).ConfigureAwait(false);
+            if (LaunchSucceeded(explicitLaunch))
+            {
+                return Success(
+                    $"Launch command sent for {target.Label}.",
+                    AdbShellSupport.Collapse(explicitLaunch.CombinedOutput),
+                    packageId: target.PackageId);
+            }
+
+            return Failure(
+                $"Launch failed for {target.Label}.",
+                $"{AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)} {AdbShellSupport.Collapse(explicitLaunch.CombinedOutput)}".Trim(),
+                packageId: target.PackageId);
+        }
+
+        return Failure($"Launch failed for {target.Label}.", monkeyLaunch.CombinedOutput, packageId: target.PackageId);
+    }
+
+    private async Task<OperationOutcome> EnterKioskModeAsync(
+        string selector,
+        QuestAppTarget target,
+        OperationOutcome launchOutcome,
+        CancellationToken cancellationToken)
+    {
+        var detailParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(launchOutcome.Detail))
+        {
+            detailParts.Add(launchOutcome.Detail);
+        }
+
+        await Task.Delay(KioskVerificationPollInterval, cancellationToken).ConfigureAwait(false);
+        var taskId = await ResolveRecentTaskIdAsync(selector, target.PackageId, cancellationToken).ConfigureAwait(false);
+        if (!taskId.HasValue)
+        {
+            detailParts.Add("Quest did not expose a live task id in recents after launch, so kiosk pinning was not verified.");
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"Launch completed for {target.Label}, but kiosk mode was not confirmed.",
+                string.Join(" ", detailParts),
+                PackageId: target.PackageId);
+        }
+
+        var lockTask = await RunShellAsync(selector, AdbShellSupport.BuildTaskLockCommand(taskId.Value), cancellationToken).ConfigureAwait(false);
+        var verification = await VerifyPinnedForegroundAsync(selector, target.PackageId, cancellationToken).ConfigureAwait(false);
+        if (verification.Succeeded)
+        {
+            detailParts.Add($"Pinned task {taskId.Value} in front for kiosk mode.");
+            if (!string.IsNullOrWhiteSpace(verification.Detail))
+            {
+                detailParts.Add(verification.Detail);
+            }
+
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                $"Launched {target.Label} in kiosk mode.",
+                string.Join(" ", detailParts),
+                PackageId: target.PackageId,
+                Items: [$"taskId={taskId.Value}"]);
+        }
+
+        detailParts.Add($"Sent task-lock pin for task {taskId.Value}. {AdbShellSupport.Collapse(lockTask.CombinedOutput)}".Trim());
+        detailParts.Add(verification.Detail);
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            $"Launch completed for {target.Label}, but kiosk mode was not fully confirmed.",
+            string.Join(" ", detailParts),
+            PackageId: target.PackageId,
+            Items: [$"taskId={taskId.Value}"]);
+    }
+
+    private async Task<OperationOutcome> ExitKioskModeAsync(
+        string selector,
+        QuestAppTarget target,
+        CancellationToken cancellationToken)
+    {
+        var detailParts = new List<string>();
+
+        var automationDisable = await RunShellAsync(
+            selector,
+            AdbShellSupport.BuildBroadcastActionCommand(QuestVrPowerManagerAutomationDisableAction),
+            cancellationToken).ConfigureAwait(false);
+        detailParts.Add($"Sent {QuestVrPowerManagerAutomationDisableAction}. {AdbShellSupport.Collapse(automationDisable.CombinedOutput)}".Trim());
+
+        var stopLock = await RunShellAsync(selector, AdbShellSupport.BuildTaskLockStopCommand(), cancellationToken).ConfigureAwait(false);
+        detailParts.Add($"Stopped lock-task mode. {AdbShellSupport.Collapse(stopLock.CombinedOutput)}".Trim());
+
+        var home = await RunShellAsync(
+            selector,
+            AdbShellSupport.BuildHomeLaunchCommand($"{QuestHomePackage}/.{QuestHomeActivity}"),
+            cancellationToken).ConfigureAwait(false);
+        detailParts.Add($"Brought {QuestHomePackage}/.{QuestHomeActivity} to the front. {AdbShellSupport.Collapse(home.CombinedOutput)}".Trim());
+
+        var stop = await RunShellAsync(selector, AdbShellSupport.BuildForceStopCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
+        detailParts.Add($"Stopped {target.PackageId}. {AdbShellSupport.Collapse(stop.CombinedOutput)}".Trim());
+
+        var verification = await VerifyHomeForegroundAsync(selector, target.PackageId, cancellationToken).ConfigureAwait(false);
+        detailParts.Add(verification.Detail);
+        return new OperationOutcome(
+            verification.Succeeded ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+            verification.Succeeded
+                ? $"Exited kiosk mode for {target.Label}."
+                : $"Sent kiosk-exit sequence for {target.Label}, but Home was not fully confirmed.",
+            string.Join(" ", detailParts),
+            PackageId: target.PackageId);
     }
 
     public async Task<OperationOutcome> OpenBrowserAsync(
@@ -975,6 +1091,25 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             readiness = await TryNormalizeWakeHomeShellAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
         }
 
+        if (IsGuardianAutomationRecoveryCandidate(readiness))
+        {
+            var beforeGuardianRecovery = readiness;
+            readiness = await TryRecoverWakeGuardianTrackingLossAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
+            var guardianRecoveryMadeProgress =
+                !string.Equals(readiness.WakeLimboComponent, beforeGuardianRecovery.WakeLimboComponent, StringComparison.OrdinalIgnoreCase) ||
+                readiness.IsInWakeLimbo != beforeGuardianRecovery.IsInWakeLimbo ||
+                readiness.IsAwake != beforeGuardianRecovery.IsAwake;
+
+            if (!guardianRecoveryMadeProgress && IsPowerKeyWakeRecoveryCandidate(readiness))
+            {
+                readiness = await TryRecoverWakePowerOverlayAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else if (IsPowerKeyWakeRecoveryCandidate(readiness))
+        {
+            readiness = await TryRecoverWakePowerOverlayAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
+        }
+
         if (readiness.IsAwake == true && !readiness.IsInWakeLimbo)
         {
             return null;
@@ -1013,6 +1148,25 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         if (readiness.IsInWakeLimbo)
         {
             readiness = await TryNormalizeWakeHomeShellAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (IsGuardianAutomationRecoveryCandidate(readiness))
+        {
+            var beforeGuardianRecovery = readiness;
+            readiness = await TryRecoverWakeGuardianTrackingLossAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
+            var guardianRecoveryMadeProgress =
+                !string.Equals(readiness.WakeLimboComponent, beforeGuardianRecovery.WakeLimboComponent, StringComparison.OrdinalIgnoreCase) ||
+                readiness.IsInWakeLimbo != beforeGuardianRecovery.IsInWakeLimbo ||
+                readiness.IsAwake != beforeGuardianRecovery.IsAwake;
+
+            if (!guardianRecoveryMadeProgress && IsPowerKeyWakeRecoveryCandidate(readiness))
+            {
+                readiness = await TryRecoverWakePowerOverlayAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else if (IsPowerKeyWakeRecoveryCandidate(readiness))
+        {
+            readiness = await TryRecoverWakePowerOverlayAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
         }
 
         if (readiness.IsInWakeLimbo && wakeResumeTarget is not null)
@@ -1115,6 +1269,85 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         trace.Add($"Started {QuestHomePackage}/.{QuestHomeActivity}.");
         readiness = await RefreshWakeReadinessAsync(selector, cancellationToken).ConfigureAwait(false);
         trace.Add($"After explicit home: {readiness.Detail}");
+        return readiness;
+    }
+
+    private async Task<QuestWakeReadiness> TryRecoverWakePowerOverlayAsync(
+        string selector,
+        QuestWakeReadiness readiness,
+        ICollection<string> trace,
+        CancellationToken cancellationToken)
+    {
+        if (!IsPowerKeyWakeRecoveryCandidate(readiness))
+        {
+            return readiness;
+        }
+
+        var power = await RunShellAsync(selector, "input keyevent 26", cancellationToken).ConfigureAwait(false);
+        if (power.ExitCode != 0)
+        {
+            trace.Add($"Sent KEYCODE_POWER to recover blocked tracking shell. Failed: {AdbShellSupport.Collapse(power.CombinedOutput)}");
+            return readiness;
+        }
+
+        trace.Add("Sent KEYCODE_POWER to recover blocked tracking shell.");
+        for (var poll = 1; poll <= WakePowerRecoveryPollCount; poll++)
+        {
+            await Task.Delay(WakePowerRecoveryPollInterval, cancellationToken).ConfigureAwait(false);
+            readiness = await RefreshWakeReadinessAsync(selector, cancellationToken).ConfigureAwait(false);
+            trace.Add($"After power poll {poll}: {readiness.Detail}");
+
+            if (readiness.IsAwake == true && !readiness.IsInWakeLimbo)
+            {
+                break;
+            }
+        }
+
+        // HorizonOS can move into Quick Settings as an intermediate stable state
+        // before the original launch target is resumed.
+        return readiness;
+    }
+
+    private async Task<QuestWakeReadiness> TryRecoverWakeGuardianTrackingLossAsync(
+        string selector,
+        QuestWakeReadiness readiness,
+        ICollection<string> trace,
+        CancellationToken cancellationToken)
+    {
+        if (!IsGuardianAutomationRecoveryCandidate(readiness))
+        {
+            return readiness;
+        }
+
+        var disableAutomation = await RunShellAsync(
+            selector,
+            $"am broadcast -a {QuestVrPowerManagerAutomationDisableAction}",
+            cancellationToken).ConfigureAwait(false);
+        if (disableAutomation.ExitCode != 0 || disableAutomation.CombinedOutput.Contains("Exception", StringComparison.OrdinalIgnoreCase))
+        {
+            trace.Add($"Broadcast {QuestVrPowerManagerAutomationDisableAction} to dismiss Guardian. Failed: {AdbShellSupport.Collapse(disableAutomation.CombinedOutput)}");
+            return readiness;
+        }
+
+        trace.Add($"Broadcast {QuestVrPowerManagerAutomationDisableAction} to dismiss Guardian.");
+        await Task.Delay(WakeGuardianRecoveryStepDelay, cancellationToken).ConfigureAwait(false);
+        readiness = await RefreshWakeReadinessAsync(selector, cancellationToken).ConfigureAwait(false);
+        trace.Add($"After automation_disable: {readiness.Detail}");
+
+        var proxClose = await RunShellAsync(
+            selector,
+            $"am broadcast -a {QuestVrPowerManagerProxCloseAction}",
+            cancellationToken).ConfigureAwait(false);
+        if (proxClose.ExitCode != 0 || proxClose.CombinedOutput.Contains("Exception", StringComparison.OrdinalIgnoreCase))
+        {
+            trace.Add($"Broadcast {QuestVrPowerManagerProxCloseAction} to re-enter mounted wake. Failed: {AdbShellSupport.Collapse(proxClose.CombinedOutput)}");
+            return readiness;
+        }
+
+        trace.Add($"Broadcast {QuestVrPowerManagerProxCloseAction} to re-enter mounted wake.");
+        await Task.Delay(WakeGuardianRecoveryStepDelay, cancellationToken).ConfigureAwait(false);
+        readiness = await RefreshWakeReadinessAsync(selector, cancellationToken).ConfigureAwait(false);
+        trace.Add($"After prox_close: {readiness.Detail}");
         return readiness;
     }
 
@@ -1364,6 +1597,103 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         return (activityOutput, snapshot);
     }
+
+    private async Task<int?> ResolveRecentTaskIdAsync(
+        string selector,
+        string packageId,
+        CancellationToken cancellationToken)
+    {
+        for (var poll = 0; poll < KioskVerificationPollCount; poll++)
+        {
+            var recentsOutput = await RunShellAsync(selector, "dumpsys activity recents", cancellationToken).ConfigureAwait(false);
+            if (recentsOutput.ExitCode == 0)
+            {
+                var taskId = AdbShellSupport.ParseRecentTaskId(recentsOutput.StdOut, packageId);
+                if (taskId.HasValue)
+                {
+                    return taskId;
+                }
+            }
+
+            await Task.Delay(KioskVerificationPollInterval, cancellationToken).ConfigureAwait(false);
+        }
+
+        return null;
+    }
+
+    private async Task<ForegroundVerification> VerifyPinnedForegroundAsync(
+        string selector,
+        string packageId,
+        CancellationToken cancellationToken)
+    {
+        for (var poll = 0; poll < KioskVerificationPollCount; poll++)
+        {
+            var activitiesOutput = await RunShellAsync(selector, "dumpsys activity activities", cancellationToken).ConfigureAwait(false);
+            if (activitiesOutput.ExitCode == 0)
+            {
+                var hasPinnedState = ContainsActivityMarker(activitiesOutput.StdOut, "mLockTaskModeState=", "PINNED");
+                var hasResumedTarget = ContainsActivityMarker(activitiesOutput.StdOut, "ResumedActivity:", packageId);
+                var hasFocusedTarget = ContainsActivityMarker(activitiesOutput.StdOut, "mCurrentFocus=", packageId);
+                var hasOpaqueTarget = ContainsActivityMarker(activitiesOutput.StdOut, "mTopFullscreenOpaqueWindowState=", packageId);
+
+                if (hasPinnedState && hasResumedTarget && hasFocusedTarget && hasOpaqueTarget)
+                {
+                    return new ForegroundVerification(
+                        true,
+                        $"Quest reported {packageId} as resumed, focused, top-opaque, and PINNED after task-lock poll {poll + 1}.");
+                }
+            }
+
+            await Task.Delay(KioskVerificationPollInterval, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new ForegroundVerification(
+            false,
+            $"Quest did not report {packageId} as resumed, focused, top-opaque, and PINNED within {KioskVerificationPollCount} task-lock polls.");
+    }
+
+    private async Task<ForegroundVerification> VerifyHomeForegroundAsync(
+        string selector,
+        string targetPackageId,
+        CancellationToken cancellationToken)
+    {
+        for (var poll = 0; poll < KioskVerificationPollCount; poll++)
+        {
+            var activitiesOutput = await RunShellAsync(selector, "dumpsys activity activities", cancellationToken).ConfigureAwait(false);
+            if (activitiesOutput.ExitCode == 0)
+            {
+                var snapshot = AdbShellSupport.ParseForegroundSnapshot(activitiesOutput.StdOut);
+                var lockTaskPinned = ContainsActivityMarker(activitiesOutput.StdOut, "mLockTaskModeState=", "PINNED");
+                var hasHomeFocus = ContainsActivityMarker(activitiesOutput.StdOut, "mCurrentFocus=", QuestHomePackage);
+                var hasHomeVisible = ContainsActivityMarker(activitiesOutput.StdOut, "HomeActivity", QuestHomePackage);
+                var hasHomeTopOpaque =
+                    ContainsActivityMarker(activitiesOutput.StdOut, "mTopFullscreenOpaqueWindowState=", QuestHomePackage) ||
+                    ContainsActivityMarker(activitiesOutput.StdOut, "mTopFullscreenOpaqueWindowState=", QuestSystemUxPackage) ||
+                    ContainsActivityMarker(activitiesOutput.StdOut, "ResumedActivity:", $"{QuestSystemUxPackage}/com.oculus.panelapp.virtualobjects.{QuestVirtualObjectsActivity}");
+                var targetStillForeground = string.Equals(snapshot?.PackageId, targetPackageId, StringComparison.OrdinalIgnoreCase);
+
+                if (!lockTaskPinned && hasHomeFocus && hasHomeVisible && hasHomeTopOpaque && !targetStillForeground)
+                {
+                    return new ForegroundVerification(
+                        true,
+                        $"Quest reported Home foreground ownership and no pinned {targetPackageId} task after kiosk-exit poll {poll + 1}.");
+                }
+            }
+
+            await Task.Delay(KioskVerificationPollInterval, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new ForegroundVerification(
+            false,
+            $"Quest did not report a clean Home-side foreground after exiting kiosk mode within {KioskVerificationPollCount} polls.");
+    }
+
+    private static bool ContainsActivityMarker(string output, string marker, string expectedFragment)
+        => output
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(line =>
+                line.Contains(marker, StringComparison.OrdinalIgnoreCase) &&
+                line.Contains(expectedFragment, StringComparison.OrdinalIgnoreCase));
 
     private async Task<AdbCommandResult> RunShellAsync(string selector, string command, CancellationToken cancellationToken)
         => await RunAdbAsync(["-s", selector, "shell", command], cancellationToken).ConfigureAwait(false);
@@ -1792,6 +2122,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                     return component;
                 }
             }
+
+            return string.Empty;
         }
 
         var launchableAppOwnsForeground =
@@ -1876,19 +2208,36 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             component.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase));
 
+    private static bool IsPowerKeyWakeRecoveryCandidate(QuestWakeReadiness readiness)
+        => !string.IsNullOrWhiteSpace(readiness.WakeLimboComponent) &&
+           (readiness.WakeLimboComponent.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
+            readiness.WakeLimboComponent.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase) ||
+            readiness.WakeLimboComponent.Contains(QuestClearActivityPackage, StringComparison.OrdinalIgnoreCase) ||
+            readiness.WakeLimboComponent.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase) ||
+            readiness.WakeLimboComponent.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsGuardianAutomationRecoveryCandidate(QuestWakeReadiness readiness)
+        => !string.IsNullOrWhiteSpace(readiness.WakeLimboComponent) &&
+           (readiness.WakeLimboComponent.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
+            readiness.WakeLimboComponent.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase) ||
+            readiness.WakeLimboComponent.Contains(QuestClearActivityPackage, StringComparison.OrdinalIgnoreCase) ||
+            readiness.WakeLimboComponent.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase) ||
+            readiness.WakeLimboComponent.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase));
+
     private static bool IsQuestHomeShellComponent(string? component)
         => !string.IsNullOrWhiteSpace(component) &&
-           component.Contains(QuestHomePackage, StringComparison.OrdinalIgnoreCase) &&
-           (component.Contains(QuestHomeActivity, StringComparison.OrdinalIgnoreCase) ||
-            component.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase));
+           ((component.Contains(QuestHomePackage, StringComparison.OrdinalIgnoreCase) &&
+             (component.Contains(QuestHomeActivity, StringComparison.OrdinalIgnoreCase) ||
+              component.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase))) ||
+            (component.Contains(QuestQuickSettingsPackage, StringComparison.OrdinalIgnoreCase) &&
+             component.Contains(QuestQuickSettingsActivity, StringComparison.OrdinalIgnoreCase)));
 
     private static bool IsHomeShellWakeBlockingComponent(string? component)
         => !string.IsNullOrWhiteSpace(component) &&
            (component.Contains(QuestClearActivityPackage, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
-            component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase) ||
-            component.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase));
+            component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsLaunchableWakeResumePackage(string? packageId)
         => !string.IsNullOrWhiteSpace(packageId) &&
@@ -1981,6 +2330,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         string Detail);
 
     private sealed record QuestWakeResumeTarget(string PackageId, string? Component);
+
+    private sealed record ForegroundVerification(bool Succeeded, string Detail);
 
     private sealed record AdbCommandResult(int ExitCode, string StdOut, string StdErr)
     {

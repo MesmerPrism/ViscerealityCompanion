@@ -294,6 +294,43 @@
 
                                             <Border Margin="0,10,0,0"
                                                     Padding="10"
+                                                    Background="{Binding QuestScreenshotLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                                    BorderBrush="{Binding QuestScreenshotLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8">
+                                                <StackPanel>
+                                                    <TextBlock Text="Quest Screenshot" Style="{StaticResource InfoLabelStyle}" />
+                                                    <TextBlock Text="{Binding QuestScreenshotSummary}"
+                                                               FontSize="14"
+                                                               FontWeight="Bold"
+                                                               Foreground="{Binding QuestScreenshotLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding QuestScreenshotDetail}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,6,0,0"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding QuestScreenshotPath}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,6,0,0"
+                                                               FontFamily="{StaticResource MonoFont}"
+                                                               TextWrapping="Wrap" />
+                                                    <Image Source="{Binding QuestScreenshotPreview}"
+                                                           Stretch="Uniform"
+                                                           MaxHeight="180"
+                                                           Margin="0,8,0,0" />
+                                                    <WrapPanel Margin="0,10,0,0">
+                                                        <Button Content="Capture Quest Screenshot"
+                                                                Command="{Binding CaptureQuestScreenshotCommand}"
+                                                                IsEnabled="{Binding CanCaptureQuestScreenshot}" />
+                                                        <Button Content="Open Last Screenshot"
+                                                                Command="{Binding OpenLastQuestScreenshotCommand}"
+                                                                IsEnabled="{Binding CanOpenLastQuestScreenshot}" />
+                                                    </WrapPanel>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Margin="0,10,0,0"
+                                                    Padding="10"
                                                     Background="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                                                     BorderBrush="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                     BorderThickness="1"

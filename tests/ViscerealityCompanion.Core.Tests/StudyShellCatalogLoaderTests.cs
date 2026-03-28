@@ -22,6 +22,7 @@ public sealed class StudyShellCatalogLoaderTests
             Assert.Equal("sussex-university", study.Id);
             Assert.Equal("com.Viscereality.LslTwin", study.App.PackageId);
             Assert.False(study.App.AllowManualSelection);
+            Assert.True(study.App.LaunchInKioskMode);
             Assert.Equal("2", study.Controls.RecenterCommandActionId);
             Assert.Contains("debug.oculus.gpuLevel", study.DeviceProfile.Properties.Keys);
             Assert.Contains("connection.lsl.connected_count", study.Monitoring.LslConnectivityKeys);
@@ -91,7 +92,8 @@ public sealed class StudyShellCatalogLoaderTests
                 "sha256": "ABC123",
                 "versionName": "0.1.0",
                 "notes": "Bundled Sussex APK.",
-                "allowManualSelection": false
+                "allowManualSelection": false,
+                "launchInKioskMode": true
               },
               "deviceProfile": {
                 "id": "sussex-study-profile",

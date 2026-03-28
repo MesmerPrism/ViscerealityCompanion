@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using ViscerealityCompanion.App;
@@ -18,6 +20,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const string TestSenderHeartbeatMode = "3";
     private const string TestSenderCoherenceMode = "2";
     private const string QuestSensorLockActivity = "SensorLockActivity";
+    private const string QuestScreenshotCaptureMethod = "metacam";
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DeviceSnapshotRefreshInterval = TimeSpan.FromSeconds(3);
@@ -106,6 +109,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _recenterLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _particlesLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _proximityLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _questScreenshotLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _testLslSenderLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _benchToolsCardLevel = OperationOutcomeKind.Warning;
     private string _deviceProfileSummary = "Pinned device profile has not been checked yet.";
@@ -141,6 +145,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _proximityEvidenceLabel = "Latest readback n/a.";
     private string _proximityActionLabel = "Disable for 8h";
     private string _benchToolsSummary = "Bench tools need attention before bench checks.";
+    private string _questScreenshotSummary = "No Quest screenshot captured yet.";
+    private string _questScreenshotDetail = "Capture a Quest screenshot after kiosk launch or exit to confirm what is actually visible on the headset.";
+    private string _questScreenshotPath = string.Empty;
+    private BitmapImage? _questScreenshotPreview;
     private string _testLslSenderSummary = "Windows TEST sender off.";
     private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes smoothed HRV biofeedback samples on an irregular heartbeat-timed profile; Sussex treats packet arrival as heartbeat timing and the payload as the routed coherence value.";
     private string _testLslSenderValueLabel = "Not running";
@@ -168,6 +176,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string? _testSenderRestoreHeartbeatMode;
     private string? _testSenderRestoreCoherenceMode;
     private StudyValueSection? _selectedLiveSection;
+    private DateTimeOffset? _lastQuestScreenshotCapturedAtUtc;
+    private string _questVisualConfirmationPendingReason = string.Empty;
 
     public StudyShellViewModel(StudyShellDefinition study)
     {
@@ -229,6 +239,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ApplyPinnedDeviceProfileCommand = new AsyncRelayCommand(ApplyPinnedDeviceProfileAsync);
         ToggleHeadsetPowerCommand = new AsyncRelayCommand(ToggleHeadsetPowerAsync);
         ToggleProximityCommand = new AsyncRelayCommand(ToggleProximityAsync);
+        CaptureQuestScreenshotCommand = new AsyncRelayCommand(CaptureQuestScreenshotAsync);
+        OpenLastQuestScreenshotCommand = new AsyncRelayCommand(OpenLastQuestScreenshotAsync);
         ToggleTestLslSenderCommand = new AsyncRelayCommand(ToggleTestLslSenderAsync);
         RecenterCommand = new AsyncRelayCommand(RecenterAsync);
         ParticlesOnCommand = new AsyncRelayCommand(ParticlesOnAsync);
@@ -564,6 +576,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _proximityLevel, value);
     }
 
+    public OperationOutcomeKind QuestScreenshotLevel
+    {
+        get => _questScreenshotLevel;
+        private set => SetProperty(ref _questScreenshotLevel, value);
+    }
+
     public OperationOutcomeKind TestLslSenderLevel
     {
         get => _testLslSenderLevel;
@@ -592,6 +610,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _benchToolsSummary;
         private set => SetProperty(ref _benchToolsSummary, value);
+    }
+
+    public string QuestScreenshotSummary
+    {
+        get => _questScreenshotSummary;
+        private set => SetProperty(ref _questScreenshotSummary, value);
+    }
+
+    public string QuestScreenshotDetail
+    {
+        get => _questScreenshotDetail;
+        private set => SetProperty(ref _questScreenshotDetail, value);
+    }
+
+    public string QuestScreenshotPath
+    {
+        get => _questScreenshotPath;
+        private set => SetProperty(ref _questScreenshotPath, value);
+    }
+
+    public BitmapImage? QuestScreenshotPreview
+    {
+        get => _questScreenshotPreview;
+        private set => SetProperty(ref _questScreenshotPreview, value);
     }
 
     public string LiveRuntimeSummary
@@ -781,8 +823,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public string StudyRuntimeActionLabel
         => IsStudyRuntimeForeground()
-            ? "Stop Study Runtime"
-            : "Launch Study Runtime";
+            ? (_study.App.LaunchInKioskMode ? "Exit Kiosk Runtime" : "Stop Study Runtime")
+            : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
 
     public string TestLslSenderSummary
     {
@@ -921,6 +963,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         => _testLslSignalService.IsRunning
             || _testLslSignalService.RuntimeState.Available;
 
+    public bool CanCaptureQuestScreenshot
+        => _hzdbService.IsAvailable
+            && !string.IsNullOrWhiteSpace(ResolveHzdbSelector());
+
+    public bool CanOpenLastQuestScreenshot
+        => !string.IsNullOrWhiteSpace(QuestScreenshotPath)
+            && File.Exists(QuestScreenshotPath);
+
     public ObservableCollection<StudyValueSection> LiveSections { get; } = new();
 
     public StudyValueSection? SelectedLiveSection
@@ -977,6 +1027,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ApplyPinnedDeviceProfileCommand { get; }
     public AsyncRelayCommand ToggleHeadsetPowerCommand { get; }
     public AsyncRelayCommand ToggleProximityCommand { get; }
+    public AsyncRelayCommand CaptureQuestScreenshotCommand { get; }
+    public AsyncRelayCommand OpenLastQuestScreenshotCommand { get; }
     public AsyncRelayCommand ToggleTestLslSenderCommand { get; }
     public AsyncRelayCommand RecenterCommand { get; }
     public AsyncRelayCommand ParticlesOnCommand { get; }
@@ -1136,8 +1188,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public async Task LaunchStudyAppAsync()
     {
-        var outcome = await _questService.LaunchAppAsync(CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false))).ConfigureAwait(false);
-        await ApplyOutcomeAsync("Launch Sussex APK", outcome).ConfigureAwait(false);
+        var outcome = await _questService
+            .LaunchAppAsync(
+                CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false)),
+                kioskMode: _study.App.LaunchInKioskMode)
+            .ConfigureAwait(false);
+        if (_study.App.LaunchInKioskMode && outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await DispatchAsync(() =>
+            {
+                MarkQuestVisualConfirmationPending("Kiosk launch is shell-confirmed only. Capture a Quest screenshot to verify the visible scene.");
+            }).ConfigureAwait(false);
+            outcome = BuildKioskVisualVerificationOutcome(
+                outcome,
+                "Kiosk launch is shell-confirmed. Visual confirmation pending.");
+        }
+
+        await ApplyOutcomeAsync(
+            _study.App.LaunchInKioskMode ? "Launch Sussex APK In Kiosk Mode" : "Launch Sussex APK",
+            outcome).ConfigureAwait(false);
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
             await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
@@ -1176,8 +1245,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public async Task StopStudyAppAsync()
     {
-        var outcome = await _questService.StopAppAsync(CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false))).ConfigureAwait(false);
-        await ApplyOutcomeAsync("Stop Sussex APK", outcome).ConfigureAwait(false);
+        var outcome = await _questService
+            .StopAppAsync(
+                CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false)),
+                exitKioskMode: _study.App.LaunchInKioskMode)
+            .ConfigureAwait(false);
+        if (_study.App.LaunchInKioskMode && outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await DispatchAsync(() =>
+            {
+                MarkQuestVisualConfirmationPending("Kiosk exit was sent. Capture a Quest screenshot to verify that Meta Home is actually visible.");
+            }).ConfigureAwait(false);
+            outcome = BuildKioskVisualVerificationOutcome(
+                outcome,
+                "Kiosk exit was sent. Visual confirmation pending.");
+        }
+
+        await ApplyOutcomeAsync(
+            _study.App.LaunchInKioskMode ? "Exit Sussex Kiosk Mode" : "Stop Sussex APK",
+            outcome).ConfigureAwait(false);
         await RefreshStatusAsync().ConfigureAwait(false);
     }
 
@@ -1284,6 +1370,103 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
+    }
+
+    private async Task CaptureQuestScreenshotAsync()
+    {
+        await TryWakeHeadsetBeforeStudyActionAsync("Capture Quest Screenshot").ConfigureAwait(false);
+        var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
+        if (!_hzdbService.IsAvailable)
+        {
+            await ApplyOutcomeAsync(
+                "Capture Quest Screenshot",
+                new OperationOutcome(
+                    OperationOutcomeKind.Preview,
+                    "hzdb not available.",
+                    "Install or expose @meta-quest/hzdb before using Quest screenshot capture.")).ConfigureAwait(false);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            await ApplyOutcomeAsync(
+                "Capture Quest Screenshot",
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Quest screenshot blocked.",
+                    "Probe USB or connect the Quest first so the study shell has a selector for hzdb screenshot capture.")).ConfigureAwait(false);
+            return;
+        }
+
+        var outputPath = BuildQuestScreenshotOutputPath();
+        var outcome = await _hzdbService
+            .CaptureScreenshotAsync(selector, outputPath, QuestScreenshotCaptureMethod)
+            .ConfigureAwait(false);
+
+        if (outcome.Kind == OperationOutcomeKind.Success && File.Exists(outputPath))
+        {
+            var capturedAtUtc = DateTimeOffset.UtcNow;
+            var preview = LoadQuestScreenshotPreview(outputPath);
+            await DispatchAsync(() =>
+            {
+                QuestScreenshotPath = outputPath;
+                QuestScreenshotPreview = preview;
+                _lastQuestScreenshotCapturedAtUtc = capturedAtUtc;
+                ClearQuestVisualConfirmationPending();
+                RefreshBenchToolsStatus();
+                UpdateLiveRuntimeCard();
+            }).ConfigureAwait(false);
+
+            outcome = new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Quest screenshot captured.",
+                $"Saved metacam Quest screenshot to {outputPath}. Review the screenshot preview to confirm what is actually visible on the headset.",
+                Items: [outputPath]);
+        }
+        else if (outcome.Kind == OperationOutcomeKind.Success)
+        {
+            outcome = new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                "Quest screenshot capture did not produce a file.",
+                $"hzdb reported success, but no screenshot was found at {outputPath}.",
+                Items: [outputPath]);
+        }
+
+        await ApplyOutcomeAsync("Capture Quest Screenshot", outcome).ConfigureAwait(false);
+    }
+
+    private async Task OpenLastQuestScreenshotAsync()
+    {
+        var screenshotPath = await DispatchAsync(() => QuestScreenshotPath).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(screenshotPath) || !File.Exists(screenshotPath))
+        {
+            await ApplyOutcomeAsync(
+                "Open Quest Screenshot",
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Quest screenshot not available.",
+                    "Capture a Quest screenshot first before trying to open it.")).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = screenshotPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                "Open Quest Screenshot",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Quest screenshot could not be opened.",
+                    ex.Message,
+                    Items: [screenshotPath])).ConfigureAwait(false);
+        }
     }
 
     private async Task ToggleTestLslSenderAsync()
@@ -1563,22 +1746,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task TryWakeHeadsetBeforeStudyActionAsync(string actionLabel)
+    private async Task<OperationOutcome?> TryWakeHeadsetBeforeStudyActionAsync(string actionLabel)
     {
         var selector = await DispatchAsync(ResolveHeadsetActionSelector).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(selector))
         {
-            return;
+            return null;
         }
 
         var wakeOutcome = await _questService.RunUtilityAsync(QuestUtilityAction.Wake).ConfigureAwait(false);
-        if (wakeOutcome.Kind == OperationOutcomeKind.Failure)
+        if (wakeOutcome.Kind is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
         {
             await DispatchAsync(() => AppendLog(
                 OperatorLogLevel.Warning,
-                $"Wake before {actionLabel} failed.",
+                $"Wake before {actionLabel} needs attention.",
                 wakeOutcome.Detail)).ConfigureAwait(false);
-            return;
         }
 
         if (wakeOutcome.Kind != OperationOutcomeKind.Failure)
@@ -1586,6 +1768,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await Task.Delay(250).ConfigureAwait(false);
             await RefreshHeadsetStatusAsync().ConfigureAwait(false);
         }
+
+        return wakeOutcome;
     }
 
     private async Task HandleConnectionOutcomeAsync(string actionLabel, OperationOutcome outcome, bool refreshAfter = true)
@@ -2223,6 +2407,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void UpdateBenchToolsCardState()
     {
+        if (QuestScreenshotLevel == OperationOutcomeKind.Failure)
+        {
+            BenchToolsCardLevel = OperationOutcomeKind.Failure;
+            BenchToolsSummary = "Bench tools are blocked by a screenshot capture fault.";
+            return;
+        }
+
         if (TestLslSenderLevel == OperationOutcomeKind.Failure)
         {
             BenchToolsCardLevel = OperationOutcomeKind.Failure;
@@ -2243,6 +2434,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             BenchToolsSummary = ProximityLevel == OperationOutcomeKind.Success
                 ? "Bench tools are active."
                 : "Bench tools are active. Proximity readback needs attention.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_questVisualConfirmationPendingReason))
+        {
+            BenchToolsCardLevel = OperationOutcomeKind.Warning;
+            BenchToolsSummary = "Bench tools are ready. Quest visual confirmation is pending.";
             return;
         }
 
@@ -2279,8 +2477,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             else if (_headsetStatus.IsInWakeLimbo)
             {
                 HeadsetAwakeLevel = OperationOutcomeKind.Warning;
-                HeadsetAwakeSummary = "Headset in slumber state.";
-                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but a Meta visual blocker is still active, so the headset can stay black even though Android says it is awake. The companion now retries this state with a power-style wake cycle before reporting it, and study launches only proceed once the headset leaves that blocked shell state. {proximityContext}".Trim();
+                HeadsetAwakeSummary = "Meta shell wake blocker active.";
+                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but a Meta visual blocker is still active, so the visible headset scene can still be black or Guardian-blocked even though Android says it is awake. Use Capture Quest Screenshot to confirm the actual visible state before deciding whether to launch or exit kiosk mode. {proximityContext}".Trim();
             }
             else if (_headsetStatus.IsAwake == true)
             {
@@ -2323,6 +2521,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void RefreshBenchToolsStatus()
     {
         UpdateProximityCard();
+        UpdateQuestScreenshotCard();
         UpdateTestLslSenderCard();
         UpdateBenchToolsCardState();
         UpdateBenchRefreshTimerState();
@@ -2330,6 +2529,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
         OnPropertyChanged(nameof(StudyRuntimeActionLabel));
         OnPropertyChanged(nameof(CanToggleProximity));
+        OnPropertyChanged(nameof(CanCaptureQuestScreenshot));
+        OnPropertyChanged(nameof(CanOpenLastQuestScreenshot));
         OnPropertyChanged(nameof(CanToggleTestLslSender));
     }
 
@@ -2392,6 +2593,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? lslBridge.LastStateReceivedAt
             : null;
         var studyRuntimeForeground = string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
+        var visualConfirmationHint = BuildQuestVisualConfirmationHint();
 
         if (_reportedTwinState.Count == 0)
         {
@@ -2400,8 +2602,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Study runtime is active, but quest_twin_state is idle."
                 : "Waiting for quest_twin_state.";
             LiveRuntimeDetail = studyRuntimeForeground
-                ? $"The headset still reports the Sussex APK in front, but no fresh app-state frames are arriving yet. The Quest runtime may still be starting, paused, or off-face. {BuildTwinCommandTransportDetail()}".Trim()
-                : $"Launch the Sussex runtime and wait for quest_twin_state to start publishing before relying on the live study monitor. {BuildTwinCommandTransportDetail()}".Trim();
+                ? $"The headset still reports the Sussex APK in front, but no fresh app-state frames are arriving yet. The Quest runtime may still be starting, paused, or off-face. {BuildTwinCommandTransportDetail()} {visualConfirmationHint}".Trim()
+                : $"Launch the Sussex runtime and wait for quest_twin_state to start publishing before relying on the live study monitor. {BuildTwinCommandTransportDetail()} {visualConfirmationHint}".Trim();
             return;
         }
 
@@ -2424,10 +2626,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Live study runtime state is active."
                 : "Live state is active, but the publisher does not clearly match the pinned study runtime.";
         LiveRuntimeDetail = isIdle
-            ? $"The last quest_twin_state frame arrived at {lastStateReceivedAt!.Value.ToLocalTime():HH:mm:ss}. If the headset is not on-face, wake it or disable proximity before relying on live confirmation. {BuildTwinCommandTransportDetail()}".Trim()
+            ? $"The last quest_twin_state frame arrived at {lastStateReceivedAt!.Value.ToLocalTime():HH:mm:ss}. If the headset is not on-face, wake it or disable proximity before relying on live confirmation. {BuildTwinCommandTransportDetail()} {visualConfirmationHint}".Trim()
             : string.IsNullOrWhiteSpace(publisherPackage)
-                ? $"Received {_reportedTwinState.Count} live key(s). The runtime did not include a package id in the current state frame. {BuildTwinCommandTransportDetail()}".Trim()
-                : $"Received {_reportedTwinState.Count} live key(s) from {publisherPackage}. {BuildTwinCommandTransportDetail()}".Trim();
+                ? $"Received {_reportedTwinState.Count} live key(s). The runtime did not include a package id in the current state frame. {BuildTwinCommandTransportDetail()} {visualConfirmationHint}".Trim()
+                : $"Received {_reportedTwinState.Count} live key(s) from {publisherPackage}. {BuildTwinCommandTransportDetail()} {visualConfirmationHint}".Trim();
     }
 
     private void UpdateLslCard()
@@ -3003,6 +3205,65 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void UpdateQuestScreenshotCard()
+    {
+        if (!_hzdbService.IsAvailable)
+        {
+            QuestScreenshotLevel = OperationOutcomeKind.Preview;
+            QuestScreenshotSummary = "Quest screenshot capture unavailable.";
+            QuestScreenshotDetail = "Install or expose @meta-quest/hzdb before using Quest screenshot capture.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ResolveHzdbSelector()))
+        {
+            QuestScreenshotLevel = OperationOutcomeKind.Preview;
+            QuestScreenshotSummary = "Quest screenshot capture needs a headset selector.";
+            QuestScreenshotDetail = "Probe USB or connect the Quest first so the study shell can request a metacam screenshot.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_questVisualConfirmationPendingReason))
+        {
+            QuestScreenshotLevel = OperationOutcomeKind.Warning;
+            QuestScreenshotSummary = "Quest visual confirmation pending.";
+            QuestScreenshotDetail = $"{_questVisualConfirmationPendingReason} Use Capture Quest Screenshot below to review the actual visible scene.";
+            return;
+        }
+
+        if (_lastQuestScreenshotCapturedAtUtc.HasValue && !string.IsNullOrWhiteSpace(QuestScreenshotPath))
+        {
+            QuestScreenshotLevel = OperationOutcomeKind.Success;
+            QuestScreenshotSummary = $"Quest screenshot captured at {_lastQuestScreenshotCapturedAtUtc.Value.ToLocalTime():HH:mm:ss}.";
+            QuestScreenshotDetail = $"Latest metacam screenshot: {QuestScreenshotPath}";
+            return;
+        }
+
+        QuestScreenshotLevel = OperationOutcomeKind.Preview;
+        QuestScreenshotSummary = "No Quest screenshot captured yet.";
+        QuestScreenshotDetail = "Capture a Quest screenshot after kiosk launch or exit to confirm what is actually visible on the headset.";
+    }
+
+    private string BuildQuestVisualConfirmationHint()
+    {
+        if (!_study.App.LaunchInKioskMode)
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_questVisualConfirmationPendingReason))
+        {
+            return $"{_questVisualConfirmationPendingReason} Use Capture Quest Screenshot in Bench tools because Quest shell focus can still disagree with the visible scene on this HorizonOS build.";
+        }
+
+        if (_lastQuestScreenshotCapturedAtUtc.HasValue && !string.IsNullOrWhiteSpace(QuestScreenshotPath))
+        {
+            return $"Latest Quest screenshot captured at {_lastQuestScreenshotCapturedAtUtc.Value.ToLocalTime():HH:mm:ss}. Review it whenever the shell state and the visible headset scene disagree.";
+        }
+
+        return "Quest shell focus can still disagree with the visible scene on this HorizonOS build. Capture a Quest screenshot in Bench tools when launch or exit needs visual confirmation.";
+    }
+
     private void UpdateTestLslSenderCard()
     {
         var expectedName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
@@ -3475,6 +3736,72 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private string ResolveHzdbSelector()
         => ResolveHeadsetActionSelector();
+
+    private string BuildQuestScreenshotOutputPath()
+    {
+        var screenshotRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ViscerealityCompanion",
+            "screenshots",
+            _study.Id);
+        Directory.CreateDirectory(screenshotRoot);
+        return Path.Combine(screenshotRoot, $"quest_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}.png");
+    }
+
+    private static BitmapImage? LoadQuestScreenshotPreview(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            image.UriSource = new Uri(path, UriKind.Absolute);
+            image.EndInit();
+            image.Freeze();
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void MarkQuestVisualConfirmationPending(string reason)
+    {
+        _questVisualConfirmationPendingReason = reason;
+        UpdateQuestScreenshotCard();
+        UpdateLiveRuntimeCard();
+    }
+
+    private void ClearQuestVisualConfirmationPending()
+    {
+        _questVisualConfirmationPendingReason = string.Empty;
+        UpdateQuestScreenshotCard();
+        UpdateLiveRuntimeCard();
+    }
+
+    private static OperationOutcome BuildKioskVisualVerificationOutcome(OperationOutcome outcome, string summary)
+    {
+        if (outcome.Kind == OperationOutcomeKind.Failure)
+        {
+            return outcome;
+        }
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            summary,
+            $"{outcome.Summary} {outcome.Detail} Capture a Quest screenshot in Bench tools to confirm what is actually visible on the headset."
+                .Trim(),
+            outcome.Endpoint,
+            outcome.PackageId,
+            outcome.Items);
+    }
 
     private IReadOnlyList<string> ResolveHzdbSelectorCandidates()
         => ResolveHeadsetActionSelectorCandidates();
