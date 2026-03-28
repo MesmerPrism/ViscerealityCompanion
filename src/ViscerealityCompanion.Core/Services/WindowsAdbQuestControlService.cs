@@ -453,6 +453,25 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         QuestAppTarget target,
         CancellationToken cancellationToken)
     {
+        var launchTrace = new List<string>();
+        var (readiness, _, _) = await QueryWakeReadinessSnapshotAsync(selector, cancellationToken).ConfigureAwait(false);
+        if (IsGuardianAutomationRecoveryCandidate(readiness))
+        {
+            launchTrace.Add($"Pre-launch: {readiness.Detail}");
+            readiness = await TryRecoverWakeGuardianTrackingLossAsync(selector, readiness, launchTrace, cancellationToken).ConfigureAwait(false);
+
+            if (readiness.IsInWakeLimbo && IsVisibleWakeBlockingOverlayComponent(readiness.WakeLimboComponent))
+            {
+                var stopGuardian = await RunShellAsync(
+                    selector,
+                    AdbShellSupport.BuildForceStopCommand(QuestGuardianPackage),
+                    cancellationToken).ConfigureAwait(false);
+                launchTrace.Add($"Force-stopped {QuestGuardianPackage}. {AdbShellSupport.Collapse(stopGuardian.CombinedOutput)}".Trim());
+                await Task.Delay(WakeGuardianRecoveryStepDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        var launchTraceDetail = launchTrace.Count == 0 ? string.Empty : string.Join(" ", launchTrace);
         await RunShellAsync(selector, AdbShellSupport.BuildForceStopCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
 
         var monkeyLaunch = await RunShellAsync(selector, AdbShellSupport.BuildMonkeyLaunchCommand(target.PackageId), cancellationToken).ConfigureAwait(false);
@@ -460,7 +479,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         {
             return Success(
                 $"Launch command sent for {target.Label}.",
-                AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput),
+                $"{launchTraceDetail} {AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)}".Trim(),
                 packageId: target.PackageId);
         }
 
@@ -471,17 +490,20 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             {
                 return Success(
                     $"Launch command sent for {target.Label}.",
-                    AdbShellSupport.Collapse(explicitLaunch.CombinedOutput),
+                    $"{launchTraceDetail} {AdbShellSupport.Collapse(explicitLaunch.CombinedOutput)}".Trim(),
                     packageId: target.PackageId);
             }
 
             return Failure(
                 $"Launch failed for {target.Label}.",
-                $"{AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)} {AdbShellSupport.Collapse(explicitLaunch.CombinedOutput)}".Trim(),
+                $"{launchTraceDetail} {AdbShellSupport.Collapse(monkeyLaunch.CombinedOutput)} {AdbShellSupport.Collapse(explicitLaunch.CombinedOutput)}".Trim(),
                 packageId: target.PackageId);
         }
 
-        return Failure($"Launch failed for {target.Label}.", monkeyLaunch.CombinedOutput, packageId: target.PackageId);
+        return Failure(
+            $"Launch failed for {target.Label}.",
+            $"{launchTraceDetail} {monkeyLaunch.CombinedOutput}".Trim(),
+            packageId: target.PackageId);
     }
 
     private async Task<OperationOutcome> EnterKioskModeAsync(

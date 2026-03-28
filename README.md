@@ -127,6 +127,22 @@ powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-Apk.ps1
 That copies `AstralKarateDojo/Artifacts/APKs/SussexControllerStudy.apk` into
 `samples/quest-session-kit/APKs/` and updates the pinned Sussex hash metadata.
 
+To produce that upstream APK from the Unity repo, use the dedicated Sussex
+build entrypoint there first:
+
+```powershell
+cd C:\Users\tillh\source\repos\AstralKarateDojo
+& "C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Unity.exe" `
+  -batchmode -nographics -quit `
+  -projectPath "$PWD" `
+  -logFile "$PWD\Logs\build_sussex_study_apk.log" `
+  -executeMethod AstralKarateDojo.IndirectParticles.Editor.BuildWorkflowTools.BuildMetaQuestSussexStudyApk
+```
+
+That build writes `Artifacts/APKs/SussexControllerStudy.apk`, which is the
+approved public Sussex runtime this repo mirrors under
+`samples/quest-session-kit/APKs/`.
+
 `Build-App-Package.ps1` can do the same refresh inline via
 `-RefreshBundledSussexApk` or `-BundledSussexApkSourcePath <path>`.
 
@@ -151,7 +167,9 @@ this repo.
 
 If you need to change the Quest runtime itself, do that in
 `AstralKarateDojo`. If you need to run or support sessions from Windows, do it
-here.
+here. The only source-level dependency on `AstralKarateDojo` is the approved
+Sussex APK handoff described above; packaged Sussex operators do not need a
+local Astral checkout.
 
 ## License
 

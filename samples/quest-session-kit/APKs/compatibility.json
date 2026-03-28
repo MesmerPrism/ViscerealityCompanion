@@ -1,7 +1,7 @@
 ﻿{
     "apps":  [
                  {
-                     "sha256":  "4E37E8B5A5B0E1837FC74A4CA60F44866C86363148352FAE0578B02A2508ADE9",
+                     "sha256":  "86BE0095A569A0718B6A0D77C504350C9B47280D3891DE6DB6A3D1B0C04DF688",
                      "status":  "compatible",
                      "label":  "Sussex controller study build",
                      "notes":  "Bundled Sussex controller-breathing runtime. Matches the approved Sussex study shell hash.",

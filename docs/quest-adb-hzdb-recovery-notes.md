@@ -1209,6 +1209,54 @@ Practical interpretation:
   low-level `/dev/input` event source in the same way as the physical power
   button
 
+## March 28 Post-Power Passthrough Follow-Up
+
+Artifact bundle:
+
+- `artifacts/verify/sussex-study-mode-live/`
+
+Observed follow-up after the later live Sussex kiosk run on 2026-03-28:
+
+- after GUI-driven kiosk exit, the headset was still stuck in the black
+  `SensorLockActivity` family until a physical headset power-button press
+- after that press, shell state improved to:
+  - `ResumedActivity=HomeActivity`
+  - `mCurrentFocus=HomeActivity`
+  - initially `mTopFullscreenOpaqueWindowState=FocusPlaceholderActivity`
+  - later `mTopFullscreenOpaqueWindowState=ControlBarActivity`
+- however the matching metacam captures still showed passthrough-only room
+  imagery instead of a visible Meta menu:
+  - `debug-after-user-power-press.png`
+  - `debug-after-controlbar-launch.png`
+  - `debug-after-button-mode.png`
+  - `debug-after-guide.png`
+  - `debug-after-physical-controller-button.png`
+
+Extra attempts that still did not surface a visible menu in metacam:
+
+- explicitly relaunching
+  `com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity`
+- injected menu-style keys from the recovered Home-side shell:
+  - `input keyevent BUTTON_MODE`
+  - `input keyevent GUIDE`
+- pressing the physical controller Meta/menu button
+
+Updated interpretation:
+
+- do not treat `HomeActivity`, `FocusPlaceholderActivity`, or even
+  `ControlBarActivity` ownership alone as proof that the operator is back at a
+  visible Meta menu
+- on this machine, screenshot confirmation is still mandatory after kiosk exit
+  even when the shell-side activity stack looks "home-like"
+- the current build can still degrade into a passthrough limbo where Home-side
+  activities exist, but no screenshot-confirmed Meta menu is visible
+- one confirmed contributor to the failing unattended harness run was that the
+  harness had been arming the 8h proximity hold before launch even though its
+  helper name implied the opposite
+- that meant the failing harness pass was not actually reproducing the earlier
+  "headset on face, normal wear sensor" operator workflow that had exited
+  cleanly
+
 ## Recommended Companion Behavior
 
 For `ViscerealityCompanion`, prefer this recovery order when the wake path is

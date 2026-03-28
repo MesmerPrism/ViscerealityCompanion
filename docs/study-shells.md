@@ -136,6 +136,23 @@ That keeps the packaged app's `samples/quest-session-kit/APKs/` layout stable
 while updating the mirrored APK and the pinned Sussex hash in
 `compatibility.json` and `sussex-university.json`.
 
+The source-maintainer handoff is:
+
+```powershell
+cd C:\Users\tillh\source\repos\AstralKarateDojo
+& "C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Unity.exe" `
+  -batchmode -nographics -quit `
+  -projectPath "$PWD" `
+  -logFile "$PWD\Logs\build_sussex_study_apk.log" `
+  -executeMethod AstralKarateDojo.IndirectParticles.Editor.BuildWorkflowTools.BuildMetaQuestSussexStudyApk
+
+cd C:\Users\tillh\source\repos\ViscerealityCompanion
+powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-Apk.ps1
+```
+
+That is the only time the public source repo needs a local `AstralKarateDojo`
+checkout. The packaged Sussex operator app remains self-contained.
+
 The embedded Sussex workspace checks:
 
 - whether the bundled APK matches the approved study hash
@@ -176,7 +193,20 @@ That harness:
 - starts a local float LSL sender on `HRV_Biofeedback / HRV`
 - publishes smoothed `0..1` HRV biofeedback packets from this Windows machine on an irregular heartbeat-timed cadence
 - installs, launches, and profiles the bundled Sussex APK
-- captures screenshots plus a text report
+- captures GUI and Quest screenshots for kiosk-launch and kiosk-exit review
+- writes a text report alongside those screenshots
+
+Treat those screenshots as evidence to inspect, not as an automatic proof that
+Meta Home was visibly restored. On the current HorizonOS build, kiosk exit can
+still land in a passthrough / placeholder limbo even after `HomeActivity` has
+focus again, so the operator must review the captured Quest screenshot before
+calling the exit side "good". See `docs/quest-adb-hzdb-recovery-notes.md` for
+the current blocked-shell findings on this machine.
+
+The harness should preserve normal proximity behavior by default. If a previous
+run left an 8h proximity hold active, clear it first instead of re-arming it;
+otherwise the unattended harness is no longer matching the real
+"headset-on-face" Sussex operator workflow.
 
 On this machine, prefer that published harness launcher over raw
 `dotnet run` because Windows Application Control can block unpackaged local

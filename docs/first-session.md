@@ -88,6 +88,11 @@ viscereality perf 4 4
 **WPF App:** In a study shell, click **Launch Study Runtime**. In the full app,
 click **Launch App**.
 
+For the Sussex kiosk path, keep the headset on-face for launch and the first
+visual verification pass. Kiosk pinning and the proximity hold are separate:
+launch first, confirm the runtime is correct, and only then decide whether you
+need the optional proximity bypass for a longer unattended phase.
+
 Use the app to confirm:
 
 - the top status cards show Quest connected, the Sussex APK installed, the device profile active, and live runtime active
@@ -112,6 +117,21 @@ The current research mode is remote-only by default:
 - the APK reports state
 - on-device settings changes are not required for this first working mode
 
+If the researcher needs the headset to stay awake and remotely controllable
+after the initial launch check, use the Sussex bench-tools proximity control
+only after the runtime is already live and visually confirmed. In the Sussex
+shell that means:
+
+1. launch kiosk mode with the headset on-face
+2. verify the intended Unity scene and monitoring state
+3. click **Disable for 8h** only if you intentionally want a longer unattended
+   remote-control phase
+
+Treat that proximity hold as a wear-sensor bypass, not as the kiosk switch.
+Kiosk behavior comes from task pinning. If you need a participant-facing black
+screen or idle view during the run, prefer doing that inside Unity instead of
+putting the headset to sleep with the hardware power button.
+
 When you need to mark or pause a session, use the buttons on `Start Here` or
 the detailed controls in `Twin Monitor`.
 
@@ -127,7 +147,12 @@ Before the participant starts, a good operator state is:
 
 ## 7. End Session
 
-**WPF App:** Click **Export Manifest** to save session metadata, then close the app.
+**WPF App:** If you are in a kiosk study shell such as Sussex, click
+**Exit Kiosk Runtime** before closing the app. That exit path clears active
+proximity automation, stops task pinning, returns Home to the front, and then
+stops the Sussex APK. After exit, capture a Quest screenshot and confirm the
+visible headset scene before calling the run complete. Then click
+**Export Manifest** to save session metadata.
 
 **CLI:**
 

@@ -43,6 +43,10 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-study-mode-report.txt"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-initial.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-live.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-kiosk-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-home-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-home-proof.png"));
 
         using var outlet = new FloatLslTestOutlet();
         outlet.Open(
@@ -118,6 +122,7 @@ public static class HarnessScenarioRunner
         await ExecuteCommandAsync(studyViewModel.EnableWifiCommand, studyViewModel, "Enable Wi-Fi ADB");
         await ExecuteCommandAsync(studyViewModel.ConnectQuestCommand, studyViewModel, "Connect Quest");
         await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
+        await EnsureHeadsetWakeReadyAsync(studyViewModel);
         await EnsureProximityHoldDisabledAsync(studyViewModel);
 
         await studyViewModel.InstallStudyAppAsync();
@@ -132,6 +137,13 @@ public static class HarnessScenarioRunner
             "Quest twin state never became visible.");
 
         await WarmUpLslAsync(outlet, studyViewModel);
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        var kioskScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-kiosk-proof.png",
+            "sussex-main-window-kiosk-proof.png");
         var latencyResults = await MeasureLslRoundTripAsync(outlet, studyViewModel);
         var senderRestartResult = await VerifyLslSenderRestartRecoveryAsync(outlet, studyViewModel);
 
@@ -189,11 +201,30 @@ public static class HarnessScenarioRunner
             "study.particles.visible",
             "study.particles.render_output_enabled");
 
+        await studyViewModel.StopStudyAppAsync();
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        var homeScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-home-proof.png",
+            "sussex-main-window-home-proof.png");
         CaptureWindow(window, Path.Combine(outputRoot, "sussex-main-window-live.png"));
 
         await File.WriteAllTextAsync(
             Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
-            BuildReport(mainViewModel, studyViewModel, latencyResults, senderRestartResult, recenterResult, particlesOffResult, particlesHidden, particlesOnResult, particlesVisible));
+            BuildReport(
+                mainViewModel,
+                studyViewModel,
+                latencyResults,
+                senderRestartResult,
+                recenterResult,
+                particlesOffResult,
+                particlesHidden,
+                particlesOnResult,
+                particlesVisible,
+                kioskScreenshotPath,
+                homeScreenshotPath));
     }
 
     private static async Task WarmUpLslAsync(FloatLslTestOutlet outlet, StudyShellViewModel studyViewModel)
@@ -306,6 +337,38 @@ public static class HarnessScenarioRunner
         throw new TimeoutException(error);
     }
 
+    private static async Task<string> CaptureQuestScreenshotProofAsync(
+        StudyShellViewModel studyViewModel,
+        Window window,
+        string outputRoot,
+        string questScreenshotFileName,
+        string windowScreenshotFileName)
+    {
+        var previousPath = studyViewModel.QuestScreenshotPath;
+        await ExecuteCommandAsync(
+            studyViewModel.CaptureQuestScreenshotCommand,
+            studyViewModel,
+            "Capture Quest Screenshot",
+            TimeSpan.FromSeconds(30));
+
+        await WaitForConditionAsync(
+            () =>
+            {
+                var currentPath = studyViewModel.QuestScreenshotPath;
+                return !string.IsNullOrWhiteSpace(currentPath)
+                    && File.Exists(currentPath)
+                    && !string.Equals(currentPath, previousPath, StringComparison.OrdinalIgnoreCase);
+            },
+            TimeSpan.FromSeconds(10),
+            "Quest screenshot capture did not produce a new screenshot file.");
+
+        var questScreenshotPath = studyViewModel.QuestScreenshotPath;
+        var proofPath = Path.Combine(outputRoot, questScreenshotFileName);
+        File.Copy(questScreenshotPath, proofPath, overwrite: true);
+        CaptureWindow(window, Path.Combine(outputRoot, windowScreenshotFileName));
+        return proofPath;
+    }
+
     private static string BuildReport(
         MainWindowViewModel mainViewModel,
         StudyShellViewModel studyViewModel,
@@ -315,7 +378,9 @@ public static class HarnessScenarioRunner
         ObservationResult particlesOffResult,
         ObservationResult particlesHidden,
         ObservationResult particlesOnResult,
-        ObservationResult particlesVisible)
+        ObservationResult particlesVisible,
+        string kioskScreenshotPath,
+        string homeScreenshotPath)
     {
         var builder = new StringBuilder();
         builder.AppendLine($"Timestamp: {DateTimeOffset.Now:O}");
@@ -340,6 +405,8 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Particles: {studyViewModel.ParticlesSummary}");
         builder.AppendLine($"Particles detail: {studyViewModel.ParticlesDetail}");
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
+        builder.AppendLine($"Quest kiosk screenshot: {kioskScreenshotPath}");
+        builder.AppendLine($"Quest home screenshot: {homeScreenshotPath}");
         builder.AppendLine();
         builder.AppendLine("Command observations:");
         builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
@@ -486,7 +553,10 @@ public static class HarnessScenarioRunner
 
     private static async Task EnsureProximityHoldDisabledAsync(StudyShellViewModel studyViewModel)
     {
-        if (string.Equals(studyViewModel.ProximityActionLabel, "Enable Proximity", StringComparison.Ordinal))
+        // The Sussex operator workflow expects normal wear-sensor behavior unless
+        // wake recovery explicitly needs a temporary automation assist. Do not
+        // arm the 8h proximity hold here; clear it if a previous run left it on.
+        if (!string.Equals(studyViewModel.ProximityActionLabel, "Enable Proximity", StringComparison.Ordinal))
         {
             return;
         }
@@ -494,14 +564,34 @@ public static class HarnessScenarioRunner
         await ExecuteCommandAsync(
             studyViewModel.ToggleProximityCommand,
             studyViewModel,
-            "Disable Proximity For 8h",
+            "Enable Proximity",
             TimeSpan.FromSeconds(25));
 
         await WaitForConditionAsync(
-            () => string.Equals(studyViewModel.ProximityActionLabel, "Enable Proximity", StringComparison.Ordinal)
-                  || studyViewModel.ProximitySummary.Contains("hold active", StringComparison.OrdinalIgnoreCase),
+            () => studyViewModel.ProximitySummary.Contains("Normal proximity sensor behavior is active.", StringComparison.OrdinalIgnoreCase)
+                  || studyViewModel.ProximityActionLabel.StartsWith("Disable", StringComparison.Ordinal),
             TimeSpan.FromSeconds(10),
-            "Proximity hold did not become active through the study shell.");
+            "Proximity hold did not clear through the study shell.");
+    }
+
+    private static async Task EnsureHeadsetWakeReadyAsync(StudyShellViewModel studyViewModel)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var summary = studyViewModel.HeadsetAwakeSummary;
+            if (string.Equals(summary, "Headset awake.", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            await ExecuteCommandAsync(
+                studyViewModel.ToggleHeadsetPowerCommand,
+                studyViewModel,
+                "Wake Headset",
+                TimeSpan.FromSeconds(25));
+
+            await Task.Delay(TimeSpan.FromSeconds(2));
+        }
     }
 
     private static bool? ParseBool(string? value)

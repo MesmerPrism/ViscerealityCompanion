@@ -8,7 +8,7 @@
                 "packageId":  "com.Viscereality.LslTwin",
                 "apkPath":  "../quest-session-kit/APKs/SussexControllerStudy.apk",
                 "launchComponent":  "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
-                "sha256":  "4E37E8B5A5B0E1837FC74A4CA60F44866C86363148352FAE0578B02A2508ADE9",
+                "sha256":  "86BE0095A569A0718B6A0D77C504350C9B47280D3891DE6DB6A3D1B0C04DF688",
                 "versionName":  "0.1.0",
                 "notes":  "The Sussex shell ships with a bundled Sussex APK. The operator shell keeps checking the bundled APK hash and the installed headset hash against the approved Sussex study build.",
                 "allowManualSelection":  false,
