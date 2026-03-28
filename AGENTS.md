@@ -11,7 +11,8 @@ cross-project patterns, or central-bureau maintenance, use
 - Run WPF app (Smart App Control-safe): `powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1`
 - Run WPF app (direct dev loop): `dotnet run --project src/ViscerealityCompanion.App`
 - Run CLI: `dotnet run --project src/ViscerealityCompanion.Cli`
-- Run Sussex verification harness: `dotnet run --project tools/ViscerealityCompanion.VerificationHarness`
+- Run Sussex verification harness: `powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Sussex-VerificationHarness.ps1`
+- Build MSIX package: `powershell -ExecutionPolicy Bypass -File .\tools\app\Build-App-Package.ps1 -Unsigned`
 - Build docs site: `npm run pages:build`
 - Serve docs locally: `npm run pages:serve`
 
@@ -80,6 +81,20 @@ It does **not** ship:
 - Private APKs or unpublished study presets
 - Study-locked runtime configurations
 
+### Astral Sussex Contract
+
+- The Sussex Quest runtime is authored in `AstralKarateDojo`.
+- This repo may mirror an approved Sussex APK under
+  `samples/quest-session-kit/APKs/SussexControllerStudy.apk`, but it does not
+  edit Unity scenes, configs, or build-time scene wiring.
+- If the Sussex runtime needs a different scene hierarchy, LSL inlet contract,
+  or runtime config asset, make that change in `AstralKarateDojo` first and
+  then refresh the mirrored APK here.
+- Use `powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-Apk.ps1`
+  to refresh the bundled Sussex APK and pinned hashes from an Astral build.
+- Do not introduce companion-side workflow steps that mutate Unity scenes or
+  rely on build-time scene rewriting in `AstralKarateDojo`.
+
 ### Service Abstraction Pattern
 
 All external integrations use interfaces with factory-created implementations:
@@ -121,11 +136,16 @@ The `WindowsLslMonitorService` and `WindowsLslOutletService` use P/Invoke to
 1. `%VISCEREALITY_LSL_DLL%` environment variable
 2. `<app-dir>/lsl.dll`
 3. `<app-dir>/runtimes/win-x64/native/lsl.dll`
-4. Known Unity project paths under `~/source/repos/`
+4. User-installed official liblsl copies under `~/Tools/liblsl/*/bin/lsl.dll`
+5. Known Unity project paths under `~/source/repos/`
 
 Known Windows quirk: `lsl.dll` may emit IPv6 loopback multicast-responder bind
 warnings against `::1` during startup on this machine. Those warnings are noisy
 but non-fatal unless stream discovery or publication actually fails afterward.
+On this machine, the trusted official runtime is currently installed at
+`C:\Users\tillh\Tools\liblsl\1.16.2\bin\lsl.dll`; prefer that copy over the
+Unity-bundled repo copies if Windows Application Control blocks those older
+DLLs.
 
 ## Twin Mode Protocol
 
@@ -154,6 +174,17 @@ for the companion app, or publish manually with
 `dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false`.
 To refresh the Desktop/Start Menu shortcut onto that safe launcher path, run
 `powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Desktop-Launcher.ps1`.
+
+For the Sussex verification harness on this machine, do not default to
+`dotnet run --project tools/ViscerealityCompanion.VerificationHarness`.
+Use `powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Sussex-VerificationHarness.ps1`
+so the harness runs from a published single-file output first. If LSL still
+does not load, verify that `~/Tools/liblsl/*/bin/lsl.dll` or
+`%VISCEREALITY_LSL_DLL%` points at the official runtime before blaming the
+Astral/companion sync.
+Freshly republished local harness executables can still be blocked by Windows
+Application Control on this machine; treat that as a launcher-path issue, not
+as evidence that the Sussex APK, scene config, or LSL contract regressed.
 
 ## Available Skills
 

@@ -53,7 +53,7 @@ internal static class LslNativeLibraryResolver
             }
 
             libraryHandle = IntPtr.Zero;
-            detail = $"Could not locate lsl.dll. Set VISCEREALITY_LSL_DLL or place lsl.dll in the app folder. Searched: {string.Join("; ", CandidateLibraryPaths)}";
+            detail = $"Could not locate or load lsl.dll. Set VISCEREALITY_LSL_DLL or place lsl.dll in the app folder. Searched: {string.Join("; ", CandidateLibraryPaths)}";
             return false;
         }
     }
@@ -85,6 +85,7 @@ internal static class LslNativeLibraryResolver
         AddIfPresent(Path.Combine(AppContext.BaseDirectory, "runtimes", "win-x64", "native", "lsl.dll"));
 
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        AddUserToolsLiblslCandidates(candidates, userProfile);
         AddIfPresent(Path.Combine(userProfile, "source", "repos", "AstralKarateDojo", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
         AddIfPresent(Path.Combine(userProfile, "source", "repos", "AstralKarateDojo-phone-monitor-shell", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
         AddIfPresent(Path.Combine(userProfile, "source", "repos", "UnitySixthSense", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
@@ -93,5 +94,30 @@ internal static class LslNativeLibraryResolver
         return candidates
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static void AddUserToolsLiblslCandidates(ICollection<string> candidates, string userProfile)
+    {
+        var userToolsRoot = Path.Combine(userProfile, "Tools", "liblsl");
+        if (!Directory.Exists(userToolsRoot))
+        {
+            return;
+        }
+
+        foreach (var versionDirectory in Directory.EnumerateDirectories(userToolsRoot)
+                     .OrderByDescending(path =>
+                     {
+                         var versionName = Path.GetFileName(path);
+                         return Version.TryParse(versionName, out var version)
+                             ? version
+                             : new Version(0, 0);
+                     }))
+        {
+            var candidate = Path.Combine(versionDirectory, "bin", "lsl.dll");
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                candidates.Add(Path.GetFullPath(candidate));
+            }
+        }
     }
 }

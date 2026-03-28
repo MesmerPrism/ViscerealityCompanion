@@ -16,7 +16,16 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        HarnessScenarioRunner.RunOnceFromCurrentDirectory();
+        try
+        {
+            HarnessScenarioRunner.RunOnceFromCurrentDirectory();
+        }
+        catch (Exception ex)
+        {
+            HarnessScenarioRunner.WriteFatalErrorFromCurrentDirectory(ex);
+            Environment.ExitCode = 1;
+            throw;
+        }
     }
 }
 
@@ -62,6 +71,7 @@ public static class HarnessScenarioRunner
             catch (Exception ex)
             {
                 await File.WriteAllTextAsync(Path.Combine(outputRoot, "sussex-study-mode-error.txt"), ex.ToString());
+                Environment.ExitCode = 1;
             }
             finally
             {
@@ -71,6 +81,14 @@ public static class HarnessScenarioRunner
         };
 
         app.Run(window);
+    }
+
+    public static void WriteFatalErrorFromCurrentDirectory(Exception ex)
+    {
+        var repoRoot = Directory.GetCurrentDirectory();
+        var outputRoot = Path.Combine(repoRoot, "artifacts", "verify", "sussex-study-mode-live");
+        Directory.CreateDirectory(outputRoot);
+        File.WriteAllText(Path.Combine(outputRoot, "sussex-study-mode-error.txt"), ex.ToString());
     }
 
     private static async Task ExecuteScenarioAsync(MainWindow window, string outputRoot, FloatLslTestOutlet outlet)
@@ -715,7 +733,7 @@ internal sealed class FloatLslTestOutlet : IDisposable
             }
 
             throw new DllNotFoundException(
-                $"Could not locate lsl.dll for the verification harness. Searched: {string.Join("; ", CandidateLibraryPaths)}");
+                $"Could not locate or load lsl.dll for the verification harness. Searched: {string.Join("; ", CandidateLibraryPaths)}");
         }
 
         private static string[] BuildCandidateLibraryPaths()
@@ -735,11 +753,38 @@ internal sealed class FloatLslTestOutlet : IDisposable
             AddCandidate(candidates, Path.Combine(AppContext.BaseDirectory, "runtimes", "win-x64", "native", "lsl.dll"));
 
             var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            AddUserToolsLiblslCandidates(candidates, userProfile);
             AddCandidate(candidates, Path.Combine(userProfile, "source", "repos", "AstralKarateDojo", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
             AddCandidate(candidates, Path.Combine(userProfile, "source", "repos", "AstralKarateDojo-phone-monitor-shell", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
             AddCandidate(candidates, Path.Combine(userProfile, "source", "repos", "UnitySixthSense", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
+            AddCandidate(candidates, Path.Combine(userProfile, "source", "repos", "Viscereality", "Viscereality", "Packages", "com.labstreaminglayer.lsl4unity", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
 
             return candidates.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+
+        private static void AddUserToolsLiblslCandidates(ICollection<string> candidates, string userProfile)
+        {
+            var userToolsRoot = Path.Combine(userProfile, "Tools", "liblsl");
+            if (!Directory.Exists(userToolsRoot))
+            {
+                return;
+            }
+
+            foreach (var versionDirectory in Directory.EnumerateDirectories(userToolsRoot)
+                         .OrderByDescending(path =>
+                         {
+                             var versionName = Path.GetFileName(path);
+                             return Version.TryParse(versionName, out var version)
+                                 ? version
+                                 : new Version(0, 0);
+                         }))
+            {
+                var candidate = Path.Combine(versionDirectory, "bin", "lsl.dll");
+                if (!string.IsNullOrWhiteSpace(candidate))
+                {
+                    candidates.Add(Path.GetFullPath(candidate));
+                }
+            }
         }
 
         [DllImport("lsl", EntryPoint = "lsl_create_streaminfo", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]

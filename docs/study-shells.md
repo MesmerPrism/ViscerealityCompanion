@@ -87,6 +87,17 @@ same Sussex APK mirrored from the Astral build used for the study. It is stored
 through Git LFS in the source repo, but the packaged Windows install exposes
 the real file directly to the app at runtime.
 
+When you approve a newer Sussex APK from `AstralKarateDojo`, refresh the public
+bundle with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-Apk.ps1
+```
+
+That keeps the packaged app's `samples/quest-session-kit/APKs/` layout stable
+while updating the mirrored APK and the pinned Sussex hash in
+`compatibility.json` and `sussex-university.json`.
+
 The embedded Sussex workspace checks:
 
 - whether the bundled APK matches the approved study hash
@@ -117,7 +128,7 @@ workspace just to find the Sussex APK.
 
 The repo now includes a tracked live harness:
 
-- command: `dotnet run --project tools/ViscerealityCompanion.VerificationHarness`
+- command: `powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Sussex-VerificationHarness.ps1`
 - output: `artifacts/verify/sussex-study-mode-live/`
 
 That harness:
@@ -128,6 +139,12 @@ That harness:
 - publishes smoothed `0..1` HRV biofeedback packets from this Windows machine on an irregular heartbeat-timed cadence
 - installs, launches, and profiles the bundled Sussex APK
 - captures screenshots plus a text report
+
+On this machine, prefer that published harness launcher over raw
+`dotnet run` because Windows Application Control can block unpackaged local
+loads. If the harness still fails with Win32 `4551` while loading `lsl.dll`,
+treat that as the known machine policy blocker rather than as a Sussex scene or
+bundle regression.
 
 At the moment, the public study telemetry confirms full sender -> headset inlet
 connectivity through `study.lsl.connected_*` and `study.lsl.status`. If the

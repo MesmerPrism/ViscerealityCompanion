@@ -22,6 +22,9 @@ param(
     [string]$PackageCertificatePath,
     [string]$PackageCertificatePassword,
     [string]$PackageCertificateTimestampUrl,
+    [switch]$RefreshBundledSussexApk,
+    [string]$BundledSussexApkSourcePath,
+    [string]$BundledSussexApkVersion,
     [switch]$Unsigned
 )
 
@@ -34,15 +37,59 @@ function Find-MSBuild {
         return $command.Source
     }
 
+    $wellKnownPaths = @(
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe')
+    )
+    foreach ($path in $wellKnownPaths) {
+        if (Test-Path $path) {
+            return $path
+        }
+    }
+
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     if (Test-Path $vswhere) {
         $matches = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe'
         if ($LASTEXITCODE -eq 0 -and $matches) {
             return $matches | Select-Object -First 1
         }
+
+        $matches = & $vswhere -latest -products * -find 'MSBuild\**\Bin\MSBuild.exe'
+        if ($LASTEXITCODE -eq 0 -and $matches) {
+            return $matches | Select-Object -First 1
+        }
     }
 
     throw 'MSBuild.exe was not found. Install Visual Studio Build Tools with the MSIX/Desktop Bridge workload, or run this in GitHub Actions on windows-latest.'
+}
+
+function Initialize-DotNetSdkResolver {
+    $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
+    if (-not $dotnetCommand) {
+        return
+    }
+
+    $dotnetRoot = Split-Path -Parent $dotnetCommand.Source
+    $sdkRoot = Join-Path $dotnetRoot 'sdk'
+    if (-not (Test-Path $sdkRoot)) {
+        return
+    }
+
+    $sdkDir = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^10\.' -and (Test-Path (Join-Path $_.FullName 'Sdks')) } |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+
+    if ($null -eq $sdkDir) {
+        return
+    }
+
+    $env:DOTNET_ROOT = $dotnetRoot
+    $env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR = $dotnetRoot
+    $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR = Join-Path $sdkDir.FullName 'Sdks'
+    $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER = $sdkDir.Name
 }
 
 function Set-ManifestValue {
@@ -85,6 +132,7 @@ $manifestPath = Join-Path $packageProjectDir 'Package.appxmanifest'
 $appInstallerTemplatePath = Join-Path $packageProjectDir 'Package.appinstaller.template'
 $appPackagesRoot = Join-Path $packageProjectDir 'AppPackages'
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
+$syncBundledSussexApkScriptPath = Join-Path $repoRoot 'tools\app\Sync-Bundled-Sussex-Apk.ps1'
 
 if (-not (Test-Path $packageProjectPath)) {
     throw "Packaging project not found at $packageProjectPath"
@@ -98,12 +146,33 @@ if (-not (Test-Path $manifestPath)) {
     throw "Package manifest not found at $manifestPath"
 }
 
+if ($RefreshBundledSussexApk -or -not [string]::IsNullOrWhiteSpace($BundledSussexApkSourcePath)) {
+    if (-not (Test-Path $syncBundledSussexApkScriptPath)) {
+        throw "Bundled Sussex APK sync script not found at $syncBundledSussexApkScriptPath"
+    }
+
+    $syncArgs = @{}
+    if (-not [string]::IsNullOrWhiteSpace($BundledSussexApkSourcePath)) {
+        $syncArgs['SourceApkPath'] = $BundledSussexApkSourcePath
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($BundledSussexApkVersion)) {
+        $syncArgs['VersionName'] = $BundledSussexApkVersion
+    }
+
+    Write-Host 'Refreshing bundled Sussex APK metadata before packaging...' -ForegroundColor Cyan
+    & $syncBundledSussexApkScriptPath @syncArgs
+}
+
+Initialize-DotNetSdkResolver
+
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 if (Test-Path $appPackagesRoot) {
     Remove-Item -Recurse -Force $appPackagesRoot
 }
 
 $originalManifest = Get-Content $manifestPath -Raw
+$originalManifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
 
 try {
     [xml]$manifest = $originalManifest
@@ -204,5 +273,5 @@ try {
     }
 }
 finally {
-    Set-Content -Path $manifestPath -Value $originalManifest -Encoding utf8
+    [System.IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
 }

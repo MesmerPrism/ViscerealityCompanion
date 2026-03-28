@@ -117,6 +117,19 @@ The repo includes Windows packaging scaffolding under
 That path is meant to produce one branded launcher entry for the installed app,
 instead of asking operators to run the unpackaged repo build directly.
 
+If you need to refresh the bundled Sussex APK from a fresh Astral build before
+packaging, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-Apk.ps1
+```
+
+That copies `AstralKarateDojo/Artifacts/APKs/SussexControllerStudy.apk` into
+`samples/quest-session-kit/APKs/` and updates the pinned Sussex hash metadata.
+
+`Build-App-Package.ps1` can do the same refresh inline via
+`-RefreshBundledSussexApk` or `-BundledSussexApkSourcePath <path>`.
+
 For repo-local desktop launchers on machines with Smart App Control, refresh the
 shortcut to the safe single-file launcher with:
 
