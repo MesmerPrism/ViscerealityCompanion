@@ -966,10 +966,13 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             trace.Add("Sent KEYCODE_WAKEUP.");
             readiness = await RefreshWakeReadinessAsync(selector, cancellationToken).ConfigureAwait(false);
             trace.Add($"After wake: {readiness.Detail}");
-            if (readiness.IsInWakeLimbo)
-            {
-                readiness = await TryNormalizeWakeHomeShellAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
-            }
+        }
+
+        // The Quest can report itself as awake while still sitting in SensorLockActivity
+        // or another blocked shell state. Normalize that before continuing with the action.
+        if (readiness.IsInWakeLimbo)
+        {
+            readiness = await TryNormalizeWakeHomeShellAsync(selector, readiness, trace, cancellationToken).ConfigureAwait(false);
         }
 
         if (readiness.IsAwake == true && !readiness.IsInWakeLimbo)
