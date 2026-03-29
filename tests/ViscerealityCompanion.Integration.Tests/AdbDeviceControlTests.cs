@@ -89,6 +89,7 @@ public class AdbDeviceControlTests
         Assert.True(status.IsConnected);
         Assert.Equal("Quest 3S", status.DeviceModel);
         Assert.True(status.BatteryLevel is >= 1 and <= 100);
+        Assert.False(string.IsNullOrWhiteSpace(status.SoftwareVersion));
     }
 
     [Fact]

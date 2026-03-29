@@ -74,6 +74,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _headsetModel = "Unknown";
     private int _batteryPercent;
     private string _headsetBatteryLabel = "Battery n/a";
+    private string _headsetSoftwareVersionLabel = "Headset OS n/a";
     private string _headsetPerformanceLabel = "CPU n/a / GPU n/a";
     private string _headsetForegroundLabel = "Foreground n/a";
     private string _headsetAwakeSummary = "Awake status not checked yet.";
@@ -259,7 +260,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string PinnedBuildHash => _study.App.Sha256;
     public string PinnedLaunchComponent => string.IsNullOrWhiteSpace(_study.App.LaunchComponent) ? "n/a" : _study.App.LaunchComponent;
     public string PinnedAppNotes => string.IsNullOrWhiteSpace(_study.App.Notes) ? "No extra study-build notes." : _study.App.Notes;
+    public string PinnedDeviceProfileId => _study.DeviceProfile.Id;
     public string PinnedDeviceProfileLabel => _study.DeviceProfile.Label;
+    public StudyVerificationBaseline? VerificationBaseline => _study.App.VerificationBaseline;
     public bool CanChooseStudyApk => _study.App.AllowManualSelection;
     public string StudyApkStepTitle => CanChooseStudyApk ? "2. Verify study APK" : "2. Verify Sussex APK";
     public string StudyApkInstallButtonLabel => CanChooseStudyApk ? "Install Study APK" : "Install Sussex APK";
@@ -342,6 +345,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _headsetBatteryLabel;
         private set => SetProperty(ref _headsetBatteryLabel, value);
+    }
+
+    public string HeadsetSoftwareVersionLabel
+    {
+        get => _headsetSoftwareVersionLabel;
+        private set => SetProperty(ref _headsetSoftwareVersionLabel, value);
     }
 
     public string HeadsetPerformanceLabel
@@ -461,6 +470,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         get => _localApkHash;
         private set => SetProperty(ref _localApkHash, value);
     }
+
+    public string InstalledApkHash => _installedAppStatus?.InstalledSha256 ?? string.Empty;
+
+    public string HeadsetSoftwareRelease => _headsetStatus?.SoftwareReleaseOrCodename ?? string.Empty;
+
+    public string HeadsetSoftwareBuildId => _headsetStatus?.SoftwareBuildId ?? string.Empty;
+
+    public string HeadsetSoftwareDisplayId => _headsetStatus?.SoftwareDisplayId ?? string.Empty;
 
     public OperationOutcomeKind QuestStatusLevel
     {
@@ -1293,7 +1310,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? QuestUtilityAction.Sleep
             : QuestUtilityAction.Wake;
         var actionLabel = action == QuestUtilityAction.Sleep ? "Sleep Headset" : "Wake Headset";
-        var outcome = await _questService.RunUtilityAsync(action).ConfigureAwait(false);
+        var outcome = action == QuestUtilityAction.Wake
+            ? await _questService.RunUtilityAsync(action, allowWakeResumeTarget: false).ConfigureAwait(false)
+            : await _questService.RunUtilityAsync(action).ConfigureAwait(false);
 
         if (action == QuestUtilityAction.Wake)
         {
@@ -1374,28 +1393,39 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private async Task CaptureQuestScreenshotAsync()
     {
-        await TryWakeHeadsetBeforeStudyActionAsync("Capture Quest Screenshot").ConfigureAwait(false);
+        await CaptureQuestScreenshotForVerificationAsync(wakeBeforeCapture: true).ConfigureAwait(false);
+    }
+
+    public async Task<OperationOutcome> CaptureQuestScreenshotForVerificationAsync(bool wakeBeforeCapture)
+    {
+        if (wakeBeforeCapture)
+        {
+            await TryWakeHeadsetBeforeStudyActionAsync("Capture Quest Screenshot").ConfigureAwait(false);
+        }
+
         var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
         if (!_hzdbService.IsAvailable)
         {
+            var unavailableOutcome = new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "hzdb not available.",
+                "Install or expose @meta-quest/hzdb before using Quest screenshot capture.");
             await ApplyOutcomeAsync(
                 "Capture Quest Screenshot",
-                new OperationOutcome(
-                    OperationOutcomeKind.Preview,
-                    "hzdb not available.",
-                    "Install or expose @meta-quest/hzdb before using Quest screenshot capture.")).ConfigureAwait(false);
-            return;
+                unavailableOutcome).ConfigureAwait(false);
+            return unavailableOutcome;
         }
 
         if (string.IsNullOrWhiteSpace(selector))
         {
+            var blockedOutcome = new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Quest screenshot blocked.",
+                "Probe USB or connect the Quest first so the study shell has a selector for hzdb screenshot capture.");
             await ApplyOutcomeAsync(
                 "Capture Quest Screenshot",
-                new OperationOutcome(
-                    OperationOutcomeKind.Warning,
-                    "Quest screenshot blocked.",
-                    "Probe USB or connect the Quest first so the study shell has a selector for hzdb screenshot capture.")).ConfigureAwait(false);
-            return;
+                blockedOutcome).ConfigureAwait(false);
+            return blockedOutcome;
         }
 
         var outputPath = BuildQuestScreenshotOutputPath();
@@ -1433,6 +1463,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         await ApplyOutcomeAsync("Capture Quest Screenshot", outcome).ConfigureAwait(false);
+        return outcome;
     }
 
     private async Task OpenLastQuestScreenshotAsync()
@@ -1754,7 +1785,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return null;
         }
 
-        var wakeOutcome = await _questService.RunUtilityAsync(QuestUtilityAction.Wake).ConfigureAwait(false);
+        var wakeOutcome = await _questService
+            .RunUtilityAsync(QuestUtilityAction.Wake, allowWakeResumeTarget: false)
+            .ConfigureAwait(false);
         if (wakeOutcome.Kind is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
         {
             await DispatchAsync(() => AppendLog(
@@ -1873,7 +1906,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task RefreshDeviceSnapshotBundleAsync(bool forceProximity)
+    private async Task RefreshDeviceSnapshotBundleAsync(bool forceProximity, bool includeHostWifiStatus = true)
     {
         var entered = await DispatchAsync(() =>
         {
@@ -1893,7 +1926,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         try
         {
-            await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+            await RefreshHeadsetStatusAsync(includeHostWifiStatus).ConfigureAwait(false);
             await RefreshInstalledAppStatusAsync().ConfigureAwait(false);
             await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
             await RefreshProximityStatusAsync(force: forceProximity).ConfigureAwait(false);
@@ -1952,7 +1985,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void OnDeviceSnapshotRefreshTimerTick(object? sender, EventArgs e)
     {
-        _ = RefreshDeviceSnapshotBundleAsync(forceProximity: true);
+        _ = RefreshDeviceSnapshotBundleAsync(forceProximity: true, includeHostWifiStatus: false);
     }
 
     private async Task RefreshInstalledAppStatusAsync()
@@ -2015,9 +2048,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }).ConfigureAwait(false);
     }
 
-    private async Task RefreshHeadsetStatusAsync()
+    private async Task RefreshHeadsetStatusAsync(bool includeHostWifiStatus = true)
     {
-        _headsetStatus = await _questService.QueryHeadsetStatusAsync(CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false)), remoteOnlyControlEnabled: true).ConfigureAwait(false);
+        _headsetStatus = await _questService.QueryHeadsetStatusAsync(
+            CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false)),
+            remoteOnlyControlEnabled: true,
+            includeHostWifiStatus: includeHostWifiStatus).ConfigureAwait(false);
 
         await DispatchAsync(() =>
         {
@@ -2062,6 +2098,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             HeadsetModel = string.IsNullOrWhiteSpace(_headsetStatus.DeviceModel) ? "Quest" : _headsetStatus.DeviceModel;
             BatteryPercent = Math.Clamp(_headsetStatus.BatteryLevel ?? 0, 0, 100);
             HeadsetBatteryLabel = BuildHeadsetBatteryLabel(_headsetStatus) + snapshotSuffix;
+            HeadsetSoftwareVersionLabel = BuildHeadsetSoftwareVersionLabel(_headsetStatus) + snapshotSuffix;
             HeadsetPerformanceLabel = $"CPU {(_headsetStatus.CpuLevel?.ToString() ?? "n/a")} / GPU {(_headsetStatus.GpuLevel?.ToString() ?? "n/a")}{snapshotSuffix}";
             HeadsetForegroundLabel = string.IsNullOrWhiteSpace(_headsetStatus.ForegroundPackageId)
                 ? $"Active app n/a{snapshotSuffix}"
@@ -2077,22 +2114,87 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void UpdatePinnedBuildStatus()
     {
-        if (_installedAppStatus?.IsInstalled == true)
+        var baseline = _study.App.VerificationBaseline;
+        var installedHash = _installedAppStatus?.InstalledSha256 ?? string.Empty;
+        var installedMatchesPinnedHash = HashMatches(installedHash, _study.App.Sha256);
+        var hasInstalledHash = !string.IsNullOrWhiteSpace(installedHash);
+        var hasConnectedHeadset = _headsetStatus?.IsConnected == true;
+        var hasSoftwareIdentity =
+            !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareReleaseOrCodename) &&
+            !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareBuildId);
+        var deviceProfileActive = _deviceProfileStatus?.IsActive == true;
+
+        if (baseline is not null)
         {
-            if (!string.IsNullOrWhiteSpace(_installedAppStatus.InstalledSha256) &&
-                HashMatches(_installedAppStatus.InstalledSha256, _study.App.Sha256))
+            var baselineMatchesPinnedHash = HashMatches(baseline.ApkSha256, _study.App.Sha256);
+            var softwareMatchesBaseline =
+                hasSoftwareIdentity &&
+                string.Equals(_headsetStatus!.SoftwareReleaseOrCodename, baseline.SoftwareVersion, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(_headsetStatus.SoftwareBuildId, baseline.BuildId, StringComparison.OrdinalIgnoreCase);
+            var deviceProfileIdMatchesBaseline =
+                string.IsNullOrWhiteSpace(baseline.DeviceProfileId) ||
+                string.Equals(baseline.DeviceProfileId, _study.DeviceProfile.Id, StringComparison.OrdinalIgnoreCase);
+            var fingerprintMatches =
+                hasConnectedHeadset &&
+                _installedAppStatus?.IsInstalled == true &&
+                installedMatchesPinnedHash &&
+                hasSoftwareIdentity &&
+                deviceProfileIdMatchesBaseline &&
+                StudyVerificationFingerprint.Matches(
+                    baseline,
+                    _study.App.PackageId,
+                    installedHash,
+                    _headsetStatus!.SoftwareReleaseOrCodename,
+                    _headsetStatus.SoftwareBuildId,
+                    _study.DeviceProfile.Id,
+                    _headsetStatus.SoftwareDisplayId);
+
+            if (!baselineMatchesPinnedHash)
+            {
+                PinnedBuildLevel = OperationOutcomeKind.Failure;
+                PinnedBuildSummary = "Pinned Sussex APK changed after the latest verified run.";
+            }
+            else if (_installedAppStatus?.IsInstalled == true && hasInstalledHash && !installedMatchesPinnedHash)
+            {
+                PinnedBuildLevel = OperationOutcomeKind.Failure;
+                PinnedBuildSummary = "Headset APK does not match the latest verified Sussex build.";
+            }
+            else if (hasConnectedHeadset && hasSoftwareIdentity && !softwareMatchesBaseline)
+            {
+                PinnedBuildLevel = OperationOutcomeKind.Failure;
+                PinnedBuildSummary = "Headset OS does not match the latest verified Sussex build.";
+            }
+            else if (hasConnectedHeadset && _deviceProfileStatus is not null && !deviceProfileActive)
+            {
+                PinnedBuildLevel = OperationOutcomeKind.Failure;
+                PinnedBuildSummary = "Headset settings do not match the latest verified Sussex build.";
+            }
+            else if (fingerprintMatches)
             {
                 PinnedBuildLevel = OperationOutcomeKind.Success;
-                PinnedBuildSummary = "Sussex APK is installed on the headset.";
+                PinnedBuildSummary = "Headset matches the latest verified Sussex build.";
             }
-            else if (string.IsNullOrWhiteSpace(_installedAppStatus.InstalledSha256))
+            else
+            {
+                PinnedBuildLevel = OperationOutcomeKind.Warning;
+                PinnedBuildSummary = "Latest verified Sussex build recorded. Refresh the headset snapshot to compare it fully.";
+            }
+        }
+        else if (_installedAppStatus?.IsInstalled == true)
+        {
+            if (installedMatchesPinnedHash)
+            {
+                PinnedBuildLevel = OperationOutcomeKind.Warning;
+                PinnedBuildSummary = "Sussex APK matches the pinned hash, but no verified baseline is recorded yet.";
+            }
+            else if (!hasInstalledHash)
             {
                 PinnedBuildLevel = OperationOutcomeKind.Warning;
                 PinnedBuildSummary = "Sussex runtime is installed, but the headset APK hash could not be verified.";
             }
             else
             {
-                PinnedBuildLevel = OperationOutcomeKind.Warning;
+                PinnedBuildLevel = OperationOutcomeKind.Failure;
                 PinnedBuildSummary = "A different Sussex APK build is installed on the headset.";
             }
         }
@@ -2100,8 +2202,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             PinnedBuildLevel = OperationOutcomeKind.Warning;
             PinnedBuildSummary = CanChooseStudyApk
-                ? "Approved Sussex APK is ready to install."
-                : "Bundled Sussex APK is ready to install.";
+                ? "Approved Sussex APK is ready to install, but it still needs a verified baseline run."
+                : "Bundled Sussex APK is ready to install, but it still needs a verified baseline run.";
         }
         else if (!string.IsNullOrWhiteSpace(StagedApkPath) && File.Exists(StagedApkPath))
         {
@@ -2123,6 +2225,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             $"Study SHA256: {_study.App.Sha256}"
         };
 
+        if (baseline is not null)
+        {
+            details.Add(BuildVerificationBaselineDetail(baseline));
+        }
+
         if (!string.IsNullOrWhiteSpace(StagedApkPath))
         {
             details.Add(LocalApkSummary);
@@ -2133,9 +2240,54 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             details.Add(InstalledApkSummary);
         }
 
+        if (_headsetStatus is not null)
+        {
+            details.Add(BuildCurrentHeadsetVerificationDetail(_headsetStatus));
+        }
+
+        if (_deviceProfileStatus is not null)
+        {
+            details.Add($"{_deviceProfileStatus.Label}: {_deviceProfileStatus.Detail}");
+        }
+
         PinnedBuildDetail = string.Join(" ", details);
         UpdatePinnedBuildCardState();
     }
+
+    private static string BuildVerificationBaselineDetail(StudyVerificationBaseline baseline)
+    {
+        var recordedAt = baseline.VerifiedAtUtc.HasValue
+            ? baseline.VerifiedAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+            : "unknown time";
+        var displayPart = string.IsNullOrWhiteSpace(baseline.DisplayId)
+            ? string.Empty
+            : $" Display {baseline.DisplayId}.";
+
+        return
+            $"Latest verified baseline: OS {FormatSoftwareIdentity(baseline.SoftwareVersion, baseline.BuildId)}.{displayPart} " +
+            $"Device profile {baseline.DeviceProfileId}. Environment hash {baseline.EnvironmentHash}. " +
+            $"Recorded {recordedAt} via {baseline.VerifiedBy}.";
+    }
+
+    private static string BuildCurrentHeadsetVerificationDetail(HeadsetAppStatus status)
+    {
+        var softwareIdentity = FormatSoftwareIdentity(status.SoftwareReleaseOrCodename, status.SoftwareBuildId);
+        var displayPart = string.IsNullOrWhiteSpace(status.SoftwareDisplayId)
+            ? string.Empty
+            : $" Display {status.SoftwareDisplayId}.";
+        var installedPart = string.IsNullOrWhiteSpace(status.SoftwareReleaseOrCodename) && string.IsNullOrWhiteSpace(status.SoftwareBuildId)
+            ? "Current headset software n/a."
+            : $"Current headset software {softwareIdentity}.{displayPart}";
+
+        return installedPart.Trim();
+    }
+
+    private static string FormatSoftwareIdentity(string? softwareVersion, string? buildId)
+        => string.IsNullOrWhiteSpace(buildId)
+            ? (string.IsNullOrWhiteSpace(softwareVersion) ? "n/a" : softwareVersion.Trim())
+            : string.IsNullOrWhiteSpace(softwareVersion)
+                ? $"build {buildId.Trim()}"
+                : $"{softwareVersion.Trim()} | build {buildId.Trim()}";
 
     private void UpdateDeviceProfileRows()
     {
@@ -2342,6 +2494,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? headsetLabel
             : $"{headsetLabel} | {controllerLabel}";
     }
+
+    private static string BuildHeadsetSoftwareVersionLabel(HeadsetAppStatus status)
+        => string.IsNullOrWhiteSpace(status.SoftwareVersion)
+            ? "Headset OS n/a"
+            : $"Headset OS {status.SoftwareVersion}";
 
     private static string BuildControllerBatteryLabel(IReadOnlyList<QuestControllerStatus>? controllers)
     {
@@ -3675,26 +3832,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     }
 
     private QuestAppTarget CreateStudyTarget(string? apkPath)
-        => new(
-            Id: _study.Id,
-            Label: _study.App.Label,
-            PackageId: _study.App.PackageId,
-            ApkFile: string.IsNullOrWhiteSpace(apkPath) ? _study.App.ApkPath : apkPath,
-            LaunchComponent: _study.App.LaunchComponent,
-            BrowserPackageId: "com.oculus.browser",
-            Description: _study.Description,
-            Tags: ["viscereality", "runtime", "lsl", "twin"],
-            ApkSha256: _study.App.Sha256,
-            CompatibilityStatus: ApkCompatibilityStatus.Compatible,
-            CompatibilityProfile: _study.Label,
-            CompatibilityNotes: _study.App.Notes);
+        => StudyShellOperatorBindings.CreateQuestTarget(_study, apkPath);
 
     private DeviceProfile CreatePinnedDeviceProfile()
-        => new(
-            _study.DeviceProfile.Id,
-            _study.DeviceProfile.Label,
-            _study.DeviceProfile.Description,
-            new Dictionary<string, string>(_study.DeviceProfile.Properties, StringComparer.OrdinalIgnoreCase));
+        => StudyShellOperatorBindings.CreateDeviceProfile(_study);
 
     private string ResolveInitialApkPath()
     {

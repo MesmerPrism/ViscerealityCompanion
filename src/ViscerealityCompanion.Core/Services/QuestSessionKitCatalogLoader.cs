@@ -184,7 +184,18 @@ public sealed class QuestSessionKitCatalogLoader
                 apkSha256,
                 compatibilityStatus,
                 compatibility?.Label,
-                compatibility?.Notes));
+                compatibility?.Notes,
+                compatibility?.Verification is null
+                    ? null
+                    : new StudyVerificationBaseline(
+                        compatibility.Verification.ApkSha256 ?? string.Empty,
+                        compatibility.Verification.SoftwareVersion ?? string.Empty,
+                        compatibility.Verification.BuildId ?? string.Empty,
+                        compatibility.Verification.DisplayId ?? string.Empty,
+                        compatibility.Verification.DeviceProfileId ?? string.Empty,
+                        compatibility.Verification.EnvironmentHash ?? string.Empty,
+                        compatibility.Verification.VerifiedAtUtc,
+                        compatibility.Verification.VerifiedBy ?? string.Empty)));
         }
 
         return results;
@@ -507,6 +518,36 @@ public sealed class QuestSessionKitCatalogLoader
 
         [JsonPropertyName("tags")]
         public string[]? Tags { get; init; }
+
+        [JsonPropertyName("verification")]
+        public StudyVerificationBaselineDto? Verification { get; init; }
+    }
+
+    private sealed class StudyVerificationBaselineDto
+    {
+        [JsonPropertyName("apkSha256")]
+        public string? ApkSha256 { get; init; }
+
+        [JsonPropertyName("softwareVersion")]
+        public string? SoftwareVersion { get; init; }
+
+        [JsonPropertyName("buildId")]
+        public string? BuildId { get; init; }
+
+        [JsonPropertyName("displayId")]
+        public string? DisplayId { get; init; }
+
+        [JsonPropertyName("deviceProfileId")]
+        public string? DeviceProfileId { get; init; }
+
+        [JsonPropertyName("environmentHash")]
+        public string? EnvironmentHash { get; init; }
+
+        [JsonPropertyName("verifiedAtUtc")]
+        public DateTimeOffset? VerifiedAtUtc { get; init; }
+
+        [JsonPropertyName("verifiedBy")]
+        public string? VerifiedBy { get; init; }
     }
 
     private sealed class HotloadProfileDto

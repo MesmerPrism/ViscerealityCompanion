@@ -30,7 +30,11 @@ public sealed record HeadsetAppStatus(
     string DisplayPowerState = "",
     string PowerStatusDetail = "",
     bool IsInWakeLimbo = false,
-    IReadOnlyList<QuestControllerStatus>? Controllers = null);
+    IReadOnlyList<QuestControllerStatus>? Controllers = null,
+    string SoftwareVersion = "",
+    string SoftwareReleaseOrCodename = "",
+    string SoftwareBuildId = "",
+    string SoftwareDisplayId = "");
 
 public sealed record QuestControllerStatus(
     string HandLabel,

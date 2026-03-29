@@ -1,17 +1,27 @@
-﻿{
-    "apps":  [
-                 {
-                     "sha256":  "86BE0095A569A0718B6A0D77C504350C9B47280D3891DE6DB6A3D1B0C04DF688",
-                     "status":  "compatible",
-                     "label":  "Sussex controller study build",
-                     "notes":  "Bundled Sussex controller-breathing runtime. Matches the approved Sussex study shell hash.",
-                     "tags":  [
-                                  "viscereality",
-                                  "runtime",
-                                  "lsl",
-                                  "twin",
-                                  "sussex"
-                              ]
-                 }
-             ]
+{
+  "apps": [
+    {
+      "sha256": "86BE0095A569A0718B6A0D77C504350C9B47280D3891DE6DB6A3D1B0C04DF688",
+      "status": "compatible",
+      "label": "Sussex controller study build",
+      "notes": "Bundled Sussex controller-breathing runtime. Matches the approved Sussex study shell hash.",
+      "tags": [
+        "viscereality",
+        "runtime",
+        "lsl",
+        "twin",
+        "sussex"
+      ],
+      "verification": {
+        "apkSha256": "86BE0095A569A0718B6A0D77C504350C9B47280D3891DE6DB6A3D1B0C04DF688",
+        "softwareVersion": "14",
+        "buildId": "2921110053000610",
+        "displayId": "UP1A.231005.007.A1",
+        "deviceProfileId": "sussex-study-profile",
+        "environmentHash": "072CE0FA6024233FB02C4999229A4AB5DD048B3CABDD771B4B1D4B93F6BCDDDD",
+        "verifiedAtUtc": "2026-03-29T10:19:00.5507104+00:00",
+        "verifiedBy": "manual harness+cli visual verification"
+      }
+    }
+  ]
 }

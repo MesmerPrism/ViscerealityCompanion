@@ -24,7 +24,8 @@ public sealed record QuestAppTarget(
     string? ApkSha256 = null,
     ApkCompatibilityStatus CompatibilityStatus = ApkCompatibilityStatus.Unclassified,
     string? CompatibilityProfile = null,
-    string? CompatibilityNotes = null)
+    string? CompatibilityNotes = null,
+    StudyVerificationBaseline? VerificationBaseline = null)
 {
     public override string ToString() => Label;
 }

@@ -22,11 +22,13 @@ public static class Program
         rootCommand.AddCommand(BuildStatusCommand());
         rootCommand.AddCommand(BuildInstallCommand());
         rootCommand.AddCommand(BuildLaunchCommand());
+        rootCommand.AddCommand(BuildStopCommand());
         rootCommand.AddCommand(BuildPerfCommand());
         rootCommand.AddCommand(BuildHotloadCommand());
         rootCommand.AddCommand(BuildMonitorCommand());
         rootCommand.AddCommand(BuildTwinCommand());
         rootCommand.AddCommand(BuildCatalogCommand());
+        rootCommand.AddCommand(BuildStudyCommand());
         rootCommand.AddCommand(BuildHzdbCommand());
         rootCommand.AddCommand(BuildUtilityCommand());
 
@@ -121,6 +123,7 @@ public static class Program
             Console.WriteLine($"Connected:   {status.IsConnected}");
             Console.WriteLine($"Model:       {status.DeviceModel}");
             Console.WriteLine($"Battery:     {(status.BatteryLevel.HasValue ? $"{status.BatteryLevel}%" : "n/a")}");
+            Console.WriteLine($"Software:    {(string.IsNullOrWhiteSpace(status.SoftwareVersion) ? "n/a" : status.SoftwareVersion)}");
             Console.WriteLine($"CPU Level:   {(status.CpuLevel.HasValue ? status.CpuLevel.ToString() : "n/a")}");
             Console.WriteLine($"GPU Level:   {(status.GpuLevel.HasValue ? status.GpuLevel.ToString() : "n/a")}");
             Console.WriteLine($"Foreground:  {status.ForegroundPackageId}");
@@ -133,8 +136,8 @@ public static class Program
 
     private static Command BuildInstallCommand()
     {
-        var apkArg = new Argument<string>("apk", description: "Path to APK file or app ID from catalog");
-        var command = new Command("install", "Install an APK on the connected Quest") { apkArg };
+        var apkArg = new Argument<string>("apk", description: "Path to an APK file");
+        var command = new Command("install", "Install an APK file on the connected Quest") { apkArg };
         command.Handler = CommandHandler.Create(async (string apk, string? device) =>
         {
             var service = CreateQuestService(device);
@@ -155,9 +158,34 @@ public static class Program
 
     private static Command BuildLaunchCommand()
     {
+        var kioskOption = new Option<bool>("--kiosk", "Enter kiosk mode after launching the app.");
+        var componentOption = new Option<string?>("--component", "Explicit launch component to use for the app.");
         var packageArg = new Argument<string>("package", description: "Package ID to launch");
-        var command = new Command("launch", "Launch an app on the connected Quest") { packageArg };
-        command.Handler = CommandHandler.Create(async (string package, string? device) =>
+        var command = new Command("launch", "Launch an app on the connected Quest") { packageArg, kioskOption, componentOption };
+        command.Handler = CommandHandler.Create(async (string package, bool kiosk, string? component, string? device) =>
+        {
+            var service = CreateQuestService(device);
+            var target = new QuestAppTarget(
+                Id: package,
+                Label: package,
+                PackageId: package,
+                ApkFile: string.Empty,
+                LaunchComponent: component ?? string.Empty,
+                BrowserPackageId: string.Empty,
+                Description: $"CLI launch: {package}",
+                Tags: []);
+            var result = await service.LaunchAppAsync(target, kioskMode: kiosk);
+            PrintOutcome(result);
+        });
+        return command;
+    }
+
+    private static Command BuildStopCommand()
+    {
+        var exitKioskOption = new Option<bool>("--exit-kiosk", "Exit kiosk mode before stopping the app.");
+        var packageArg = new Argument<string>("package", description: "Package ID to stop");
+        var command = new Command("stop", "Stop an app on the connected Quest") { packageArg, exitKioskOption };
+        command.Handler = CommandHandler.Create(async (string package, bool exitKiosk, string? device) =>
         {
             var service = CreateQuestService(device);
             var target = new QuestAppTarget(
@@ -167,9 +195,9 @@ public static class Program
                 ApkFile: string.Empty,
                 LaunchComponent: string.Empty,
                 BrowserPackageId: string.Empty,
-                Description: $"CLI launch: {package}",
+                Description: $"CLI stop: {package}",
                 Tags: []);
-            var result = await service.LaunchAppAsync(target);
+            var result = await service.StopAppAsync(target, exitKioskMode: exitKiosk);
             PrintOutcome(result);
         });
         return command;
@@ -393,6 +421,127 @@ public static class Program
         return catalogCommand;
     }
 
+    private static Command BuildStudyCommand()
+    {
+        var studyCommand = new Command("study", "Pinned study-shell operations that mirror the GUI workflow");
+        var rootOption = new Option<string?>("--root", "Study shell catalog root directory path");
+        var studyArg = new Argument<string>("study", description: "Study shell ID (for example: sussex-university)");
+
+        var listCommand = new Command("list", "List available study shells") { rootOption };
+        listCommand.Handler = CommandHandler.Create(async (string? root) =>
+        {
+            var catalog = await LoadStudyShellCatalogAsync(root);
+
+            Console.WriteLine($"Source: {catalog.Source.Label} ({catalog.Source.RootPath})");
+            Console.WriteLine();
+
+            foreach (var study in catalog.Studies)
+            {
+                var kioskLabel = study.App.LaunchInKioskMode ? "kiosk" : "standard";
+                Console.WriteLine($"  {study.Id,-24} {study.App.PackageId,-40} {kioskLabel,-8} {study.Label}");
+            }
+        });
+
+        var installCommand = new Command("install", "Install the pinned study APK") { studyArg, rootOption };
+        installCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var service = CreateQuestService(device);
+            var result = await service.InstallAppAsync(StudyShellOperatorBindings.CreateQuestTarget(definition));
+            PrintOutcome(result);
+        });
+
+        var profileCommand = new Command("apply-profile", "Apply the pinned study device profile") { studyArg, rootOption };
+        profileCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var service = CreateQuestService(device);
+            var result = await service.ApplyDeviceProfileAsync(StudyShellOperatorBindings.CreateDeviceProfile(definition));
+            PrintOutcome(result);
+        });
+
+        var launchCommand = new Command("launch", "Launch the pinned study runtime using the study kiosk policy") { studyArg, rootOption };
+        launchCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var service = CreateQuestService(device);
+            var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
+            var result = await service.LaunchAppAsync(target, kioskMode: definition.App.LaunchInKioskMode);
+            PrintOutcome(result);
+        });
+
+        var stopCommand = new Command("stop", "Stop the pinned study runtime using the study kiosk-exit policy") { studyArg, rootOption };
+        stopCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var service = CreateQuestService(device);
+            var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
+            var result = await service.StopAppAsync(target, exitKioskMode: definition.App.LaunchInKioskMode);
+            PrintOutcome(result);
+        });
+
+        var statusCommand = new Command("status", "Show current headset state against the pinned study verification baseline") { studyArg, rootOption };
+        statusCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var service = CreateQuestService(device);
+            var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
+            var profile = StudyShellOperatorBindings.CreateDeviceProfile(definition);
+            var headset = await service.QueryHeadsetStatusAsync(target, false);
+            var installed = await service.QueryInstalledAppAsync(target);
+            var profileStatus = await service.QueryDeviceProfileStatusAsync(profile);
+            var baseline = definition.App.VerificationBaseline;
+            var installedMatchesPinned = MatchesHash(installed.InstalledSha256, definition.App.Sha256);
+            var baselineMatches =
+                baseline is not null &&
+                headset.IsConnected &&
+                installed.IsInstalled &&
+                installedMatchesPinned &&
+                profileStatus.IsActive &&
+                !string.IsNullOrWhiteSpace(headset.SoftwareReleaseOrCodename) &&
+                !string.IsNullOrWhiteSpace(headset.SoftwareBuildId) &&
+                StudyVerificationFingerprint.Matches(
+                    baseline,
+                    definition.App.PackageId,
+                    installed.InstalledSha256,
+                    headset.SoftwareReleaseOrCodename,
+                    headset.SoftwareBuildId,
+                    definition.DeviceProfile.Id,
+                    headset.SoftwareDisplayId);
+
+            Console.WriteLine($"Study:             {definition.Label}");
+            Console.WriteLine($"Package:           {definition.App.PackageId}");
+            Console.WriteLine($"Kiosk policy:      {definition.App.LaunchInKioskMode}");
+            Console.WriteLine($"Pinned SHA256:     {definition.App.Sha256}");
+            Console.WriteLine($"Installed SHA256:  {(string.IsNullOrWhiteSpace(installed.InstalledSha256) ? "n/a" : installed.InstalledSha256)}");
+            Console.WriteLine($"Installed match:   {installedMatchesPinned}");
+            Console.WriteLine($"Software:          {(string.IsNullOrWhiteSpace(headset.SoftwareVersion) ? "n/a" : headset.SoftwareVersion)}");
+            Console.WriteLine($"Device profile:    {profileStatus.Summary}");
+            Console.WriteLine($"Device profile ok: {profileStatus.IsActive}");
+            Console.WriteLine($"Headset summary:   {headset.Summary}");
+
+            if (baseline is null)
+            {
+                Console.WriteLine("Verified baseline: none recorded");
+            }
+            else
+            {
+                Console.WriteLine($"Verified baseline: {baseline.SoftwareVersion} | build {baseline.BuildId}");
+                Console.WriteLine($"Verified at:       {(baseline.VerifiedAtUtc.HasValue ? baseline.VerifiedAtUtc.Value.ToString("O") : "n/a")}");
+                Console.WriteLine($"Environment hash:  {baseline.EnvironmentHash}");
+                Console.WriteLine($"Environment match: {baselineMatches}");
+            }
+        });
+
+        studyCommand.AddCommand(listCommand);
+        studyCommand.AddCommand(installCommand);
+        studyCommand.AddCommand(profileCommand);
+        studyCommand.AddCommand(launchCommand);
+        studyCommand.AddCommand(stopCommand);
+        studyCommand.AddCommand(statusCommand);
+        return studyCommand;
+    }
+
     private static Command BuildUtilityCommand()
     {
         var actionArg = new Argument<string>("action", description: "Utility action: home, back, wake, list, reboot");
@@ -511,6 +660,26 @@ public static class Program
             ?? throw new InvalidOperationException("No device available. Use --device or run probe/connect first.");
     }
 
+    private static bool MatchesHash(string? left, string? right)
+        => !string.IsNullOrWhiteSpace(left)
+            && !string.IsNullOrWhiteSpace(right)
+            && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<StudyShellCatalog> LoadStudyShellCatalogAsync(string? root)
+    {
+        var loader = new StudyShellCatalogLoader();
+        var catalogRoot = root ?? ResolveStudyShellRoot();
+        return await loader.LoadAsync(catalogRoot);
+    }
+
+    private static async Task<StudyShellDefinition> ResolveStudyShellAsync(string studyId, string? root)
+    {
+        var catalog = await LoadStudyShellCatalogAsync(root);
+        return catalog.Studies.FirstOrDefault(study =>
+                   string.Equals(study.Id, studyId, StringComparison.OrdinalIgnoreCase))
+               ?? throw new InvalidOperationException($"Study shell '{studyId}' was not found in {catalog.Source.RootPath}.");
+    }
+
     private static void PrintOutcome(OperationOutcome outcome)
     {
         var prefix = outcome.Kind switch
@@ -552,5 +721,22 @@ public static class Program
         return candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path!))
             ?? throw new InvalidOperationException(
                 "No Quest Session Kit catalog root found. Set VISCEREALITY_QUEST_SESSION_KIT_ROOT or use --root.");
+    }
+
+    private static string ResolveStudyShellRoot()
+    {
+        var candidates = new[]
+        {
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_SHELL_ROOT"),
+            Path.Combine(AppContext.BaseDirectory, "samples", "study-shells"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "study-shells")),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source", "repos", "ViscerealityCompanion", "samples", "study-shells")
+        };
+
+        return candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path!))
+            ?? throw new InvalidOperationException(
+                "No study shell catalog root found. Set VISCEREALITY_STUDY_SHELL_ROOT or use --root.");
     }
 }

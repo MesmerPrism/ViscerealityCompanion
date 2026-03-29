@@ -63,6 +63,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _headsetStatusDetail = "Connect to Quest to start live status polling.";
     private string _headsetModel = "Unknown";
     private string _headsetBatteryLabel = "Battery n/a";
+    private string _headsetSoftwareVersionLabel = "Headset OS n/a";
     private string _headsetPerformanceLabel = "CPU n/a / GPU n/a";
     private string _headsetForegroundPackage = "Foreground n/a";
     private string _headsetVisibleActivities = "Visible activities n/a";
@@ -474,6 +475,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         get => _headsetBatteryLabel;
         private set => SetProperty(ref _headsetBatteryLabel, value);
+    }
+
+    public string HeadsetSoftwareVersionLabel
+    {
+        get => _headsetSoftwareVersionLabel;
+        private set => SetProperty(ref _headsetSoftwareVersionLabel, value);
     }
 
     public string HeadsetPerformanceLabel
@@ -1676,6 +1683,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             BatteryPercent = status.BatteryLevel ?? 0;
             HeadsetModel = status.IsConnected ? $"Model {status.DeviceModel}" : "Not connected";
             HeadsetBatteryLabel = BuildHeadsetBatteryLabel(status);
+            HeadsetSoftwareVersionLabel = BuildHeadsetSoftwareVersionLabel(status);
             HeadsetPerformanceLabel = $"CPU {(status.CpuLevel?.ToString() ?? "n/a")} / GPU {(status.GpuLevel?.ToString() ?? "n/a")}";
             _activeForegroundPackageId = status.ForegroundPackageId;
             _activeForegroundComponent = status.ForegroundComponent;
@@ -2770,6 +2778,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             ? headsetLabel
             : $"{headsetLabel} | {controllerLabel}";
     }
+
+    private static string BuildHeadsetSoftwareVersionLabel(HeadsetAppStatus status)
+        => string.IsNullOrWhiteSpace(status.SoftwareVersion)
+            ? "Headset OS n/a"
+            : $"Headset OS {status.SoftwareVersion}";
 
     private static string BuildControllerBatteryLabel(IReadOnlyList<QuestControllerStatus>? controllers)
     {

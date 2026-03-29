@@ -35,6 +35,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     private string? _lastUsbSelector;
     private string? _lastTcpSelector;
     private QuestWakeResumeTarget? _lastWakeResumeTarget;
+    private HostWifiStatus _lastKnownHostWifiStatus = new(string.Empty, string.Empty);
 
     public WindowsAdbQuestControlService(string adbPath, string? initialSelector = null)
     {
@@ -829,6 +830,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     public async Task<HeadsetAppStatus> QueryHeadsetStatusAsync(
         QuestAppTarget? target,
         bool remoteOnlyControlEnabled,
+        bool includeHostWifiStatus = true,
         CancellationToken cancellationToken = default)
     {
         var selector = await ResolveResponsiveSelectorAsync(cancellationToken).ConfigureAwait(false);
@@ -862,6 +864,22 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             var controllerStatuses = trackingOutput.ExitCode == 0
                 ? ParseControllerStatuses(trackingOutput.StdOut)
                 : Array.Empty<QuestControllerStatus>();
+            var softwareReleaseOrCodename = await TryReadShellValueAsync(
+                selector,
+                "getprop ro.build.version.release_or_codename",
+                cancellationToken).ConfigureAwait(false);
+            var softwareBuildId = await TryReadShellValueAsync(
+                selector,
+                "getprop ro.build.version.incremental",
+                cancellationToken).ConfigureAwait(false);
+            var softwareDisplayId = await TryReadShellValueAsync(
+                selector,
+                "getprop ro.build.display.id",
+                cancellationToken).ConfigureAwait(false);
+            var softwareVersion = FormatSoftwareVersion(
+                softwareReleaseOrCodename,
+                softwareBuildId,
+                softwareDisplayId);
             var cpuLevel = ParseOptionalInt(await TryReadShellValueAsync(selector, "getprop debug.oculus.cpuLevel", cancellationToken).ConfigureAwait(false));
             var gpuLevel = ParseOptionalInt(await TryReadShellValueAsync(selector, "getprop debug.oculus.gpuLevel", cancellationToken).ConfigureAwait(false));
             var powerOutput = await RunShellAsync(selector, "dumpsys power", cancellationToken).ConfigureAwait(false);
@@ -871,7 +889,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             var (_, foregroundSnapshot) = await QueryForegroundSnapshotAsync(selector, cancellationToken).ConfigureAwait(false);
             var wakeReadiness = EvaluateWakeReadiness(powerStatus, foregroundSnapshot);
             var questWifiStatus = await QueryQuestWifiStatusAsync(selector, cancellationToken).ConfigureAwait(false);
-            var hostWifiStatus = QueryHostWifiStatus();
+            var hostWifiStatus = ResolveHostWifiStatus(includeHostWifiStatus);
 
             if (modelOutput.ExitCode != 0 && batteryOutput.ExitCode != 0 && powerOutput.ExitCode != 0)
             {
@@ -966,6 +984,11 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 detailParts.Add($"controllers {string.Join(", ", controllerStatuses.Select(FormatControllerDetail))}");
             }
 
+            if (!string.IsNullOrWhiteSpace(softwareVersion))
+            {
+                detailParts.Add($"OS {softwareVersion}");
+            }
+
             if (!string.IsNullOrWhiteSpace(questWifiStatus.Ssid) || !string.IsNullOrWhiteSpace(headsetWifiIpAddress) || !string.IsNullOrWhiteSpace(hostWifiStatus.Ssid))
             {
                 var headsetWifiLabel = string.IsNullOrWhiteSpace(questWifiStatus.Ssid)
@@ -1021,7 +1044,11 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 DisplayPowerState: powerStatus.DisplayPowerState,
                 PowerStatusDetail: wakeReadiness.Detail,
                 IsInWakeLimbo: wakeReadiness.IsInWakeLimbo,
-                Controllers: controllerStatuses);
+                Controllers: controllerStatuses,
+                SoftwareVersion: softwareVersion,
+                SoftwareReleaseOrCodename: softwareReleaseOrCodename,
+                SoftwareBuildId: softwareBuildId,
+                SoftwareDisplayId: softwareDisplayId);
         }
         catch (Exception ex)
         {
@@ -1043,14 +1070,39 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         }
     }
 
-    public async Task<OperationOutcome> RunUtilityAsync(QuestUtilityAction action, CancellationToken cancellationToken = default)
+    private static string FormatSoftwareVersion(string? releaseOrCodename, string? incrementalBuild, string? displayId)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(releaseOrCodename))
+        {
+            parts.Add(releaseOrCodename.Trim());
+        }
+
+        var buildLabel = !string.IsNullOrWhiteSpace(incrementalBuild)
+            ? incrementalBuild.Trim()
+            : string.IsNullOrWhiteSpace(displayId)
+                ? string.Empty
+                : displayId.Trim();
+
+        if (!string.IsNullOrWhiteSpace(buildLabel))
+        {
+            parts.Add($"build {buildLabel}");
+        }
+
+        return string.Join(" | ", parts);
+    }
+
+    public async Task<OperationOutcome> RunUtilityAsync(
+        QuestUtilityAction action,
+        bool allowWakeResumeTarget = true,
+        CancellationToken cancellationToken = default)
     {
         var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
         return action switch
         {
             QuestUtilityAction.Home => await RunUtilityShellAsync("Home command sent.", "input keyevent 3", cancellationToken, wakeFirst: true).ConfigureAwait(false),
             QuestUtilityAction.Back => await RunUtilityShellAsync("Back command sent.", "input keyevent 4", cancellationToken, wakeFirst: true).ConfigureAwait(false),
-            QuestUtilityAction.Wake => await WakeHeadsetForVisualsAsync(selector, cancellationToken).ConfigureAwait(false),
+            QuestUtilityAction.Wake => await WakeHeadsetForVisualsAsync(selector, allowWakeResumeTarget, cancellationToken).ConfigureAwait(false),
             QuestUtilityAction.Sleep => await RunUtilityShellAsync("Sleep command sent.", "input keyevent 223", cancellationToken).ConfigureAwait(false),
             QuestUtilityAction.Reboot => await RunRebootAsync(cancellationToken).ConfigureAwait(false),
             QuestUtilityAction.ListInstalledPackages => await ListInstalledPackagesAsync(selector, cancellationToken).ConfigureAwait(false),
@@ -1145,11 +1197,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     private async Task<OperationOutcome> WakeHeadsetForVisualsAsync(
         string selector,
+        bool allowWakeResumeTarget,
         CancellationToken cancellationToken)
     {
         var trace = new List<string>();
         var (readiness, powerStatus, foregroundSnapshot) = await QueryWakeReadinessSnapshotAsync(selector, cancellationToken).ConfigureAwait(false);
-        var wakeResumeTarget = ResolveWakeResumeTarget(foregroundSnapshot) ?? GetRememberedWakeResumeTarget();
+        var wakeResumeTarget = allowWakeResumeTarget
+            ? ResolveWakeResumeTarget(foregroundSnapshot) ?? GetRememberedWakeResumeTarget()
+            : null;
         trace.Add($"Initial: {readiness.Detail}");
 
         if (powerStatus.IsAwake != true)
@@ -1203,6 +1258,10 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                     trace,
                     cancellationToken)
                 .ConfigureAwait(false);
+        }
+        else if (readiness.IsInWakeLimbo && !allowWakeResumeTarget)
+        {
+            trace.Add("Skipped wake-resume relaunch because this wake path is restricted to Home-shell recovery only.");
         }
 
         return readiness.IsAwake == true && !readiness.IsInWakeLimbo
@@ -2418,6 +2477,24 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         catch
         {
             return new HostWifiStatus(string.Empty, string.Empty);
+        }
+    }
+
+    private HostWifiStatus ResolveHostWifiStatus(bool includeHostWifiStatus)
+    {
+        if (!includeHostWifiStatus)
+        {
+            lock (_sync)
+            {
+                return _lastKnownHostWifiStatus;
+            }
+        }
+
+        var status = QueryHostWifiStatus();
+        lock (_sync)
+        {
+            _lastKnownHostWifiStatus = status;
+            return _lastKnownHostWifiStatus;
         }
     }
 

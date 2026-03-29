@@ -555,7 +555,7 @@
                             Background="{Binding ActiveStudyShell.PinnedBuildLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                             BorderBrush="{Binding ActiveStudyShell.PinnedBuildLevel, Converter={StaticResource OutcomeKindToBrush}}">
                         <StackPanel>
-                            <TextBlock Text="Pinned runtime" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="Verified runtime" Style="{StaticResource EyebrowStyle}" />
                             <TextBlock Text="{Binding ActiveStudyShell.PinnedBuildSummary}"
                                        FontSize="14"
                                        FontWeight="Bold"
@@ -610,6 +610,10 @@
                                        Margin="0,4,0,0"
                                        Foreground="{Binding ActiveStudyShell.BatteryPercent, Converter={StaticResource BatteryToBrush}}"
                                        TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ActiveStudyShell.HeadsetSoftwareVersionLabel}"
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap" />
                             <TextBlock Text="{Binding ActiveStudyShell.HeadsetSnapshotModeSummary}"
                                        Style="{StaticResource MicroCaptionStyle}"
                                        Margin="0,4,0,0"
@@ -659,6 +663,9 @@
                                     <TextBlock Text="{Binding ActiveStudyShell.HeadsetBatteryLabel}"
                                                Style="{StaticResource MicroCaptionStyle}"
                                                Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetSoftwareVersionLabel}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,2,0,0" />
                                     <TextBlock Text="{Binding ActiveStudyShell.HeadsetPerformanceLabel}"
                                                Style="{StaticResource MicroCaptionStyle}"
                                                Margin="0,2,0,0" />
@@ -825,6 +832,9 @@
                                    FontSize="16"
                                    FontWeight="Bold"
                                    Foreground="{Binding BatteryPercent, Converter={StaticResource BatteryToBrush}}" />
+                        <TextBlock Text="{Binding HeadsetSoftwareVersionLabel}"
+                                   Style="{StaticResource MicroCaptionStyle}"
+                                   Margin="0,6,0,0" />
                         <ProgressBar Margin="0,8,0,0"
                                      Height="8"
                                      Maximum="100"
@@ -1285,6 +1295,9 @@
                                         <TextBlock Text="{Binding HeadsetBatteryLabel}"
                                                    Style="{StaticResource MetricValueStyle}"
                                                    Foreground="{Binding BatteryPercent, Converter={StaticResource BatteryToBrush}}" />
+                                        <TextBlock Text="{Binding HeadsetSoftwareVersionLabel}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,8,0,0" />
                                         <ProgressBar Margin="0,10,0,0"
                                                      Height="10"
                                                      Maximum="100"

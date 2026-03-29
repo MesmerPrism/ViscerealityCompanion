@@ -3,6 +3,8 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -32,6 +34,11 @@ internal static class Program
 public static class HarnessScenarioRunner
 {
     private static readonly TimeSpan MockHeartbeatInterval = TimeSpan.FromMilliseconds(910);
+    private static readonly JsonSerializerOptions ManifestJsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     [STAThread]
     public static void RunOnceFromCurrentDirectory()
@@ -70,7 +77,7 @@ public static class HarnessScenarioRunner
                 window.Activate();
                 window.Topmost = true;
                 window.Topmost = false;
-                await ExecuteScenarioAsync(window, outputRoot, outlet);
+                await ExecuteScenarioAsync(window, repoRoot, outputRoot, outlet);
             }
             catch (Exception ex)
             {
@@ -95,7 +102,7 @@ public static class HarnessScenarioRunner
         File.WriteAllText(Path.Combine(outputRoot, "sussex-study-mode-error.txt"), ex.ToString());
     }
 
-    private static async Task ExecuteScenarioAsync(MainWindow window, string outputRoot, FloatLslTestOutlet outlet)
+    private static async Task ExecuteScenarioAsync(Window window, string repoRoot, string outputRoot, FloatLslTestOutlet outlet)
     {
         if (window.DataContext is not MainWindowViewModel mainViewModel)
         {
@@ -202,6 +209,8 @@ public static class HarnessScenarioRunner
             "study.particles.render_output_enabled");
 
         await studyViewModel.StopStudyAppAsync();
+        var stopActionLevel = studyViewModel.LastActionLevel;
+        var stopActionDetail = studyViewModel.LastActionDetail;
         await Task.Delay(TimeSpan.FromSeconds(3));
         var homeScreenshotPath = await CaptureQuestScreenshotProofAsync(
             studyViewModel,
@@ -210,6 +219,17 @@ public static class HarnessScenarioRunner
             "quest-home-proof.png",
             "sussex-main-window-home-proof.png");
         CaptureWindow(window, Path.Combine(outputRoot, "sussex-main-window-live.png"));
+        var verificationPersistence = await PersistVerifiedEnvironmentBaselineAsync(
+            repoRoot,
+            studyViewModel,
+            senderRestartResult,
+            recenterResult,
+            particlesOffResult,
+            particlesHidden,
+            particlesOnResult,
+            particlesVisible,
+            stopActionLevel,
+            stopActionDetail);
 
         await File.WriteAllTextAsync(
             Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
@@ -223,8 +243,11 @@ public static class HarnessScenarioRunner
                 particlesHidden,
                 particlesOnResult,
                 particlesVisible,
+                stopActionLevel,
+                stopActionDetail,
                 kioskScreenshotPath,
-                homeScreenshotPath));
+                homeScreenshotPath,
+                verificationPersistence));
     }
 
     private static async Task WarmUpLslAsync(FloatLslTestOutlet outlet, StudyShellViewModel studyViewModel)
@@ -345,11 +368,11 @@ public static class HarnessScenarioRunner
         string windowScreenshotFileName)
     {
         var previousPath = studyViewModel.QuestScreenshotPath;
-        await ExecuteCommandAsync(
-            studyViewModel.CaptureQuestScreenshotCommand,
-            studyViewModel,
-            "Capture Quest Screenshot",
-            TimeSpan.FromSeconds(30));
+        var outcome = await studyViewModel.CaptureQuestScreenshotForVerificationAsync(wakeBeforeCapture: false);
+        if (outcome.Kind == OperationOutcomeKind.Failure)
+        {
+            throw new InvalidOperationException($"Quest screenshot proof capture failed: {outcome.Detail}");
+        }
 
         await WaitForConditionAsync(
             () =>
@@ -379,8 +402,11 @@ public static class HarnessScenarioRunner
         ObservationResult particlesHidden,
         ObservationResult particlesOnResult,
         ObservationResult particlesVisible,
+        OperationOutcomeKind stopActionLevel,
+        string stopActionDetail,
         string kioskScreenshotPath,
-        string homeScreenshotPath)
+        string homeScreenshotPath,
+        VerificationPersistenceResult verificationPersistence)
     {
         var builder = new StringBuilder();
         builder.AppendLine($"Timestamp: {DateTimeOffset.Now:O}");
@@ -394,6 +420,8 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Pinned build: {studyViewModel.PinnedBuildSummary}");
         builder.AppendLine($"Installed build: {studyViewModel.InstalledApkSummary}");
         builder.AppendLine($"Device profile: {studyViewModel.DeviceProfileSummary}");
+        builder.AppendLine($"Verified environment: {verificationPersistence.Summary}");
+        builder.AppendLine($"Verified environment detail: {verificationPersistence.Detail}");
         builder.AppendLine($"Live runtime: {studyViewModel.LiveRuntimeSummary}");
         builder.AppendLine($"LSL: {studyViewModel.LslSummary}");
         builder.AppendLine($"LSL detail: {studyViewModel.LslDetail}");
@@ -404,6 +432,8 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Recenter detail: {studyViewModel.RecenterDetail}");
         builder.AppendLine($"Particles: {studyViewModel.ParticlesSummary}");
         builder.AppendLine($"Particles detail: {studyViewModel.ParticlesDetail}");
+        builder.AppendLine($"Kiosk exit outcome: {stopActionLevel}");
+        builder.AppendLine($"Kiosk exit detail: {stopActionDetail}");
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
         builder.AppendLine($"Quest kiosk screenshot: {kioskScreenshotPath}");
         builder.AppendLine($"Quest home screenshot: {homeScreenshotPath}");
@@ -649,6 +679,120 @@ public static class HarnessScenarioRunner
         }
     }
 
+    private static async Task<VerificationPersistenceResult> PersistVerifiedEnvironmentBaselineAsync(
+        string repoRoot,
+        StudyShellViewModel studyViewModel,
+        ObservationResult senderRestartResult,
+        ObservationResult recenterResult,
+        ObservationResult particlesOffResult,
+        ObservationResult particlesHidden,
+        ObservationResult particlesOnResult,
+        ObservationResult particlesVisible,
+        OperationOutcomeKind stopActionLevel,
+        string stopActionDetail)
+    {
+        if (!ShouldPersistVerifiedEnvironmentBaseline(
+                studyViewModel,
+                senderRestartResult,
+                recenterResult,
+                particlesOffResult,
+                particlesHidden,
+                particlesOnResult,
+                particlesVisible,
+                stopActionLevel))
+        {
+            return new VerificationPersistenceResult(
+                Persisted: false,
+                Summary: "Verification baseline not updated.",
+                Detail: $"The Sussex run completed, but one or more critical pass conditions failed or the headset identity could not be read back cleanly. Kiosk exit detail: {stopActionDetail}",
+                Baseline: null);
+        }
+
+        var baseline = new StudyVerificationBaseline(
+            ApkSha256: studyViewModel.InstalledApkHash,
+            SoftwareVersion: studyViewModel.HeadsetSoftwareRelease,
+            BuildId: studyViewModel.HeadsetSoftwareBuildId,
+            DisplayId: studyViewModel.HeadsetSoftwareDisplayId,
+            DeviceProfileId: studyViewModel.PinnedDeviceProfileId,
+            EnvironmentHash: StudyVerificationFingerprint.Compute(
+                studyViewModel.PinnedPackageId,
+                studyViewModel.InstalledApkHash,
+                studyViewModel.HeadsetSoftwareRelease,
+                studyViewModel.HeadsetSoftwareBuildId,
+                studyViewModel.PinnedDeviceProfileId,
+                studyViewModel.HeadsetSoftwareDisplayId),
+            VerifiedAtUtc: DateTimeOffset.UtcNow,
+            VerifiedBy: "tools/ViscerealityCompanion.VerificationHarness");
+
+        var studyShellPath = Path.Combine(repoRoot, "samples", "study-shells", $"{studyViewModel.StudyId}.json");
+        var compatibilityPath = Path.Combine(repoRoot, "samples", "quest-session-kit", "APKs", "compatibility.json");
+        await UpdateStudyShellVerificationAsync(studyShellPath, baseline);
+        await UpdateCompatibilityVerificationAsync(compatibilityPath, baseline);
+
+        return new VerificationPersistenceResult(
+            Persisted: true,
+            Summary: "Verification baseline updated.",
+            Detail: $"Recorded OS {baseline.SoftwareVersion} build {baseline.BuildId} against APK {baseline.ApkSha256} with environment hash {baseline.EnvironmentHash}.",
+            Baseline: baseline);
+    }
+
+    private static bool ShouldPersistVerifiedEnvironmentBaseline(
+        StudyShellViewModel studyViewModel,
+        ObservationResult senderRestartResult,
+        ObservationResult recenterResult,
+        ObservationResult particlesOffResult,
+        ObservationResult particlesHidden,
+        ObservationResult particlesOnResult,
+        ObservationResult particlesVisible,
+        OperationOutcomeKind stopActionLevel)
+        => MatchesHash(studyViewModel.InstalledApkHash, studyViewModel.PinnedBuildHash)
+           && !string.IsNullOrWhiteSpace(studyViewModel.HeadsetSoftwareRelease)
+           && !string.IsNullOrWhiteSpace(studyViewModel.HeadsetSoftwareBuildId)
+           && studyViewModel.DeviceProfileLevel == OperationOutcomeKind.Success
+           && studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning
+           && studyViewModel.LslLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning
+           && stopActionLevel == OperationOutcomeKind.Success
+           && senderRestartResult.Success
+           && recenterResult.Success
+           && particlesOffResult.Success
+           && particlesHidden.Success
+           && particlesOnResult.Success
+           && particlesVisible.Success;
+
+    private static async Task UpdateStudyShellVerificationAsync(string path, StudyVerificationBaseline baseline)
+    {
+        var root = JsonNode.Parse(await File.ReadAllTextAsync(path)) as JsonObject
+            ?? throw new InvalidDataException($"Could not parse study shell definition at {path}.");
+        var app = root["app"] as JsonObject
+            ?? throw new InvalidDataException($"Study shell definition at {path} did not contain an app object.");
+
+        app["sha256"] = baseline.ApkSha256;
+        app["verification"] = JsonSerializer.SerializeToNode(baseline, ManifestJsonOptions);
+        await File.WriteAllTextAsync(path, root.ToJsonString(ManifestJsonOptions));
+    }
+
+    private static async Task UpdateCompatibilityVerificationAsync(string path, StudyVerificationBaseline baseline)
+    {
+        var root = JsonNode.Parse(await File.ReadAllTextAsync(path)) as JsonObject
+            ?? throw new InvalidDataException($"Could not parse compatibility manifest at {path}.");
+        var apps = root["apps"] as JsonArray
+            ?? throw new InvalidDataException($"Compatibility manifest at {path} did not contain an apps array.");
+
+        var entry = apps
+            .OfType<JsonObject>()
+            .FirstOrDefault(app => string.Equals(app["sha256"]?.GetValue<string>(), baseline.ApkSha256, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidDataException($"Compatibility manifest at {path} did not contain an entry for APK {baseline.ApkSha256}.");
+
+        entry["sha256"] = baseline.ApkSha256;
+        entry["verification"] = JsonSerializer.SerializeToNode(baseline, ManifestJsonOptions);
+        await File.WriteAllTextAsync(path, root.ToJsonString(ManifestJsonOptions));
+    }
+
+    private static bool MatchesHash(string? left, string? right)
+        => !string.IsNullOrWhiteSpace(left)
+           && !string.IsNullOrWhiteSpace(right)
+           && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+
     private static IReadOnlyList<KeyValuePair<string, string>> GetRelevantLiveKeys(StudyShellViewModel studyViewModel)
     {
         var relevant = new List<KeyValuePair<string, string>>();
@@ -686,6 +830,7 @@ public static class HarnessScenarioRunner
     private sealed record LatencyResult(float Value, DateTimeOffset SentAt, DateTimeOffset? ObservedAt, string SourceKey, double? LatencyMs);
     private sealed record ObservedValueResult(DateTimeOffset? Timestamp, string SourceKey);
     private sealed record ObservationResult(string Label, bool Success, string Detail);
+    private sealed record VerificationPersistenceResult(bool Persisted, string Summary, string Detail, StudyVerificationBaseline? Baseline);
 }
 
 internal sealed class FloatLslTestOutlet : IDisposable

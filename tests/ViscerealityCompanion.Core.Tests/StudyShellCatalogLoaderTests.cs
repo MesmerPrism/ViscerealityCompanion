@@ -23,6 +23,9 @@ public sealed class StudyShellCatalogLoaderTests
             Assert.Equal("com.Viscereality.LslTwin", study.App.PackageId);
             Assert.False(study.App.AllowManualSelection);
             Assert.True(study.App.LaunchInKioskMode);
+            Assert.NotNull(study.App.VerificationBaseline);
+            Assert.Equal("14", study.App.VerificationBaseline!.SoftwareVersion);
+            Assert.Equal("2921110053000610", study.App.VerificationBaseline.BuildId);
             Assert.Equal("2", study.Controls.RecenterCommandActionId);
             Assert.Contains("debug.oculus.gpuLevel", study.DeviceProfile.Properties.Keys);
             Assert.Contains("connection.lsl.connected_count", study.Monitoring.LslConnectivityKeys);
@@ -93,7 +96,17 @@ public sealed class StudyShellCatalogLoaderTests
                 "versionName": "0.1.0",
                 "notes": "Bundled Sussex APK.",
                 "allowManualSelection": false,
-                "launchInKioskMode": true
+                "launchInKioskMode": true,
+                "verification": {
+                  "apkSha256": "ABC123",
+                  "softwareVersion": "14",
+                  "buildId": "2921110053000610",
+                  "displayId": "UP1A.231005.007.A1",
+                  "deviceProfileId": "sussex-study-profile",
+                  "environmentHash": "CAFEBABE",
+                  "verifiedAtUtc": "2026-03-29T10:15:00Z",
+                  "verifiedBy": "tools/ViscerealityCompanion.VerificationHarness"
+                }
               },
               "deviceProfile": {
                 "id": "sussex-study-profile",

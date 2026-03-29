@@ -54,10 +54,20 @@ if ($null -eq $compatibility.apps -or @($compatibility.apps).Count -lt 1) {
 }
 
 $compatibility.apps[0].sha256 = $sha256
+if ($compatibility.apps[0].PSObject.Properties.Match('verification').Count -gt 0) {
+    $compatibility.apps[0].verification = $null
+} else {
+    $compatibility.apps[0] | Add-Member -NotePropertyName verification -NotePropertyValue $null
+}
 $compatibility | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $compatibilityPath -Encoding utf8
 
 $studyShell = Get-Content -LiteralPath $studyShellPath -Raw | ConvertFrom-Json
 $studyShell.app.sha256 = $sha256
+if ($studyShell.app.PSObject.Properties.Match('verification').Count -gt 0) {
+    $studyShell.app.verification = $null
+} else {
+    $studyShell.app | Add-Member -NotePropertyName verification -NotePropertyValue $null
+}
 if (-not [string]::IsNullOrWhiteSpace($VersionName)) {
     $studyShell.app.versionName = $VersionName
 }

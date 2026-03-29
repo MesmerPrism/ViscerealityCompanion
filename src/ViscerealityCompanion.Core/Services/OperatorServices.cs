@@ -36,8 +36,12 @@ public interface IQuestControlService
     Task<HeadsetAppStatus> QueryHeadsetStatusAsync(
         QuestAppTarget? target,
         bool remoteOnlyControlEnabled,
+        bool includeHostWifiStatus = true,
         CancellationToken cancellationToken = default);
-    Task<OperationOutcome> RunUtilityAsync(QuestUtilityAction action, CancellationToken cancellationToken = default);
+    Task<OperationOutcome> RunUtilityAsync(
+        QuestUtilityAction action,
+        bool allowWakeResumeTarget = true,
+        CancellationToken cancellationToken = default);
 }
 
 public interface ILslMonitorService
@@ -189,6 +193,7 @@ public sealed class PreviewQuestControlService : IQuestControlService
     public Task<HeadsetAppStatus> QueryHeadsetStatusAsync(
         QuestAppTarget? target,
         bool remoteOnlyControlEnabled,
+        bool includeHostWifiStatus = true,
         CancellationToken cancellationToken = default)
         => Task.FromResult(new HeadsetAppStatus(
             IsConnected: false,
@@ -214,9 +219,16 @@ public sealed class PreviewQuestControlService : IQuestControlService
             [
                 new QuestControllerStatus("Left", 88, "CONNECTED_ACTIVE", "preview-left"),
                 new QuestControllerStatus("Right", 91, "CONNECTED_ACTIVE", "preview-right")
-            ]));
+            ],
+            SoftwareVersion: "14 | build preview",
+            SoftwareReleaseOrCodename: "14",
+            SoftwareBuildId: "preview",
+            SoftwareDisplayId: "preview"));
 
-    public Task<OperationOutcome> RunUtilityAsync(QuestUtilityAction action, CancellationToken cancellationToken = default)
+    public Task<OperationOutcome> RunUtilityAsync(
+        QuestUtilityAction action,
+        bool allowWakeResumeTarget = true,
+        CancellationToken cancellationToken = default)
         => Task.FromResult(Preview(
             $"{action} command queued.",
             "The public shell keeps the operator workflow and command contract visible without bundling live Quest control code."));

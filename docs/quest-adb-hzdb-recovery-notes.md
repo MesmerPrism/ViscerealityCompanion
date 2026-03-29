@@ -1257,6 +1257,46 @@ Updated interpretation:
   "headset on face, normal wear sensor" operator workflow that had exited
   cleanly
 
+## March 29 Double-Power Escape Hatch
+
+Artifact bundle:
+
+- `artifacts/verify/limbo-home-recovery-dead-end-20260329/`
+
+Observed dead-end:
+
+- shell-side recovery returned `HomeActivity` and `FocusPlaceholderActivity`
+  again, but the matching metacam captures still stayed passthrough-only:
+  - `recovery-home-proof-20260329-1.png`
+  - `recovery-home-proof-20260329-2.png`
+- after `adb reboot`, the headset came back to
+  `com.oculus.guardian/.GuardianDialogActivity`
+- from that fresh post-reboot state, running
+  `automation_disable -> prox_close -> HomeActivity` again produced a black
+  metacam frame instead of visible Home:
+  - `recovery-home-proof-20260329-3.png`
+
+Confirmed escape:
+
+- pressing the physical headset power button twice restored a real Home-side
+  scene
+- `recovery-home-proof-20260329-4-after-double-power.png` shows visible Meta
+  Home / store content again
+- shell-side state after that recovery improved to a usable Home-side surface
+  with:
+  - `com.oculus.systemux/com.oculus.panelapp.virtualobjects.VirtualObjectsActivity`
+  - `com.oculus.vrshell/com.oculus.panelapp.controlbar.ControlBarActivity`
+  - `com.oculus.vrshell/.HomeActivity`
+
+Updated interpretation:
+
+- from this specific March 29 dead-end, shell-only recovery was exhausted
+- neither shell-owned `HomeActivity` nor a full `adb reboot` was enough by
+  itself
+- a double physical headset power-button press is now a confirmed stronger
+  escape hatch than a single press for this passthrough/black Home-limbo
+  family on the current build
+
 ## Recommended Companion Behavior
 
 For `ViscerealityCompanion`, prefer this recovery order when the wake path is

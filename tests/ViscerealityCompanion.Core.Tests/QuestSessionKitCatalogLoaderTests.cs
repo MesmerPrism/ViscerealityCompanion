@@ -38,8 +38,9 @@ public sealed class QuestSessionKitCatalogLoaderTests
           var loader = new QuestSessionKitCatalogLoader();
           var catalog = await loader.LoadAsync(root);
 
-          var twinApp = Assert.Single(catalog.Apps.Where(app =>
-            string.Equals(app.ApkFile, "LslTwin.apk", StringComparison.OrdinalIgnoreCase)));
+          var twinApp = Assert.Single(
+            catalog.Apps,
+            app => string.Equals(app.ApkFile, "LslTwin.apk", StringComparison.OrdinalIgnoreCase));
 
           Assert.Equal("com.Viscereality.LslTwin", twinApp.PackageId);
           Assert.Contains("viscereality", twinApp.Tags, StringComparer.OrdinalIgnoreCase);
@@ -63,12 +64,16 @@ public sealed class QuestSessionKitCatalogLoaderTests
           var loader = new QuestSessionKitCatalogLoader();
           var catalog = await loader.LoadAsync(root);
 
-          var twinApp = Assert.Single(catalog.Apps.Where(app =>
-            string.Equals(app.PackageId, "com.Viscereality.LslTwin", StringComparison.OrdinalIgnoreCase)));
+          var twinApp = Assert.Single(
+            catalog.Apps,
+            app => string.Equals(app.PackageId, "com.Viscereality.LslTwin", StringComparison.OrdinalIgnoreCase));
 
           Assert.Equal(ViscerealityCompanion.Core.Models.ApkCompatibilityStatus.Compatible, twinApp.CompatibilityStatus);
           Assert.Equal("Twin runtime verified", twinApp.CompatibilityProfile);
           Assert.Equal("Publishes quest_twin_state and accepts quest_twin_commands.", twinApp.CompatibilityNotes);
+          Assert.NotNull(twinApp.VerificationBaseline);
+          Assert.Equal("14", twinApp.VerificationBaseline!.SoftwareVersion);
+          Assert.Equal("2921110053000610", twinApp.VerificationBaseline.BuildId);
           Assert.NotNull(twinApp.ApkSha256);
           Assert.Contains("twin", twinApp.Tags, StringComparer.OrdinalIgnoreCase);
         }
@@ -271,7 +276,17 @@ public sealed class QuestSessionKitCatalogLoaderTests
                   "status": "compatible",
                   "label": "Twin runtime verified",
                   "notes": "Publishes quest_twin_state and accepts quest_twin_commands.",
-                  "tags": ["viscereality", "runtime", "lsl", "twin"]
+                  "tags": ["viscereality", "runtime", "lsl", "twin"],
+                  "verification": {
+                    "apkSha256": "{{hash}}",
+                    "softwareVersion": "14",
+                    "buildId": "2921110053000610",
+                    "displayId": "UP1A.231005.007.A1",
+                    "deviceProfileId": "sussex-study-profile",
+                    "environmentHash": "CAFEBABE",
+                    "verifiedAtUtc": "2026-03-29T10:15:00Z",
+                    "verifiedBy": "tools/ViscerealityCompanion.VerificationHarness"
+                  }
                 }
               ]
             }

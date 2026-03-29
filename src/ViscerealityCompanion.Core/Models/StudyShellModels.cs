@@ -47,7 +47,18 @@ public sealed record StudyPinnedApp(
     string VersionName,
     string Notes,
     bool AllowManualSelection,
-    bool LaunchInKioskMode);
+    bool LaunchInKioskMode,
+    StudyVerificationBaseline? VerificationBaseline = null);
+
+public sealed record StudyVerificationBaseline(
+    string ApkSha256,
+    string SoftwareVersion,
+    string BuildId,
+    string DisplayId,
+    string DeviceProfileId,
+    string EnvironmentHash,
+    DateTimeOffset? VerifiedAtUtc,
+    string VerifiedBy);
 
 public sealed record StudyPinnedDeviceProfile(
     string Id,

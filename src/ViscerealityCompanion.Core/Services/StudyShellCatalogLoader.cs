@@ -61,7 +61,18 @@ public sealed class StudyShellCatalogLoader
                     dto.App?.VersionName ?? string.Empty,
                     dto.App?.Notes ?? string.Empty,
                     dto.App?.AllowManualSelection ?? true,
-                    dto.App?.LaunchInKioskMode ?? false),
+                    dto.App?.LaunchInKioskMode ?? false,
+                    dto.App?.Verification is null
+                        ? null
+                        : new StudyVerificationBaseline(
+                            dto.App.Verification.ApkSha256 ?? string.Empty,
+                            dto.App.Verification.SoftwareVersion ?? string.Empty,
+                            dto.App.Verification.BuildId ?? string.Empty,
+                            dto.App.Verification.DisplayId ?? string.Empty,
+                            dto.App.Verification.DeviceProfileId ?? string.Empty,
+                            dto.App.Verification.EnvironmentHash ?? string.Empty,
+                            dto.App.Verification.VerifiedAtUtc,
+                            dto.App.Verification.VerifiedBy ?? string.Empty)),
                 new StudyPinnedDeviceProfile(
                     dto.DeviceProfile?.Id ?? "study-device-profile",
                     dto.DeviceProfile?.Label ?? "Study Device Profile",
@@ -200,6 +211,36 @@ public sealed class StudyShellCatalogLoader
 
         [JsonPropertyName("launchInKioskMode")]
         public bool? LaunchInKioskMode { get; init; }
+
+        [JsonPropertyName("verification")]
+        public StudyVerificationBaselineDto? Verification { get; init; }
+    }
+
+    private sealed class StudyVerificationBaselineDto
+    {
+        [JsonPropertyName("apkSha256")]
+        public string? ApkSha256 { get; init; }
+
+        [JsonPropertyName("softwareVersion")]
+        public string? SoftwareVersion { get; init; }
+
+        [JsonPropertyName("buildId")]
+        public string? BuildId { get; init; }
+
+        [JsonPropertyName("displayId")]
+        public string? DisplayId { get; init; }
+
+        [JsonPropertyName("deviceProfileId")]
+        public string? DeviceProfileId { get; init; }
+
+        [JsonPropertyName("environmentHash")]
+        public string? EnvironmentHash { get; init; }
+
+        [JsonPropertyName("verifiedAtUtc")]
+        public DateTimeOffset? VerifiedAtUtc { get; init; }
+
+        [JsonPropertyName("verifiedBy")]
+        public string? VerifiedBy { get; init; }
     }
 
     private sealed class StudyPinnedDeviceProfileDto
