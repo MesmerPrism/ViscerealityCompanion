@@ -21,7 +21,7 @@ public class ConfigHotloadTests
     [Fact]
     public async Task Push_showcase_profile_csv()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
 
         var profilePath = FindHotloadProfile("showcase_runtime_overrides.csv");
         if (profilePath is null) return;
@@ -36,7 +36,7 @@ public class ConfigHotloadTests
     [Fact]
     public async Task Push_baseline_profile_and_relaunch()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
 
         var profilePath = FindHotloadProfile("karatebio_baseline.csv");
         if (profilePath is null) return;
@@ -58,7 +58,7 @@ public class ConfigHotloadTests
     [Fact]
     public async Task Clear_runtime_overrides_restores_defaults()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
 
         await _device.Shell($"rm -f {RemoteOverridesPath}");
         var ls = await _device.Shell($"ls {RemoteOverridesPath} 2>/dev/null");
@@ -68,7 +68,7 @@ public class ConfigHotloadTests
     [Fact]
     public async Task Push_custom_csv_profile_with_specific_settings()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
 
         var customCsv = """
         key,value

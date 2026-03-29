@@ -144,7 +144,7 @@ public class HzdbCommandTests
     [Fact]
     public async Task Hzdb_device_proximity_can_be_disabled()
     {
-        if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
+        if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkipMutating) return;
 
         await _device.WaitForUsbReadyAsync();
         var result = await RunHzdbWithUsbRetryAsync($"device proximity --device {_device.UsbSerial} --disable");
@@ -168,7 +168,7 @@ public class HzdbCommandTests
     [Fact]
     public async Task Hzdb_device_wake_wakes_device()
     {
-        if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
+        if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkipMutating) return;
 
         var result = await RunHzdb($"device wake --device {_device.UsbSerial}");
         Assert.DoesNotContain("error", result, StringComparison.OrdinalIgnoreCase);

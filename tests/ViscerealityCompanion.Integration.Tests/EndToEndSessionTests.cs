@@ -18,7 +18,7 @@ public class EndToEndSessionTests
     [Fact]
     public async Task Full_session_probe_connect_launch_status()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
 
         var service = QuestControlServiceFactory.CreateDefault();
 
@@ -128,7 +128,7 @@ public class EndToEndSessionTests
     [Fact]
     public async Task Performance_level_sweep()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
 
         var service = QuestControlServiceFactory.CreateDefault();
 

@@ -47,8 +47,8 @@ public sealed class QuestDeviceFixture : IAsyncLifetime
             }
         }
 
-        // Establish WiFi ADB early so all tests use a stable connection
-        if (!string.IsNullOrEmpty(DeviceIp))
+        // Default test runs must stay read-only on live hardware.
+        if (DeviceSkip.MutatingTestsEnabled && !string.IsNullOrEmpty(DeviceIp))
         {
             await RunAdb($"-s {_usbSerial} tcpip 5555");
             await WaitForDeviceStateAsync(_usbSerial, "device", TimeSpan.FromSeconds(15));
@@ -65,6 +65,9 @@ public sealed class QuestDeviceFixture : IAsyncLifetime
 
     public async Task EnableWifiAndConnect()
     {
+        if (!DeviceSkip.MutatingTestsEnabled)
+            throw new InvalidOperationException($"Mutating Quest tests are disabled. Set {DeviceSkip.MutatingTestsOptInVariable}=1 to enable Wi-Fi bootstrap.");
+
         if (string.IsNullOrEmpty(DeviceIp))
             throw new InvalidOperationException("No device WiFi IP available.");
 
@@ -165,6 +168,7 @@ public class QuestDeviceCollection : ICollectionFixture<QuestDeviceFixture>;
 /// </summary>
 public static class DeviceSkip
 {
+    private const string MutatingTestsEnvVar = "VISCEREALITY_ENABLE_MUTATING_QUEST_TESTS";
     private static readonly Lazy<bool> _deviceAvailable = new(() =>
     {
         try
@@ -202,9 +206,22 @@ public static class DeviceSkip
             return false;
         }
     });
+    private static readonly Lazy<bool> _mutatingTestsEnabled = new(() =>
+    {
+        var raw = Environment.GetEnvironmentVariable(MutatingTestsEnvVar);
+        return raw is not null
+            && (raw.Equals("1", StringComparison.OrdinalIgnoreCase)
+                || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || raw.Equals("yes", StringComparison.OrdinalIgnoreCase));
+    });
 
     public static string? WhenNoDevice => _deviceAvailable.Value ? null : "No Quest device connected";
+    public static string MutatingTestsOptInVariable => MutatingTestsEnvVar;
+    public static bool MutatingTestsEnabled => _mutatingTestsEnabled.Value;
+    public static string? WhenMutatingTestsDisabled
+        => MutatingTestsEnabled ? null : $"Set {MutatingTestsEnvVar}=1 to enable mutating Quest integration tests.";
 
     /// <summary>Call at the start of any test that needs a device. Returns true if the test should be skipped.</summary>
     public static bool ShouldSkip => !_deviceAvailable.Value;
+    public static bool ShouldSkipMutating => ShouldSkip || !MutatingTestsEnabled;
 }

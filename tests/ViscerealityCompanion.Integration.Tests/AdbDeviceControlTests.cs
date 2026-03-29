@@ -35,7 +35,7 @@ public class AdbDeviceControlTests
     [Fact]
     public async Task EnableWifi_switches_to_tcpip_mode()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
         var service = QuestControlServiceFactory.CreateDefault();
 
         // First probe — if no USB device, skip
@@ -50,7 +50,7 @@ public class AdbDeviceControlTests
     [Fact]
     public async Task ConnectWifi_establishes_tcp_session()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
         if (string.IsNullOrEmpty(_device.DeviceIp))
             return;
 
@@ -95,7 +95,7 @@ public class AdbDeviceControlTests
     [Fact]
     public async Task ApplyPerformanceLevels_sets_cpu_and_gpu()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
         var service = await CreateConnectedService();
 
         var result = await service.ApplyPerformanceLevelsAsync(3, 2);
@@ -113,7 +113,7 @@ public class AdbDeviceControlTests
     [Fact]
     public async Task LaunchApp_starts_viscereality()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
         var service = await CreateConnectedService();
 
         var target = new QuestAppTarget(
@@ -134,7 +134,7 @@ public class AdbDeviceControlTests
     [Fact]
     public async Task RunUtility_home_navigates_home()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
         var service = await CreateConnectedService();
 
         var result = await service.RunUtilityAsync(QuestUtilityAction.Home);
@@ -144,7 +144,7 @@ public class AdbDeviceControlTests
     [Fact]
     public async Task RunUtility_wake_sends_wakeup()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
         var service = await CreateConnectedService();
 
         var result = await service.RunUtilityAsync(QuestUtilityAction.Wake);
@@ -195,7 +195,7 @@ public class AdbDeviceControlTests
     [Fact]
     public async Task RawAdb_push_and_read_runtime_profile()
     {
-        if (DeviceSkip.ShouldSkip) return;
+        if (DeviceSkip.ShouldSkipMutating) return;
 
         var testJson = """{"profileName":"integration-test","particleCount":16384}""";
         var remotePath = "/sdcard/Android/data/com.Viscereality.KarateBio/files/runtime_hotload/integration-test-profile.json";
@@ -246,24 +246,14 @@ public class AdbDeviceControlTests
     {
         var service = QuestControlServiceFactory.CreateDefault();
 
-        // Prefer WiFi connect directly (fixture already established tcpip)
         if (_device.IsWifiConnected)
         {
-            await service.ConnectAsync(_device.WifiEndpoint!);
-            return service;
+            var connect = await service.ConnectAsync(_device.WifiEndpoint!);
+            if (connect.Kind is OperationOutcomeKind.Success or OperationOutcomeKind.Warning)
+                return service;
         }
 
-        // Fallback: try USB probe, then WiFi if available
-        var probe = await service.ProbeUsbAsync();
-        if (!string.IsNullOrEmpty(_device.DeviceIp))
-        {
-            if (probe.Kind == OperationOutcomeKind.Success)
-            {
-                await service.EnableWifiFromUsbAsync();
-                await Task.Delay(500);
-            }
-            await service.ConnectAsync($"{_device.DeviceIp}:5555");
-        }
+        await service.ProbeUsbAsync();
 
         return service;
     }
