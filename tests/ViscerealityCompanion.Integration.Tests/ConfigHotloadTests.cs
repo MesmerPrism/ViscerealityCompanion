@@ -11,9 +11,9 @@ namespace ViscerealityCompanion.Integration.Tests;
 public class ConfigHotloadTests
 {
     private readonly QuestDeviceFixture _device;
-    private const string StudyPackage = "com.Viscereality.LslTwin";
-    private const string StudyLaunchComponent = "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity";
-    private const string RemoteHotloadDir = "/sdcard/Android/data/com.Viscereality.LslTwin/files/runtime_hotload";
+    private const string StudyPackage = "com.Viscereality.SussexExperiment";
+    private const string StudyLaunchComponent = "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity";
+    private const string RemoteHotloadDir = "/sdcard/Android/data/com.Viscereality.SussexExperiment/files/runtime_hotload";
     private const string RemoteOverridesPath = RemoteHotloadDir + "/runtime_overrides.csv";
 
     public ConfigHotloadTests(QuestDeviceFixture device) => _device = device;
@@ -119,7 +119,7 @@ public class ConfigHotloadTests
             ]);
 
         var target = new QuestAppTarget(
-            "sussex-lsltwin", "LslTwin", StudyPackage, "", "", "", "", []);
+            "sussex-experiment", "Sussex Experiment", StudyPackage, "", "", "", "", []);
 
         var result = await bridge.PublishRuntimeConfigAsync(profile, target);
 

@@ -757,6 +757,11 @@ New screenshot rule from this probe:
 - for Quest shell / Guardian / Home-world debugging on this device, prefer
   `hzdb capture screenshot --method metacam` over plain
   `adb exec-out screencap -p`
+- on the current Sussex public-companion path, the same `hzdb` metacam command
+  produced stale repeated frames against the USB serial while the active Wi-Fi
+  ADB selector returned fresh changing images, so the companion now prefers the
+  live Wi-Fi endpoint for screenshot capture and falls back to USB only when
+  Wi-Fi is unavailable
 - in this session, direct `screencap` often showed only the black background
   plus the performance HUD while `metacam` still captured the real
   `GuardianDialogActivity` surface

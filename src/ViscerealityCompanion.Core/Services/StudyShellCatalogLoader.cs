@@ -105,7 +105,11 @@ public sealed class StudyShellCatalogLoader
                 new StudyControlProfile(
                     dto.Controls?.RecenterCommandActionId ?? string.Empty,
                     dto.Controls?.ParticleVisibleOnActionId ?? string.Empty,
-                    dto.Controls?.ParticleVisibleOffActionId ?? string.Empty)));
+                    dto.Controls?.ParticleVisibleOffActionId ?? string.Empty,
+                    dto.Controls?.StartBreathingCalibrationActionId ?? string.Empty,
+                    dto.Controls?.ResetBreathingCalibrationActionId ?? string.Empty,
+                    dto.Controls?.StartExperimentActionId ?? string.Empty,
+                    dto.Controls?.EndExperimentActionId ?? string.Empty)));
         }
 
         return new StudyShellCatalog(
@@ -340,5 +344,17 @@ public sealed class StudyShellCatalogLoader
 
         [JsonPropertyName("particleVisibleOffActionId")]
         public string? ParticleVisibleOffActionId { get; init; }
+
+        [JsonPropertyName("startBreathingCalibrationActionId")]
+        public string? StartBreathingCalibrationActionId { get; init; }
+
+        [JsonPropertyName("resetBreathingCalibrationActionId")]
+        public string? ResetBreathingCalibrationActionId { get; init; }
+
+        [JsonPropertyName("startExperimentActionId")]
+        public string? StartExperimentActionId { get; init; }
+
+        [JsonPropertyName("endExperimentActionId")]
+        public string? EndExperimentActionId { get; init; }
     }
 }

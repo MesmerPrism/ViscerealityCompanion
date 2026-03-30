@@ -1,123 +1,131 @@
-{
-  "id": "sussex-university",
-  "label": "Sussex University",
-  "partner": "University of Sussex",
-  "description": "Simplified operator window for the Sussex controller-breathing study. The shell stages a dedicated Sussex Quest APK, one Quest device profile, and the live monitoring fields the experimenter needs during a session.",
-  "app": {
-    "label": "Sussex Controller Study APK",
-    "packageId": "com.Viscereality.LslTwin",
-    "apkPath": "../quest-session-kit/APKs/SussexControllerStudy.apk",
-    "launchComponent": "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
-    "sha256": "86BE0095A569A0718B6A0D77C504350C9B47280D3891DE6DB6A3D1B0C04DF688",
-    "versionName": "0.1.0",
-    "notes": "The Sussex shell ships with a bundled Sussex APK. The operator shell keeps checking the bundled APK hash and the installed headset hash against the approved Sussex study build.",
-    "allowManualSelection": false,
-    "launchInKioskMode": true,
-    "verification": {
-      "apkSha256": "86BE0095A569A0718B6A0D77C504350C9B47280D3891DE6DB6A3D1B0C04DF688",
-      "softwareVersion": "14",
-      "buildId": "2921110053000610",
-      "displayId": "UP1A.231005.007.A1",
-      "deviceProfileId": "sussex-study-profile",
-      "environmentHash": "072CE0FA6024233FB02C4999229A4AB5DD048B3CABDD771B4B1D4B93F6BCDDDD",
-      "verifiedAtUtc": "2026-03-29T10:19:00.5507104+00:00",
-      "verifiedBy": "manual harness+cli visual verification"
-    }
-  },
-  "deviceProfile": {
-    "id": "sussex-study-profile",
-    "label": "Sussex Study Device Profile",
-    "description": "Dedicated Quest device settings for the Sussex controller-breathing study.",
-    "properties": {
-      "debug.oculus.cpuLevel": "5",
-      "debug.oculus.gpuLevel": "5",
-      "debug.oculus.foveation.dynamic": "false",
-      "debug.oculus.foveation.level": "1"
-    }
-  },
-  "monitoring": {
-    "expectedBreathingLabel": "Controller Volume",
-    "expectedHeartbeatLabel": "LSL Heartbeat",
-    "expectedCoherenceLabel": "LSL Direct",
-    "expectedLslStreamName": "HRV_Biofeedback",
-    "expectedLslStreamType": "HRV",
-    "recenterDistanceThresholdUnits": 0.2,
-    "lslConnectivityKeys": [
-      "study.lsl.connected",
-      "connection.lsl.connected_count",
-      "connection.lsl.connecting_count",
-      "connection.lsl.total_count"
-    ],
-    "lslStreamNameKeys": [
-      "study.lsl.filter_name",
-      "showcase_lsl_in_stream_name",
-      "hotload.showcase_lsl_in_stream_name"
-    ],
-    "lslStreamTypeKeys": [
-      "study.lsl.filter_type",
-      "showcase_lsl_in_stream_type",
-      "hotload.showcase_lsl_in_stream_type"
-    ],
-    "lslValueKeys": [
-      "signal01.coherence_lsl"
-    ],
-    "controllerValueKeys": [
-      "tracker.breathing.controller.volume01",
-      "signal01.breathing_controller"
-    ],
-    "controllerStateKeys": [
-      "tracker.breathing.controller.state",
-      "tracker.breathing.controller.calibrated",
-      "tracker.breathing.controller.validating",
-      "tracker.breathing.controller.validation_progress01"
-    ],
-    "controllerTrackingKeys": [
-      "tracker.breathing.controller.active",
-      "tracker.breathing.controller.failure_reason",
-      "routing.breathing.mode",
-      "routing.breathing.label"
-    ],
-    "heartbeatValueKeys": [
-      "signal01.heartbeat_lsl",
-      "signal01.heartbeat_polar",
-      "signal01.heartbeat_mock_processed"
-    ],
-    "heartbeatStateKeys": [
-      "routing.heartbeat.mode",
-      "routing.heartbeat.label"
-    ],
-    "coherenceValueKeys": [
-      "signal01.coherence_lsl",
-      "signal01.coherence_heartbeat",
-      "signal01.mock_coherence"
-    ],
-    "coherenceStateKeys": [
-      "routing.coherence.mode",
-      "routing.coherence.label",
-      "routing.coherence.uses_heartbeat_source"
-    ],
-    "performanceFpsKeys": [
-      "study.performance.fps"
-    ],
-    "performanceFrameTimeKeys": [
-      "study.performance.frame_ms"
-    ],
-    "performanceTargetFpsKeys": [
-      "study.performance.target_fps"
-    ],
-    "performanceRefreshRateKeys": [
-      "study.performance.refresh_hz"
-    ],
-    "recenterDistanceKeys": [
-      "study.recenter.distance_units"
-    ],
-    "particleVisibilityKeys": [
-      "study.particles.visible"
-    ]
-  },
-  "controls": {
-    "recenterCommandActionId": "2",
-    "particleVisibleOnActionId": "39",
-    "particleVisibleOffActionId": "40"
-  }
+﻿{
+    "id":  "sussex-university",
+    "label":  "Sussex University",
+    "partner":  "University of Sussex",
+    "description":  "Simplified operator window for the Sussex controller-breathing study. The shell stages a dedicated Sussex Quest APK, one Quest device profile, and the live monitoring fields the experimenter needs during a session.",
+    "app":  {
+                "label":  "Sussex Experiment APK",
+                "packageId":  "com.Viscereality.SussexExperiment",
+                "apkPath":  "../quest-session-kit/APKs/SussexExperiment.apk",
+                "launchComponent":  "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
+                "sha256":  "51997FF29ABF3119B1EB015F566713BADE7DAA66F0BB748505640A01D569D46A",
+                "versionName":  "0.1.0",
+                "notes":  "The Sussex shell ships with a bundled Sussex Experiment APK. The operator shell keeps checking the bundled APK hash and the installed headset hash against the approved Sussex study build.",
+                "allowManualSelection":  false,
+                "launchInKioskMode":  true,
+                "verification":  {
+                                     "apkSha256":  "51997FF29ABF3119B1EB015F566713BADE7DAA66F0BB748505640A01D569D46A",
+                                     "softwareVersion":  "14",
+                                     "buildId":  "2921110053000610",
+                                     "displayId":  "UP1A.231005.007.A1",
+                                     "deviceProfileId":  "sussex-study-profile",
+                                     "environmentHash":  "",
+                                     "verifiedAtUtc":  "2026-03-29T20:04:51.8511007Z",
+                                     "verifiedBy":  "tools/ViscerealityCompanion.VerificationHarness"
+                                 }
+            },
+    "deviceProfile":  {
+                          "id":  "sussex-study-profile",
+                          "label":  "Sussex Study Device Profile",
+                          "description":  "Dedicated Quest device settings for the Sussex controller-breathing study.",
+                          "properties":  {
+                                             "debug.oculus.cpuLevel":  "5",
+                                             "debug.oculus.gpuLevel":  "5",
+                                             "debug.oculus.foveation.dynamic":  "false",
+                                             "debug.oculus.foveation.level":  "1",
+                                             "viscereality.screen_brightness_percent":  "35",
+                                             "viscereality.media_volume_music":  "8",
+                                             "viscereality.minimum_headset_battery_percent":  "50",
+                                             "viscereality.minimum_right_controller_battery_percent":  "35"
+                                         }
+                      },
+    "monitoring":  {
+                       "expectedBreathingLabel":  "Controller Volume",
+                       "expectedHeartbeatLabel":  "LSL Heartbeat",
+                       "expectedCoherenceLabel":  "LSL Direct",
+                       "expectedLslStreamName":  "HRV_Biofeedback",
+                       "expectedLslStreamType":  "HRV",
+                       "recenterDistanceThresholdUnits":  0.2,
+                       "lslConnectivityKeys":  [
+                                                   "study.lsl.connected",
+                                                   "connection.lsl.connected_count",
+                                                   "connection.lsl.connecting_count",
+                                                   "connection.lsl.total_count"
+                                               ],
+                       "lslStreamNameKeys":  [
+                                                 "study.lsl.filter_name",
+                                                 "showcase_lsl_in_stream_name",
+                                                 "hotload.showcase_lsl_in_stream_name"
+                                             ],
+                       "lslStreamTypeKeys":  [
+                                                 "study.lsl.filter_type",
+                                                 "showcase_lsl_in_stream_type",
+                                                 "hotload.showcase_lsl_in_stream_type"
+                                             ],
+                       "lslValueKeys":  [
+                                            "signal01.coherence_lsl"
+                                        ],
+                       "controllerValueKeys":  [
+                                                   "tracker.breathing.controller.volume01",
+                                                   "signal01.breathing_controller"
+                                               ],
+                       "controllerStateKeys":  [
+                                                   "tracker.breathing.controller.state",
+                                                   "tracker.breathing.controller.calibrated",
+                                                   "tracker.breathing.controller.validating",
+                                                   "tracker.breathing.controller.validation_progress01"
+                                               ],
+                       "controllerTrackingKeys":  [
+                                                      "tracker.breathing.controller.active",
+                                                      "tracker.breathing.controller.failure_reason",
+                                                      "routing.breathing.mode",
+                                                      "routing.breathing.label"
+                                                  ],
+                       "heartbeatValueKeys":  [
+                                                  "signal01.heartbeat_lsl",
+                                                  "signal01.heartbeat_polar",
+                                                  "signal01.heartbeat_mock_processed"
+                                              ],
+                       "heartbeatStateKeys":  [
+                                                  "routing.heartbeat.mode",
+                                                  "routing.heartbeat.label"
+                                              ],
+                       "coherenceValueKeys":  [
+                                                  "signal01.coherence_lsl",
+                                                  "signal01.coherence_heartbeat",
+                                                  "signal01.mock_coherence"
+                                              ],
+                       "coherenceStateKeys":  [
+                                                  "routing.coherence.mode",
+                                                  "routing.coherence.label",
+                                                  "routing.coherence.uses_heartbeat_source"
+                                              ],
+                       "performanceFpsKeys":  [
+                                                  "study.performance.fps"
+                                              ],
+                       "performanceFrameTimeKeys":  [
+                                                        "study.performance.frame_ms"
+                                                    ],
+                       "performanceTargetFpsKeys":  [
+                                                        "study.performance.target_fps"
+                                                    ],
+                       "performanceRefreshRateKeys":  [
+                                                          "study.performance.refresh_hz"
+                                                      ],
+                       "recenterDistanceKeys":  [
+                                                    "study.recenter.distance_units"
+                                                ],
+                       "particleVisibilityKeys":  [
+                                                      "study.particles.visible"
+                                                  ]
+                   },
+    "controls":  {
+                     "recenterCommandActionId":  "2",
+                     "particleVisibleOnActionId":  "39",
+                     "particleVisibleOffActionId":  "40",
+                     "startBreathingCalibrationActionId":  "14",
+                     "resetBreathingCalibrationActionId":  "41",
+                     "startExperimentActionId":  "42",
+                     "endExperimentActionId":  "43"
+                 }
 }

@@ -202,7 +202,7 @@ public sealed class PreviewQuestControlService : IQuestControlService
             BatteryLevel: 76,
             CpuLevel: 2,
             GpuLevel: 2,
-            ForegroundPackageId: target?.PackageId ?? "com.Viscereality.LslTwin",
+            ForegroundPackageId: target?.PackageId ?? "com.Viscereality.SussexExperiment",
             IsTargetInstalled: target is not null,
             IsTargetRunning: target is not null,
             IsTargetForeground: target is not null,

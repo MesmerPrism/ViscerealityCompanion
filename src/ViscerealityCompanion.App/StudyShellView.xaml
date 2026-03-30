@@ -84,12 +84,388 @@
                     <TextBlock Grid.Column="2"
                                VerticalAlignment="Center"
                                TextAlignment="Right"
-                               Text="Pre-session gets the headset, study APK, and device profile ready. During session stays on live signals and confirmed commands. Inspect keeps the detailed runtime tables."
+                               Text="Workflow is the step-by-step Sussex operator path. Pre-session and During session stay available for deeper checks, and Inspect keeps the detailed runtime tables."
                                Style="{StaticResource CompactCaptionStyle}" />
                 </Grid>
             </Border>
 
             <TabControl Grid.Row="2" SelectedIndex="{Binding SelectedPhaseTabIndex}">
+                <TabItem Header="Workflow">
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.6*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="0.9*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="12" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0"
+                                Grid.ColumnSpan="3"
+                                Style="{StaticResource StudyPanelStyle}"
+                                Background="{Binding WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.3*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="0.7*" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Operator workflow" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Run the stable Sussex protocol from left to right. The workflow tab is the primary path; the legacy tabs remain available when you need deeper device or telemetry inspection."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <TextBlock Text="{Binding WorkflowCurrentStepSummary}"
+                                               FontSize="18"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding WorkflowCurrentStepDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="Open Sequential Guide"
+                                                Command="{Binding OpenWorkflowGuideWindowCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+
+                                <Border Grid.Column="2"
+                                        Style="{StaticResource StudyInsetPanelStyle}"
+                                        Background="{Binding LastActionLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                        BorderBrush="{Binding LastActionLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                    <StackPanel>
+                                        <TextBlock Text="Live evidence" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Text="{Binding LastTwinStateTimestampLabel}"
+                                                   FontSize="14"
+                                                   FontWeight="Bold"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding LastActionLabel}"
+                                                   Margin="0,8,0,0"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{Binding LastActionLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                   Style="{StaticResource CompactCaptionStyle}" />
+                                        <TextBlock Text="{Binding LastActionDetail}"
+                                                   Style="{StaticResource CompactCaptionStyle}"
+                                                   Margin="0,4,0,0" />
+                                        <TextBlock Text="{Binding LiveRuntimeSummary}"
+                                                   Style="{StaticResource CompactCaptionStyle}"
+                                                   Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
+
+                        <Grid Grid.Row="2" Grid.Column="0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0"
+                                    Grid.Column="0"
+                                    Style="{StaticResource StudyInsetPanelStyle}"
+                                    Background="{Binding WorkflowSetupLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding WorkflowSetupLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="1. Setup and greenlight" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding WorkflowSetupSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding WorkflowSetupLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding WorkflowSetupDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding ConnectionTransportSummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding PinnedBuildSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding DeviceProfileSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding HeadsetBatteryLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding HeadsetSoftwareVersionLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding DeviceSnapshotTimestampLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="Quest endpoint" Style="{StaticResource InfoLabelStyle}" Margin="0,10,0,6" />
+                                    <TextBox Text="{Binding EndpointDraft, UpdateSourceTrigger=PropertyChanged}" />
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="Probe USB" Command="{Binding ProbeUsbCommand}" />
+                                        <Button Content="Find Wi-Fi Quest" Command="{Binding DiscoverWifiCommand}" />
+                                        <Button Content="Enable Wi-Fi ADB" Command="{Binding EnableWifiCommand}" />
+                                        <Button Content="Connect Quest" Command="{Binding ConnectQuestCommand}" />
+                                        <Button Content="Refresh Study Status" Command="{Binding RefreshStatusCommand}" />
+                                        <Button Content="Refresh Snapshot" Command="{Binding RefreshDeviceSnapshotCommand}" />
+                                    </WrapPanel>
+                                    <WrapPanel Margin="0,8,0,0">
+                                        <Button Content="Choose Study APK"
+                                                Command="{Binding BrowseApkCommand}"
+                                                Visibility="{Binding CanChooseStudyApk, Converter={StaticResource BoolToVisibility}}" />
+                                        <Button Content="{Binding StudyApkInstallButtonLabel}" Command="{Binding InstallStudyAppCommand}" />
+                                        <Button Content="Apply Device Profile" Command="{Binding ApplyPinnedDeviceProfileCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="0"
+                                    Grid.Column="2"
+                                    Style="{StaticResource StudyInsetPanelStyle}"
+                                    Background="{Binding WorkflowKioskLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding WorkflowKioskLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="2. Boundary and kiosk entry" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding WorkflowKioskSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding WorkflowKioskLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding WorkflowKioskDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding HeadsetAwakeSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding HeadsetForegroundLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="Wake the controller before entering kiosk mode. Disconnect USB before the operator gets into position."
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0" />
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="{Binding StudyRuntimeActionLabel}" Command="{Binding ToggleStudyRuntimeCommand}" />
+                                        <Button Content="Capture Quest Screenshot"
+                                                Command="{Binding CaptureQuestScreenshotCommand}"
+                                                IsEnabled="{Binding CanCaptureQuestScreenshot}" />
+                                        <Button Content="Open Last Screenshot"
+                                                Command="{Binding OpenLastQuestScreenshotCommand}"
+                                                IsEnabled="{Binding CanOpenLastQuestScreenshot}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2"
+                                    Grid.Column="0"
+                                    Style="{StaticResource StudyInsetPanelStyle}"
+                                    Background="{Binding WorkflowBenchLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding WorkflowBenchLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="3. Bench verification" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding WorkflowBenchSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding WorkflowBenchLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding WorkflowBenchDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding LslSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding ControllerSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding ControllerCalibrationLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding LslBenchStateLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="Start Calibration"
+                                                Command="{Binding StartBreathingCalibrationCommand}"
+                                                IsEnabled="{Binding CanStartBreathingCalibration}" />
+                                        <Button Content="Recenter"
+                                                Command="{Binding RecenterCommand}"
+                                                IsEnabled="{Binding CanSendRecenterCommand}" />
+                                        <Button Content="Particles On"
+                                                Command="{Binding ParticlesOnCommand}"
+                                                IsEnabled="{Binding CanToggleParticles}" />
+                                        <Button Content="Particles Off"
+                                                Command="{Binding ParticlesOffCommand}"
+                                                IsEnabled="{Binding CanToggleParticles}" />
+                                        <Button Content="{Binding TestLslSenderActionLabel}"
+                                                Command="{Binding ToggleTestLslSenderCommand}"
+                                                IsEnabled="{Binding CanToggleTestLslSender}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2"
+                                    Grid.Column="2"
+                                    Style="{StaticResource StudyInsetPanelStyle}"
+                                    Background="{Binding WorkflowHandoffLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding WorkflowHandoffLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="4. Participant handoff" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding WorkflowHandoffSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding WorkflowHandoffLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding WorkflowHandoffDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="Stable handoff path: reset calibration, turn particles off, place the headset for the subject position, and use the physical power button for sleep."
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="Reset Calibration"
+                                                Command="{Binding ResetBreathingCalibrationCommand}"
+                                                IsEnabled="{Binding CanResetBreathingCalibration}" />
+                                        <Button Content="Particles Off"
+                                                Command="{Binding ParticlesOffCommand}"
+                                                IsEnabled="{Binding CanToggleParticles}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="4"
+                                    Grid.Column="0"
+                                    Style="{StaticResource StudyInsetPanelStyle}"
+                                    Background="{Binding WorkflowParticipantStartLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding WorkflowParticipantStartLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="5. Participant start" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding WorkflowParticipantStartSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding WorkflowParticipantStartLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding WorkflowParticipantStartDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="Participant number"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               Margin="0,10,0,6" />
+                                    <TextBox Text="{Binding ParticipantIdDraft, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock Text="{Binding ParticipantEntrySummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding ParticipantEntryDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding ParticipantExistingSessionsLabel}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0"
+                                               Visibility="{Binding ParticipantHasExistingSessions, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBlock Text="{Binding RecordingSummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding RecordingDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0" />
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="Start Experiment"
+                                                Command="{Binding StartExperimentCommand}"
+                                                IsEnabled="{Binding CanStartParticipantExperiment}" />
+                                        <Button Content="Particles On"
+                                                Command="{Binding ParticlesOnCommand}"
+                                                IsEnabled="{Binding CanToggleParticles}" />
+                                        <Button Content="Recenter"
+                                                Command="{Binding RecenterCommand}"
+                                                IsEnabled="{Binding CanSendRecenterCommand}" />
+                                        <Button Content="Capture Quest Screenshot"
+                                                Command="{Binding CaptureQuestScreenshotCommand}"
+                                                IsEnabled="{Binding CanCaptureQuestScreenshot}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="4"
+                                    Grid.Column="2"
+                                    Style="{StaticResource StudyInsetPanelStyle}"
+                                    Background="{Binding WorkflowParticipantEndLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding WorkflowParticipantEndLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="6. Participant end" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="{Binding WorkflowParticipantEndSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding WorkflowParticipantEndLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding WorkflowParticipantEndDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding RecorderStateLabel}"
+                                               FontWeight="SemiBold"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding RecordingSummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding RecordingDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0" />
+                                    <TextBlock Text="Stable close-out target: stop recording, reset calibration, turn particles off, remove the headset, and let the experimenter use the physical power button for sleep."
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button Content="End Experiment"
+                                                Command="{Binding EndExperimentCommand}"
+                                                IsEnabled="{Binding CanEndParticipantExperiment}" />
+                                        <Button Content="Reset Calibration"
+                                                Command="{Binding ResetBreathingCalibrationCommand}"
+                                                IsEnabled="{Binding CanResetBreathingCalibration}" />
+                                        <Button Content="Particles Off"
+                                                Command="{Binding ParticlesOffCommand}"
+                                                IsEnabled="{Binding CanToggleParticles}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <StackPanel Grid.Row="2" Grid.Column="2">
+                            <Border Style="{StaticResource StudyPanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Protocol guardrails" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="These are hard rules for the stable flow. Keep bench recovery tools out of the main path unless you are explicitly debugging."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <TextBlock Text="Use the physical power button for off-face sleep and wake during participant handoff."
+                                               FontWeight="SemiBold"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="Keep the proximity sensor in normal mode during kiosk entry and kiosk exit. The legacy proximity control stays in Pre-session for bench recovery only."
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="Wake the controller before entering the kiosk scene. If the controller is asleep at transition time, it may not recover afterward."
+                                               FontWeight="SemiBold"
+                                               Margin="0,10,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="Disconnect USB before boundary creation and participant positioning so the session always follows the same transport path."
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Astral runtime work" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding WorkflowRuntimePendingSummary}"
+                                               FontSize="15"
+                                               FontWeight="Bold"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding WorkflowRuntimePendingDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Quick evidence" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding QuestStatusSummary}" Style="{StaticResource CompactCaptionStyle}" />
+                                    <TextBlock Text="{Binding HeadsetBatteryLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding HeadsetSoftwareVersionLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding HeadsetPerformanceLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding HeadsetForegroundLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding LslRuntimeTargetLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding LslConnectedStreamLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding LslConnectionStateLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding QuestScreenshotSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding LastTwinStateTimestampLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+
                 <TabItem Header="Pre-session">
                     <StackPanel Margin="0,8,0,0">
                         <Border Style="{StaticResource StudyPanelStyle}">

@@ -48,13 +48,19 @@ In the app:
 - browse to an APK only if the study shell or supplied target did not already ship it
 - if Sussex mode is active, the bundled Sussex APK should already be staged for you
 
-In the committed public sample catalog, that target is currently `LslTwin`.
+In the committed public sample catalog, that target is currently `Sussex Experiment APK`.
 
 If the study team already gave you a dedicated study shell, that path pins the
 expected build and device profile for you and keeps the live monitor narrower.
 The Sussex shell now stages its bundled Sussex APK automatically, and the
 dedicated Sussex package opens directly into that shell instead of the full
 operator workspace.
+
+For first-time Sussex setup, open the workflow tab and use the
+`Open Sequential Guide` window. It walks the operator through USB probe,
+Wi-Fi ADB handoff, Wi-Fi-only verification, APK/profile checks, kiosk launch,
+LSL confirmation, particle verification, an optional-for-now controller
+calibration check, and the short 20 second validation capture.
 
 ## 3. Install The Study Build
 
@@ -164,7 +170,9 @@ viscereality twin send twin-pause
 
 - the dedicated Sussex package is meant to reduce researcher mistakes by hiding the broader operator tabs
 - the bundled APK and study device profile should already match each other
+- the `Sequential Sussex Guide` is now the preferred onboarding surface for first-time setup and bench verification
 - the top status cards should be treated as the main pre-session checklist
+- controller breathing calibration is still exposed in the guide, but it is currently optional until the Sussex runtime calibration path is stabilized
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 
 ## Catalog Discovery

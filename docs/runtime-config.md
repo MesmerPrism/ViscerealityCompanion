@@ -35,7 +35,7 @@ still leaving the full public key surface available when needed.
 4. Use `Twin + Timing` when you need sync policy, runtime timing, or the runtime-config JSON bridge without mixing those controls into every other field.
 5. Use `All` only when you need the complete document view.
 
-The public `LslTwin` sample now auto-selects the `Viscereality Scene Baseline`
+The public `Sussex Experiment` sample now auto-selects the `Viscereality Scene Baseline`
 profile when that app is selected in the library.
 
 ## Current Session Behavior

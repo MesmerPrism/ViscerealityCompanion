@@ -7,7 +7,7 @@
       "file": "studio-baseline.json",
       "description": "Balanced public baseline for Quest operator sessions.",
       "packageIds": [
-        "com.Viscereality.LslTwin"
+        "com.Viscereality.SussexExperiment"
       ]
     },
     {
@@ -16,7 +16,7 @@
       "file": "twin-coherence.json",
       "description": "Twin-mode sample with stronger coherence-driven routing and coupling.",
       "packageIds": [
-        "com.Viscereality.LslTwin"
+        "com.Viscereality.SussexExperiment"
       ]
     }
   ]

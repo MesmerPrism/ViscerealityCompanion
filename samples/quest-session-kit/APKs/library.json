@@ -1,13 +1,13 @@
 {
   "apps": [
     {
-      "id": "lsl-twin",
-      "label": "Sussex Controller Study APK",
-      "packageId": "com.Viscereality.LslTwin",
-      "apkFile": "SussexControllerStudy.apk",
+      "id": "sussex-experiment",
+      "label": "Sussex Experiment APK",
+      "packageId": "com.Viscereality.SussexExperiment",
+      "apkFile": "SussexExperiment.apk",
       "launchComponent": "",
       "browserPackageId": "com.oculus.browser",
-      "description": "Bundled Sussex controller-study Quest runtime. It matches the approved Sussex study shell build, publishes quest_twin_state, accepts quest_twin_commands, and exposes the public runtime-config surface tracked by the Windows app.",
+      "description": "Bundled Sussex Experiment Quest runtime. It matches the approved Sussex study shell build, publishes quest_twin_state, accepts quest_twin_commands, and exposes the public runtime-config surface tracked by the Windows app.",
       "tags": [
         "viscereality",
         "runtime",

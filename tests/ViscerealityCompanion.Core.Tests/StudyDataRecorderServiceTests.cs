@@ -1,0 +1,172 @@
+using System.Text.Json;
+using ViscerealityCompanion.Core.Services;
+
+namespace ViscerealityCompanion.Core.Tests;
+
+public sealed class StudyDataRecorderServiceTests
+{
+    [Fact]
+    public void GetParticipantStatus_FindsExistingParticipantSessions()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var participantRoot = Path.Combine(root, "sussex-university", "participant-P001");
+            Directory.CreateDirectory(Path.Combine(participantRoot, "session-20260329T100000Z"));
+            Directory.CreateDirectory(Path.Combine(participantRoot, "session-20260329T110000Z"));
+
+            var service = new StudyDataRecorderService(root);
+            var status = service.GetParticipantStatus("sussex-university", "P001");
+
+            Assert.True(status.HasExistingSessions);
+            Assert.Equal("P001", status.ParticipantId);
+            Assert.Equal("participant-P001", status.ParticipantFolderName);
+            Assert.Equal(
+                ["session-20260329T100000Z", "session-20260329T110000Z"],
+                status.ExistingSessionIds);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StartSession_WritesSettingsEventsSignalsAndBreathingFiles()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var service = new StudyDataRecorderService(root);
+            var startedAtUtc = new DateTimeOffset(2026, 03, 29, 12, 34, 56, TimeSpan.Zero);
+            using var session = service.StartSession(CreateRequest("P007", "session-20260329T123456Z", startedAtUtc));
+
+            session.RecordEvent(
+                "recording.started",
+                "Recorder created.",
+                null,
+                "success",
+                startedAtUtc);
+
+            var twinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["study.pose.headset.local_pos_x"] = "0.11",
+                ["study.pose.headset.local_pos_y"] = "1.22",
+                ["study.pose.headset.local_pos_z"] = "-0.33",
+                ["study.pose.headset.local_rot_x"] = "0.1",
+                ["study.pose.headset.local_rot_y"] = "0.2",
+                ["study.pose.headset.local_rot_z"] = "0.3",
+                ["study.pose.headset.local_rot_w"] = "0.4",
+                ["study.pose.controller.local_pos_x"] = "0.44",
+                ["study.pose.controller.local_pos_y"] = "0.55",
+                ["study.pose.controller.local_pos_z"] = "0.66",
+                ["study.pose.controller.local_rot_x"] = "0.7",
+                ["study.pose.controller.local_rot_y"] = "0.8",
+                ["study.pose.controller.local_rot_z"] = "0.9",
+                ["study.pose.controller.local_rot_w"] = "1.0",
+                ["study.pose.controller.connected"] = "true",
+                ["study.pose.controller.tracked"] = "true",
+                ["study.heartbeat.value01"] = "0.71",
+                ["study.heartbeat.real_beat_value01"] = "1",
+                ["study.coherence.value01"] = "0.63",
+                ["study.coherence.confidence_value01"] = "0.82",
+                ["study.breathing.value01"] = "0.58",
+                ["study.radius.sphere.progress01"] = "0.34",
+                ["study.radius.sphere.raw"] = "1.75",
+                ["study.radius.pacer.progress01"] = "0.31",
+                ["study.radius.pacer.raw"] = "1.52",
+                ["study.lsl.received_sample_count"] = "42",
+                ["study.lsl.latest_timestamp"] = "1234.56",
+                ["study.lsl.latest_default_value"] = "0.63",
+                ["study.session.state_label"] = "Running",
+                ["study.session.experiment_active"] = "true",
+                ["study.session.run_index"] = "3"
+            };
+
+            session.RecordTwinState(twinState, startedAtUtc.AddSeconds(2), "192.168.1.8:5555");
+            session.RecordTwinState(twinState, startedAtUtc.AddSeconds(3), "192.168.1.8:5555");
+            session.Complete(startedAtUtc.AddMinutes(8));
+
+            var eventLines = File.ReadAllLines(session.EventsCsvPath);
+            Assert.Equal(2, eventLines.Length);
+            Assert.Contains("recording.started", eventLines[1], StringComparison.Ordinal);
+            Assert.Contains("sussex-university__P007__session-20260329T123456Z", eventLines[1], StringComparison.Ordinal);
+
+            var signalLines = File.ReadAllLines(session.SignalsCsvPath);
+            Assert.True(signalLines.Length > 5);
+            Assert.Equal(signalLines.Distinct(StringComparer.Ordinal).Count(), signalLines.Length);
+            Assert.Contains("headset.position.x", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
+            Assert.Contains("breathing.value01", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
+            Assert.Contains("session.experiment_active", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
+
+            var breathingLines = File.ReadAllLines(session.BreathingCsvPath);
+            Assert.Equal(2, breathingLines.Length);
+            Assert.Equal(breathingLines.Distinct(StringComparer.Ordinal).Count(), breathingLines.Length);
+            Assert.Contains("0.58", breathingLines[1], StringComparison.Ordinal);
+            Assert.Contains("1.75", breathingLines[1], StringComparison.Ordinal);
+
+            using var settingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath));
+            var rootElement = settingsDocument.RootElement;
+            Assert.Equal("P007", rootElement.GetProperty("ParticipantId").GetString());
+            Assert.Equal("session-20260329T123456Z", rootElement.GetProperty("SessionId").GetString());
+            Assert.Equal("sussex-university__P007__session-20260329T123456Z", rootElement.GetProperty("DatasetId").GetString());
+            Assert.Equal("DATASET_HASH", rootElement.GetProperty("DatasetHash").GetString());
+            Assert.Equal("SETTINGS_HASH", rootElement.GetProperty("SettingsHash").GetString());
+            Assert.Equal("ENV_HASH", rootElement.GetProperty("EnvironmentHash").GetString());
+            Assert.Equal("com.Viscereality.SussexExperiment", rootElement.GetProperty("PackageId").GetString());
+            Assert.Equal("CONFIG_HASH", rootElement.GetProperty("RuntimeConfigJsonHash").GetString());
+            Assert.Equal("viscereality_lsltwin_scene", rootElement.GetProperty("RuntimeHotloadProfileId").GetString());
+            Assert.Equal("Quest-Selector-01", rootElement.GetProperty("QuestSelector").GetString());
+            Assert.Equal("2026-03-29T12:42:56+00:00", rootElement.GetProperty("SessionEndedAtUtc").GetString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static StudyDataRecordingStartRequest CreateRequest(
+        string participantId,
+        string sessionId,
+        DateTimeOffset startedAtUtc)
+        => new(
+            "sussex-university",
+            "Sussex University",
+            participantId,
+            sessionId,
+            "sussex-university__P007__session-20260329T123456Z",
+            "DATASET_HASH",
+            "SETTINGS_HASH",
+            "ENV_HASH",
+            startedAtUtc,
+            "com.Viscereality.SussexExperiment",
+            "ABC123",
+            "0.2.0",
+            "com.Viscereality.SussexExperiment/.MainActivity",
+            "14",
+            "2921110053000610",
+            "UP1A.231005.007.A1",
+            "sussex-study-profile",
+            "Sussex Study Device Profile",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["debug.oculus.cpuLevel"] = "2",
+                ["debug.oculus.gpuLevel"] = "5"
+            },
+            "HRV_Biofeedback",
+            "HRV",
+            0.2d,
+            "CONFIG_HASH",
+            "viscereality_lsltwin_scene",
+            "2026.03.29",
+            "public",
+            "study-rig",
+            "Quest-Selector-01");
+
+    private static string CreateTempRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        return root;
+    }
+}

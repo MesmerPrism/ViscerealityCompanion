@@ -66,7 +66,7 @@ state you expect, not just whether the basic monitor stream is alive.
 
 ![Twin Monitor tab](assets/operator-shell-twin-monitor.png)
 
-On March 25, 2026, this flow was verified live against `LslTwin` over Wi-Fi
+On March 25, 2026, this flow was verified live against `Sussex Experiment` over Wi-Fi
 ADB. The Windows app launched the Quest build, applied `CPU 2 / GPU 2`, and
 tracked `188` reported headset values over `quest_twin_state` without the tab
 crashing.

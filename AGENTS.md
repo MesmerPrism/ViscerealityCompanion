@@ -85,7 +85,7 @@ It does **not** ship:
 
 - The Sussex Quest runtime is authored in `AstralKarateDojo`.
 - This repo may mirror an approved Sussex APK under
-  `samples/quest-session-kit/APKs/SussexControllerStudy.apk`, but it does not
+  `samples/quest-session-kit/APKs/SussexExperiment.apk`, but it does not
   edit Unity scenes, configs, or build-time scene wiring.
 - If the Sussex runtime needs a different scene hierarchy, LSL inlet contract,
   or runtime config asset, make that change in `AstralKarateDojo` first and

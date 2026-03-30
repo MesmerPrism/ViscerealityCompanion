@@ -1,7 +1,7 @@
-# Scene-matched public baseline for the current Viscereality LslTwin build.
+# Scene-matched public baseline for the current Sussex Experiment build.
 key,value
 hotload_profile_id,viscereality_lsltwin_scene
-hotload_profile_version,2026.03.26
+hotload_profile_version,2026.03.29
 hotload_profile_channel,public
 hotload_profile_lock,false
 internal_tick_lock_60hz,true
@@ -66,3 +66,15 @@ twin_auto_first_sync_apk_priority,true
 twin_parameter_apply_enabled,false
 twin_signal_mirror_enabled,true
 showcase_active_runtime_config_json,
+study_session_study_id,
+study_session_study_label,
+study_session_participant_id,
+study_session_id,
+study_session_dataset_id,
+study_session_dataset_hash,
+study_session_settings_hash,
+study_session_environment_hash,
+study_session_windows_machine_name,
+study_session_device_profile_id,
+study_session_apk_sha256,
+study_session_started_at_utc,

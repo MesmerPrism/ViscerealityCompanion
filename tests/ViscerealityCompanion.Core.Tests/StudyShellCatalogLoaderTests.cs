@@ -20,13 +20,14 @@ public sealed class StudyShellCatalogLoaderTests
             Assert.True(catalog.LaunchOptions.LockToStartupStudy);
             var study = Assert.Single(catalog.Studies);
             Assert.Equal("sussex-university", study.Id);
-            Assert.Equal("com.Viscereality.LslTwin", study.App.PackageId);
+            Assert.Equal("com.Viscereality.SussexExperiment", study.App.PackageId);
             Assert.False(study.App.AllowManualSelection);
             Assert.True(study.App.LaunchInKioskMode);
             Assert.NotNull(study.App.VerificationBaseline);
             Assert.Equal("14", study.App.VerificationBaseline!.SoftwareVersion);
             Assert.Equal("2921110053000610", study.App.VerificationBaseline.BuildId);
             Assert.Equal("2", study.Controls.RecenterCommandActionId);
+            Assert.Equal("14", study.Controls.StartBreathingCalibrationActionId);
             Assert.Contains("debug.oculus.gpuLevel", study.DeviceProfile.Properties.Keys);
             Assert.Contains("connection.lsl.connected_count", study.Monitoring.LslConnectivityKeys);
             Assert.Contains("signal01.coherence_lsl", study.Monitoring.LslValueKeys);
@@ -89,7 +90,7 @@ public sealed class StudyShellCatalogLoaderTests
               "description": "Controller breathing study shell.",
               "app": {
                 "label": "Sussex Controller Study APK",
-                "packageId": "com.Viscereality.LslTwin",
+                "packageId": "com.Viscereality.SussexExperiment",
                 "apkPath": "{{(withRelativeApkPath ? "payload/Sussex.apk" : "")}}",
                 "launchComponent": "",
                 "sha256": "ABC123",
@@ -145,7 +146,8 @@ public sealed class StudyShellCatalogLoaderTests
               "controls": {
                 "recenterCommandActionId": "2",
                 "particleVisibleOnActionId": "",
-                "particleVisibleOffActionId": ""
+                "particleVisibleOffActionId": "",
+                "startBreathingCalibrationActionId": "14"
               }
             }
             """);

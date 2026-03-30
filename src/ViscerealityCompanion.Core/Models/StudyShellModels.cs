@@ -94,4 +94,8 @@ public sealed record StudyMonitoringProfile(
 public sealed record StudyControlProfile(
     string RecenterCommandActionId,
     string ParticleVisibleOnActionId,
-    string ParticleVisibleOffActionId);
+    string ParticleVisibleOffActionId,
+    string StartBreathingCalibrationActionId = "",
+    string ResetBreathingCalibrationActionId = "",
+    string StartExperimentActionId = "",
+    string EndExperimentActionId = "");

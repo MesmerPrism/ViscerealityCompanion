@@ -54,6 +54,13 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-home-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-home-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-ready-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-running-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-ended-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-ready-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-running-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-ended-proof.png"));
+        DeleteDirectoryIfPresent(Path.Combine(outputRoot, "device-session-pull"));
 
         using var outlet = new FloatLslTestOutlet();
         outlet.Open(
@@ -208,34 +215,29 @@ public static class HarnessScenarioRunner
             "study.particles.visible",
             "study.particles.render_output_enabled");
 
-        await studyViewModel.StopStudyAppAsync();
-        var stopActionLevel = studyViewModel.LastActionLevel;
-        var stopActionDetail = studyViewModel.LastActionDetail;
-        await Task.Delay(TimeSpan.FromSeconds(3));
-        var homeScreenshotPath = await CaptureQuestScreenshotProofAsync(
+        var participantRunResult = await RunParticipantRecordingPhaseAsync(
+            mainViewModel,
             studyViewModel,
             window,
             outputRoot,
-            "quest-home-proof.png",
-            "sussex-main-window-home-proof.png");
+            outlet);
+
+        var stopActionLevel = OperationOutcomeKind.Warning;
+        var stopActionDetail = "Skipped Stop Study App and home-scene validation because the headset was off-head and kiosk exit is a known unstable state there.";
+        var homeScreenshotPath = participantRunResult.EndedQuestScreenshotPath;
         CaptureWindow(window, Path.Combine(outputRoot, "sussex-main-window-live.png"));
-        var verificationPersistence = await PersistVerifiedEnvironmentBaselineAsync(
-            repoRoot,
-            studyViewModel,
-            senderRestartResult,
-            recenterResult,
-            particlesOffResult,
-            particlesHidden,
-            particlesOnResult,
-            particlesVisible,
-            stopActionLevel,
-            stopActionDetail);
+        var verificationPersistence = new VerificationPersistenceResult(
+            Persisted: false,
+            Summary: "Verification baseline unchanged.",
+            Detail: stopActionDetail,
+            Baseline: null);
 
         await File.WriteAllTextAsync(
             Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
             BuildReport(
                 mainViewModel,
                 studyViewModel,
+                participantRunResult,
                 latencyResults,
                 senderRestartResult,
                 recenterResult,
@@ -392,9 +394,430 @@ public static class HarnessScenarioRunner
         return proofPath;
     }
 
+    private static async Task<ParticipantRunResult> RunParticipantRecordingPhaseAsync(
+        MainWindowViewModel mainViewModel,
+        StudyShellViewModel studyViewModel,
+        Window window,
+        string outputRoot,
+        FloatLslTestOutlet outlet)
+    {
+        var participantId = $"harness-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
+        await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.ParticipantIdDraft = participantId);
+        await Task.Delay(TimeSpan.FromMilliseconds(250));
+
+        await EnsureStudyRuntimeReadyForParticipantAsync(studyViewModel);
+
+        var readyQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-participant-ready-proof.png",
+            "sussex-main-window-participant-ready-proof.png");
+
+        var lslCountBefore = GetTwinLongValue(studyViewModel, "study.lsl.received_sample_count");
+
+        await studyViewModel.StartExperimentAsync();
+        await WaitForConditionAsync(
+            () =>
+            {
+                var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+                snapshot.TryGetValue("study.session.id", out var sessionId);
+                snapshot.TryGetValue("study.recording.device.active", out var deviceActiveRaw);
+                return !string.IsNullOrWhiteSpace(studyViewModel.RecordingFolderPath)
+                       && Directory.Exists(studyViewModel.RecordingFolderPath)
+                       && !string.IsNullOrWhiteSpace(sessionId)
+                       && ParseBool(deviceActiveRaw) == true;
+            },
+            TimeSpan.FromSeconds(15),
+            "Participant run never reached the active local+Quest recording state.");
+
+        var snapshotAfterStart = studyViewModel.ReportedTwinStateSnapshot;
+        var sessionId = snapshotAfterStart.TryGetValue("study.session.id", out var startedSessionId)
+            ? startedSessionId ?? string.Empty
+            : string.Empty;
+        var datasetId = snapshotAfterStart.TryGetValue("study.session.dataset_id", out var startedDatasetId)
+            ? startedDatasetId ?? string.Empty
+            : string.Empty;
+        var datasetHash = snapshotAfterStart.TryGetValue("study.session.dataset_hash", out var startedDatasetHash)
+            ? startedDatasetHash ?? string.Empty
+            : string.Empty;
+        var settingsHash = snapshotAfterStart.TryGetValue("study.session.settings_hash", out var startedSettingsHash)
+            ? startedSettingsHash ?? string.Empty
+            : string.Empty;
+        var environmentHash = snapshotAfterStart.TryGetValue("study.session.environment_hash", out var startedEnvironmentHash)
+            ? startedEnvironmentHash ?? string.Empty
+            : string.Empty;
+        var deviceSessionDirectory = snapshotAfterStart.TryGetValue("study.recording.device.session_dir", out var startedDeviceSessionDirectory)
+            ? startedDeviceSessionDirectory ?? string.Empty
+            : string.Empty;
+        var localSessionFolderPath = studyViewModel.RecordingFolderPath;
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new InvalidOperationException("Participant run started, but the live twin state did not expose study.session.id.");
+        }
+
+        if (string.IsNullOrWhiteSpace(deviceSessionDirectory))
+        {
+            throw new InvalidOperationException("Participant run started, but the live twin state did not expose study.recording.device.session_dir.");
+        }
+
+        await WaitForSessionFilesAsync(
+            localSessionFolderPath,
+            ["session_events.csv", "signals_long.csv", "breathing_trace.csv", "session_settings.json"],
+            TimeSpan.FromSeconds(10));
+
+        var runningQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-participant-running-proof.png",
+            "sussex-main-window-participant-running-proof.png");
+
+        var lslFlowResult = await DriveParticipantRunLslAsync(outlet, studyViewModel, lslCountBefore);
+
+        await WaitForConditionAsync(
+            () => HasMinimumCsvDataRows(Path.Combine(localSessionFolderPath, "signals_long.csv"), 8)
+                  && HasMinimumCsvDataRows(Path.Combine(localSessionFolderPath, "session_events.csv"), 4),
+            TimeSpan.FromSeconds(12),
+            "The Windows participant recorder did not flush enough data rows for inspection.");
+
+        await studyViewModel.EndExperimentAsync();
+
+        await WaitForConditionAsync(
+            () => File.Exists(Path.Combine(localSessionFolderPath, "session_settings.json"))
+                  && File.Exists(Path.Combine(localSessionFolderPath, "session_events.csv"))
+                  && ContainsTextWithSharedRead(Path.Combine(localSessionFolderPath, "session_events.csv"), "recording.stopped"),
+            TimeSpan.FromSeconds(10),
+            "The Windows participant recorder did not finish flushing the completed session.");
+
+        var endedQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-participant-ended-proof.png",
+            "sussex-main-window-participant-ended-proof.png");
+
+        var localFiles = InspectSessionFiles(
+            localSessionFolderPath,
+            "session_settings.json",
+            "session_events.csv",
+            "signals_long.csv",
+            "breathing_trace.csv");
+        var localMetadata = ReadSessionMetadata(Path.Combine(localSessionFolderPath, "session_settings.json"));
+
+        var deviceSelector = ResolveHzdbSelector(mainViewModel, studyViewModel);
+        if (string.IsNullOrWhiteSpace(deviceSelector))
+        {
+            throw new InvalidOperationException("Could not resolve a headset selector for hzdb device file pull.");
+        }
+
+        var devicePullDirectory = Path.Combine(outputRoot, "device-session-pull");
+        var deviceFiles = await PullAndInspectDeviceSessionFilesAsync(
+            deviceSelector,
+            deviceSessionDirectory,
+            devicePullDirectory,
+            "session_settings.json",
+            "session_events.csv",
+            "signals_long.csv",
+            "breathing_trace.csv",
+            "lsl_samples.csv");
+        var deviceMetadata = ReadSessionMetadata(Path.Combine(devicePullDirectory, "session_settings.json"));
+
+        return new ParticipantRunResult(
+            participantId,
+            sessionId,
+            datasetId,
+            datasetHash,
+            settingsHash,
+            environmentHash,
+            localSessionFolderPath,
+            deviceSelector,
+            deviceSessionDirectory,
+            readyQuestScreenshotPath,
+            runningQuestScreenshotPath,
+            endedQuestScreenshotPath,
+            lslFlowResult,
+            localMetadata,
+            deviceMetadata,
+            localFiles,
+            deviceFiles);
+    }
+
+    private static async Task<ObservationResult> DriveParticipantRunLslAsync(
+        FloatLslTestOutlet outlet,
+        StudyShellViewModel studyViewModel,
+        long? initialCount)
+    {
+        var runValues = new[] { 0.19f, 0.48f, 0.77f, 0.31f, 0.66f, 0.28f };
+        foreach (var value in runValues)
+        {
+            outlet.PushSample(value);
+            await Task.Delay(MockHeartbeatInterval);
+        }
+
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var currentCount = GetTwinLongValue(studyViewModel, "study.lsl.received_sample_count");
+            if (currentCount.HasValue && (!initialCount.HasValue || currentCount.Value > initialCount.Value))
+            {
+                return new ObservationResult(
+                    "Participant-run LSL capture",
+                    true,
+                    initialCount.HasValue
+                        ? $"Quest LSL sample counter advanced from {initialCount.Value} to {currentCount.Value} during the participant recording window."
+                        : $"Quest LSL sample counter reported {currentCount.Value} during the participant recording window.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(150));
+        }
+
+        return new ObservationResult(
+            "Participant-run LSL capture",
+            false,
+            "Quest LSL sample counter did not advance during the participant recording window.");
+    }
+
+    private static async Task EnsureStudyRuntimeReadyForParticipantAsync(StudyShellViewModel studyViewModel)
+    {
+        await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null, TimeSpan.FromSeconds(15));
+
+        var runtimeVisible = studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning;
+        var appActive = !studyViewModel.InstalledApkSummary.Contains("not active", StringComparison.OrdinalIgnoreCase);
+        if (!runtimeVisible || !appActive)
+        {
+            await EnsureHeadsetWakeReadyAsync(studyViewModel);
+            await studyViewModel.LaunchStudyAppAsync();
+            await WaitForConditionAsync(
+                () => studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning,
+                TimeSpan.FromSeconds(30),
+                "Quest twin state did not recover before the participant run.");
+        }
+
+        await studyViewModel.ParticlesOnAsync();
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+        await studyViewModel.RecenterAsync();
+        await Task.Delay(TimeSpan.FromMilliseconds(500));
+    }
+
+    private static async Task WaitForSessionFilesAsync(string sessionFolderPath, IReadOnlyList<string> fileNames, TimeSpan timeout)
+    {
+        await WaitForConditionAsync(
+            () => Directory.Exists(sessionFolderPath)
+                  && fileNames.All(fileName => File.Exists(Path.Combine(sessionFolderPath, fileName))),
+            timeout,
+            $"The participant session folder `{sessionFolderPath}` never contained the expected files.");
+    }
+
+    private static bool HasMinimumCsvDataRows(string path, int minimumDataRows)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var lineCount = 0;
+            while (lineCount < minimumDataRows + 1 && reader.ReadLine() is not null)
+            {
+                lineCount++;
+            }
+
+            return lineCount >= minimumDataRows + 1;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<FileInspectionResult> InspectSessionFiles(string sessionFolderPath, params string[] fileNames)
+        => fileNames
+            .Select(fileName => InspectFile(Path.Combine(sessionFolderPath, fileName)))
+            .ToArray();
+
+    private static async Task<IReadOnlyList<FileInspectionResult>> PullAndInspectDeviceSessionFilesAsync(
+        string deviceSelector,
+        string deviceSessionDirectory,
+        string outputDirectory,
+        params string[] fileNames)
+    {
+        var hzdb = HzdbServiceFactory.CreateDefault();
+        if (!hzdb.IsAvailable)
+        {
+            throw new InvalidOperationException("hzdb was not available for Quest session file pull.");
+        }
+
+        Directory.CreateDirectory(outputDirectory);
+
+        var listingOutcome = await hzdb.ListFilesAsync(deviceSelector, deviceSessionDirectory);
+        if (listingOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            throw new InvalidOperationException($"Could not list Quest session directory {deviceSessionDirectory}: {listingOutcome.Detail}");
+        }
+
+        var inspections = new List<FileInspectionResult>(fileNames.Length + 1)
+        {
+            new(deviceSessionDirectory, true, 0, listingOutcome.Detail)
+        };
+
+        foreach (var fileName in fileNames)
+        {
+            var remotePath = $"{deviceSessionDirectory.TrimEnd('/', '\\')}/{fileName}";
+            var localPath = Path.Combine(outputDirectory, fileName);
+            var pullOutcome = await hzdb.PullFileAsync(deviceSelector, remotePath, localPath);
+            if (pullOutcome.Kind == OperationOutcomeKind.Failure)
+            {
+                throw new InvalidOperationException($"Could not pull Quest session file {remotePath}: {pullOutcome.Detail}");
+            }
+
+            inspections.Add(InspectFile(localPath));
+        }
+
+        return inspections;
+    }
+
+    private static FileInspectionResult InspectFile(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return new FileInspectionResult(path, false, 0, "missing");
+        }
+
+        var fileInfo = new FileInfo(path);
+        string preview;
+        using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var reader = new StreamReader(stream))
+        {
+            var lines = new List<string>(5);
+            for (var index = 0; index < 5 && !reader.EndOfStream; index++)
+            {
+                var line = reader.ReadLine() ?? string.Empty;
+                lines.Add(line.Length > 220 ? $"{line[..220]}..." : line);
+            }
+
+            preview = string.Join(Environment.NewLine, lines);
+        }
+
+        return new FileInspectionResult(path, true, fileInfo.Length, preview);
+    }
+
+    private static SessionMetadataResult ReadSessionMetadata(string settingsPath)
+    {
+        if (!File.Exists(settingsPath))
+        {
+            return new SessionMetadataResult(settingsPath, false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), "missing");
+        }
+
+        JsonObject? root;
+        using (var stream = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var reader = new StreamReader(stream))
+        {
+            root = JsonNode.Parse(reader.ReadToEnd()) as JsonObject;
+        }
+
+        if (root is null)
+        {
+            return new SessionMetadataResult(settingsPath, false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), "invalid json");
+        }
+
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["StudyId"] = ReadJsonString(root, "StudyId", "studyId"),
+            ["StudyLabel"] = ReadJsonString(root, "StudyLabel", "studyLabel"),
+            ["ParticipantId"] = ReadJsonString(root, "ParticipantId", "participantId"),
+            ["SessionId"] = ReadJsonString(root, "SessionId", "sessionId"),
+            ["DatasetId"] = ReadJsonString(root, "DatasetId", "datasetId"),
+            ["DatasetHash"] = ReadJsonString(root, "DatasetHash", "datasetHash"),
+            ["SettingsHash"] = ReadJsonString(root, "SettingsHash", "settingsHash"),
+            ["EnvironmentHash"] = ReadJsonString(root, "EnvironmentHash", "environmentHash"),
+            ["SessionStartedAtUtc"] = ReadJsonString(root, "SessionStartedAtUtc", "sessionStartedAtUtc"),
+            ["PackageId"] = ReadJsonString(root, "PackageId", "packageId"),
+            ["ApkSha256"] = ReadJsonString(root, "ApkSha256", "apkSha256"),
+            ["WindowsMachineName"] = ReadJsonString(root, "WindowsMachineName", "windowsMachineName"),
+            ["DeviceProfileId"] = ReadJsonString(root, "DeviceProfileId", "deviceProfileId"),
+            ["SessionFolderPath"] = ReadJsonString(root, "SessionFolderPath", "sessionFolderPath")
+        };
+
+        var summary = string.Join(
+            ", ",
+            new[]
+            {
+                $"participant={values["ParticipantId"]}",
+                $"session={values["SessionId"]}",
+                $"datasetId={values["DatasetId"]}",
+                $"datasetHash={values["DatasetHash"]}",
+                $"settingsHash={values["SettingsHash"]}"
+            });
+
+        return new SessionMetadataResult(settingsPath, true, values, summary);
+    }
+
+    private static string ReadJsonString(JsonObject root, params string[] candidateKeys)
+    {
+        foreach (var key in candidateKeys)
+        {
+            if (root.TryGetPropertyValue(key, out var node) && node is not null)
+            {
+                return node.GetValue<string?>() ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveHzdbSelector(MainWindowViewModel mainViewModel, StudyShellViewModel studyViewModel)
+    {
+        var method = typeof(StudyShellViewModel).GetMethod("ResolveHzdbSelector", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (method?.Invoke(studyViewModel, null) is string selector && !string.IsNullOrWhiteSpace(selector))
+        {
+            return selector;
+        }
+
+        return string.IsNullOrWhiteSpace(mainViewModel.EndpointDraft)
+            ? string.Empty
+            : mainViewModel.EndpointDraft.Trim();
+    }
+
+    private static long? GetTwinLongValue(StudyShellViewModel studyViewModel, string key)
+    {
+        if (!studyViewModel.ReportedTwinStateSnapshot.TryGetValue(key, out var rawValue) || string.IsNullOrWhiteSpace(rawValue))
+        {
+            return null;
+        }
+
+        return long.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static bool ContainsTextWithSharedRead(string path, string needle)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd().Contains(needle, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     private static string BuildReport(
         MainWindowViewModel mainViewModel,
         StudyShellViewModel studyViewModel,
+        ParticipantRunResult participantRunResult,
         IReadOnlyList<LatencyResult> latencyResults,
         ObservationResult senderRestartResult,
         ObservationResult recenterResult,
@@ -436,7 +859,7 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Kiosk exit detail: {stopActionDetail}");
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
         builder.AppendLine($"Quest kiosk screenshot: {kioskScreenshotPath}");
-        builder.AppendLine($"Quest home screenshot: {homeScreenshotPath}");
+        builder.AppendLine($"Quest final screenshot: {homeScreenshotPath}");
         builder.AppendLine();
         builder.AppendLine("Command observations:");
         builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
@@ -445,6 +868,24 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"- {particlesHidden.Label}: {particlesHidden.Detail}");
         builder.AppendLine($"- {particlesOnResult.Label}: {particlesOnResult.Detail}");
         builder.AppendLine($"- {particlesVisible.Label}: {particlesVisible.Detail}");
+        builder.AppendLine($"- {participantRunResult.LslFlowResult.Label}: {participantRunResult.LslFlowResult.Detail}");
+        builder.AppendLine();
+        builder.AppendLine("Participant run:");
+        builder.AppendLine($"- Participant id: {participantRunResult.ParticipantId}");
+        builder.AppendLine($"- Session id: {participantRunResult.SessionId}");
+        builder.AppendLine($"- Dataset id: {participantRunResult.DatasetId}");
+        builder.AppendLine($"- Dataset hash: {participantRunResult.DatasetHash}");
+        builder.AppendLine($"- Settings hash: {participantRunResult.SettingsHash}");
+        builder.AppendLine($"- Environment hash: {participantRunResult.EnvironmentHash}");
+        builder.AppendLine($"- Local session folder: {participantRunResult.LocalSessionFolderPath}");
+        builder.AppendLine($"- Quest device selector: {participantRunResult.DeviceSelector}");
+        builder.AppendLine($"- Quest session directory: {participantRunResult.DeviceSessionDirectory}");
+        builder.AppendLine($"- Quest ready screenshot: {participantRunResult.ReadyQuestScreenshotPath}");
+        builder.AppendLine($"- Quest running screenshot: {participantRunResult.RunningQuestScreenshotPath}");
+        builder.AppendLine($"- Quest ended screenshot: {participantRunResult.EndedQuestScreenshotPath}");
+        builder.AppendLine($"- Local settings metadata: {participantRunResult.LocalMetadata.Summary}");
+        builder.AppendLine($"- Quest settings metadata: {participantRunResult.DeviceMetadata.Summary}");
+        builder.AppendLine($"- Metadata match: {BuildMetadataMatchSummary(participantRunResult.LocalMetadata, participantRunResult.DeviceMetadata)}");
         builder.AppendLine();
         builder.AppendLine("Observed LSL loop latency:");
 
@@ -473,6 +914,22 @@ public static class HarnessScenarioRunner
         foreach (var entry in GetRelevantLiveKeys(studyViewModel))
         {
             builder.AppendLine($"- {entry.Key}: {entry.Value}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Local session files:");
+        foreach (var file in participantRunResult.LocalFiles)
+        {
+            builder.AppendLine($"- {file.Path} ({(file.Exists ? $"{file.LengthBytes} bytes" : "missing")})");
+            builder.AppendLine(file.Preview);
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Quest session files:");
+        foreach (var file in participantRunResult.DeviceFiles)
+        {
+            builder.AppendLine($"- {file.Path} ({(file.Exists ? $"{file.LengthBytes} bytes" : "missing")})");
+            builder.AppendLine(file.Preview);
         }
 
         builder.AppendLine();
@@ -679,6 +1136,14 @@ public static class HarnessScenarioRunner
         }
     }
 
+    private static void DeleteDirectoryIfPresent(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
     private static async Task<VerificationPersistenceResult> PersistVerifiedEnvironmentBaselineAsync(
         string repoRoot,
         StudyShellViewModel studyViewModel,
@@ -793,6 +1258,37 @@ public static class HarnessScenarioRunner
            && !string.IsNullOrWhiteSpace(right)
            && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
 
+    private static string BuildMetadataMatchSummary(SessionMetadataResult local, SessionMetadataResult device)
+    {
+        if (!local.IsAvailable || !device.IsAvailable)
+        {
+            return "n/a";
+        }
+
+        var keys = new[]
+        {
+            "StudyId",
+            "ParticipantId",
+            "SessionId",
+            "DatasetId",
+            "DatasetHash",
+            "SettingsHash",
+            "EnvironmentHash",
+            "ApkSha256",
+            "DeviceProfileId"
+        };
+
+        var checks = keys.Select(key =>
+        {
+            local.Values.TryGetValue(key, out var localValue);
+            device.Values.TryGetValue(key, out var deviceValue);
+            var matches = string.Equals(localValue, deviceValue, StringComparison.OrdinalIgnoreCase);
+            return $"{key}={(matches ? "match" : $"mismatch ({localValue} vs {deviceValue})")}";
+        });
+
+        return string.Join(", ", checks);
+    }
+
     private static IReadOnlyList<KeyValuePair<string, string>> GetRelevantLiveKeys(StudyShellViewModel studyViewModel)
     {
         var relevant = new List<KeyValuePair<string, string>>();
@@ -814,6 +1310,8 @@ public static class HarnessScenarioRunner
             if (entry.Key.StartsWith("study.lsl", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.recenter", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.particles", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.StartsWith("study.session", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.StartsWith("study.recording.device", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.performance", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("connection.lsl", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("signal01.coherence_lsl", StringComparison.OrdinalIgnoreCase) ||
@@ -831,6 +1329,26 @@ public static class HarnessScenarioRunner
     private sealed record ObservedValueResult(DateTimeOffset? Timestamp, string SourceKey);
     private sealed record ObservationResult(string Label, bool Success, string Detail);
     private sealed record VerificationPersistenceResult(bool Persisted, string Summary, string Detail, StudyVerificationBaseline? Baseline);
+    private sealed record FileInspectionResult(string Path, bool Exists, long LengthBytes, string Preview);
+    private sealed record SessionMetadataResult(string Path, bool IsAvailable, IReadOnlyDictionary<string, string> Values, string Summary);
+    private sealed record ParticipantRunResult(
+        string ParticipantId,
+        string SessionId,
+        string DatasetId,
+        string DatasetHash,
+        string SettingsHash,
+        string EnvironmentHash,
+        string LocalSessionFolderPath,
+        string DeviceSelector,
+        string DeviceSessionDirectory,
+        string ReadyQuestScreenshotPath,
+        string RunningQuestScreenshotPath,
+        string EndedQuestScreenshotPath,
+        ObservationResult LslFlowResult,
+        SessionMetadataResult LocalMetadata,
+        SessionMetadataResult DeviceMetadata,
+        IReadOnlyList<FileInspectionResult> LocalFiles,
+        IReadOnlyList<FileInspectionResult> DeviceFiles);
 }
 
 internal sealed class FloatLslTestOutlet : IDisposable

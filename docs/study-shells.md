@@ -66,10 +66,10 @@ researcher-facing operator surface, not like the broader multi-study app.
 
 It currently pins:
 
-- package id: `com.Viscereality.LslTwin`
+- package id: `com.Viscereality.SussexExperiment`
 - version: `0.1.0`
 - SHA256: `1155F28643901543ACEE8DED52E84DD8CEF5C3FCF07B65DAF4181B5B5A4CE8A1`
-- bundled APK path: `../quest-session-kit/APKs/SussexControllerStudy.apk`
+- bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
@@ -82,8 +82,14 @@ toggle rather than a plain launch/stop button:
   and pins it with `am task lock <TASK_ID>`
 - `Exit Kiosk Runtime` sends the confirmed Home-return stack:
   `automation_disable -> task lock stop -> HomeActivity -> force-stop Sussex`
-- `Capture Quest Screenshot` uses `hzdb capture screenshot --method metacam`
-  and is the required operator-side truth source whenever HorizonOS shell state
+- `Capture Quest Screenshot` prefers the active Wi-Fi ADB endpoint when one is
+  available and falls back to USB only if Wi-Fi ADB is not available
+- when Sussex itself is in front, the helper prefers the runtime-oriented
+  screenshot path first so particle-scene and participant-view checks reflect
+  the current Unity view more reliably
+- when Horizon shell or Guardian truth matters, the shell-oriented capture path
+  still remains available as a fallback
+- it is the required operator-side truth source whenever HorizonOS shell state
   and the visible headset scene disagree
 
 That behavior is specific to the Sussex study shell config and is meant to keep
@@ -120,7 +126,7 @@ The public Sussex preview is supposed to be self-contained:
 - the study shell already knows the approved hash and device profile
 - the operator should not need a separate Astral checkout or a second APK handoff
 
-The committed `samples/quest-session-kit/APKs/SussexControllerStudy.apk` is intentionally the
+The committed `samples/quest-session-kit/APKs/SussexExperiment.apk` is intentionally the
 same Sussex APK mirrored from the Astral build used for the study. It is stored
 through Git LFS in the source repo, but the packaged Windows install exposes
 the real file directly to the app at runtime.
@@ -143,6 +149,7 @@ cd C:\Users\tillh\source\repos\AstralKarateDojo
 & "C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Unity.exe" `
   -batchmode -nographics -quit `
   -projectPath "$PWD" `
+  -activeBuildProfile "Assets/Settings/Build Profiles/Meta Quest Sussex Experiment.asset" `
   -logFile "$PWD\Logs\build_sussex_study_apk.log" `
   -executeMethod AstralKarateDojo.IndirectParticles.Editor.BuildWorkflowTools.BuildMetaQuestSussexStudyApk
 
@@ -171,6 +178,20 @@ The active Sussex shell is organized into three operator views:
 - `Pre-session` for connection, Sussex APK verification, and device-profile setup
 - `During session` for the live monitoring and command surface
 - `Inspect` for detailed study-runtime settings, focused live values, and recent twin events
+
+The workflow tab now also offers `Open Sequential Guide`, a pop-out onboarding
+window that walks the operator through the fixed Sussex protocol step by step:
+
+- USB probe
+- Wi-Fi ADB enable
+- Wi-Fi match confirmation
+- USB unplug and Wi-Fi-only confirmation
+- APK and device-profile verification
+- kiosk launch
+- LSL and particle verification
+- optional controller calibration
+- 20 second validation capture with local and pulled Quest output folders
+- reset-to-ready handoff back to the main shell
 
 The current public shell can also send the study recenter command and the
 dedicated particle visibility on/off commands.

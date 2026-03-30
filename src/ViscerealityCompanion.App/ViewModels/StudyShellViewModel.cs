@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -16,15 +17,22 @@ namespace ViscerealityCompanion.App.ViewModels;
 
 public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
+    private const int WorkflowTabIndex = 0;
+    private const int PreSessionTabIndex = 1;
+    private const int DuringSessionTabIndex = 2;
+    private const int InspectTabIndex = 3;
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
     private const string TestSenderHeartbeatMode = "3";
     private const string TestSenderCoherenceMode = "2";
     private const string QuestSensorLockActivity = "SensorLockActivity";
-    private const string QuestScreenshotCaptureMethod = "metacam";
+    private static readonly string[] QuestScreenshotShellCaptureMethods = ["metacam", "screencap"];
+    private static readonly string[] QuestScreenshotRuntimeCaptureMethods = ["screencap", "metacam"];
+    private const int WorkflowGuideValidationCaptureDurationSeconds = 20;
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan DeviceSnapshotRefreshInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan DeviceSnapshotRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ProximityReadbackRefreshInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan WorkflowGuidePendingCommandWindow = TimeSpan.FromSeconds(15);
     private static readonly Regex CommandSequenceRegex = new(@"\bseq=(\d+)\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly StudyValueSection[] SectionCatalog =
     [
@@ -36,6 +44,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         new("controls", "Recenter + Particles", "Study-specific controls and the runtime telemetry that backs them."),
         new("all", "All Pinned Keys", "Every live key this study shell is currently watching.")
     ];
+    private static readonly WorkflowGuideStepDefinition[] WorkflowGuideCatalog =
+    [
+        new(1, "Verify USB visibility", "Start with a real USB connection. The headset must be visible over USB ADB before the guide can bootstrap remote control."),
+        new(2, "Enable Wi-Fi ADB", "Turn on Wi-Fi ADB so the headset can stay reachable after the USB cable is removed. This exposes ADB over the headset's current Wi-Fi network."),
+        new(3, "Match the Wi-Fi network", "Confirm the headset Wi-Fi name matches this PC. If it does not, change the headset Wi-Fi manually in-headset because remote Wi-Fi switching is not reliable."),
+        new(4, "Unplug USB and confirm Wi-Fi-only control", "Remove the USB cable and make sure the companion still reaches the headset over Wi-Fi ADB. Every remaining guided step should run over Wi-Fi ADB, not USB."),
+        new(5, "Verify the Sussex APK", "Check whether the approved Sussex Experiment APK is installed. If not, install the bundled study APK before moving on."),
+        new(6, "Enforce the device profile", "Confirm CPU, GPU, brightness, media volume, battery thresholds, and the current software identity before leaving the bench."),
+        new(7, "Draw the boundary", "Have the experimenter draw a comfortable boundary that covers the participant position, experimenter position, and the full experiment area. This step is manual and not enforced by the app."),
+        new(8, "Launch kiosk mode", "Launch the Sussex runtime in kiosk mode. Kiosk means the study app is pinned in front and normal app switching is suppressed until the operator exits."),
+        new(9, "Verify LSL reaches the headset", "Confirm the external heartbeat/biofeedback LSL stream is reaching the Sussex runtime and that the resulting live state is visible back in the companion."),
+        new(10, "Test particle commands", "Use the companion controls to turn particles on and then off again. This confirms the Unity command bridge is still reacting."),
+        new(11, "Try controller calibration", "Controller-volume breathing calibration is available here, but the current Sussex APK path is still unstable. Try it if useful, but it is not required before continuing."),
+        new(12, "Run a 20 second validation capture", "Enter a temporary subject id, record a short validation run, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
+        new(13, "Reset for the real participant", "Reset calibration, make sure particles are off, and close the guide so the main runtime tab can be used for the real participant later.")
+    ];
+    private static readonly string[] WorkflowGuideExpectedDeviceRecordingFiles =
+    [
+        "session_settings.json",
+        "session_events.csv",
+        "signals_long.csv",
+        "breathing_trace.csv",
+        "lsl_samples.csv"
+    ];
 
     private readonly StudyShellDefinition _study;
     private AppSessionState _appSessionState;
@@ -44,10 +76,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly IHzdbService _hzdbService = HzdbServiceFactory.CreateDefault();
     private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateShared();
     private readonly ITestLslSignalService _testLslSignalService = TestLslSignalServiceFactory.CreateDefault();
+    private readonly StudyDataRecorderService _studyDataRecorderService = new();
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
     private readonly DispatcherTimer? _deviceSnapshotRefreshTimer;
     private Window? _twinEventsWindow;
+    private Window? _workflowGuideWindow;
     private bool _initialized;
     private bool _twinRefreshPending;
     private bool _proximityRefreshPending;
@@ -147,7 +181,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _proximityActionLabel = "Disable for 8h";
     private string _benchToolsSummary = "Bench tools need attention before bench checks.";
     private string _questScreenshotSummary = "No Quest screenshot captured yet.";
-    private string _questScreenshotDetail = "Capture a Quest screenshot after kiosk launch or exit to confirm what is actually visible on the headset.";
+    private string _questScreenshotDetail = "Capture a Quest screenshot whenever the visible headset scene needs confirmation.";
     private string _questScreenshotPath = string.Empty;
     private BitmapImage? _questScreenshotPreview;
     private string _testLslSenderSummary = "Windows TEST sender off.";
@@ -165,6 +199,74 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _controllerValueLabel = "n/a";
     private double _controllerCalibrationPercent;
     private string _controllerCalibrationLabel = "Calibration n/a";
+    private OperationOutcomeKind _workflowCurrentStepLevel = OperationOutcomeKind.Warning;
+    private string _workflowCurrentStepSummary = "Finish headset setup before starting the Sussex protocol.";
+    private string _workflowCurrentStepDetail = "Use the workflow tab as the operator-facing protocol and keep the legacy tabs for deeper inspection.";
+    private OperationOutcomeKind _workflowSetupLevel = OperationOutcomeKind.Warning;
+    private string _workflowSetupSummary = "Headset setup still needs attention.";
+    private string _workflowSetupDetail = "Connect over Wi-Fi ADB, confirm the Sussex build, and apply the pinned device profile.";
+    private OperationOutcomeKind _workflowKioskLevel = OperationOutcomeKind.Preview;
+    private string _workflowKioskSummary = "Boundary setup and kiosk entry have not started yet.";
+    private string _workflowKioskDetail = "Disconnect USB, put the headset on, wake the controller, then launch kiosk mode.";
+    private OperationOutcomeKind _workflowBenchLevel = OperationOutcomeKind.Preview;
+    private string _workflowBenchSummary = "Bench verification is waiting for the Sussex runtime.";
+    private string _workflowBenchDetail = "Run particles, recenter, LSL, and controller calibration checks before participant handoff.";
+    private OperationOutcomeKind _workflowHandoffLevel = OperationOutcomeKind.Warning;
+    private string _workflowHandoffSummary = "Participant handoff is not fully automated yet.";
+    private string _workflowHandoffDetail = "Reset Calibration is part of the Sussex shell contract, and the handoff should still end with the physical power button.";
+    private OperationOutcomeKind _workflowParticipantStartLevel = OperationOutcomeKind.Warning;
+    private string _workflowParticipantStartSummary = "Participant-run controls are staged behind the workflow checks.";
+    private string _workflowParticipantStartDetail = "Participant number entry, screenshot confirmation, and Start Experiment drive both the Windows recorder and the Quest-side backup recorder.";
+    private OperationOutcomeKind _workflowParticipantEndLevel = OperationOutcomeKind.Warning;
+    private string _workflowParticipantEndSummary = "Participant-end controls wait for an active run.";
+    private string _workflowParticipantEndDetail = "End Experiment now closes the Quest-side backup recorder and the Windows recorder before the shell runs cleanup.";
+    private string _workflowRuntimePendingSummary = "Current Sussex APK exposes recenter, calibration start, and particle toggles.";
+    private string _workflowRuntimePendingDetail =
+        @"Scene contract: C:\Users\tillh\source\repos\AstralKarateDojo\Assets\Scenes\SussexControllerStudy.unity. " +
+        "The current contract includes reset calibration, participant start/end commands, shared session metadata handoff, and mirrored Windows/Quest study recording.";
+    private string _participantIdDraft = string.Empty;
+    private OperationOutcomeKind _participantEntryLevel = OperationOutcomeKind.Preview;
+    private string _participantEntrySummary = "Enter a participant number before starting recorded data collection.";
+    private string _participantEntryDetail = "Duplicate participant ids will warn but will not block the run.";
+    private string _participantExistingSessionsLabel = "No previous participant sessions found on this machine.";
+    private bool _participantHasExistingSessions;
+    private OperationOutcomeKind _recordingLevel = OperationOutcomeKind.Preview;
+    private string _recordingSummary = "Recorder idle.";
+    private string _recordingDetail = "Enter a participant number to arm the recorder for the next participant run.";
+    private string _recorderStateLabel = "Idle";
+    private string _recordingSessionLabel = "No active participant session.";
+    private string _recordingFolderPath = string.Empty;
+    private string _lastCompletedRecordingFolderPath = string.Empty;
+    private bool _participantRunStopping;
+    private string _recorderFaultDetail = string.Empty;
+    private StudyDataRecordingSession? _activeRecordingSession;
+    private bool _workflowGuideParticlesOnVerified;
+    private bool _workflowGuideParticlesOffVerified;
+    private string _latestDeviceRecordingSessionDir = string.Empty;
+    private int _workflowGuideStepIndex;
+    private OperationOutcomeKind _workflowGuideStepLevel = OperationOutcomeKind.Warning;
+    private string _workflowGuideStepLabel = "Step 1 of 12";
+    private string _workflowGuideStepTitle = "Verify USB visibility";
+    private string _workflowGuideStepExplanation = "Start with a real USB connection. The headset must be visible over USB ADB before the guide can bootstrap remote control.";
+    private string _workflowGuideStepSummary = "USB ADB has not been verified yet.";
+    private string _workflowGuideStepDetail = "Connect the headset over USB, accept the in-headset debugging prompt if needed, then use Probe USB.";
+    private string _workflowGuideGateSummary = "Complete this step before continuing.";
+    private string _workflowGuideGateDetail = "Next stays disabled until the current step turns green.";
+    private OperationOutcomeKind _workflowGuideActionLevel = OperationOutcomeKind.Preview;
+    private string _workflowGuideActionSummary = "Use the step button below once.";
+    private string _workflowGuideActionDetail = "The guide will show immediately when a click was accepted and whether it is still waiting for headset confirmation.";
+    private OperationOutcomeKind _workflowGuideQuestScreenshotLevel = OperationOutcomeKind.Warning;
+    private string _workflowGuideQuestScreenshotSummary = "Visual confirmation still needed.";
+    private string _workflowGuideQuestScreenshotDetail = "Capture a Quest screenshot in the particle step to verify the visible scene.";
+    private string _workflowGuideQuestScreenshotPath = string.Empty;
+    private BitmapImage? _workflowGuideQuestScreenshotPreview;
+    private string _validationCaptureSummary = "No validation capture has been run yet.";
+    private string _validationCaptureDetail = "Enter a temporary subject id and run the 20 second validation capture once the earlier setup steps are complete.";
+    private string _validationCaptureLocalFolderPath = string.Empty;
+    private string _validationCaptureDevicePullFolderPath = string.Empty;
+    private bool _validationCaptureRunning;
+    private bool _validationCaptureCompleted;
+    private string _validationCaptureParticipantId = string.Empty;
     private double _coherencePercent;
     private string _coherenceValueLabel = "n/a";
     private double _performancePercent;
@@ -172,8 +274,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private double _recenterDistancePercent;
     private string _recenterDistanceLabel = "n/a";
     private int _selectedPhaseTabIndex;
+    private StudyTwinCommandRequest? _lastStudyTwinCommandRequest;
     private StudyTwinCommandRequest? _lastRecenterCommandRequest;
     private StudyTwinCommandRequest? _lastParticlesCommandRequest;
+    private int _workflowGuideLastRenderedStepIndex = -1;
+    private DateTimeOffset? _workflowGuideParticleStepStartedAtUtc;
     private string? _testSenderRestoreHeartbeatMode;
     private string? _testSenderRestoreCoherenceMode;
     private StudyValueSection? _selectedLiveSection;
@@ -243,12 +348,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         CaptureQuestScreenshotCommand = new AsyncRelayCommand(CaptureQuestScreenshotAsync);
         OpenLastQuestScreenshotCommand = new AsyncRelayCommand(OpenLastQuestScreenshotAsync);
         ToggleTestLslSenderCommand = new AsyncRelayCommand(ToggleTestLslSenderAsync);
+        StartBreathingCalibrationCommand = new AsyncRelayCommand(StartBreathingCalibrationAsync);
+        ResetBreathingCalibrationCommand = new AsyncRelayCommand(ResetBreathingCalibrationAsync);
+        StartExperimentCommand = new AsyncRelayCommand(StartExperimentAsync);
+        EndExperimentCommand = new AsyncRelayCommand(EndExperimentAsync);
         RecenterCommand = new AsyncRelayCommand(RecenterAsync);
         ParticlesOnCommand = new AsyncRelayCommand(ParticlesOnAsync);
         ParticlesOffCommand = new AsyncRelayCommand(ParticlesOffAsync);
         OpenTwinEventsWindowCommand = new AsyncRelayCommand(OpenTwinEventsWindowAsync);
+        OpenWorkflowGuideWindowCommand = new AsyncRelayCommand(OpenWorkflowGuideWindowAsync);
+        PreviousWorkflowGuideStepCommand = new AsyncRelayCommand(PreviousWorkflowGuideStepAsync);
+        NextWorkflowGuideStepCommand = new AsyncRelayCommand(NextWorkflowGuideStepAsync);
+        RunWorkflowValidationCaptureCommand = new AsyncRelayCommand(RunWorkflowValidationCaptureAsync);
+        CloseWorkflowGuideWindowCommand = new AsyncRelayCommand(CloseWorkflowGuideWindowAsync);
+        RegisterWorkflowGuideCommands();
         UpdateHeadsetSnapshotModeState();
         UpdateDeviceSnapshotTimerState();
+        UpdateParticipantSessionState();
+        UpdateWorkflowStatus();
     }
 
     public string StudyLabel => _study.Label;
@@ -256,6 +373,43 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string StudyPartner => _study.Partner;
     public string StudyDescription => _study.Description;
     public string PinnedPackageId => _study.App.PackageId;
+
+    private void RegisterWorkflowGuideCommands()
+    {
+        var commands =
+            new[]
+            {
+                ProbeUsbCommand,
+                EnableWifiCommand,
+                ConnectQuestCommand,
+                RefreshDeviceSnapshotCommand,
+                InstallStudyAppCommand,
+                ApplyPinnedDeviceProfileCommand,
+                LaunchStudyAppCommand,
+                ToggleTestLslSenderCommand,
+                ParticlesOnCommand,
+                ParticlesOffCommand,
+                StartBreathingCalibrationCommand,
+                RunWorkflowValidationCaptureCommand,
+                ResetBreathingCalibrationCommand
+            };
+
+        foreach (var command in commands)
+        {
+            command.CanExecuteChanged += OnWorkflowGuideCommandCanExecuteChanged;
+        }
+    }
+
+    private void OnWorkflowGuideCommandCanExecuteChanged(object? sender, EventArgs e)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            return;
+        }
+
+        _ = dispatcher.InvokeAsync(UpdateWorkflowGuideState);
+    }
     public string PinnedBuildVersion => string.IsNullOrWhiteSpace(_study.App.VersionName) ? "n/a" : _study.App.VersionName;
     public string PinnedBuildHash => _study.App.Sha256;
     public string PinnedLaunchComponent => string.IsNullOrWhiteSpace(_study.App.LaunchComponent) ? "n/a" : _study.App.LaunchComponent;
@@ -609,6 +763,400 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _benchToolsCardLevel;
         private set => SetProperty(ref _benchToolsCardLevel, value);
+    }
+
+    public OperationOutcomeKind WorkflowCurrentStepLevel
+    {
+        get => _workflowCurrentStepLevel;
+        private set => SetProperty(ref _workflowCurrentStepLevel, value);
+    }
+
+    public string WorkflowCurrentStepSummary
+    {
+        get => _workflowCurrentStepSummary;
+        private set => SetProperty(ref _workflowCurrentStepSummary, value);
+    }
+
+    public string WorkflowCurrentStepDetail
+    {
+        get => _workflowCurrentStepDetail;
+        private set => SetProperty(ref _workflowCurrentStepDetail, value);
+    }
+
+    public OperationOutcomeKind WorkflowSetupLevel
+    {
+        get => _workflowSetupLevel;
+        private set => SetProperty(ref _workflowSetupLevel, value);
+    }
+
+    public string WorkflowSetupSummary
+    {
+        get => _workflowSetupSummary;
+        private set => SetProperty(ref _workflowSetupSummary, value);
+    }
+
+    public string WorkflowSetupDetail
+    {
+        get => _workflowSetupDetail;
+        private set => SetProperty(ref _workflowSetupDetail, value);
+    }
+
+    public OperationOutcomeKind WorkflowKioskLevel
+    {
+        get => _workflowKioskLevel;
+        private set => SetProperty(ref _workflowKioskLevel, value);
+    }
+
+    public string WorkflowKioskSummary
+    {
+        get => _workflowKioskSummary;
+        private set => SetProperty(ref _workflowKioskSummary, value);
+    }
+
+    public string WorkflowKioskDetail
+    {
+        get => _workflowKioskDetail;
+        private set => SetProperty(ref _workflowKioskDetail, value);
+    }
+
+    public OperationOutcomeKind WorkflowBenchLevel
+    {
+        get => _workflowBenchLevel;
+        private set => SetProperty(ref _workflowBenchLevel, value);
+    }
+
+    public string WorkflowBenchSummary
+    {
+        get => _workflowBenchSummary;
+        private set => SetProperty(ref _workflowBenchSummary, value);
+    }
+
+    public string WorkflowBenchDetail
+    {
+        get => _workflowBenchDetail;
+        private set => SetProperty(ref _workflowBenchDetail, value);
+    }
+
+    public OperationOutcomeKind WorkflowHandoffLevel
+    {
+        get => _workflowHandoffLevel;
+        private set => SetProperty(ref _workflowHandoffLevel, value);
+    }
+
+    public string WorkflowHandoffSummary
+    {
+        get => _workflowHandoffSummary;
+        private set => SetProperty(ref _workflowHandoffSummary, value);
+    }
+
+    public string WorkflowHandoffDetail
+    {
+        get => _workflowHandoffDetail;
+        private set => SetProperty(ref _workflowHandoffDetail, value);
+    }
+
+    public OperationOutcomeKind WorkflowParticipantStartLevel
+    {
+        get => _workflowParticipantStartLevel;
+        private set => SetProperty(ref _workflowParticipantStartLevel, value);
+    }
+
+    public string WorkflowParticipantStartSummary
+    {
+        get => _workflowParticipantStartSummary;
+        private set => SetProperty(ref _workflowParticipantStartSummary, value);
+    }
+
+    public string WorkflowParticipantStartDetail
+    {
+        get => _workflowParticipantStartDetail;
+        private set => SetProperty(ref _workflowParticipantStartDetail, value);
+    }
+
+    public OperationOutcomeKind WorkflowParticipantEndLevel
+    {
+        get => _workflowParticipantEndLevel;
+        private set => SetProperty(ref _workflowParticipantEndLevel, value);
+    }
+
+    public string WorkflowParticipantEndSummary
+    {
+        get => _workflowParticipantEndSummary;
+        private set => SetProperty(ref _workflowParticipantEndSummary, value);
+    }
+
+    public string WorkflowParticipantEndDetail
+    {
+        get => _workflowParticipantEndDetail;
+        private set => SetProperty(ref _workflowParticipantEndDetail, value);
+    }
+
+    public string ParticipantIdDraft
+    {
+        get => _participantIdDraft;
+        set
+        {
+            if (SetProperty(ref _participantIdDraft, value))
+            {
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+                UpdateWorkflowGuideState();
+            }
+        }
+    }
+
+    public OperationOutcomeKind ParticipantEntryLevel
+    {
+        get => _participantEntryLevel;
+        private set => SetProperty(ref _participantEntryLevel, value);
+    }
+
+    public string ParticipantEntrySummary
+    {
+        get => _participantEntrySummary;
+        private set => SetProperty(ref _participantEntrySummary, value);
+    }
+
+    public string ParticipantEntryDetail
+    {
+        get => _participantEntryDetail;
+        private set => SetProperty(ref _participantEntryDetail, value);
+    }
+
+    public string ParticipantExistingSessionsLabel
+    {
+        get => _participantExistingSessionsLabel;
+        private set => SetProperty(ref _participantExistingSessionsLabel, value);
+    }
+
+    public bool ParticipantHasExistingSessions
+    {
+        get => _participantHasExistingSessions;
+        private set => SetProperty(ref _participantHasExistingSessions, value);
+    }
+
+    public OperationOutcomeKind RecordingLevel
+    {
+        get => _recordingLevel;
+        private set => SetProperty(ref _recordingLevel, value);
+    }
+
+    public string RecordingSummary
+    {
+        get => _recordingSummary;
+        private set => SetProperty(ref _recordingSummary, value);
+    }
+
+    public string RecordingDetail
+    {
+        get => _recordingDetail;
+        private set => SetProperty(ref _recordingDetail, value);
+    }
+
+    public string RecorderStateLabel
+    {
+        get => _recorderStateLabel;
+        private set => SetProperty(ref _recorderStateLabel, value);
+    }
+
+    public string RecordingSessionLabel
+    {
+        get => _recordingSessionLabel;
+        private set => SetProperty(ref _recordingSessionLabel, value);
+    }
+
+    public string RecordingFolderPath
+    {
+        get => _recordingFolderPath;
+        private set => SetProperty(ref _recordingFolderPath, value);
+    }
+
+    public string WorkflowRuntimePendingSummary
+    {
+        get => _workflowRuntimePendingSummary;
+        private set => SetProperty(ref _workflowRuntimePendingSummary, value);
+    }
+
+    public string WorkflowRuntimePendingDetail
+    {
+        get => _workflowRuntimePendingDetail;
+        private set => SetProperty(ref _workflowRuntimePendingDetail, value);
+    }
+
+    public int WorkflowGuideStepCount => WorkflowGuideCatalog.Length;
+
+    public int WorkflowGuideStepIndex
+    {
+        get => _workflowGuideStepIndex;
+        private set
+        {
+            if (SetProperty(ref _workflowGuideStepIndex, value))
+            {
+                UpdateWorkflowGuideState();
+            }
+        }
+    }
+
+    public OperationOutcomeKind WorkflowGuideStepLevel
+    {
+        get => _workflowGuideStepLevel;
+        private set => SetProperty(ref _workflowGuideStepLevel, value);
+    }
+
+    public string WorkflowGuideStepLabel
+    {
+        get => _workflowGuideStepLabel;
+        private set => SetProperty(ref _workflowGuideStepLabel, value);
+    }
+
+    public string WorkflowGuideStepTitle
+    {
+        get => _workflowGuideStepTitle;
+        private set => SetProperty(ref _workflowGuideStepTitle, value);
+    }
+
+    public string WorkflowGuideStepExplanation
+    {
+        get => _workflowGuideStepExplanation;
+        private set => SetProperty(ref _workflowGuideStepExplanation, value);
+    }
+
+    public string WorkflowGuideStepSummary
+    {
+        get => _workflowGuideStepSummary;
+        private set => SetProperty(ref _workflowGuideStepSummary, value);
+    }
+
+    public string WorkflowGuideStepDetail
+    {
+        get => _workflowGuideStepDetail;
+        private set => SetProperty(ref _workflowGuideStepDetail, value);
+    }
+
+    public string WorkflowGuideGateSummary
+    {
+        get => _workflowGuideGateSummary;
+        private set => SetProperty(ref _workflowGuideGateSummary, value);
+    }
+
+    public string WorkflowGuideGateDetail
+    {
+        get => _workflowGuideGateDetail;
+        private set => SetProperty(ref _workflowGuideGateDetail, value);
+    }
+
+    public OperationOutcomeKind WorkflowGuideActionLevel
+    {
+        get => _workflowGuideActionLevel;
+        private set => SetProperty(ref _workflowGuideActionLevel, value);
+    }
+
+    public string WorkflowGuideActionSummary
+    {
+        get => _workflowGuideActionSummary;
+        private set => SetProperty(ref _workflowGuideActionSummary, value);
+    }
+
+    public string WorkflowGuideActionDetail
+    {
+        get => _workflowGuideActionDetail;
+        private set => SetProperty(ref _workflowGuideActionDetail, value);
+    }
+
+    public OperationOutcomeKind WorkflowGuideQuestScreenshotLevel
+    {
+        get => _workflowGuideQuestScreenshotLevel;
+        private set => SetProperty(ref _workflowGuideQuestScreenshotLevel, value);
+    }
+
+    public string WorkflowGuideQuestScreenshotSummary
+    {
+        get => _workflowGuideQuestScreenshotSummary;
+        private set => SetProperty(ref _workflowGuideQuestScreenshotSummary, value);
+    }
+
+    public string WorkflowGuideQuestScreenshotDetail
+    {
+        get => _workflowGuideQuestScreenshotDetail;
+        private set => SetProperty(ref _workflowGuideQuestScreenshotDetail, value);
+    }
+
+    public string WorkflowGuideQuestScreenshotPath
+    {
+        get => _workflowGuideQuestScreenshotPath;
+        private set => SetProperty(ref _workflowGuideQuestScreenshotPath, value);
+    }
+
+    public BitmapImage? WorkflowGuideQuestScreenshotPreview
+    {
+        get => _workflowGuideQuestScreenshotPreview;
+        private set => SetProperty(ref _workflowGuideQuestScreenshotPreview, value);
+    }
+
+    public bool CanOpenWorkflowGuideQuestScreenshot
+        => !string.IsNullOrWhiteSpace(WorkflowGuideQuestScreenshotPath)
+            && File.Exists(WorkflowGuideQuestScreenshotPath);
+
+    public bool CanGoToPreviousWorkflowGuideStep => WorkflowGuideStepIndex > 0;
+
+    public bool CanGoToNextWorkflowGuideStep
+        => WorkflowGuideStepIndex < WorkflowGuideCatalog.Length - 1
+            && IsWorkflowGuideStepReady(WorkflowGuideStepIndex);
+
+    public bool WorkflowGuideIsFinalStep => WorkflowGuideStepIndex == WorkflowGuideCatalog.Length - 1;
+
+    public bool WorkflowGuideShowsParticipantEntry => WorkflowGuideStepIndex == 11;
+
+    public bool WorkflowGuideShowsRecordingState => WorkflowGuideStepIndex == 11;
+
+    public bool WorkflowGuideShowsDeviceProfileRows => WorkflowGuideStepIndex == 5;
+
+    public bool WorkflowGuideShowsCalibrationTelemetry => WorkflowGuideStepIndex == 10;
+
+    public bool WorkflowGuideShowsQuestScreenshotVerification => WorkflowGuideStepIndex == 9;
+
+    public bool WorkflowGuideShowsValidationCaptureState => WorkflowGuideStepIndex == 11;
+
+    public string ValidationCaptureSummary
+    {
+        get => _validationCaptureSummary;
+        private set => SetProperty(ref _validationCaptureSummary, value);
+    }
+
+    public string ValidationCaptureDetail
+    {
+        get => _validationCaptureDetail;
+        private set => SetProperty(ref _validationCaptureDetail, value);
+    }
+
+    public string ValidationCaptureLocalFolderPath
+    {
+        get => _validationCaptureLocalFolderPath;
+        private set => SetProperty(ref _validationCaptureLocalFolderPath, value);
+    }
+
+    public string ValidationCaptureDevicePullFolderPath
+    {
+        get => _validationCaptureDevicePullFolderPath;
+        private set => SetProperty(ref _validationCaptureDevicePullFolderPath, value);
+    }
+
+    public bool ValidationCaptureRunning
+    {
+        get => _validationCaptureRunning;
+        private set => SetProperty(ref _validationCaptureRunning, value);
+    }
+
+    public bool ValidationCaptureCompleted
+    {
+        get => _validationCaptureCompleted;
+        private set => SetProperty(ref _validationCaptureCompleted, value);
+    }
+
+    public string ValidationCaptureParticipantId
+    {
+        get => _validationCaptureParticipantId;
+        private set => SetProperty(ref _validationCaptureParticipantId, value);
     }
 
     public string DeviceProfileSummary
@@ -965,6 +1513,38 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public bool CanSendRecenterCommand
         => !string.IsNullOrWhiteSpace(_study.Controls.RecenterCommandActionId);
 
+    public bool CanStartBreathingCalibration
+        => !string.IsNullOrWhiteSpace(_study.Controls.StartBreathingCalibrationActionId);
+
+    public bool CanResetBreathingCalibration
+        => !string.IsNullOrWhiteSpace(_study.Controls.ResetBreathingCalibrationActionId);
+
+    public bool CanStartExperiment
+        => !string.IsNullOrWhiteSpace(_study.Controls.StartExperimentActionId);
+
+    public bool CanEndExperiment
+        => !string.IsNullOrWhiteSpace(_study.Controls.EndExperimentActionId);
+
+    public bool CanStartParticipantExperiment
+        => CanStartExperiment
+            && IsStudyRuntimeForeground()
+            && !string.IsNullOrWhiteSpace(ParticipantIdDraft)
+            && _activeRecordingSession is null
+            && !_participantRunStopping;
+
+    public bool CanEndParticipantExperiment
+        => CanEndExperiment
+            && IsStudyRuntimeForeground()
+            && !_participantRunStopping;
+
+    public bool CanRunWorkflowValidationCapture
+        => CanStartExperiment
+            && CanEndExperiment
+            && IsStudyRuntimeForeground()
+            && !_participantRunStopping
+            && !ValidationCaptureRunning
+            && !string.IsNullOrWhiteSpace(ParticipantIdDraft);
+
     public bool CanToggleParticles
         => !string.IsNullOrWhiteSpace(_study.Controls.ParticleVisibleOnActionId)
             && !string.IsNullOrWhiteSpace(_study.Controls.ParticleVisibleOffActionId);
@@ -982,7 +1562,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public bool CanCaptureQuestScreenshot
         => _hzdbService.IsAvailable
-            && !string.IsNullOrWhiteSpace(ResolveHzdbSelector());
+            && !string.IsNullOrWhiteSpace(ResolveQuestScreenshotSelector());
 
     public bool CanOpenLastQuestScreenshot
         => !string.IsNullOrWhiteSpace(QuestScreenshotPath)
@@ -1006,6 +1586,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public ObservableCollection<StudyStatusRowViewModel> FocusRows { get; } = new();
     public ObservableCollection<TwinStateEvent> RecentTwinEvents { get; } = new();
     public ObservableCollection<OperatorLogEntry> Logs { get; } = new();
+    public ObservableCollection<WorkflowGuideCheckItem> WorkflowGuideChecks { get; } = new();
+    public ObservableCollection<WorkflowGuideActionItem> WorkflowGuideActions { get; } = new();
 
     public bool TryGetObservedLslValue(out double value, out string sourceKey)
     {
@@ -1047,10 +1629,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand CaptureQuestScreenshotCommand { get; }
     public AsyncRelayCommand OpenLastQuestScreenshotCommand { get; }
     public AsyncRelayCommand ToggleTestLslSenderCommand { get; }
+    public AsyncRelayCommand StartBreathingCalibrationCommand { get; }
+    public AsyncRelayCommand ResetBreathingCalibrationCommand { get; }
+    public AsyncRelayCommand StartExperimentCommand { get; }
+    public AsyncRelayCommand EndExperimentCommand { get; }
     public AsyncRelayCommand RecenterCommand { get; }
     public AsyncRelayCommand ParticlesOnCommand { get; }
     public AsyncRelayCommand ParticlesOffCommand { get; }
     public AsyncRelayCommand OpenTwinEventsWindowCommand { get; }
+    public AsyncRelayCommand OpenWorkflowGuideWindowCommand { get; }
+    public AsyncRelayCommand PreviousWorkflowGuideStepCommand { get; }
+    public AsyncRelayCommand NextWorkflowGuideStepCommand { get; }
+    public AsyncRelayCommand RunWorkflowValidationCaptureCommand { get; }
+    public AsyncRelayCommand CloseWorkflowGuideWindowCommand { get; }
 
     public async Task InitializeAsync()
     {
@@ -1070,7 +1661,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (ShouldDefaultToDuringSession())
         {
-            await DispatchAsync(() => SelectedPhaseTabIndex = 1).ConfigureAwait(false);
+            await DispatchAsync(() => SelectedPhaseTabIndex = DuringSessionTabIndex).ConfigureAwait(false);
         }
     }
 
@@ -1102,6 +1693,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         CloseTwinEventsWindow();
+        CloseWorkflowGuideWindow();
+        _activeRecordingSession?.Dispose();
         _testLslSignalService.Dispose();
     }
 
@@ -1141,8 +1734,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await RefreshDeviceSnapshotBundleAsync(forceProximity: true).ConfigureAwait(false);
     }
 
-    public Task RefreshDeviceSnapshotAsync()
-        => RefreshDeviceSnapshotBundleAsync(forceProximity: true);
+    public async Task RefreshDeviceSnapshotAsync()
+    {
+        var started = await RefreshDeviceSnapshotBundleAsync(forceProximity: true).ConfigureAwait(false);
+        if (started)
+        {
+            return;
+        }
+
+        await ApplyOutcomeAsync(
+            "Refresh Snapshot",
+            new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "Headset snapshot already refreshing.",
+                "A device refresh is already in progress. Wait for the live checks to update instead of clicking again.")).ConfigureAwait(false);
+    }
 
     private async Task BrowseApkAsync()
     {
@@ -1210,16 +1816,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false)),
                 kioskMode: _study.App.LaunchInKioskMode)
             .ConfigureAwait(false);
-        if (_study.App.LaunchInKioskMode && outcome.Kind != OperationOutcomeKind.Failure)
-        {
-            await DispatchAsync(() =>
-            {
-                MarkQuestVisualConfirmationPending("Kiosk launch is shell-confirmed only. Capture a Quest screenshot to verify the visible scene.");
-            }).ConfigureAwait(false);
-            outcome = BuildKioskVisualVerificationOutcome(
-                outcome,
-                "Kiosk launch is shell-confirmed. Visual confirmation pending.");
-        }
 
         await ApplyOutcomeAsync(
             _study.App.LaunchInKioskMode ? "Launch Sussex APK In Kiosk Mode" : "Launch Sussex APK",
@@ -1233,6 +1829,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
+            await DispatchAsync(ClearQuestVisualConfirmationPending).ConfigureAwait(false);
             var runtimeForeground = await DispatchAsync(IsStudyRuntimeForeground).ConfigureAwait(false);
             if (runtimeForeground)
             {
@@ -1244,7 +1841,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     await RefreshHeadsetStatusAsync().ConfigureAwait(false);
                 }
 
-                await DispatchAsync(() => SelectedPhaseTabIndex = 1).ConfigureAwait(false);
+                await DispatchAsync(() => SelectedPhaseTabIndex = DuringSessionTabIndex).ConfigureAwait(false);
             }
 
             await DispatchAsync(() =>
@@ -1403,7 +2000,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await TryWakeHeadsetBeforeStudyActionAsync("Capture Quest Screenshot").ConfigureAwait(false);
         }
 
-        var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
+        var selectors = await DispatchAsync(() => ResolveQuestScreenshotSelectorCandidates().ToArray()).ConfigureAwait(false);
         if (!_hzdbService.IsAvailable)
         {
             var unavailableOutcome = new OperationOutcome(
@@ -1416,7 +2013,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return unavailableOutcome;
         }
 
-        if (string.IsNullOrWhiteSpace(selector))
+        if (selectors.Length == 0)
         {
             var blockedOutcome = new OperationOutcome(
                 OperationOutcomeKind.Warning,
@@ -1428,18 +2025,81 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return blockedOutcome;
         }
 
-        var outputPath = BuildQuestScreenshotOutputPath();
-        var outcome = await _hzdbService
-            .CaptureScreenshotAsync(selector, outputPath, QuestScreenshotCaptureMethod)
-            .ConfigureAwait(false);
+        var previousScreenshotHash = await DispatchAsync(() => ComputeQuestScreenshotHash(QuestScreenshotPath)).ConfigureAwait(false);
+        var captureMethods = await DispatchAsync(() => ResolveQuestScreenshotCaptureMethods().ToArray()).ConfigureAwait(false);
+        OperationOutcome outcome = new(
+            OperationOutcomeKind.Warning,
+            "Quest screenshot blocked.",
+            "No responsive screenshot selector was available.");
+        string acceptedPath = string.Empty;
+        string acceptedSelector = string.Empty;
+        string acceptedMethod = string.Empty;
+        string stalePath = string.Empty;
+        string staleSelector = string.Empty;
+        string staleMethod = string.Empty;
+        var attemptedPaths = new List<string>();
 
-        if (outcome.Kind == OperationOutcomeKind.Success && File.Exists(outputPath))
+        foreach (var selector in selectors)
+        {
+            foreach (var method in captureMethods)
+            {
+                var outputPath = BuildQuestScreenshotOutputPath();
+                attemptedPaths.Add(outputPath);
+
+                outcome = await _hzdbService
+                    .CaptureScreenshotAsync(selector, outputPath, method)
+                    .ConfigureAwait(false);
+
+                if (outcome.Kind != OperationOutcomeKind.Success || !File.Exists(outputPath))
+                {
+                    continue;
+                }
+
+                var captureHash = ComputeQuestScreenshotHash(outputPath);
+                if (!string.IsNullOrWhiteSpace(previousScreenshotHash) &&
+                    string.Equals(captureHash, previousScreenshotHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(stalePath))
+                    {
+                        stalePath = outputPath;
+                        staleSelector = selector;
+                        staleMethod = method;
+                    }
+
+                    continue;
+                }
+
+                acceptedPath = outputPath;
+                acceptedSelector = selector;
+                acceptedMethod = method;
+                break;
+            }
+
+            if (!string.IsNullOrWhiteSpace(acceptedPath))
+            {
+                break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(acceptedPath) && !string.IsNullOrWhiteSpace(stalePath))
+        {
+            acceptedPath = stalePath;
+            acceptedSelector = staleSelector;
+            acceptedMethod = staleMethod;
+            outcome = new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Quest screenshot may be stale.",
+                $"The new capture matched the previous screenshot even after retrying {string.Join(" then ", captureMethods)} on {DescribeSelectorTransport(acceptedSelector)}. Review the preview carefully because the headset image may not have advanced.",
+                Items: [acceptedPath]);
+        }
+
+        if (!string.IsNullOrWhiteSpace(acceptedPath) && File.Exists(acceptedPath))
         {
             var capturedAtUtc = DateTimeOffset.UtcNow;
-            var preview = LoadQuestScreenshotPreview(outputPath);
+            var preview = LoadQuestScreenshotPreview(acceptedPath);
             await DispatchAsync(() =>
             {
-                QuestScreenshotPath = outputPath;
+                QuestScreenshotPath = acceptedPath;
                 QuestScreenshotPreview = preview;
                 _lastQuestScreenshotCapturedAtUtc = capturedAtUtc;
                 ClearQuestVisualConfirmationPending();
@@ -1447,19 +2107,26 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 UpdateLiveRuntimeCard();
             }).ConfigureAwait(false);
 
-            outcome = new OperationOutcome(
-                OperationOutcomeKind.Success,
-                "Quest screenshot captured.",
-                $"Saved metacam Quest screenshot to {outputPath}. Review the screenshot preview to confirm what is actually visible on the headset.",
-                Items: [outputPath]);
+            await TryArchiveQuestScreenshotAsync(acceptedPath, capturedAtUtc).ConfigureAwait(false);
+
+            if (outcome.Kind != OperationOutcomeKind.Warning)
+            {
+                outcome = new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    "Quest screenshot captured.",
+                    $"Saved {acceptedMethod} Quest screenshot to {acceptedPath} using {DescribeSelectorTransport(acceptedSelector)}. Review the screenshot preview to confirm what is actually visible on the headset.",
+                    Items: [acceptedPath]);
+            }
         }
-        else if (outcome.Kind == OperationOutcomeKind.Success)
+
+        foreach (var attemptedPath in attemptedPaths)
         {
-            outcome = new OperationOutcome(
-                OperationOutcomeKind.Failure,
-                "Quest screenshot capture did not produce a file.",
-                $"hzdb reported success, but no screenshot was found at {outputPath}.",
-                Items: [outputPath]);
+            if (string.Equals(attemptedPath, acceptedPath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            TryDeleteFile(attemptedPath);
         }
 
         await ApplyOutcomeAsync("Capture Quest Screenshot", outcome).ConfigureAwait(false);
@@ -1739,24 +2406,478 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return new OperationOutcome(kind, first.Summary, detail);
     }
 
+    public Task StartBreathingCalibrationAsync()
+        => SendStudyTwinCommandAsync(_study.Controls.StartBreathingCalibrationActionId, "Start Breathing Calibration");
+
+    public Task ResetBreathingCalibrationAsync()
+        => SendStudyTwinCommandAsync(_study.Controls.ResetBreathingCalibrationActionId, "Reset Breathing Calibration");
+
+    public async Task StartExperimentAsync()
+    {
+        var recordingSession = await TryBeginParticipantRecordingAsync().ConfigureAwait(false);
+        if (recordingSession is null)
+        {
+            return;
+        }
+
+        var metadataOutcome = await PublishParticipantSessionMetadataAsync(recordingSession).ConfigureAwait(false);
+        recordingSession.RecordEvent(
+            "recording.device_metadata_publish",
+            BuildRecorderEventDetail(metadataOutcome),
+            null,
+            metadataOutcome.Kind.ToString());
+
+        if (metadataOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            await FinishParticipantRecordingAsync(
+                    recordingSession,
+                    DateTimeOffset.UtcNow,
+                    "recording.aborted",
+                    "Local recording closed because Quest session metadata could not be published.",
+                    "failed",
+                    clearParticipantId: false)
+                .ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                    "Start Participant Run",
+                    new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        "Participant run did not start.",
+                        $"The local recorder was created, but the Quest session metadata handoff failed: {metadataOutcome.Detail}"))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        recordingSession.RecordEvent(
+            "experiment.start_requested",
+            "Participant run requested from the Sussex workflow shell.",
+            _study.Controls.StartExperimentActionId,
+            "pending");
+
+        var outcome = await SendStudyTwinCommandCoreAsync(_study.Controls.StartExperimentActionId, "Start Experiment").ConfigureAwait(false);
+        recordingSession.RecordEvent(
+            "experiment.start_command",
+            BuildRecorderEventDetail(outcome),
+            _study.Controls.StartExperimentActionId,
+            outcome.Kind.ToString());
+
+        if (outcome.Kind == OperationOutcomeKind.Failure)
+        {
+            await FinishParticipantRecordingAsync(
+                    recordingSession,
+                    DateTimeOffset.UtcNow,
+                    "recording.aborted",
+                    "Local recording closed because Start Experiment failed.",
+                    "failed",
+                    clearParticipantId: false)
+                .ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                    "Start Participant Run",
+                    new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        "Participant run did not start.",
+                        $"The local recorder was created, but Start Experiment failed: {outcome.Detail}"))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var deviceConfirmationOutcome = await ConfirmDeviceRecordingSessionAsync(recordingSession).ConfigureAwait(false);
+        recordingSession.RecordEvent(
+            "recording.device_confirmation",
+            BuildRecorderEventDetail(deviceConfirmationOutcome),
+            null,
+            deviceConfirmationOutcome.Kind.ToString());
+
+        if (deviceConfirmationOutcome.Kind is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
+        {
+            await ApplyOutcomeAsync("Start Participant Run", deviceConfirmationOutcome).ConfigureAwait(false);
+        }
+
+        await DispatchAsync(UpdateParticipantSessionState).ConfigureAwait(false);
+    }
+
+    public async Task EndExperimentAsync()
+    {
+        await DispatchAsync(() =>
+        {
+            _participantRunStopping = true;
+            UpdateParticipantSessionState();
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+
+        var activeSession = await DispatchAsync(() => _activeRecordingSession).ConfigureAwait(false);
+        activeSession?.RecordEvent(
+            "experiment.end_requested",
+            "Participant wrap-up requested from the Sussex workflow shell.",
+            _study.Controls.EndExperimentActionId,
+            "pending");
+
+        var outcomes = new List<(string Label, OperationOutcome Outcome)>(3);
+        try
+        {
+            var endOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.EndExperimentActionId, "End Experiment").ConfigureAwait(false);
+            outcomes.Add(("End Experiment", endOutcome));
+            activeSession?.RecordEvent(
+                "experiment.end_command",
+                BuildRecorderEventDetail(endOutcome),
+                _study.Controls.EndExperimentActionId,
+                endOutcome.Kind.ToString());
+
+            if (CanResetBreathingCalibration)
+            {
+                var resetOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ResetBreathingCalibrationActionId, "Reset Breathing Calibration").ConfigureAwait(false);
+                outcomes.Add(("Reset Calibration", resetOutcome));
+                activeSession?.RecordEvent(
+                    "experiment.reset_calibration",
+                    BuildRecorderEventDetail(resetOutcome),
+                    _study.Controls.ResetBreathingCalibrationActionId,
+                    resetOutcome.Kind.ToString());
+            }
+
+            if (CanToggleParticles)
+            {
+                var particlesOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ParticleVisibleOffActionId, "Particles Off").ConfigureAwait(false);
+                outcomes.Add(("Particles Off", particlesOutcome));
+                activeSession?.RecordEvent(
+                    "experiment.particles_off",
+                    BuildRecorderEventDetail(particlesOutcome),
+                    _study.Controls.ParticleVisibleOffActionId,
+                    particlesOutcome.Kind.ToString());
+            }
+        }
+        finally
+        {
+            if (activeSession is not null)
+            {
+                await FinishParticipantRecordingAsync(
+                        activeSession,
+                        DateTimeOffset.UtcNow,
+                        "recording.stopped",
+                        "Participant recording closed from the Sussex workflow shell.",
+                        "completed",
+                        clearParticipantId: true)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await DispatchAsync(() =>
+                {
+                    _participantRunStopping = false;
+                    UpdateParticipantSessionState();
+                    RefreshBenchToolsStatus();
+                }).ConfigureAwait(false);
+            }
+        }
+
+        var overallOutcome = CombineWorkflowOutcomes(
+            "End Participant Run",
+            outcomes,
+            activeSession is null
+                ? "Ended the participant flow without an active local recording session."
+                : "Ended the participant flow, ran shell cleanup, and closed the local recording session.");
+        await ApplyOutcomeAsync("End Participant Run", overallOutcome).ConfigureAwait(false);
+    }
+
+    private async Task RunWorkflowValidationCaptureAsync()
+    {
+        if (ValidationCaptureRunning)
+        {
+            return;
+        }
+
+        await DispatchAsync(() =>
+        {
+            ValidationCaptureRunning = true;
+            ValidationCaptureCompleted = false;
+            ValidationCaptureSummary = "Validation capture is starting.";
+            ValidationCaptureDetail = "The guide will start a 20 second recording, stop it again, and then pull the Quest-side backup files.";
+            ValidationCaptureLocalFolderPath = string.Empty;
+            ValidationCaptureDevicePullFolderPath = string.Empty;
+            ValidationCaptureParticipantId = string.Empty;
+            UpdateWorkflowGuideState();
+        }).ConfigureAwait(false);
+
+        try
+        {
+            await StartExperimentAsync().ConfigureAwait(false);
+
+            var activeSession = await DispatchAsync(() => _activeRecordingSession).ConfigureAwait(false);
+            if (activeSession is null)
+            {
+                await DispatchAsync(() =>
+                {
+                    ValidationCaptureRunning = false;
+                    ValidationCaptureCompleted = false;
+                    ValidationCaptureSummary = "Validation capture did not start.";
+                    ValidationCaptureDetail = "The participant recorder never became active. Fix the earlier guide steps and try again.";
+                    UpdateWorkflowGuideState();
+                }).ConfigureAwait(false);
+                return;
+            }
+
+            var participantId = activeSession.ParticipantId;
+            var localSessionFolderPath = activeSession.SessionFolderPath;
+            var remoteSessionDir = await DispatchAsync(() => GetFirstValue("study.recording.device.session_dir") ?? _latestDeviceRecordingSessionDir).ConfigureAwait(false);
+
+            await DispatchAsync(() =>
+            {
+                ValidationCaptureParticipantId = participantId;
+                ValidationCaptureLocalFolderPath = localSessionFolderPath;
+                ValidationCaptureSummary = $"Validation capture running for {participantId}.";
+                ValidationCaptureDetail = $"Recording for {WorkflowGuideValidationCaptureDurationSeconds} seconds. Windows session folder: {localSessionFolderPath}";
+                UpdateWorkflowGuideState();
+            }).ConfigureAwait(false);
+
+            await Task.Delay(TimeSpan.FromSeconds(WorkflowGuideValidationCaptureDurationSeconds)).ConfigureAwait(false);
+            await EndExperimentAsync().ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(remoteSessionDir))
+            {
+                remoteSessionDir = await DispatchAsync(() => _latestDeviceRecordingSessionDir).ConfigureAwait(false);
+            }
+
+            var completedLocalFolder = await DispatchAsync(() => string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath) ? localSessionFolderPath : _lastCompletedRecordingFolderPath).ConfigureAwait(false);
+            var pullOutcome = await PullQuestRecordingArtifactsAsync(remoteSessionDir, completedLocalFolder).ConfigureAwait(false);
+            var pulledFolderPath = pullOutcome.Items?.FirstOrDefault() ?? string.Empty;
+            var completed = pullOutcome.Kind == OperationOutcomeKind.Success
+                && Directory.Exists(completedLocalFolder)
+                && Directory.Exists(pulledFolderPath);
+
+            var summary = completed
+                ? $"Validation capture completed for {participantId}."
+                : "Validation capture finished, but the Quest pullback is incomplete.";
+            var detail = completed
+                ? $"Windows data: {completedLocalFolder} Quest pullback: {pulledFolderPath}"
+                : $"{pullOutcome.Detail} Windows data: {completedLocalFolder}";
+            var outcome = new OperationOutcome(
+                completed ? OperationOutcomeKind.Success : pullOutcome.Kind == OperationOutcomeKind.Failure ? OperationOutcomeKind.Warning : pullOutcome.Kind,
+                summary,
+                detail,
+                Items:
+                [
+                    completedLocalFolder,
+                    pulledFolderPath
+                ]);
+
+            await DispatchAsync(() =>
+            {
+                ValidationCaptureRunning = false;
+                ValidationCaptureCompleted = completed;
+                ValidationCaptureLocalFolderPath = completedLocalFolder;
+                ValidationCaptureDevicePullFolderPath = pulledFolderPath;
+                ValidationCaptureSummary = summary;
+                ValidationCaptureDetail = detail;
+                UpdateWorkflowGuideState();
+            }).ConfigureAwait(false);
+
+            await ApplyOutcomeAsync("20 Second Validation Capture", outcome).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() =>
+            {
+                ValidationCaptureRunning = false;
+                ValidationCaptureCompleted = false;
+                ValidationCaptureSummary = "Validation capture failed.";
+                ValidationCaptureDetail = exception.Message;
+                UpdateWorkflowGuideState();
+            }).ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                "20 Second Validation Capture",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Validation capture failed.",
+                    exception.Message)).ConfigureAwait(false);
+        }
+        finally
+        {
+            await DispatchAsync(() =>
+            {
+                ValidationCaptureRunning = false;
+                OnPropertyChanged(nameof(CanRunWorkflowValidationCapture));
+                UpdateWorkflowGuideState();
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<OperationOutcome> PullQuestRecordingArtifactsAsync(string remoteSessionDir, string localSessionFolderPath)
+    {
+        if (string.IsNullOrWhiteSpace(localSessionFolderPath) || !Directory.Exists(localSessionFolderPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Windows validation data folder is missing.",
+                "The 20 second validation run completed, but the local Windows session folder could not be found afterward.");
+        }
+
+        if (string.IsNullOrWhiteSpace(remoteSessionDir))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Quest recording folder was not reported.",
+                "The validation run completed locally, but the Quest runtime did not report a device-side session directory to pull from.");
+        }
+
+        if (!_hzdbService.IsAvailable)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "hzdb is not available for Quest file pullback.",
+                "The validation run completed locally, but Quest-side backup files cannot be pulled until hzdb is available.");
+        }
+
+        var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Quest selector missing for file pullback.",
+                "The validation run completed locally, but the companion no longer has a headset selector for hzdb file pullback.");
+        }
+
+        var localPullFolderPath = Path.Combine(localSessionFolderPath, "device-session-pull");
+        Directory.CreateDirectory(localPullFolderPath);
+
+        var listOutcome = await _hzdbService.ListFilesAsync(selector, remoteSessionDir).ConfigureAwait(false);
+        var remoteFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (listOutcome.Kind != OperationOutcomeKind.Failure)
+        {
+            foreach (var item in listOutcome.Items ?? [])
+            {
+                var fileName = ExtractDeviceListingFileName(item);
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    continue;
+                }
+
+                remoteFiles[fileName] = BuildDeviceRemoteFilePath(remoteSessionDir, item, fileName);
+            }
+        }
+
+        foreach (var fileName in WorkflowGuideExpectedDeviceRecordingFiles)
+        {
+            remoteFiles.TryAdd(fileName, BuildDeviceRemoteFilePath(remoteSessionDir, fileName, fileName));
+        }
+
+        var pulledFiles = new List<string>();
+        var failures = new List<string>();
+        foreach (var pair in remoteFiles.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var pullOutcome = await _hzdbService
+                .PullFileAsync(selector, pair.Value, Path.Combine(localPullFolderPath, pair.Key))
+                .ConfigureAwait(false);
+            if (pullOutcome.Kind == OperationOutcomeKind.Success)
+            {
+                pulledFiles.Add(pair.Key);
+            }
+            else
+            {
+                failures.Add($"{pair.Key}: {pullOutcome.Summary}");
+            }
+        }
+
+        if (pulledFiles.Count == 0)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Quest backup files were not pulled.",
+                $"No files were pulled from {remoteSessionDir}. {listOutcome.Detail}",
+                Items:
+                [
+                    localPullFolderPath
+                ]);
+        }
+
+        var detailBuilder = new StringBuilder();
+        detailBuilder.Append($"Pulled {pulledFiles.Count} Quest file(s) into {localPullFolderPath}.");
+        if (failures.Count > 0)
+        {
+            detailBuilder.Append(' ');
+            detailBuilder.Append(string.Join(" ", failures));
+        }
+
+        return new OperationOutcome(
+            failures.Count == 0 ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+            failures.Count == 0 ? "Quest backup files pulled." : "Quest backup files pulled with some gaps.",
+            detailBuilder.ToString(),
+            Items:
+            [
+                localPullFolderPath
+            ]);
+    }
+
+    private static string ExtractDeviceListingFileName(string listedItem)
+    {
+        var trimmed = (listedItem ?? string.Empty).Trim().Trim('"');
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return string.Empty;
+        }
+
+        var normalized = trimmed.Replace('\\', '/').TrimEnd('/');
+        var fileName = normalized[(normalized.LastIndexOf('/') + 1)..];
+        return fileName is "." or ".." ? string.Empty : fileName;
+    }
+
+    private static string BuildDeviceRemoteFilePath(string remoteSessionDir, string listedItem, string fileName)
+    {
+        var trimmedItem = (listedItem ?? string.Empty).Trim().Trim('"').Replace('\\', '/');
+        if (trimmedItem.StartsWith(remoteSessionDir, StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmedItem;
+        }
+
+        var normalizedDir = remoteSessionDir.Replace('\\', '/').TrimEnd('/');
+        return $"{normalizedDir}/{fileName}";
+    }
+
     public Task RecenterAsync()
         => SendStudyTwinCommandAsync(_study.Controls.RecenterCommandActionId, "Recenter");
 
-    public Task ParticlesOnAsync()
-        => SendStudyTwinCommandAsync(_study.Controls.ParticleVisibleOnActionId, "Particles On");
+    public async Task ParticlesOnAsync()
+    {
+        var outcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ParticleVisibleOnActionId, "Particles On").ConfigureAwait(false);
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await DispatchAsync(() =>
+            {
+                _workflowGuideParticlesOnVerified = true;
+                UpdateWorkflowGuideState();
+            }).ConfigureAwait(false);
+        }
+    }
 
-    public Task ParticlesOffAsync()
-        => SendStudyTwinCommandAsync(_study.Controls.ParticleVisibleOffActionId, "Particles Off");
+    public async Task ParticlesOffAsync()
+    {
+        var outcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ParticleVisibleOffActionId, "Particles Off").ConfigureAwait(false);
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await DispatchAsync(() =>
+            {
+                _workflowGuideParticlesOffVerified = true;
+                UpdateWorkflowGuideState();
+            }).ConfigureAwait(false);
+        }
+    }
 
-    private async Task SendStudyTwinCommandAsync(string actionId, string label)
+    private Task SendStudyTwinCommandAsync(string actionId, string label)
+        => SendStudyTwinCommandCoreAsync(actionId, label);
+
+    private async Task<OperationOutcome> SendStudyTwinCommandCoreAsync(string actionId, string label)
     {
         if (string.IsNullOrWhiteSpace(actionId))
         {
+            var unavailableOutcome = new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"{label} unavailable.",
+                $"The current public runtime does not expose a `{label}` twin command yet.");
             await DispatchAsync(() => AppendLog(
                 OperatorLogLevel.Warning,
-                $"{label} unavailable.",
-                $"The current public runtime does not expose a `{label}` twin command yet.")).ConfigureAwait(false);
-            return;
+                unavailableOutcome.Summary,
+                unavailableOutcome.Detail)).ConfigureAwait(false);
+            return unavailableOutcome;
         }
 
         await TryWakeHeadsetBeforeStudyActionAsync(label).ConfigureAwait(false);
@@ -1775,6 +2896,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 RefreshFocusRows(forceRebuild: true);
             }).ConfigureAwait(false);
         }
+
+        return outcome;
     }
 
     private async Task<OperationOutcome?> TryWakeHeadsetBeforeStudyActionAsync(string actionLabel)
@@ -1822,6 +2945,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             LastActionLevel = outcome.Kind;
             AppendLog(MapLevel(outcome.Kind), outcome.Summary, outcome.Detail);
             UpdateConnectionCardState();
+            UpdateWorkflowGuideState();
         }).ConfigureAwait(false);
 
         if (refreshAfter)
@@ -1906,7 +3030,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task RefreshDeviceSnapshotBundleAsync(bool forceProximity, bool includeHostWifiStatus = true)
+    private async Task<bool> RefreshDeviceSnapshotBundleAsync(bool forceProximity, bool includeHostWifiStatus = true)
     {
         var entered = await DispatchAsync(() =>
         {
@@ -1921,7 +3045,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (!entered)
         {
-            return;
+            return false;
         }
 
         try
@@ -1943,6 +3067,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             await DispatchAsync(() => _deviceSnapshotRefreshPending = false).ConfigureAwait(false);
         }
+
+        return true;
     }
 
     private static string BuildSnapshotInlineSuffix(DateTimeOffset? snapshotAtUtc)
@@ -2301,14 +3427,38 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         foreach (var property in properties)
         {
             DeviceProfileRows.Add(new StudyStatusRow(
-                Label: property.Key,
+                Label: FormatWorkflowDeviceProfileLabel(property.Key),
                 Key: property.Key,
                 Value: string.IsNullOrWhiteSpace(property.ReportedValue) ? "Not reported" : property.ReportedValue,
                 Expected: property.ExpectedValue,
-                Detail: property.Matches ? "Pinned Quest property matches." : "Pinned Quest property differs from the current headset value.",
+                Detail: BuildWorkflowDeviceProfileDetail(property),
                 Level: property.Matches ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning));
         }
     }
+
+    private static string FormatWorkflowDeviceProfileLabel(string key)
+        => key switch
+        {
+            "debug.oculus.cpuLevel" => "CPU level",
+            "debug.oculus.gpuLevel" => "GPU level",
+            "viscereality.screen_brightness_percent" => "Screen brightness (%)",
+            "viscereality.media_volume_music" => "Media volume",
+            "viscereality.minimum_headset_battery_percent" => "Minimum headset battery (%)",
+            "viscereality.minimum_right_controller_battery_percent" => "Minimum right controller battery (%)",
+            _ => key
+        };
+
+    private static string BuildWorkflowDeviceProfileDetail(DevicePropertyStatus property)
+        => property.Key switch
+        {
+            "viscereality.media_volume_music" when property.Matches
+                => "Pinned Quest media volume matches.",
+            "viscereality.media_volume_music"
+                => "Pinned Quest media volume differs from the current headset value. If Apply Device Profile does not fix it, set volume manually on the headset and refresh.",
+            _ => property.Matches
+                ? "Pinned Quest property matches."
+                : "Pinned Quest property differs from the current headset value."
+        };
 
     private void RecordConnectionOutcome(string actionLabel, OperationOutcome outcome)
     {
@@ -2672,6 +3822,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             LastActionDetail = outcome.Detail;
             LastActionLevel = outcome.Kind;
             AppendLog(MapLevel(outcome.Kind), outcome.Summary, outcome.Detail);
+            UpdateWorkflowGuideState();
         }).ConfigureAwait(false);
     }
 
@@ -2685,10 +3836,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanToggleHeadsetPower));
         OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
         OnPropertyChanged(nameof(StudyRuntimeActionLabel));
+        OnPropertyChanged(nameof(CanStartBreathingCalibration));
+        OnPropertyChanged(nameof(CanResetBreathingCalibration));
+        OnPropertyChanged(nameof(CanStartExperiment));
+        OnPropertyChanged(nameof(CanEndExperiment));
+        OnPropertyChanged(nameof(CanStartParticipantExperiment));
+        OnPropertyChanged(nameof(CanEndParticipantExperiment));
+        OnPropertyChanged(nameof(CanRunWorkflowValidationCapture));
         OnPropertyChanged(nameof(CanToggleProximity));
         OnPropertyChanged(nameof(CanCaptureQuestScreenshot));
         OnPropertyChanged(nameof(CanOpenLastQuestScreenshot));
         OnPropertyChanged(nameof(CanToggleTestLslSender));
+        UpdateWorkflowStatus();
     }
 
     private void RefreshLiveTwinState()
@@ -2711,12 +3870,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _activeFocusSectionId = string.Empty;
             FocusRows.Clear();
             RecentTwinEvents.Clear();
+            UpdateWorkflowStatus();
             return;
         }
 
         _reportedTwinState = lslBridge.ReportedSettings
             .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+
+        var reportedDeviceSessionDir = GetFirstValue("study.recording.device.session_dir");
+        if (!string.IsNullOrWhiteSpace(reportedDeviceSessionDir))
+        {
+            _latestDeviceRecordingSessionDir = reportedDeviceSessionDir;
+        }
 
         RecentTwinEvents.Clear();
         foreach (var stateEvent in lslBridge.StateEvents
@@ -2742,6 +3908,1638 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdateRecenterCard();
         UpdateParticlesCard();
         RefreshFocusRows();
+        TryRecordLiveTwinState(lslBridge.LastStateReceivedAt ?? DateTimeOffset.UtcNow);
+        UpdateWorkflowStatus();
+    }
+
+    private async Task<StudyDataRecordingSession?> TryBeginParticipantRecordingAsync()
+    {
+        var existingSession = await DispatchAsync(() => _activeRecordingSession).ConfigureAwait(false);
+        if (existingSession is not null)
+        {
+            await ApplyOutcomeAsync(
+                "Start Participant Run",
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Participant recording is already active.",
+                    $"The recorder is already writing session {existingSession.SessionId}. End that run before starting another participant.")).ConfigureAwait(false);
+            return null;
+        }
+
+        StudyParticipantStatus participantStatus;
+        string normalizedParticipantId;
+        try
+        {
+            normalizedParticipantId = await DispatchAsync(() => StudyDataRecorderService.NormalizeParticipantId(ParticipantIdDraft)).ConfigureAwait(false);
+            participantStatus = _studyDataRecorderService.GetParticipantStatus(_study.Id, normalizedParticipantId);
+        }
+        catch (ArgumentException)
+        {
+            await ApplyOutcomeAsync(
+                "Start Participant Run",
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Participant number missing.",
+                    "Enter a participant number before starting the recorded experiment run.")).ConfigureAwait(false);
+            return null;
+        }
+
+        var startedAtUtc = DateTimeOffset.UtcNow;
+        var sessionId = BuildParticipantSessionId(startedAtUtc);
+        var request = await DispatchAsync(() => CreateRecordingStartRequest(normalizedParticipantId, sessionId, startedAtUtc)).ConfigureAwait(false);
+
+        StudyDataRecordingSession recordingSession;
+        try
+        {
+            recordingSession = _studyDataRecorderService.StartSession(request);
+            recordingSession.RecordEvent(
+                "recording.started",
+                "Local Sussex participant recording session created.",
+                null,
+                "success",
+                startedAtUtc);
+
+            if (participantStatus.HasExistingSessions)
+            {
+                recordingSession.RecordEvent(
+                    "participant.duplicate_warning",
+                    $"Participant id already has local sessions: {string.Join(", ", participantStatus.ExistingSessionIds)}",
+                    null,
+                    "warning",
+                    startedAtUtc);
+            }
+
+            var latestScreenshotPath = await DispatchAsync(() => QuestScreenshotPath).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(latestScreenshotPath) && File.Exists(latestScreenshotPath))
+            {
+                var extension = Path.GetExtension(latestScreenshotPath);
+                var artifactName = $"participant-start-visual-check{extension}";
+                recordingSession.CopyArtifact(latestScreenshotPath, artifactName);
+                recordingSession.RecordEvent(
+                    "artifact.quest_screenshot",
+                    $"Archived the latest Quest screenshot as {artifactName}.",
+                    null,
+                    "success");
+            }
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() => SetRecorderFault("Start participant recording", exception)).ConfigureAwait(false);
+            await ApplyOutcomeAsync(
+                "Start Participant Run",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Could not start the local participant recorder.",
+                    exception.Message)).ConfigureAwait(false);
+            return null;
+        }
+
+        await DispatchAsync(() =>
+        {
+            _recorderFaultDetail = string.Empty;
+            _participantRunStopping = false;
+            _activeRecordingSession = recordingSession;
+            _lastCompletedRecordingFolderPath = recordingSession.SessionFolderPath;
+            _participantIdDraft = normalizedParticipantId;
+            OnPropertyChanged(nameof(ParticipantIdDraft));
+            UpdateParticipantSessionState();
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+
+        return recordingSession;
+    }
+
+    private async Task FinishParticipantRecordingAsync(
+        StudyDataRecordingSession recordingSession,
+        DateTimeOffset endedAtUtc,
+        string eventName,
+        string eventDetail,
+        string result,
+        bool clearParticipantId)
+    {
+        try
+        {
+            recordingSession.RecordEvent(eventName, eventDetail, null, result, endedAtUtc);
+            recordingSession.Complete(endedAtUtc);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() => SetRecorderFault("Stop participant recording", exception)).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() =>
+        {
+            if (ReferenceEquals(_activeRecordingSession, recordingSession))
+            {
+                _activeRecordingSession = null;
+            }
+
+            _lastCompletedRecordingFolderPath = recordingSession.SessionFolderPath;
+            _participantRunStopping = false;
+            if (clearParticipantId)
+            {
+                _participantIdDraft = string.Empty;
+                OnPropertyChanged(nameof(ParticipantIdDraft));
+            }
+
+            UpdateParticipantSessionState();
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+    }
+
+    private StudyDataRecordingStartRequest CreateRecordingStartRequest(
+        string participantId,
+        string sessionId,
+        DateTimeOffset startedAtUtc)
+    {
+        var versionName = string.IsNullOrWhiteSpace(_installedAppStatus?.VersionName)
+            ? _study.App.VersionName
+            : _installedAppStatus!.VersionName;
+        var runtimeConfigHash = GetFirstValue("config.runtime_json_hash") ?? string.Empty;
+        var runtimeHotloadProfileId = GetFirstValue("hotload.hotload_profile_id") ?? string.Empty;
+        var runtimeHotloadProfileVersion = GetFirstValue("hotload.hotload_profile_version") ?? string.Empty;
+        var runtimeHotloadProfileChannel = GetFirstValue("hotload.hotload_profile_channel") ?? string.Empty;
+        var environmentHash = VerificationBaseline?.EnvironmentHash ?? string.Empty;
+        var datasetId = BuildDatasetId(_study.Id, participantId, sessionId);
+        var datasetHash = BuildDatasetHash(_study.Id, participantId, sessionId, startedAtUtc);
+        var settingsHash = BuildSettingsHash(
+            _study.Id,
+            _study.App.PackageId,
+            _study.App.Sha256,
+            versionName,
+            _study.App.LaunchComponent,
+            _headsetStatus?.SoftwareVersion ?? string.Empty,
+            _headsetStatus?.SoftwareBuildId ?? string.Empty,
+            _headsetStatus?.SoftwareDisplayId ?? string.Empty,
+            _study.DeviceProfile.Id,
+            _study.DeviceProfile.Properties,
+            _study.Monitoring.ExpectedLslStreamName,
+            _study.Monitoring.ExpectedLslStreamType,
+            _study.Monitoring.RecenterDistanceThresholdUnits,
+            runtimeConfigHash,
+            runtimeHotloadProfileId,
+            runtimeHotloadProfileVersion,
+            runtimeHotloadProfileChannel,
+            environmentHash);
+        return new StudyDataRecordingStartRequest(
+            _study.Id,
+            _study.Label,
+            participantId,
+            sessionId,
+            datasetId,
+            datasetHash,
+            settingsHash,
+            environmentHash,
+            startedAtUtc,
+            _study.App.PackageId,
+            _study.App.Sha256,
+            versionName,
+            _study.App.LaunchComponent,
+            _headsetStatus?.SoftwareVersion ?? string.Empty,
+            _headsetStatus?.SoftwareBuildId ?? string.Empty,
+            _headsetStatus?.SoftwareDisplayId ?? string.Empty,
+            _study.DeviceProfile.Id,
+            _study.DeviceProfile.Label,
+            new Dictionary<string, string>(_study.DeviceProfile.Properties, StringComparer.OrdinalIgnoreCase),
+            _study.Monitoring.ExpectedLslStreamName,
+            _study.Monitoring.ExpectedLslStreamType,
+            _study.Monitoring.RecenterDistanceThresholdUnits,
+            runtimeConfigHash,
+            runtimeHotloadProfileId,
+            runtimeHotloadProfileVersion,
+            runtimeHotloadProfileChannel,
+            Environment.MachineName,
+            ResolveHeadsetActionSelector());
+    }
+
+    private async Task<OperationOutcome> PublishParticipantSessionMetadataAsync(StudyDataRecordingSession recordingSession)
+    {
+        var stagedApkPath = await DispatchAsync(() => StagedApkPath).ConfigureAwait(false);
+        var target = CreateStudyTarget(stagedApkPath);
+        var profile = new RuntimeConfigProfile(
+            $"sussex-study-session-{recordingSession.SessionId}",
+            "Sussex Study Session Metadata",
+            string.Empty,
+            DateTime.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
+            "study",
+            false,
+            "Participant/session correlation metadata for mirrored Windows and Quest recording sessions.",
+            [_study.App.PackageId],
+            [
+                new RuntimeConfigEntry("study_session_study_id", _study.Id),
+                new RuntimeConfigEntry("study_session_study_label", _study.Label),
+                new RuntimeConfigEntry("study_session_participant_id", recordingSession.ParticipantId),
+                new RuntimeConfigEntry("study_session_id", recordingSession.SessionId),
+                new RuntimeConfigEntry("study_session_dataset_id", recordingSession.DatasetId),
+                new RuntimeConfigEntry("study_session_dataset_hash", recordingSession.DatasetHash),
+                new RuntimeConfigEntry("study_session_settings_hash", recordingSession.SettingsHash),
+                new RuntimeConfigEntry("study_session_environment_hash", recordingSession.EnvironmentHash),
+                new RuntimeConfigEntry("study_session_windows_machine_name", Environment.MachineName),
+                new RuntimeConfigEntry("study_session_device_profile_id", _study.DeviceProfile.Id),
+                new RuntimeConfigEntry("study_session_apk_sha256", _study.App.Sha256),
+                new RuntimeConfigEntry("study_session_started_at_utc", recordingSession.SessionStartedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture))
+            ]);
+
+        return await _twinBridge.PublishRuntimeConfigAsync(profile, target).ConfigureAwait(false);
+    }
+
+    private async Task<OperationOutcome> ConfirmDeviceRecordingSessionAsync(StudyDataRecordingSession recordingSession)
+    {
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var confirmation = await DispatchAsync(() =>
+            {
+                var sessionId = GetFirstValue("study.session.id");
+                var datasetHash = GetFirstValue("study.session.dataset_hash");
+                var deviceRecordingActive = ParseBool(GetFirstValue("study.recording.device.active")) == true;
+                var deviceSessionDir = GetFirstValue("study.recording.device.session_dir");
+
+                return (
+                    Matches: deviceRecordingActive &&
+                             string.Equals(sessionId, recordingSession.SessionId, StringComparison.Ordinal) &&
+                             string.Equals(datasetHash, recordingSession.DatasetHash, StringComparison.OrdinalIgnoreCase),
+                    DeviceSessionDir: deviceSessionDir);
+            }).ConfigureAwait(false);
+
+            if (confirmation.Matches)
+            {
+                if (!string.IsNullOrWhiteSpace(confirmation.DeviceSessionDir))
+                {
+                    await DispatchAsync(() => _latestDeviceRecordingSessionDir = confirmation.DeviceSessionDir).ConfigureAwait(false);
+                }
+
+                var detail = string.IsNullOrWhiteSpace(confirmation.DeviceSessionDir)
+                    ? "Quest mirrored the participant session id/hash and reports device-side recording active."
+                    : $"Quest mirrored the participant session id/hash and reports device-side recording active in {confirmation.DeviceSessionDir}.";
+                return new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    "Quest-side participant recorder confirmed.",
+                    detail);
+            }
+
+            await Task.Delay(150).ConfigureAwait(false);
+        }
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            "Participant run started, but Quest recorder confirmation is still missing.",
+            "The Start Experiment command succeeded, but the live twin state did not confirm the expected session id/hash plus device-side recording activity within the timeout window.");
+    }
+
+    private void TryRecordLiveTwinState(DateTimeOffset recordedAtUtc)
+    {
+        if (_activeRecordingSession is null || _reportedTwinState.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _activeRecordingSession.RecordTwinState(_reportedTwinState, recordedAtUtc, ResolveHeadsetActionSelector());
+        }
+        catch (Exception exception)
+        {
+            SetRecorderFault("Write live Sussex telemetry", exception);
+        }
+    }
+
+    private async Task TryArchiveQuestScreenshotAsync(string screenshotPath, DateTimeOffset capturedAtUtc)
+    {
+        var recordingSession = await DispatchAsync(() => _activeRecordingSession).ConfigureAwait(false);
+        if (recordingSession is null || string.IsNullOrWhiteSpace(screenshotPath) || !File.Exists(screenshotPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var artifactName = $"quest-screenshot-{capturedAtUtc:yyyyMMddTHHmmssZ}{Path.GetExtension(screenshotPath)}";
+            recordingSession.CopyArtifact(screenshotPath, artifactName);
+            recordingSession.RecordEvent(
+                "artifact.quest_screenshot",
+                $"Archived Quest screenshot as {artifactName}.",
+                null,
+                "success",
+                capturedAtUtc);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() => SetRecorderFault("Archive Quest screenshot", exception)).ConfigureAwait(false);
+        }
+    }
+
+    private void SetRecorderFault(string stage, Exception exception)
+    {
+        _lastCompletedRecordingFolderPath = _activeRecordingSession?.SessionFolderPath ?? _lastCompletedRecordingFolderPath;
+        _activeRecordingSession?.Dispose();
+        _activeRecordingSession = null;
+        _participantRunStopping = false;
+        _recorderFaultDetail = $"{stage}: {exception.Message}";
+        UpdateParticipantSessionState();
+        RefreshBenchToolsStatus();
+        AppendLog(
+            OperatorLogLevel.Failure,
+            "Study recorder faulted.",
+            _recorderFaultDetail);
+    }
+
+    private void UpdateParticipantSessionState()
+    {
+        StudyParticipantStatus? participantStatus = null;
+        var normalizedParticipantId = string.Empty;
+        if (!string.IsNullOrWhiteSpace(_participantIdDraft))
+        {
+            try
+            {
+                normalizedParticipantId = StudyDataRecorderService.NormalizeParticipantId(_participantIdDraft);
+                participantStatus = _studyDataRecorderService.GetParticipantStatus(_study.Id, normalizedParticipantId);
+            }
+            catch (ArgumentException)
+            {
+                participantStatus = null;
+            }
+        }
+
+        ParticipantHasExistingSessions = participantStatus?.HasExistingSessions == true;
+        ParticipantExistingSessionsLabel = participantStatus?.HasExistingSessions == true
+            ? $"Existing local sessions: {string.Join(", ", participantStatus.ExistingSessionIds)}"
+            : "No previous participant sessions found on this machine.";
+
+        if (string.IsNullOrWhiteSpace(normalizedParticipantId))
+        {
+            ParticipantEntryLevel = OperationOutcomeKind.Preview;
+            ParticipantEntrySummary = "Enter a participant number before starting recorded data collection.";
+            ParticipantEntryDetail = "Duplicate participant ids will warn but will not block the run.";
+        }
+        else if (_activeRecordingSession is not null)
+        {
+            ParticipantEntryLevel = ParticipantHasExistingSessions ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success;
+            ParticipantEntrySummary = $"Participant {normalizedParticipantId} is locked into the active recording session.";
+            ParticipantEntryDetail = ParticipantHasExistingSessions
+                ? $"Duplicate-id warning acknowledged. {ParticipantExistingSessionsLabel}"
+                : "The active run keeps this participant id attached until the recorder stops.";
+        }
+        else if (ParticipantHasExistingSessions)
+        {
+            ParticipantEntryLevel = OperationOutcomeKind.Warning;
+            ParticipantEntrySummary = $"Participant {normalizedParticipantId} already has local study data on this machine.";
+            ParticipantEntryDetail = $"{ParticipantExistingSessionsLabel} The workflow will still allow a new run.";
+        }
+        else
+        {
+            ParticipantEntryLevel = OperationOutcomeKind.Success;
+            ParticipantEntrySummary = $"Participant {normalizedParticipantId} is ready for the next run.";
+            ParticipantEntryDetail = "No duplicate participant folder was found under the local Sussex study-data root.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(_recorderFaultDetail))
+        {
+            RecorderStateLabel = "Faulted";
+            RecordingLevel = OperationOutcomeKind.Failure;
+            RecordingSummary = "Recorder faulted during the Sussex workflow.";
+            RecordingDetail = string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath)
+                ? _recorderFaultDetail
+                : $"{_recorderFaultDetail} Last session folder: {_lastCompletedRecordingFolderPath}";
+            RecordingSessionLabel = string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath)
+                ? "Recorder faulted before a session folder could be confirmed."
+                : $"Last session folder: {_lastCompletedRecordingFolderPath}";
+            RecordingFolderPath = _lastCompletedRecordingFolderPath;
+            return;
+        }
+
+        if (_participantRunStopping)
+        {
+            RecorderStateLabel = "Stopping";
+            RecordingLevel = OperationOutcomeKind.Warning;
+            RecordingSummary = "Recorder is closing the participant run.";
+            RecordingDetail = "Finish the wrap-up commands and wait for the session files to flush to disk.";
+            RecordingSessionLabel = _activeRecordingSession is null
+                ? "Stopping after the last participant session."
+                : $"Active session: {_activeRecordingSession.SessionId}";
+            RecordingFolderPath = _activeRecordingSession?.SessionFolderPath ?? _lastCompletedRecordingFolderPath;
+            return;
+        }
+
+        if (_activeRecordingSession is not null)
+        {
+            RecorderStateLabel = "Recording";
+            RecordingLevel = OperationOutcomeKind.Success;
+            RecordingSummary = $"Recording participant {_activeRecordingSession.ParticipantId}.";
+            RecordingDetail = $"Writing session events, long-form signals, breathing trace, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}.";
+            RecordingSessionLabel = $"Active session: {_activeRecordingSession.SessionId}";
+            RecordingFolderPath = _activeRecordingSession.SessionFolderPath;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedParticipantId))
+        {
+            RecorderStateLabel = "Armed";
+            RecordingLevel = ParticipantHasExistingSessions ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success;
+            RecordingSummary = ParticipantHasExistingSessions
+                ? "Recorder armed with a duplicate-id warning."
+                : "Recorder armed for the next participant run.";
+            RecordingDetail = ParticipantHasExistingSessions
+                ? $"{ParticipantExistingSessionsLabel} Starting the run will still create a new session folder."
+                : "Starting the participant run will create a timestamped session folder with settings, events, signals, and breathing trace files.";
+            RecordingSessionLabel = string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath)
+                ? "No previous participant session completed in this shell instance."
+                : $"Last completed session: {_lastCompletedRecordingFolderPath}";
+            RecordingFolderPath = _lastCompletedRecordingFolderPath;
+            return;
+        }
+
+        RecorderStateLabel = "Idle";
+        RecordingLevel = OperationOutcomeKind.Preview;
+        RecordingSummary = "Recorder idle.";
+        RecordingDetail = "Enter a participant number to arm the recorder for the next participant run.";
+        RecordingSessionLabel = string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath)
+            ? "No participant session has been recorded from this shell instance yet."
+            : $"Last completed session: {_lastCompletedRecordingFolderPath}";
+        RecordingFolderPath = _lastCompletedRecordingFolderPath;
+    }
+
+    private void UpdateWorkflowGuideState()
+    {
+        var stepIndex = Math.Clamp(_workflowGuideStepIndex, 0, WorkflowGuideCatalog.Length - 1);
+        var stepChanged = stepIndex != _workflowGuideLastRenderedStepIndex;
+        if (stepIndex != _workflowGuideStepIndex)
+        {
+            _workflowGuideStepIndex = stepIndex;
+            OnPropertyChanged(nameof(WorkflowGuideStepIndex));
+        }
+
+        if (stepChanged)
+        {
+            _workflowGuideLastRenderedStepIndex = stepIndex;
+            if (stepIndex == 9)
+            {
+                _workflowGuideParticleStepStartedAtUtc = DateTimeOffset.UtcNow;
+            }
+        }
+
+        var definition = WorkflowGuideCatalog[stepIndex];
+        WorkflowGuideStepLabel = $"Step {definition.Number} of {WorkflowGuideCatalog.Length}";
+        WorkflowGuideStepTitle = definition.Title;
+        WorkflowGuideStepExplanation = definition.Explanation;
+
+        var gate = BuildWorkflowGuideGateState(stepIndex);
+        WorkflowGuideStepLevel = gate.Level;
+        WorkflowGuideStepSummary = gate.Summary;
+        WorkflowGuideStepDetail = gate.Detail;
+        WorkflowGuideGateSummary = WorkflowGuideIsFinalStep
+            ? "Finish the cleanup below, then return to the main window."
+            : gate.Ready
+                ? "This step is ready. You can continue."
+                : stepIndex == 6
+                    ? "This is a manual step. Continue once the operator has finished the boundary."
+                    : "Finish this step before continuing.";
+        WorkflowGuideGateDetail = WorkflowGuideIsFinalStep
+            ? "Reset calibration, make sure particles are off, then use Return To Main Window."
+            : gate.Ready
+                ? "Use Next to move to the next operator step."
+                : stepIndex == 6
+                    ? "The app does not verify the Guardian boundary automatically. The experimenter must confirm it manually."
+                    : "Next stays disabled until the required live check or manual action is satisfied.";
+
+        var checks = BuildWorkflowGuideCheckItems(stepIndex);
+        var actions = BuildWorkflowGuideActionItems(stepIndex);
+        ReplaceWorkflowGuideCheckItems(WorkflowGuideChecks, checks);
+        ReplaceWorkflowGuideActionItems(WorkflowGuideActions, actions);
+        UpdateWorkflowGuideQuestScreenshotState(stepIndex);
+        UpdateWorkflowGuideActionFeedback(stepIndex, actions);
+
+        OnPropertyChanged(nameof(CanGoToPreviousWorkflowGuideStep));
+        OnPropertyChanged(nameof(CanGoToNextWorkflowGuideStep));
+        OnPropertyChanged(nameof(WorkflowGuideIsFinalStep));
+        OnPropertyChanged(nameof(WorkflowGuideShowsParticipantEntry));
+        OnPropertyChanged(nameof(WorkflowGuideShowsRecordingState));
+        OnPropertyChanged(nameof(WorkflowGuideShowsDeviceProfileRows));
+        OnPropertyChanged(nameof(WorkflowGuideShowsCalibrationTelemetry));
+        OnPropertyChanged(nameof(WorkflowGuideShowsQuestScreenshotVerification));
+        OnPropertyChanged(nameof(WorkflowGuideShowsValidationCaptureState));
+        OnPropertyChanged(nameof(CanOpenWorkflowGuideQuestScreenshot));
+        OnPropertyChanged(nameof(CanRunWorkflowValidationCapture));
+    }
+
+    private void UpdateWorkflowGuideActionFeedback(int stepIndex, IReadOnlyList<WorkflowGuideActionItem> visibleActions)
+    {
+        var runningAction = visibleActions.FirstOrDefault(action => action.IsRunning);
+        if (runningAction is not null)
+        {
+            WorkflowGuideActionLevel = OperationOutcomeKind.Preview;
+            WorkflowGuideActionSummary = runningAction.Label;
+            WorkflowGuideActionDetail = "The click was accepted. Wait for the command to finish and for the live checks below to update.";
+            return;
+        }
+
+        var latestConfirmation = CaptureLatestActionConfirmation();
+        if (_lastStudyTwinCommandRequest is not null
+            && DateTimeOffset.UtcNow - _lastStudyTwinCommandRequest.SentAtUtc <= WorkflowGuidePendingCommandWindow
+            && IsCommandPending(_lastStudyTwinCommandRequest, latestConfirmation))
+        {
+            WorkflowGuideActionLevel = OperationOutcomeKind.Warning;
+            WorkflowGuideActionSummary = $"{_lastStudyTwinCommandRequest.Label} was sent. Waiting for headset confirmation.";
+            WorkflowGuideActionDetail = $"{BuildCommandTrackingDetail(_lastStudyTwinCommandRequest, latestConfirmation, "command")} {BuildTwinCommandTransportDetail()}".Trim();
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_questVisualConfirmationPendingReason))
+        {
+            WorkflowGuideActionLevel = OperationOutcomeKind.Warning;
+            WorkflowGuideActionSummary = "The command finished, but visual confirmation is still pending.";
+            WorkflowGuideActionDetail = $"{_questVisualConfirmationPendingReason} Use Capture Quest Screenshot or the headset view to confirm what is actually visible.";
+            return;
+        }
+
+        if (stepIndex == 1)
+        {
+            var wifiAdbGate = BuildWifiAdbWorkflowGuideGateState();
+            WorkflowGuideActionLevel = wifiAdbGate.Ready ? OperationOutcomeKind.Success : wifiAdbGate.Level;
+            WorkflowGuideActionSummary = wifiAdbGate.Ready
+                ? "Wi-Fi ADB is ready."
+                : wifiAdbGate.Summary;
+            WorkflowGuideActionDetail = wifiAdbGate.Ready
+                ? "Use Next to move to the Wi-Fi match step. After that, the guide will ask you to unplug USB and confirm Wi-Fi-only control."
+                : wifiAdbGate.Detail;
+            return;
+        }
+
+        if (stepIndex == 2)
+        {
+            var wifiMatchGate = BuildWifiMatchWorkflowGuideGateState();
+            WorkflowGuideActionLevel = wifiMatchGate.Level;
+            WorkflowGuideActionSummary = wifiMatchGate.Summary;
+            WorkflowGuideActionDetail = wifiMatchGate.Ready
+                ? "The headset Wi-Fi and the PC Wi-Fi already match. Use Next to continue."
+                : wifiMatchGate.Detail;
+            return;
+        }
+
+        if (stepIndex == 9)
+        {
+            if (BuildParticleWorkflowGuideGateState().Ready && !HasWorkflowGuideParticleStepScreenshot())
+            {
+                WorkflowGuideActionLevel = OperationOutcomeKind.Warning;
+                WorkflowGuideActionSummary = "Visual confirmation still needed.";
+                WorkflowGuideActionDetail = "After turning particles on and off, capture one Quest screenshot below and review the preview before you continue.";
+                return;
+            }
+
+            if (HasWorkflowGuideParticleStepScreenshot())
+            {
+                WorkflowGuideActionLevel = OperationOutcomeKind.Success;
+                WorkflowGuideActionSummary = "Visual confirmation captured.";
+                WorkflowGuideActionDetail = "Review the screenshot preview below to confirm the particle scene looked correct.";
+                return;
+            }
+        }
+
+        if (stepIndex == 3)
+        {
+            var wifiOnlyGate = BuildUsbDisconnectWorkflowGuideGateState();
+            WorkflowGuideActionLevel = wifiOnlyGate.Level;
+            WorkflowGuideActionSummary = wifiOnlyGate.Summary;
+            WorkflowGuideActionDetail = wifiOnlyGate.Ready
+                ? "USB can stay disconnected now. Use Next to continue with the Wi-Fi-only checks."
+                : wifiOnlyGate.Detail;
+            return;
+        }
+
+        if (stepIndex == 6)
+        {
+            WorkflowGuideActionLevel = OperationOutcomeKind.Preview;
+            WorkflowGuideActionSummary = "This step is manual.";
+            WorkflowGuideActionDetail = "Draw the boundary on the headset, then use Next once the experiment area is covered.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(LastActionLabel))
+        {
+            WorkflowGuideActionLevel = LastActionLevel;
+            WorkflowGuideActionSummary = BuildWorkflowGuideLastActionSummary(LastActionLabel, LastActionLevel);
+            WorkflowGuideActionDetail = string.IsNullOrWhiteSpace(LastActionDetail)
+                ? "The last workflow action completed without additional detail."
+                : LastActionDetail;
+            return;
+        }
+
+        WorkflowGuideActionLevel = OperationOutcomeKind.Preview;
+        WorkflowGuideActionSummary = visibleActions.Count == 0
+            ? "No app button is needed for this step."
+            : "Use the step button below once.";
+        WorkflowGuideActionDetail = visibleActions.Count == 0
+            ? "This part of the onboarding is operator-only."
+            : "The guide will show immediately when a click was accepted and whether it is still waiting for headset confirmation.";
+    }
+
+    private void UpdateWorkflowGuideQuestScreenshotState(int stepIndex)
+    {
+        if (stepIndex != 9)
+        {
+            WorkflowGuideQuestScreenshotLevel = QuestScreenshotLevel;
+            WorkflowGuideQuestScreenshotSummary = QuestScreenshotSummary;
+            WorkflowGuideQuestScreenshotDetail = QuestScreenshotDetail;
+            WorkflowGuideQuestScreenshotPath = string.Empty;
+            WorkflowGuideQuestScreenshotPreview = null;
+            return;
+        }
+
+        if (!_hzdbService.IsAvailable)
+        {
+            WorkflowGuideQuestScreenshotLevel = OperationOutcomeKind.Preview;
+            WorkflowGuideQuestScreenshotSummary = "Quest screenshot capture unavailable.";
+            WorkflowGuideQuestScreenshotDetail = "Install or expose @meta-quest/hzdb before using Quest screenshot capture in this verification step.";
+            WorkflowGuideQuestScreenshotPath = string.Empty;
+            WorkflowGuideQuestScreenshotPreview = null;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(ResolveQuestScreenshotSelector()))
+        {
+            WorkflowGuideQuestScreenshotLevel = OperationOutcomeKind.Preview;
+            WorkflowGuideQuestScreenshotSummary = "Quest screenshot capture needs a headset selector.";
+            WorkflowGuideQuestScreenshotDetail = "Probe USB or connect the Quest first so the guide can request a fresh Quest screenshot.";
+            WorkflowGuideQuestScreenshotPath = string.Empty;
+            WorkflowGuideQuestScreenshotPreview = null;
+            return;
+        }
+
+        if (HasWorkflowGuideParticleStepScreenshot())
+        {
+            WorkflowGuideQuestScreenshotLevel = OperationOutcomeKind.Success;
+            WorkflowGuideQuestScreenshotSummary = $"Particle-step screenshot captured at {_lastQuestScreenshotCapturedAtUtc!.Value.ToLocalTime():HH:mm:ss}.";
+            WorkflowGuideQuestScreenshotDetail = "Use this preview to visually confirm that the particle scene looked correct during this step.";
+            WorkflowGuideQuestScreenshotPath = QuestScreenshotPath;
+            WorkflowGuideQuestScreenshotPreview = QuestScreenshotPreview;
+            return;
+        }
+
+        WorkflowGuideQuestScreenshotLevel = OperationOutcomeKind.Warning;
+        WorkflowGuideQuestScreenshotSummary = "Visual confirmation still needed.";
+        WorkflowGuideQuestScreenshotDetail = string.IsNullOrWhiteSpace(QuestScreenshotPath)
+            ? "After turning particles on and off, capture one Quest screenshot here and review it before continuing."
+            : "The last Quest screenshot was captured before this particle-verification step. Capture a new one here to verify the current scene.";
+        WorkflowGuideQuestScreenshotPath = string.Empty;
+        WorkflowGuideQuestScreenshotPreview = null;
+    }
+
+    private bool HasWorkflowGuideParticleStepScreenshot()
+        => _workflowGuideParticleStepStartedAtUtc.HasValue
+            && _lastQuestScreenshotCapturedAtUtc.HasValue
+            && _lastQuestScreenshotCapturedAtUtc.Value >= _workflowGuideParticleStepStartedAtUtc.Value
+            && !string.IsNullOrWhiteSpace(QuestScreenshotPath);
+
+    private bool IsWorkflowGuideStepReady(int stepIndex)
+        => BuildWorkflowGuideGateState(stepIndex).Ready;
+
+    private WorkflowGuideGateState BuildWorkflowGuideGateState(int stepIndex)
+    {
+        var deviceProfileState = EvaluateDeviceProfileGateState();
+        var headsetBatteryState = EvaluateHeadsetBatteryGateState();
+        var rightControllerBatteryState = EvaluateRightControllerBatteryGateState();
+        var softwareIdentityState = EvaluateSoftwareIdentityGateState();
+
+        return stepIndex switch
+        {
+            0 => BuildUsbWorkflowGuideGateState(),
+            1 => BuildWifiAdbWorkflowGuideGateState(),
+            2 => BuildWifiMatchWorkflowGuideGateState(),
+            3 => BuildUsbDisconnectWorkflowGuideGateState(),
+            4 => RequireWifiAdbForWorkflowStep(BuildInstalledApkWorkflowGuideGateState()),
+            5 => RequireWifiAdbForWorkflowStep(BuildProfileWorkflowGuideGateState(deviceProfileState, headsetBatteryState, rightControllerBatteryState, softwareIdentityState)),
+            6 => RequireWifiAdbForWorkflowStep(new WorkflowGuideGateState(
+                OperationOutcomeKind.Preview,
+                "Boundary is a manual step.",
+                "Ask the experimenter to draw a comfortable Guardian boundary that covers the participant position, the experimenter position, and the full experiment area before moving on.",
+                true)),
+            7 => RequireWifiAdbForWorkflowStep(BuildKioskWorkflowGuideGateState()),
+            8 => RequireWifiAdbForWorkflowStep(BuildLslWorkflowGuideGateState()),
+            9 => RequireWifiAdbForWorkflowStep(BuildParticleWorkflowGuideGateState()),
+            10 => RequireWifiAdbForWorkflowStep(BuildCalibrationWorkflowGuideGateState()),
+            11 => RequireWifiAdbForWorkflowStep(BuildValidationCaptureWorkflowGuideGateState()),
+            _ => RequireWifiAdbForWorkflowStep(new WorkflowGuideGateState(
+                OperationOutcomeKind.Preview,
+                "Final manual cleanup step.",
+                "Reset calibration, make sure particles are off, and then return to the main window so the real participant session can start from a clean state.",
+                true))
+        };
+    }
+
+    private WorkflowGuideGateState BuildUsbWorkflowGuideGateState()
+    {
+        var hasSavedUsbSerial = !string.IsNullOrWhiteSpace(_appSessionState.LastUsbSerial);
+        var probeSucceeded = string.Equals(_lastConnectionActionLabel, "Probe USB", StringComparison.Ordinal)
+            && _lastConnectionLevel == OperationOutcomeKind.Success;
+        var ready = probeSucceeded || (hasSavedUsbSerial && _headsetStatus?.IsConnected == true);
+        var level = ready
+            ? OperationOutcomeKind.Success
+            : string.Equals(_lastConnectionActionLabel, "Probe USB", StringComparison.Ordinal)
+                && _lastConnectionLevel == OperationOutcomeKind.Failure
+                ? OperationOutcomeKind.Failure
+                : OperationOutcomeKind.Warning;
+        var detail = ready
+            ? $"USB visibility is confirmed via {_appSessionState.LastUsbSerial ?? "the last detected serial"}. Keep the cable attached until Wi-Fi ADB is enabled."
+            : "Connect the headset over USB, accept the in-headset debugging prompt if Meta shows one, then press Probe USB.";
+        return new WorkflowGuideGateState(level, ready ? "USB ADB confirmed." : "USB ADB is not confirmed yet.", detail, ready);
+    }
+
+    private WorkflowGuideGateState BuildWifiAdbWorkflowGuideGateState()
+    {
+        var ready = _headsetStatus?.IsWifiAdbTransport == true;
+        var level = ready
+            ? OperationOutcomeKind.Success
+            : (string.Equals(_lastConnectionActionLabel, "Enable Wi-Fi ADB", StringComparison.Ordinal)
+                || string.Equals(_lastConnectionActionLabel, "Connect Quest", StringComparison.Ordinal))
+                && _lastConnectionLevel == OperationOutcomeKind.Failure
+                ? OperationOutcomeKind.Failure
+                : OperationOutcomeKind.Warning;
+        var detail = ready
+            ? "Wi-Fi ADB is active. Continue to the Wi-Fi match step. The next step will explicitly require USB removal and Wi-Fi-only control."
+            : (string.Equals(_lastConnectionActionLabel, "Connect Quest", StringComparison.Ordinal)
+                || string.Equals(_lastConnectionActionLabel, "Enable Wi-Fi ADB", StringComparison.Ordinal))
+                && _lastConnectionLevel == OperationOutcomeKind.Failure
+                && !string.IsNullOrWhiteSpace(_lastConnectionDetail)
+                    ? _lastConnectionDetail
+                    : "Press Enable Wi-Fi ADB while the USB cable is still attached. Once this turns green, continue to Wi-Fi matching and then unplug USB in the following step.";
+        return new WorkflowGuideGateState(level, ready ? "Wi-Fi ADB is active." : "Wi-Fi ADB is not active yet.", detail, ready);
+    }
+
+    private WorkflowGuideGateState BuildWifiMatchWorkflowGuideGateState()
+    {
+        var match = _headsetStatus?.WifiSsidMatchesHost;
+        var level = match switch
+        {
+            true => OperationOutcomeKind.Success,
+            false => OperationOutcomeKind.Failure,
+            _ => OperationOutcomeKind.Warning
+        };
+        var detail = match switch
+        {
+            true => $"{HeadsetWifiSummary} {HostWifiSummary}",
+            false => $"{HeadsetWifiSummary} {HostWifiSummary} Change the headset Wi-Fi manually inside the headset. Remote Wi-Fi switching is not considered reliable for the experiment path.",
+            _ => "Refresh the headset snapshot until both the headset Wi-Fi and the PC Wi-Fi names are visible. If they differ, change the headset Wi-Fi manually."
+        };
+        return new WorkflowGuideGateState(level, WifiNetworkMatchSummary, detail, match == true);
+    }
+
+    private WorkflowGuideGateState BuildUsbDisconnectWorkflowGuideGateState()
+    {
+        var ready = _headsetStatus?.IsWifiAdbTransport == true
+            && _headsetStatus.IsUsbAdbVisible == false;
+        var level = ready
+            ? OperationOutcomeKind.Success
+            : _headsetStatus?.IsConnected == true
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Failure;
+        var detail = ready
+            ? $"Remote control is still alive on {_headsetStatus?.ConnectionLabel ?? "the saved Wi-Fi endpoint"}. Leave USB unplugged. Every remaining guided step now runs over Wi-Fi ADB."
+            : _headsetStatus?.IsWifiAdbTransport == true && _headsetStatus.IsUsbAdbVisible
+                ? $"Wi-Fi ADB is already active on {_headsetStatus.ConnectionLabel}, but USB {_headsetStatus.VisibleUsbSerial} is still attached. Unplug the cable and refresh until USB disappears."
+                : _headsetStatus?.IsConnected == true
+                    ? $"Current transport is {_headsetStatus.ConnectionLabel}. Unplug the USB cable, then refresh until the companion still reaches the headset over Wi-Fi ADB."
+                    : "Unplug USB now. If the headset disappears from the companion, use Connect Quest to restore the saved Wi-Fi ADB endpoint before continuing.";
+        return new WorkflowGuideGateState(
+            level,
+            ready ? "Wi-Fi-only control confirmed." : _headsetStatus?.IsUsbAdbVisible == true ? "USB is still attached." : "USB unplug still needs confirmation.",
+            detail,
+            ready);
+    }
+
+    private WorkflowGuideGateState RequireWifiAdbForWorkflowStep(WorkflowGuideGateState stepState)
+    {
+        if (_headsetStatus?.IsWifiAdbTransport == true && _headsetStatus.IsUsbAdbVisible == false)
+        {
+            return stepState;
+        }
+
+        var detail = _headsetStatus?.IsWifiAdbTransport == true && _headsetStatus.IsUsbAdbVisible
+            ? $"Wi-Fi ADB is active on {_headsetStatus.ConnectionLabel}, but USB {_headsetStatus.VisibleUsbSerial} is still visible. Unplug USB and refresh before continuing. {stepState.Detail}"
+            : _headsetStatus?.IsConnected == true
+                ? $"Current transport is {_headsetStatus.ConnectionLabel}. This step must be performed over Wi-Fi ADB after USB is unplugged. {stepState.Detail}"
+                : $"The headset is not currently reachable over Wi-Fi ADB. Restore the Wi-Fi session first, then continue. {stepState.Detail}";
+
+        return new WorkflowGuideGateState(
+            stepState.Level == OperationOutcomeKind.Failure
+                ? OperationOutcomeKind.Failure
+                : OperationOutcomeKind.Warning,
+            "Wi-Fi ADB is required for this step.",
+            detail,
+            false);
+    }
+
+    private WorkflowGuideGateState BuildInstalledApkWorkflowGuideGateState()
+    {
+        var ready = InstalledApkLevel == OperationOutcomeKind.Success;
+        var level = ready
+            ? OperationOutcomeKind.Success
+            : InstalledApkLevel == OperationOutcomeKind.Failure
+                ? OperationOutcomeKind.Failure
+                : OperationOutcomeKind.Warning;
+        var detail = ready
+            ? InstalledApkDetail
+            : $"{InstalledApkDetail} If the study build is missing or wrong, install the bundled Sussex Experiment APK before continuing.";
+        return new WorkflowGuideGateState(level, ready ? "Correct Sussex APK installed." : "Correct Sussex APK not confirmed yet.", detail, ready);
+    }
+
+    private WorkflowGuideGateState BuildProfileWorkflowGuideGateState(
+        WorkflowGuideGateState deviceProfileState,
+        WorkflowGuideGateState headsetBatteryState,
+        WorkflowGuideGateState rightControllerBatteryState,
+        WorkflowGuideGateState softwareIdentityState)
+    {
+        var ready = deviceProfileState.Ready
+            && headsetBatteryState.Ready
+            && rightControllerBatteryState.Ready
+            && softwareIdentityState.Ready;
+        var level = CombineWorkflowGuideLevels(
+            deviceProfileState.Level,
+            headsetBatteryState.Level,
+            rightControllerBatteryState.Level,
+            softwareIdentityState.Level);
+        var detail =
+            $"{deviceProfileState.Summary} {headsetBatteryState.Summary} {rightControllerBatteryState.Summary} {softwareIdentityState.Summary}";
+        return new WorkflowGuideGateState(
+            ready ? OperationOutcomeKind.Success : level,
+            ready ? "Device profile and bench safety checks confirmed." : "Device profile step still has outstanding checks.",
+            detail,
+            ready);
+    }
+
+    private WorkflowGuideGateState BuildKioskWorkflowGuideGateState()
+    {
+        var ready = IsStudyRuntimeForeground();
+        var level = ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
+        var detail = ready
+            ? "Sussex Experiment is active in the foreground. Kiosk keeps the experiment app pinned in front. If the controller was asleep at launch, wake it and relaunch before moving on."
+            : "Disconnect USB, wake the right controller, then press Launch Sussex In Kiosk Mode. Kiosk pins the experiment app in front and suppresses normal app switching.";
+        return new WorkflowGuideGateState(level, ready ? "Sussex runtime is active in kiosk." : "Sussex runtime is not active in kiosk yet.", detail, ready);
+    }
+
+    private WorkflowGuideGateState BuildLslWorkflowGuideGateState()
+    {
+        var ready = LslLevel == OperationOutcomeKind.Success;
+        var level = ready
+            ? OperationOutcomeKind.Success
+            : LslLevel == OperationOutcomeKind.Failure
+                ? OperationOutcomeKind.Failure
+                : OperationOutcomeKind.Warning;
+        var detail = ready
+            ? $"{LslDetail} Connected stream {LslConnectedStreamLabel}."
+            : $"{LslDetail} The experiment heartbeat stream is the operator's responsibility, but this step must turn green before the onboarding run continues.";
+        return new WorkflowGuideGateState(level, ready ? "Heartbeat LSL is reaching the headset." : "Heartbeat LSL is not confirmed yet.", detail, ready);
+    }
+
+    private WorkflowGuideGateState BuildParticleWorkflowGuideGateState()
+    {
+        var ready = _workflowGuideParticlesOnVerified
+            && _workflowGuideParticlesOffVerified
+            && ParticlesLevel == OperationOutcomeKind.Success;
+        var level = ready
+            ? OperationOutcomeKind.Success
+            : ParticlesLevel == OperationOutcomeKind.Failure
+                ? OperationOutcomeKind.Failure
+                : OperationOutcomeKind.Warning;
+        var detail = ready
+            ? "Particles were turned on and then off again from the companion, and the runtime reported the expected resulting state."
+            : "Use the WPF buttons below to turn particles on once and then off again. The guide only advances after both commands were exercised in this guide session.";
+        return new WorkflowGuideGateState(level, ready ? "Particle command path verified." : "Particle command path not verified yet.", detail, ready);
+    }
+
+    private WorkflowGuideGateState BuildCalibrationWorkflowGuideGateState()
+    {
+        var calibrated = string.Equals(ControllerCalibrationLabel, "Calibrated", StringComparison.OrdinalIgnoreCase);
+        var hasVolumeReadback = !string.Equals(ControllerValueLabel, "n/a", StringComparison.OrdinalIgnoreCase);
+        var ready = calibrated && hasVolumeReadback;
+        var level = ready
+            ? OperationOutcomeKind.Success
+            : OperationOutcomeKind.Warning;
+        var detail = ready
+            ? $"Calibration completed and the current controller-volume readback is {ControllerValueLabel}."
+            : CanStartBreathingCalibration
+                ? "Calibration is still unstable on the current Sussex APK. You can try it here, but the guide does not require it yet. Continue once the earlier LSL and particle checks are complete."
+                : "Calibration is optional for now, and this build does not currently expose a runnable calibration command through the public shell.";
+        return new WorkflowGuideGateState(
+            level,
+            ready ? "Controller calibration verified." : "Controller calibration is optional for now.",
+            detail,
+            Ready: true);
+    }
+
+    private WorkflowGuideGateState BuildValidationCaptureWorkflowGuideGateState()
+    {
+        var ready = ValidationCaptureCompleted
+            && !string.IsNullOrWhiteSpace(ValidationCaptureLocalFolderPath)
+            && !string.IsNullOrWhiteSpace(ValidationCaptureDevicePullFolderPath);
+        var level = ready
+            ? OperationOutcomeKind.Success
+            : ValidationCaptureRunning
+                ? OperationOutcomeKind.Preview
+                : OperationOutcomeKind.Warning;
+        return new WorkflowGuideGateState(
+            level,
+            ValidationCaptureSummary,
+            ValidationCaptureDetail,
+            ready);
+    }
+
+    private IReadOnlyList<WorkflowGuideCheckItem> BuildWorkflowGuideCheckItems(int stepIndex)
+    {
+        var usbState = BuildUsbWorkflowGuideGateState();
+        var deviceProfileState = EvaluateDeviceProfileGateState();
+        var headsetBatteryState = EvaluateHeadsetBatteryGateState();
+        var rightControllerBatteryState = EvaluateRightControllerBatteryGateState();
+        var softwareIdentityState = EvaluateSoftwareIdentityGateState();
+        var particleCommandSummary = _workflowGuideParticlesOnVerified && _workflowGuideParticlesOffVerified
+            ? "Particles were toggled on and off in this guide session."
+            : _workflowGuideParticlesOnVerified
+                ? "Particles were turned on once. Turn them off again before continuing."
+                : "Particles have not been exercised yet in this guide session.";
+
+        return stepIndex switch
+        {
+            0 =>
+            [
+                new WorkflowGuideCheckItem("USB probe", usbState.Summary, usbState.Detail, usbState.Level),
+                new WorkflowGuideCheckItem("Current Quest link", ConnectionSummary, QuestStatusDetail, _headsetStatus?.IsConnected == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)
+            ],
+            1 =>
+            [
+                new WorkflowGuideCheckItem("Wi-Fi ADB path", BuildWifiAdbGuideSummary(), BuildWifiAdbGuideDetail(), _headsetStatus?.IsWifiAdbTransport == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("Reconnect target", string.IsNullOrWhiteSpace(EndpointDraft) ? "Reconnect target not saved yet." : "Reconnect target is saved.", string.IsNullOrWhiteSpace(EndpointDraft) ? "If Wi-Fi ADB stays on USB only, run Connect Quest once the companion has a reconnect target." : "The companion has a saved reconnect target ready for the later USB disconnect.", string.IsNullOrWhiteSpace(EndpointDraft) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
+            ],
+            2 =>
+            [
+                new WorkflowGuideCheckItem("Headset Wi-Fi", HeadsetWifiSummary, $"Headset IP {_headsetStatus?.HeadsetWifiIpAddress ?? "n/a"}.", _headsetStatus?.WifiSsidMatchesHost == true ? OperationOutcomeKind.Success : _headsetStatus?.WifiSsidMatchesHost == false ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("PC Wi-Fi", HostWifiSummary, string.IsNullOrWhiteSpace(_headsetStatus?.HostWifiSsid) ? "Refresh the snapshot until the PC Wi-Fi name is visible. If it still stays unknown, the Windows-side Wi-Fi probe has not returned yet." : "If the names differ, change the headset Wi-Fi manually inside the headset before continuing.", _headsetStatus?.WifiSsidMatchesHost == true ? OperationOutcomeKind.Success : _headsetStatus?.WifiSsidMatchesHost == false ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning)
+            ],
+            3 =>
+            [
+                new WorkflowGuideCheckItem("Current transport", ConnectionTransportSummary, ConnectionTransportDetail, _headsetStatus?.IsWifiAdbTransport == true && _headsetStatus.IsUsbAdbVisible == false ? OperationOutcomeKind.Success : _headsetStatus?.IsConnected == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Failure),
+                new WorkflowGuideCheckItem("USB visibility", _headsetStatus?.IsUsbAdbVisible == true ? $"USB {_headsetStatus.VisibleUsbSerial} is still attached." : "No USB ADB device is visible.", "After unplugging the cable, only the Wi-Fi ip:port endpoint should remain.", _headsetStatus?.IsUsbAdbVisible == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
+            ],
+            4 =>
+            [
+                new WorkflowGuideCheckItem("Installed Sussex build", InstalledApkSummary, InstalledApkDetail, InstalledApkLevel),
+                new WorkflowGuideCheckItem("Bundled Sussex build", LocalApkSummary, LocalApkDetail, LocalApkLevel)
+            ],
+            5 =>
+            [
+                new WorkflowGuideCheckItem("Pinned device profile", deviceProfileState.Summary, DeviceProfileDetail, deviceProfileState.Level),
+                new WorkflowGuideCheckItem("Headset battery floor", headsetBatteryState.Summary, headsetBatteryState.Detail, headsetBatteryState.Level),
+                new WorkflowGuideCheckItem("Right controller battery floor", rightControllerBatteryState.Summary, rightControllerBatteryState.Detail, rightControllerBatteryState.Level),
+                new WorkflowGuideCheckItem("Software identity", softwareIdentityState.Summary, softwareIdentityState.Detail, softwareIdentityState.Level)
+            ],
+            6 =>
+            [
+                new WorkflowGuideCheckItem("Boundary instruction", "Draw a large comfortable boundary.", "Cover the participant position, the experimenter position, and the whole experiment area before moving on.", OperationOutcomeKind.Preview)
+            ],
+            7 =>
+            [
+                new WorkflowGuideCheckItem("Foreground runtime", IsStudyRuntimeForeground() ? "Sussex Experiment is in the foreground." : "Sussex Experiment is not in the foreground yet.", HeadsetForegroundLabel, IsStudyRuntimeForeground() ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("Controller wake reminder", BuildControllerWakeReminderSummary(), BuildControllerWakeReminderDetail(), BuildControllerWakeReminderLevel())
+            ],
+            8 =>
+            [
+                new WorkflowGuideCheckItem("LSL receipt", LslSummary, LslDetail, LslLevel),
+                new WorkflowGuideCheckItem("Expected vs connected stream", $"Expected {LslExpectedStreamLabel}", $"Connected {LslConnectedStreamLabel}. {LslEchoStateLabel}", LslLevel)
+            ],
+            9 =>
+            [
+                new WorkflowGuideCheckItem("Particle commands", particleCommandSummary, ParticlesDetail, _workflowGuideParticlesOnVerified && _workflowGuideParticlesOffVerified ? ParticlesLevel : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("Runtime particle state", ParticlesSummary, "The step completes only after particles were turned on and then off again from this guide session.", ParticlesLevel)
+            ],
+            10 =>
+            [
+                new WorkflowGuideCheckItem("Calibration state", ControllerSummary, $"Calibration is optional on the current Sussex APK. {ControllerCalibrationLabel}. {ControllerDetail}", ControllerLevel),
+                new WorkflowGuideCheckItem("Volume readback", $"Current controller volume {ControllerValueLabel}.", "If calibration succeeds, a live volume readback should appear here. The guide can still continue while this path remains unstable.", string.Equals(ControllerValueLabel, "n/a", StringComparison.OrdinalIgnoreCase) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
+            ],
+            11 =>
+            [
+                new WorkflowGuideCheckItem("Validation capture", ValidationCaptureSummary, ValidationCaptureDetail, ValidationCaptureCompleted ? OperationOutcomeKind.Success : ValidationCaptureRunning ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("Recorder state", RecordingSummary, RecordingDetail, RecordingLevel)
+            ],
+            _ =>
+            [
+                new WorkflowGuideCheckItem("Reset calibration", "Use Reset Calibration before the real participant enters the headset.", "This prevents the experimenter's calibration from being reused accidentally.", CanResetBreathingCalibration ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("Particles off", ParticlesSummary, "Leave particles off before returning to the main runtime tab.", ParticlesLevel)
+            ]
+        };
+    }
+
+    private IReadOnlyList<WorkflowGuideActionItem> BuildWorkflowGuideActionItems(int stepIndex)
+        => stepIndex switch
+        {
+            0 =>
+            [
+                BuildWorkflowGuideActionItem("Probe USB", ProbeUsbCommand, true, "Probing USB..."),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            1 =>
+            [
+                BuildWorkflowGuideActionItem("Enable Wi-Fi ADB", EnableWifiCommand, true, "Enabling Wi-Fi ADB..."),
+                BuildWorkflowGuideActionItem("Connect Quest", ConnectQuestCommand, !string.IsNullOrWhiteSpace(EndpointDraft), "Connecting Quest...")
+            ],
+            2 =>
+            [
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            3 =>
+            [
+                BuildWorkflowGuideActionItem("Connect Quest", ConnectQuestCommand, !string.IsNullOrWhiteSpace(EndpointDraft), "Connecting Quest..."),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            4 =>
+            [
+                BuildWorkflowGuideActionItem(StudyApkInstallButtonLabel, InstallStudyAppCommand, HasValidPinnedLocalApk, "Installing Sussex APK..."),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            5 =>
+            [
+                BuildWorkflowGuideActionItem("Apply Device Profile", ApplyPinnedDeviceProfileCommand, true, "Applying Device Profile..."),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            6 =>
+            [],
+            7 =>
+            [
+                BuildWorkflowGuideActionItem("Launch Sussex In Kiosk Mode", LaunchStudyAppCommand, true, "Launching Sussex In Kiosk Mode..."),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            8 =>
+            [
+                BuildWorkflowGuideActionItem(TestLslSenderActionLabel, ToggleTestLslSenderCommand, CanToggleTestLslSender),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            9 =>
+            [
+                BuildWorkflowGuideActionItem("Particles On", ParticlesOnCommand, CanToggleParticles, "Sending Particles On..."),
+                BuildWorkflowGuideActionItem("Particles Off", ParticlesOffCommand, CanToggleParticles, "Sending Particles Off...")
+            ],
+            10 =>
+            [
+                BuildWorkflowGuideActionItem("Start Calibration", StartBreathingCalibrationCommand, CanStartBreathingCalibration, "Starting Calibration...")
+            ],
+            11 =>
+            [
+                BuildWorkflowGuideActionItem("Run 20 Second Validation Capture", RunWorkflowValidationCaptureCommand, CanRunWorkflowValidationCapture, "Running Validation Capture...")
+            ],
+            _ =>
+            [
+                BuildWorkflowGuideActionItem("Reset Calibration", ResetBreathingCalibrationCommand, CanResetBreathingCalibration, "Resetting Calibration..."),
+                BuildWorkflowGuideActionItem("Particles Off", ParticlesOffCommand, CanToggleParticles, "Sending Particles Off...")
+            ]
+        };
+
+    private WorkflowGuideActionItem BuildWorkflowGuideActionItem(
+        string label,
+        AsyncRelayCommand command,
+        bool isEnabled,
+        string? runningLabel = null)
+        => new(
+            command.IsRunning ? runningLabel ?? $"{label}..." : label,
+            command,
+            isEnabled && !command.IsRunning,
+            command.IsRunning);
+
+    private string BuildControllerWakeReminderSummary()
+    {
+        var active = ParseBool(GetFirstValue("tracker.breathing.controller.active"));
+        return active == true
+            ? "Right controller activity is already visible."
+            : "Wake the right controller before entering kiosk.";
+    }
+
+    private string BuildControllerWakeReminderDetail()
+    {
+        var state = GetFirstValue("tracker.breathing.controller.state");
+        return ParseBool(GetFirstValue("tracker.breathing.controller.active")) == true
+            ? $"Runtime state {(string.IsNullOrWhiteSpace(state) ? "n/a" : state)}. The controller only needs to stay awake through kiosk entry."
+            : "If the right controller is asleep when kiosk starts, it may not become active afterward. Wake it on the headset before you launch.";
+    }
+
+    private OperationOutcomeKind BuildControllerWakeReminderLevel()
+        => ParseBool(GetFirstValue("tracker.breathing.controller.active")) == true
+            ? OperationOutcomeKind.Success
+            : OperationOutcomeKind.Warning;
+
+    private string BuildWifiAdbGuideSummary()
+        => _headsetStatus?.IsWifiAdbTransport == true
+            ? "ADB over Wi-Fi is active."
+            : _headsetStatus?.IsConnected == true
+                ? "ADB over Wi-Fi is not active yet."
+                : "Quest connection is not ready yet.";
+
+    private string BuildWifiAdbGuideDetail()
+    {
+        if (_headsetStatus?.IsWifiAdbTransport == true)
+        {
+            return "The headset is reachable over Wi-Fi ADB. Continue to the Wi-Fi match step, then unplug USB in the following step and confirm the session stays alive over Wi-Fi only.";
+        }
+
+        if (_headsetStatus?.IsConnected == true)
+        {
+            return "The headset is still on USB only. Use Enable Wi-Fi ADB, then Connect Quest if the session does not switch to Wi-Fi automatically.";
+        }
+
+        return "Connect the headset over USB first, then enable Wi-Fi ADB.";
+    }
+
+    private static string BuildWorkflowGuideLastActionSummary(string actionLabel, OperationOutcomeKind level)
+        => level switch
+        {
+            OperationOutcomeKind.Success => $"{actionLabel} completed.",
+            OperationOutcomeKind.Warning => $"{actionLabel} needs attention.",
+            OperationOutcomeKind.Failure => $"{actionLabel} needs attention.",
+            _ => $"{actionLabel} finished."
+        };
+
+    private static void ReplaceWorkflowGuideCheckItems(
+        ObservableCollection<WorkflowGuideCheckItem> target,
+        IReadOnlyList<WorkflowGuideCheckItem> source)
+    {
+        var canUpdateInPlace = target.Count == source.Count
+            && target.Zip(source, (existing, incoming) => string.Equals(existing.Label, incoming.Label, StringComparison.Ordinal))
+                .All(matches => matches);
+
+        if (!canUpdateInPlace)
+        {
+            ReplaceItems(target, source);
+            return;
+        }
+
+        for (var index = 0; index < source.Count; index++)
+        {
+            target[index].UpdateFrom(source[index]);
+        }
+    }
+
+    private static void ReplaceWorkflowGuideActionItems(
+        ObservableCollection<WorkflowGuideActionItem> target,
+        IReadOnlyList<WorkflowGuideActionItem> source)
+    {
+        var canUpdateInPlace = target.Count == source.Count
+            && target.Zip(source, (existing, incoming) => ReferenceEquals(existing.Command, incoming.Command))
+                .All(matches => matches);
+
+        if (!canUpdateInPlace)
+        {
+            ReplaceItems(target, source);
+            return;
+        }
+
+        for (var index = 0; index < source.Count; index++)
+        {
+            target[index].UpdateFrom(source[index]);
+        }
+    }
+
+    private WorkflowGuideGateState EvaluateDeviceProfileGateState()
+        => new(
+            DeviceProfileLevel,
+            DeviceProfileSummary,
+            DeviceProfileDetail,
+            DeviceProfileLevel == OperationOutcomeKind.Success);
+
+    private WorkflowGuideGateState EvaluateHeadsetBatteryGateState()
+    {
+        var minimum = GetDeviceProfileIntegerValue("viscereality.minimum_headset_battery_percent");
+        var battery = _headsetStatus?.BatteryLevel;
+        if (!minimum.HasValue)
+        {
+            return new WorkflowGuideGateState(OperationOutcomeKind.Preview, HeadsetBatteryLabel, "No minimum headset battery threshold is configured in the study profile yet.", true);
+        }
+
+        if (!battery.HasValue)
+        {
+            return new WorkflowGuideGateState(OperationOutcomeKind.Warning, "Headset battery not reported yet.", $"Expected at least {minimum.Value}% headset battery before leaving the bench.", false);
+        }
+
+        var ready = battery.Value >= minimum.Value;
+        return new WorkflowGuideGateState(
+            ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+            ready
+                ? $"Headset battery {battery.Value}% meets the {minimum.Value}% floor."
+                : $"Headset battery {battery.Value}% is below the {minimum.Value}% floor.",
+            HeadsetBatteryLabel,
+            ready);
+    }
+
+    private WorkflowGuideGateState EvaluateRightControllerBatteryGateState()
+    {
+        var minimum = GetDeviceProfileIntegerValue("viscereality.minimum_right_controller_battery_percent");
+        var rightController = _headsetStatus?.Controllers?.FirstOrDefault(controller => string.Equals(controller.HandLabel, "Right", StringComparison.OrdinalIgnoreCase));
+        if (!minimum.HasValue)
+        {
+            return new WorkflowGuideGateState(OperationOutcomeKind.Preview, BuildControllerBatteryLabel(_headsetStatus?.Controllers), "No minimum right-controller battery threshold is configured in the study profile yet.", true);
+        }
+
+        if (rightController?.BatteryLevel is null)
+        {
+            return new WorkflowGuideGateState(OperationOutcomeKind.Warning, "Right controller battery not reported yet.", $"Expected at least {minimum.Value}% on the right controller before leaving the bench.", false);
+        }
+
+        var ready = rightController.BatteryLevel.Value >= minimum.Value;
+        var controllerLabel = FormatControllerBatteryLabel("R", rightController);
+        return new WorkflowGuideGateState(
+            ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+            ready
+                ? $"Right controller {controllerLabel} meets the {minimum.Value}% floor."
+                : $"Right controller {controllerLabel} is below the {minimum.Value}% floor.",
+            "Wake the right controller before launching kiosk so it remains active afterward.",
+            ready);
+    }
+
+    private WorkflowGuideGateState EvaluateSoftwareIdentityGateState()
+    {
+        if (VerificationBaseline is null)
+        {
+            return new WorkflowGuideGateState(
+                OperationOutcomeKind.Warning,
+                "No verified Sussex software baseline is recorded yet.",
+                "This step requires a verified OS/build baseline so the headset software identity can be checked safely.",
+                false);
+        }
+
+        var ready = PinnedBuildLevel == OperationOutcomeKind.Success;
+        return new WorkflowGuideGateState(
+            ready ? OperationOutcomeKind.Success : PinnedBuildLevel == OperationOutcomeKind.Failure ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning,
+            PinnedBuildSummary,
+            PinnedBuildDetail,
+            ready);
+    }
+
+    private int? GetDeviceProfileIntegerValue(string key)
+        => _study.DeviceProfile.Properties.TryGetValue(key, out var rawValue) && int.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+
+    private static OperationOutcomeKind CombineWorkflowGuideLevels(params OperationOutcomeKind[] levels)
+    {
+        if (levels.Any(level => level == OperationOutcomeKind.Failure))
+        {
+            return OperationOutcomeKind.Failure;
+        }
+
+        if (levels.Any(level => level == OperationOutcomeKind.Warning))
+        {
+            return OperationOutcomeKind.Warning;
+        }
+
+        if (levels.Any(level => level == OperationOutcomeKind.Preview))
+        {
+            return OperationOutcomeKind.Preview;
+        }
+
+        return OperationOutcomeKind.Success;
+    }
+
+    private static void ReplaceItems<T>(ObservableCollection<T> target, IReadOnlyList<T> source)
+    {
+        target.Clear();
+        foreach (var item in source)
+        {
+            target.Add(item);
+        }
+    }
+
+    private static string BuildParticipantSessionId(DateTimeOffset startedAtUtc)
+        => $"session-{startedAtUtc:yyyyMMddTHHmmssZ}";
+
+    private static string BuildDatasetId(string studyId, string participantId, string sessionId)
+        => string.Join(
+            "__",
+            StudyDataRecorderService.SanitizePathSegment(studyId),
+            StudyDataRecorderService.SanitizePathSegment(StudyDataRecorderService.NormalizeParticipantId(participantId)),
+            StudyDataRecorderService.SanitizePathSegment(sessionId));
+
+    private static string BuildDatasetHash(
+        string studyId,
+        string participantId,
+        string sessionId,
+        DateTimeOffset startedAtUtc)
+        => ComputeHashToken(
+            "dataset",
+            studyId,
+            StudyDataRecorderService.NormalizeParticipantId(participantId),
+            sessionId,
+            startedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+
+    private static string BuildSettingsHash(
+        string studyId,
+        string packageId,
+        string apkSha256,
+        string appVersionName,
+        string launchComponent,
+        string headsetSoftwareVersion,
+        string headsetBuildId,
+        string headsetDisplayId,
+        string deviceProfileId,
+        IReadOnlyDictionary<string, string> deviceProfileProperties,
+        string expectedLslStreamName,
+        string expectedLslStreamType,
+        double recenterDistanceThresholdUnits,
+        string runtimeConfigHash,
+        string runtimeHotloadProfileId,
+        string runtimeHotloadProfileVersion,
+        string runtimeHotloadProfileChannel,
+        string environmentHash)
+    {
+        var builder = new StringBuilder(512);
+        builder.AppendLine("settings");
+        builder.AppendLine(studyId ?? string.Empty);
+        builder.AppendLine(packageId ?? string.Empty);
+        builder.AppendLine(apkSha256 ?? string.Empty);
+        builder.AppendLine(appVersionName ?? string.Empty);
+        builder.AppendLine(launchComponent ?? string.Empty);
+        builder.AppendLine(headsetSoftwareVersion ?? string.Empty);
+        builder.AppendLine(headsetBuildId ?? string.Empty);
+        builder.AppendLine(headsetDisplayId ?? string.Empty);
+        builder.AppendLine(deviceProfileId ?? string.Empty);
+        builder.AppendLine(expectedLslStreamName ?? string.Empty);
+        builder.AppendLine(expectedLslStreamType ?? string.Empty);
+        builder.AppendLine(recenterDistanceThresholdUnits.ToString("0.######", CultureInfo.InvariantCulture));
+        builder.AppendLine(runtimeConfigHash ?? string.Empty);
+        builder.AppendLine(runtimeHotloadProfileId ?? string.Empty);
+        builder.AppendLine(runtimeHotloadProfileVersion ?? string.Empty);
+        builder.AppendLine(runtimeHotloadProfileChannel ?? string.Empty);
+        builder.AppendLine(environmentHash ?? string.Empty);
+
+        foreach (var pair in deviceProfileProperties.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            builder.Append(pair.Key);
+            builder.Append('=');
+            builder.AppendLine(pair.Value ?? string.Empty);
+        }
+
+        return ComputeHashToken(builder.ToString());
+    }
+
+    private static string ComputeHashToken(params string[] values)
+    {
+        var payload = string.Join("\n", values.Select(value => value ?? string.Empty));
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string BuildRecorderEventDetail(OperationOutcome outcome)
+        => string.IsNullOrWhiteSpace(outcome.Detail)
+            ? outcome.Summary
+            : $"{outcome.Summary} {outcome.Detail}".Trim();
+
+    private bool IsExperimentActive()
+        => ParseBool(GetFirstValue("study.session.experiment_active")) == true;
+
+    private static OperationOutcome CombineWorkflowOutcomes(
+        string actionLabel,
+        IReadOnlyList<(string Label, OperationOutcome Outcome)> outcomes,
+        string fallbackDetail)
+    {
+        if (outcomes.Count == 0)
+        {
+            return new OperationOutcome(OperationOutcomeKind.Preview, $"{actionLabel} prepared.", fallbackDetail);
+        }
+
+        var kind = outcomes.Any(entry => entry.Outcome.Kind == OperationOutcomeKind.Failure)
+            ? OperationOutcomeKind.Failure
+            : outcomes.Any(entry => entry.Outcome.Kind == OperationOutcomeKind.Warning)
+                ? OperationOutcomeKind.Warning
+                : outcomes.Any(entry => entry.Outcome.Kind == OperationOutcomeKind.Preview)
+                    ? OperationOutcomeKind.Preview
+                    : OperationOutcomeKind.Success;
+
+        var detail = string.Join(
+            " ",
+            outcomes.Select(entry => $"{entry.Label}: {entry.Outcome.Summary}"));
+        if (!string.IsNullOrWhiteSpace(fallbackDetail))
+        {
+            detail = string.IsNullOrWhiteSpace(detail)
+                ? fallbackDetail
+                : $"{detail} {fallbackDetail}";
+        }
+
+        var summary = kind switch
+        {
+            OperationOutcomeKind.Failure => $"{actionLabel} finished with at least one failure.",
+            OperationOutcomeKind.Warning => $"{actionLabel} finished with warnings.",
+            OperationOutcomeKind.Preview => $"{actionLabel} is only partially live in this environment.",
+            _ => $"{actionLabel} completed."
+        };
+
+        return new OperationOutcome(kind, summary, detail);
+    }
+
+    private void UpdateWorkflowStatus()
+    {
+        UpdateParticipantSessionState();
+
+        var headsetConnected = _headsetStatus?.IsConnected == true;
+        var wifiReady = _headsetStatus?.IsWifiAdbTransport == true;
+        var buildReady = PinnedBuildLevel == OperationOutcomeKind.Success;
+        var profileReady = DeviceProfileLevel == OperationOutcomeKind.Success;
+        var runtimeForeground = IsStudyRuntimeForeground();
+        var hasLiveTwinState = _reportedTwinState.Count > 0;
+        var controllerCalibrated = string.Equals(ControllerCalibrationLabel, "Calibrated", StringComparison.OrdinalIgnoreCase);
+        var lslHealthy = LslLevel == OperationOutcomeKind.Success;
+        var recenterVerified = RecenterLevel != OperationOutcomeKind.Preview;
+        var particlesVerified = ParticlesLevel != OperationOutcomeKind.Preview;
+        var canResetCalibration = CanResetBreathingCalibration;
+        var canStartExperiment = CanStartExperiment;
+        var canEndExperiment = CanEndExperiment;
+        var setupReady = headsetConnected && wifiReady && buildReady && profileReady;
+        var participantIdReady = !string.IsNullOrWhiteSpace(ParticipantIdDraft);
+        var recordingActive = _activeRecordingSession is not null;
+        var experimentActive = IsExperimentActive();
+        var participantStartReady = false;
+        var participantScreenshotReady = _lastQuestScreenshotCapturedAtUtc.HasValue;
+
+        WorkflowSetupLevel = setupReady
+            ? OperationOutcomeKind.Success
+            : !headsetConnected
+                ? OperationOutcomeKind.Warning
+                : PinnedBuildLevel == OperationOutcomeKind.Failure || DeviceProfileLevel == OperationOutcomeKind.Failure
+                    ? OperationOutcomeKind.Failure
+                    : OperationOutcomeKind.Warning;
+        WorkflowSetupSummary = setupReady
+            ? "Headset, Sussex build, and device profile are ready."
+            : !headsetConnected
+                ? "Connect the headset before starting the Sussex protocol."
+                : !wifiReady
+                    ? "Switch from USB to Wi-Fi ADB before starting the stable Sussex flow."
+                    : PinnedBuildLevel == OperationOutcomeKind.Failure
+                        ? "Pinned Sussex build still needs attention."
+                        : DeviceProfileLevel == OperationOutcomeKind.Failure
+                            ? "Pinned study device profile still needs attention."
+                            : "Headset setup is still incomplete.";
+        WorkflowSetupDetail =
+            $"{ConnectionTransportSummary} {PinnedBuildSummary} {DeviceProfileSummary} {HeadsetBatteryLabel}. {HeadsetSoftwareVersionLabel}. " +
+            "Battery thresholds and brightness/volume policy are visible, but not enforced by the workflow tab yet.";
+
+        WorkflowKioskLevel = !setupReady
+            ? OperationOutcomeKind.Preview
+            : runtimeForeground
+                ? QuestScreenshotLevel == OperationOutcomeKind.Warning
+                    ? OperationOutcomeKind.Warning
+                    : OperationOutcomeKind.Success
+                : OperationOutcomeKind.Warning;
+        WorkflowKioskSummary = !setupReady
+            ? "Finish headset setup before boundary work and kiosk entry."
+            : runtimeForeground
+                ? QuestScreenshotLevel == OperationOutcomeKind.Warning
+                    ? "Sussex kiosk is up, but visual confirmation is still pending."
+                    : "Sussex kiosk is up and ready for bench verification."
+                : "Boundary setup and kiosk entry are still pending.";
+        WorkflowKioskDetail =
+            $"{HeadsetAwakeSummary} {ControllerSummary} Disconnect USB before the operator puts the headset on. " +
+            "Use the physical power button for off-face sleep/wake and keep proximity in normal mode during the standard kiosk path.";
+
+        WorkflowBenchLevel = !runtimeForeground
+            ? OperationOutcomeKind.Preview
+            : ControllerLevel == OperationOutcomeKind.Failure || LslLevel == OperationOutcomeKind.Failure
+                ? OperationOutcomeKind.Failure
+                : hasLiveTwinState && lslHealthy && controllerCalibrated && recenterVerified && particlesVerified
+                    ? OperationOutcomeKind.Success
+                    : OperationOutcomeKind.Warning;
+        WorkflowBenchSummary = !runtimeForeground
+            ? "Bench verification is waiting for the Sussex runtime."
+            : WorkflowBenchLevel == OperationOutcomeKind.Failure
+                ? "Bench verification failed one or more critical checks."
+                : WorkflowBenchLevel == OperationOutcomeKind.Success
+                    ? "Bench verification looks healthy."
+                    : "Run particles, recenter, LSL, and controller calibration checks before handoff.";
+        WorkflowBenchDetail =
+            $"{LslSummary} {ControllerSummary} Calibration {ControllerCalibrationLabel}. {RecenterSummary} {ParticlesSummary}";
+
+        participantStartReady = runtimeForeground
+            && WorkflowBenchLevel == OperationOutcomeKind.Success
+            && canStartExperiment
+            && participantIdReady
+            && !recordingActive
+            && !_participantRunStopping;
+
+        WorkflowHandoffLevel = !runtimeForeground
+            ? OperationOutcomeKind.Preview
+            : canResetCalibration
+                ? OperationOutcomeKind.Success
+                : OperationOutcomeKind.Warning;
+        WorkflowHandoffSummary = !runtimeForeground
+            ? "Participant handoff follows kiosk entry and bench verification."
+            : !canResetCalibration
+                ? "Calibration reset is still missing from the mirrored Sussex APK."
+                : controllerCalibrated
+                    ? "Reset calibration is available for participant handoff."
+                    : "Reset calibration is available; use it before the headset changes hands.";
+        WorkflowHandoffDetail =
+            (canResetCalibration
+                ? "The shell can send Reset Calibration before particles-off handoff, so the experimenter's controller calibration cannot leak into the participant run. "
+                : "Reset Calibration is unavailable in the current Sussex shell metadata. ") +
+            "The handoff path should end with the physical power button, not a remote sleep/wake command.";
+
+        WorkflowParticipantStartLevel = !runtimeForeground
+            ? OperationOutcomeKind.Preview
+            : recordingActive || experimentActive
+                ? OperationOutcomeKind.Success
+                : participantStartReady && participantScreenshotReady && !ParticipantHasExistingSessions
+                    ? OperationOutcomeKind.Success
+                    : OperationOutcomeKind.Warning;
+        WorkflowParticipantStartSummary = runtimeForeground
+            ? recordingActive || experimentActive
+                ? "Participant run is active."
+                : participantStartReady
+                    ? ParticipantHasExistingSessions
+                        ? "Participant start is ready, with a duplicate-id warning."
+                        : participantScreenshotReady
+                            ? "Participant start is ready."
+                            : "Participant start is ready, but the participant view screenshot is still pending."
+                    : canStartExperiment
+                        ? "Participant start is waiting for participant metadata or final visual checks."
+                        : "Participant-start controls are still pending in the companion."
+            : "Participant-start controls come after kiosk and bench verification.";
+        WorkflowParticipantStartDetail =
+            $"{ParticipantEntrySummary} {ParticipantEntryDetail} " +
+            (canStartExperiment
+                    ? participantScreenshotReady
+                    ? "The participant view screenshot has been captured for this handoff, and Start Experiment will publish the shared dataset/session ids to Quest before recording begins."
+                    : "Capture one Quest screenshot after wake and recenter so the operator has a visual double-check before starting."
+                : "Start Experiment is unavailable in the current Sussex shell metadata.");
+
+        WorkflowParticipantEndLevel = recordingActive || experimentActive || _participantRunStopping
+            ? canEndExperiment
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Failure
+            : OperationOutcomeKind.Preview;
+        WorkflowParticipantEndSummary = recordingActive || experimentActive || _participantRunStopping
+            ? _participantRunStopping
+                ? "Participant wrap-up is in progress."
+                : canEndExperiment
+                    ? "Participant end is ready when the run is complete."
+                    : "Participant-end cleanup is blocked because End Experiment is unavailable."
+            : "Participant-end controls come after a participant run has started.";
+        WorkflowParticipantEndDetail =
+            $"{RecordingSummary} {RecordingDetail} " +
+            (canEndExperiment
+                ? "End Experiment now stops the Quest-side participant recorder and the local Windows recorder, then runs reset calibration and particles off."
+                : "End Experiment is unavailable in the current Sussex shell metadata.");
+
+        WorkflowRuntimePendingSummary = CanStartBreathingCalibration && canResetCalibration && canStartExperiment && canEndExperiment
+            ? "Current Sussex APK metadata exposes recenter, calibration start/reset, experiment start/end, and particle toggles."
+            : CanStartBreathingCalibration
+                ? "Current Sussex APK metadata exposes recenter, calibration start, and particle toggles."
+                : "Current Sussex APK exposes recenter and particle toggles, but the newer session-control commands are not mirrored in this shell yet.";
+        WorkflowRuntimePendingDetail =
+            @"Scene contract: C:\Users\tillh\source\repos\AstralKarateDojo\Assets\Scenes\SussexControllerStudy.unity. " +
+            "Participant number intake, duplicate-id warning, local session recording, screenshot archiving, Quest-side participant recording, and shared dataset/session hash handoff are now wired into the Sussex shell contract.";
+
+        if (!setupReady)
+        {
+            WorkflowCurrentStepLevel = WorkflowSetupLevel;
+            WorkflowCurrentStepSummary = "1. Finish headset setup before starting the Sussex protocol.";
+            WorkflowCurrentStepDetail = WorkflowSetupDetail;
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (!runtimeForeground)
+        {
+            WorkflowCurrentStepLevel = WorkflowKioskLevel;
+            WorkflowCurrentStepSummary = "2. Boundary plus kiosk entry is the next operator step.";
+            WorkflowCurrentStepDetail = WorkflowKioskDetail;
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (WorkflowBenchLevel != OperationOutcomeKind.Success)
+        {
+            WorkflowCurrentStepLevel = WorkflowBenchLevel;
+            WorkflowCurrentStepSummary = "3. Bench verification is the next operator step.";
+            WorkflowCurrentStepDetail = WorkflowBenchDetail;
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (WorkflowHandoffLevel != OperationOutcomeKind.Success)
+        {
+            WorkflowCurrentStepLevel = WorkflowHandoffLevel;
+            WorkflowCurrentStepSummary = "4. Participant handoff is the next operator step.";
+            WorkflowCurrentStepDetail = WorkflowHandoffDetail;
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (recordingActive || experimentActive || _participantRunStopping)
+        {
+            WorkflowCurrentStepLevel = WorkflowParticipantEndLevel;
+            WorkflowCurrentStepSummary = "6. Participant wrap-up is the next operator step.";
+            WorkflowCurrentStepDetail = WorkflowParticipantEndDetail;
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        WorkflowCurrentStepLevel = WorkflowParticipantStartLevel;
+        WorkflowCurrentStepSummary = "5. Participant start is the next operator step.";
+        WorkflowCurrentStepDetail = WorkflowParticipantStartDetail;
+        UpdateWorkflowGuideState();
     }
 
     private void UpdateLiveRuntimeCard()
@@ -3372,11 +6170,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(ResolveHzdbSelector()))
+        if (string.IsNullOrWhiteSpace(ResolveQuestScreenshotSelector()))
         {
             QuestScreenshotLevel = OperationOutcomeKind.Preview;
             QuestScreenshotSummary = "Quest screenshot capture needs a headset selector.";
-            QuestScreenshotDetail = "Probe USB or connect the Quest first so the study shell can request a metacam screenshot.";
+            QuestScreenshotDetail = "Probe USB or connect the Quest first so the study shell can request a fresh Quest screenshot.";
             return;
         }
 
@@ -3392,13 +6190,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             QuestScreenshotLevel = OperationOutcomeKind.Success;
             QuestScreenshotSummary = $"Quest screenshot captured at {_lastQuestScreenshotCapturedAtUtc.Value.ToLocalTime():HH:mm:ss}.";
-            QuestScreenshotDetail = $"Latest metacam screenshot: {QuestScreenshotPath}";
+            QuestScreenshotDetail = $"Latest Quest screenshot: {QuestScreenshotPath}";
             return;
         }
 
         QuestScreenshotLevel = OperationOutcomeKind.Preview;
         QuestScreenshotSummary = "No Quest screenshot captured yet.";
-        QuestScreenshotDetail = "Capture a Quest screenshot after kiosk launch or exit to confirm what is actually visible on the headset.";
+        QuestScreenshotDetail = "Capture a Quest screenshot whenever the visible headset scene needs confirmation.";
     }
 
     private string BuildQuestVisualConfirmationHint()
@@ -3418,7 +6216,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return $"Latest Quest screenshot captured at {_lastQuestScreenshotCapturedAtUtc.Value.ToLocalTime():HH:mm:ss}. Review it whenever the shell state and the visible headset scene disagree.";
         }
 
-        return "Quest shell focus can still disagree with the visible scene on this HorizonOS build. Capture a Quest screenshot in Bench tools when launch or exit needs visual confirmation.";
+        return "Quest shell focus can still disagree with the visible scene on this HorizonOS build. Capture a Quest screenshot in Bench tools whenever a visual verification step needs confirmation.";
     }
 
     private void UpdateTestLslSenderCard()
@@ -3867,9 +6665,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var endpointDraft = string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim();
         var candidates = new List<string>(4);
 
-        AddSelectorCandidate(candidates, connectedSelector);
         AddSelectorCandidate(candidates, _appSessionState.ActiveEndpoint);
         AddSelectorCandidate(candidates, endpointDraft);
+        AddSelectorCandidate(candidates, connectedSelector);
         AddSelectorCandidate(candidates, _appSessionState.LastUsbSerial);
 
         return candidates;
@@ -3877,6 +6675,45 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private string ResolveHzdbSelector()
         => ResolveHeadsetActionSelector();
+
+    private string ResolveQuestScreenshotSelector()
+        => ResolveQuestScreenshotSelectorCandidates().FirstOrDefault() ?? string.Empty;
+
+    private IReadOnlyList<string> ResolveQuestScreenshotSelectorCandidates()
+    {
+        var candidates = ResolveHeadsetActionSelectorCandidates();
+        var ordered = new List<string>(candidates.Count);
+        var wifiCandidates = candidates.Where(LooksLikeTcpSelector).ToArray();
+
+        foreach (var candidate in wifiCandidates)
+        {
+            AddSelectorCandidate(ordered, candidate);
+        }
+
+        if (ordered.Count > 0)
+        {
+            return ordered;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (!LooksLikeTcpSelector(candidate))
+            {
+                AddSelectorCandidate(ordered, candidate);
+            }
+        }
+
+        return ordered;
+    }
+
+    private IReadOnlyList<string> ResolveQuestScreenshotCaptureMethods()
+    {
+        var currentStepUsesRuntimeView = WorkflowGuideStepIndex is 9 or 11;
+        var runtimeIsForeground = _headsetStatus?.IsTargetForeground == true || IsStudyRuntimeForeground();
+        return currentStepUsesRuntimeView || runtimeIsForeground
+            ? QuestScreenshotRuntimeCaptureMethods
+            : QuestScreenshotShellCaptureMethods;
+    }
 
     private string BuildQuestScreenshotOutputPath()
     {
@@ -3886,7 +6723,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "screenshots",
             _study.Id);
         Directory.CreateDirectory(screenshotRoot);
-        return Path.Combine(screenshotRoot, $"quest_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}.png");
+        return Path.Combine(screenshotRoot, $"quest_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fffffff}.png");
     }
 
     private static BitmapImage? LoadQuestScreenshotPreview(string path)
@@ -3912,6 +6749,46 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return null;
         }
     }
+
+    private static string ComputeQuestScreenshotHash(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static void TryDeleteFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
+    }
+
+    private static string DescribeSelectorTransport(string selector)
+        => LooksLikeTcpSelector(selector)
+            ? "Wi-Fi ADB"
+            : "USB ADB";
 
     private void MarkQuestVisualConfirmationPending(string reason)
     {
@@ -4123,6 +7000,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void RememberCommandRequest(StudyTwinCommandRequest request)
     {
+        _lastStudyTwinCommandRequest = request;
+
         if (string.Equals(request.ActionId, _study.Controls.RecenterCommandActionId, StringComparison.OrdinalIgnoreCase))
         {
             _lastRecenterCommandRequest = request;
@@ -4631,6 +7510,81 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    private Task PreviousWorkflowGuideStepAsync()
+    {
+        WorkflowGuideStepIndex = Math.Max(0, WorkflowGuideStepIndex - 1);
+        return Task.CompletedTask;
+    }
+
+    private Task NextWorkflowGuideStepAsync()
+    {
+        if (CanGoToNextWorkflowGuideStep)
+        {
+            WorkflowGuideStepIndex = Math.Min(WorkflowGuideCatalog.Length - 1, WorkflowGuideStepIndex + 1);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task CloseWorkflowGuideWindowAsync()
+    {
+        CloseWorkflowGuideWindow();
+        return Task.CompletedTask;
+    }
+
+    private async Task OpenWorkflowGuideWindowAsync()
+    {
+        await DispatchAsync(() =>
+        {
+            if (_workflowGuideWindow is { IsLoaded: true })
+            {
+                if (_workflowGuideWindow.WindowState == WindowState.Minimized)
+                {
+                    _workflowGuideWindow.WindowState = WindowState.Normal;
+                }
+
+                _workflowGuideWindow.Activate();
+                return;
+            }
+
+            WorkflowGuideStepIndex = 0;
+            var owner = Application.Current?.Windows
+                .OfType<Window>()
+                .FirstOrDefault(window => window.IsActive)
+                ?? Application.Current?.MainWindow;
+
+            var window = new StudyWorkflowGuideWindow(this)
+            {
+                Owner = owner
+            };
+            window.Closed += OnWorkflowGuideWindowClosed;
+            _workflowGuideWindow = window;
+            window.Show();
+            window.Activate();
+        }).ConfigureAwait(false);
+    }
+
+    private void OnWorkflowGuideWindowClosed(object? sender, EventArgs e)
+    {
+        if (_workflowGuideWindow is not null)
+        {
+            _workflowGuideWindow.Closed -= OnWorkflowGuideWindowClosed;
+            _workflowGuideWindow = null;
+        }
+    }
+
+    private void CloseWorkflowGuideWindow()
+    {
+        if (_workflowGuideWindow is null)
+        {
+            return;
+        }
+
+        _workflowGuideWindow.Closed -= OnWorkflowGuideWindowClosed;
+        _workflowGuideWindow.Close();
+        _workflowGuideWindow = null;
+    }
+
     private void CloseTwinEventsWindow()
     {
         if (_twinEventsWindow is null)
@@ -4694,6 +7648,113 @@ internal readonly record struct StudyTwinCommandConfirmation(
     string? Label,
     string? Source,
     string? ActionId);
+
+public sealed record WorkflowGuideStepDefinition(
+    int Number,
+    string Title,
+    string Explanation);
+
+public sealed record WorkflowGuideGateState(
+    OperationOutcomeKind Level,
+    string Summary,
+    string Detail,
+    bool Ready);
+
+public sealed class WorkflowGuideCheckItem : ObservableObject
+{
+    private string _label;
+    private string _summary;
+    private string _detail;
+    private OperationOutcomeKind _level;
+
+    public WorkflowGuideCheckItem(string label, string summary, string detail, OperationOutcomeKind level)
+    {
+        _label = label;
+        _summary = summary;
+        _detail = detail;
+        _level = level;
+    }
+
+    public string Label
+    {
+        get => _label;
+        private set => SetProperty(ref _label, value);
+    }
+
+    public string Summary
+    {
+        get => _summary;
+        private set => SetProperty(ref _summary, value);
+    }
+
+    public string Detail
+    {
+        get => _detail;
+        private set => SetProperty(ref _detail, value);
+    }
+
+    public OperationOutcomeKind Level
+    {
+        get => _level;
+        private set => SetProperty(ref _level, value);
+    }
+
+    public void UpdateFrom(WorkflowGuideCheckItem source)
+    {
+        Label = source.Label;
+        Summary = source.Summary;
+        Detail = source.Detail;
+        Level = source.Level;
+    }
+}
+
+public sealed class WorkflowGuideActionItem : ObservableObject
+{
+    private string _label;
+    private AsyncRelayCommand _command;
+    private bool _isEnabled;
+    private bool _isRunning;
+
+    public WorkflowGuideActionItem(string label, AsyncRelayCommand command, bool isEnabled, bool isRunning)
+    {
+        _label = label;
+        _command = command;
+        _isEnabled = isEnabled;
+        _isRunning = isRunning;
+    }
+
+    public string Label
+    {
+        get => _label;
+        private set => SetProperty(ref _label, value);
+    }
+
+    public AsyncRelayCommand Command
+    {
+        get => _command;
+        private set => SetProperty(ref _command, value);
+    }
+
+    public bool IsEnabled
+    {
+        get => _isEnabled;
+        private set => SetProperty(ref _isEnabled, value);
+    }
+
+    public bool IsRunning
+    {
+        get => _isRunning;
+        private set => SetProperty(ref _isRunning, value);
+    }
+
+    public void UpdateFrom(WorkflowGuideActionItem source)
+    {
+        Label = source.Label;
+        Command = source.Command;
+        IsEnabled = source.IsEnabled;
+        IsRunning = source.IsRunning;
+    }
+}
 
 internal readonly record struct RecenterEffectObservation(
     bool Observed,

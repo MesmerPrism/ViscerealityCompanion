@@ -99,7 +99,7 @@ viscereality wifi
 viscereality connect 192.168.43.1:5555
 viscereality perf 4 4
 viscereality install path/to/app.apk
-viscereality launch com.Viscereality.LslTwin
+viscereality launch com.Viscereality.SussexExperiment
 viscereality twin send twin-start
 viscereality monitor --stream quest_monitor --type quest.telemetry
 ```

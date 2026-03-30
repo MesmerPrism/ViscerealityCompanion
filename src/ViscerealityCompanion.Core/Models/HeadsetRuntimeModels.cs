@@ -34,7 +34,12 @@ public sealed record HeadsetAppStatus(
     string SoftwareVersion = "",
     string SoftwareReleaseOrCodename = "",
     string SoftwareBuildId = "",
-    string SoftwareDisplayId = "");
+    string SoftwareDisplayId = "",
+    int? ScreenBrightnessPercent = null,
+    int? MediaVolumeLevel = null,
+    int? MediaVolumeMax = null,
+    bool IsUsbAdbVisible = false,
+    string VisibleUsbSerial = "");
 
 public sealed record QuestControllerStatus(
     string HandLabel,

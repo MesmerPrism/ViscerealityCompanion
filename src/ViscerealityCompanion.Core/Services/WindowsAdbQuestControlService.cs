@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using ViscerealityCompanion.Core.Models;
@@ -7,6 +8,10 @@ namespace ViscerealityCompanion.Core.Services;
 
 public sealed class WindowsAdbQuestControlService : IQuestControlService
 {
+    private const string ProfileBrightnessPercentKey = "viscereality.screen_brightness_percent";
+    private const string ProfileMediaVolumeKey = "viscereality.media_volume_music";
+    private const string ProfileHeadsetBatteryMinimumKey = "viscereality.minimum_headset_battery_percent";
+    private const string ProfileRightControllerBatteryMinimumKey = "viscereality.minimum_right_controller_battery_percent";
     private const string QuestSensorLockPackage = "com.oculus.os.vrlockscreen";
     private const string QuestSensorLockActivity = "SensorLockActivity";
     private const string QuestClearActivityPackage = "com.oculus.os.clearactivity";
@@ -145,13 +150,11 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var endpoint = string.IsNullOrWhiteSpace(ipAddress) ? string.Empty : $"{ipAddress}:5555";
 
         return new OperationOutcome(
-            string.IsNullOrWhiteSpace(endpoint) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success,
+            OperationOutcomeKind.Success,
+            "Quest switched to TCP/IP mode on port 5555.",
             string.IsNullOrWhiteSpace(endpoint)
-                ? "Quest switched to TCP/IP mode on port 5555."
-                : $"Quest switched to TCP/IP mode at {endpoint}.",
-            string.IsNullOrWhiteSpace(endpoint)
-                ? "Enter the headset Wi-Fi IP manually and run Connect Quest."
-                : AdbShellSupport.Collapse(tcpip.CombinedOutput),
+                ? "Wi-Fi ADB bootstrap completed. If the session remains on USB, reconnect from the companion before removing the cable."
+                : "Wi-Fi ADB bootstrap completed.",
             Endpoint: endpoint);
     }
 
@@ -372,24 +375,24 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         foreach (var pair in profile.Properties)
         {
-            var set = await RunShellAsync(selector, $"setprop {AdbShellSupport.Quote(pair.Key)} {AdbShellSupport.Quote(pair.Value)}", cancellationToken).ConfigureAwait(false);
-            if (set.ExitCode != 0)
+            var applyOutcome = await ApplyDeviceProfilePropertyAsync(selector, pair.Key, pair.Value, cancellationToken).ConfigureAwait(false);
+            if (applyOutcome.Kind == OperationOutcomeKind.Failure)
             {
-                return Failure($"Device profile failed at {pair.Key}.", set.CombinedOutput);
+                return Failure($"Device profile failed at {pair.Key}.", applyOutcome.Detail);
             }
 
-            var readBack = await TryReadShellValueAsync(selector, $"getprop {AdbShellSupport.Quote(pair.Key)}", cancellationToken).ConfigureAwait(false);
-            if (!string.Equals(readBack, pair.Value, StringComparison.Ordinal))
+            var status = await QueryDeviceProfilePropertyStatusAsync(selector, pair.Key, pair.Value, cancellationToken).ConfigureAwait(false);
+            if (!status.Matches)
             {
                 return MergeWakeWarning(
                     new OperationOutcome(
                         OperationOutcomeKind.Warning,
                         $"Device profile partially applied: {profile.Label}.",
-                        $"Expected {pair.Key}={pair.Value} but Quest reported `{readBack}`."),
+                        $"Expected {pair.Key}={pair.Value} but Quest reported `{status.ReportedValue}`."),
                     wakeOutcome);
             }
 
-            applied.Add($"{pair.Key}={readBack}");
+            applied.Add($"{FormatDeviceProfilePropertyLabel(pair.Key)}={status.ReportedValue}");
         }
 
         return MergeWakeWarning(
@@ -793,12 +796,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             var checks = new List<DevicePropertyStatus>(profile.Properties.Count);
             foreach (var pair in profile.Properties)
             {
-                var reported = await TryReadShellValueAsync(selector, $"getprop {AdbShellSupport.Quote(pair.Key)}", cancellationToken).ConfigureAwait(false);
-                checks.Add(new DevicePropertyStatus(
-                    pair.Key,
-                    pair.Value,
-                    reported,
-                    string.Equals(pair.Value, reported, StringComparison.Ordinal)));
+                checks.Add(await QueryDeviceProfilePropertyStatusAsync(selector, pair.Key, pair.Value, cancellationToken).ConfigureAwait(false));
             }
 
             var isActive = checks.Count > 0 && checks.All(check => check.Matches);
@@ -855,6 +853,12 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         try
         {
+            var visibleDevices = await ListDevicesAsync(cancellationToken).ConfigureAwait(false);
+            var visibleUsbSerial = visibleDevices
+                .Where(device => !device.IsTcp && string.Equals(device.State, "device", StringComparison.OrdinalIgnoreCase))
+                .Select(device => device.Serial)
+                .FirstOrDefault() ?? string.Empty;
+            var isUsbAdbVisible = !string.IsNullOrWhiteSpace(visibleUsbSerial);
             var isWifiAdbTransport = LooksLikeTcpSelector(selector);
             var modelOutput = await RunShellAsync(selector, "getprop ro.product.model", cancellationToken).ConfigureAwait(false);
             var model = modelOutput.ExitCode == 0 ? modelOutput.StdOut.Trim() : string.Empty;
@@ -880,6 +884,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 softwareReleaseOrCodename,
                 softwareBuildId,
                 softwareDisplayId);
+            var brightnessStatus = await QueryScreenBrightnessStatusAsync(selector, cancellationToken).ConfigureAwait(false);
+            var mediaVolumeStatus = await QueryMediaVolumeStatusAsync(selector, cancellationToken).ConfigureAwait(false);
             var cpuLevel = ParseOptionalInt(await TryReadShellValueAsync(selector, "getprop debug.oculus.cpuLevel", cancellationToken).ConfigureAwait(false));
             var gpuLevel = ParseOptionalInt(await TryReadShellValueAsync(selector, "getprop debug.oculus.gpuLevel", cancellationToken).ConfigureAwait(false));
             var powerOutput = await RunShellAsync(selector, "dumpsys power", cancellationToken).ConfigureAwait(false);
@@ -974,6 +980,19 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 $"active {(string.IsNullOrWhiteSpace(foregroundComponent) ? (string.IsNullOrWhiteSpace(foregroundPackage) ? "n/a" : foregroundPackage) : foregroundComponent)}"
             };
 
+            if (brightnessStatus.Percent.HasValue)
+            {
+                detailParts.Add($"brightness {brightnessStatus.Percent.Value}%");
+            }
+
+            if (mediaVolumeStatus.Level.HasValue)
+            {
+                detailParts.Add(
+                    mediaVolumeStatus.MaxLevel.HasValue
+                        ? $"volume {mediaVolumeStatus.Level.Value}/{mediaVolumeStatus.MaxLevel.Value}"
+                        : $"volume {mediaVolumeStatus.Level.Value}");
+            }
+
             if (!string.IsNullOrWhiteSpace(wakeReadiness.Detail))
             {
                 detailParts.Add($"power {wakeReadiness.Detail}");
@@ -1048,7 +1067,12 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 SoftwareVersion: softwareVersion,
                 SoftwareReleaseOrCodename: softwareReleaseOrCodename,
                 SoftwareBuildId: softwareBuildId,
-                SoftwareDisplayId: softwareDisplayId);
+                SoftwareDisplayId: softwareDisplayId,
+                ScreenBrightnessPercent: brightnessStatus.Percent,
+                MediaVolumeLevel: mediaVolumeStatus.Level,
+                MediaVolumeMax: mediaVolumeStatus.MaxLevel,
+                IsUsbAdbVisible: isUsbAdbVisible,
+                VisibleUsbSerial: visibleUsbSerial);
         }
         catch (Exception ex)
         {
@@ -1069,6 +1093,248 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 ex.Message);
         }
     }
+
+    private async Task<OperationOutcome> ApplyDeviceProfilePropertyAsync(
+        string selector,
+        string key,
+        string expectedValue,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(key, ProfileBrightnessPercentKey, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!int.TryParse(expectedValue, out var brightnessPercent))
+            {
+                return Failure(
+                    "Device profile brightness value is invalid.",
+                    $"Expected an integer percentage for {ProfileBrightnessPercentKey}, but received `{expectedValue}`.");
+            }
+
+            brightnessPercent = Math.Clamp(brightnessPercent, 0, 100);
+            var mode = await RunShellAsync(selector, "settings put system screen_brightness_mode 0", cancellationToken).ConfigureAwait(false);
+            if (mode.ExitCode != 0)
+            {
+                return Failure("Brightness mode update failed.", mode.CombinedOutput);
+            }
+
+            var rawBrightness = ConvertBrightnessPercentToRaw(brightnessPercent);
+            var set = await RunShellAsync(selector, $"settings put system screen_brightness {rawBrightness}", cancellationToken).ConfigureAwait(false);
+            return set.ExitCode == 0
+                ? Success(
+                    "Screen brightness updated.",
+                    $"Set Quest screen brightness to {brightnessPercent}% ({rawBrightness}/255).")
+                : Failure("Brightness update failed.", set.CombinedOutput);
+        }
+
+        if (string.Equals(key, ProfileMediaVolumeKey, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!int.TryParse(expectedValue, out var mediaVolume))
+            {
+                return Failure(
+                    "Device profile media-volume value is invalid.",
+                    $"Expected an integer volume index for {ProfileMediaVolumeKey}, but received `{expectedValue}`.");
+            }
+
+            mediaVolume = Math.Max(mediaVolume, 0);
+            var set = await RunShellAsync(selector, $"cmd media_session volume --stream 3 --set {mediaVolume}", cancellationToken).ConfigureAwait(false);
+            return set.ExitCode == 0
+                ? Success(
+                    "Media volume command sent.",
+                    $"Sent Quest media volume stream 3 to index {mediaVolume}. Verify the readback afterward because some Quest builds ignore remote volume writes.")
+                : Failure("Media volume update failed.", set.CombinedOutput);
+        }
+
+        if (IsDeviceProfileThresholdKey(key))
+        {
+            return Success(
+                $"{FormatDeviceProfilePropertyLabel(key)} is verification only.",
+                "No device write was sent; the current headset/controller state will be checked against the minimum threshold.");
+        }
+
+        var setprop = await RunShellAsync(
+            selector,
+            $"setprop {AdbShellSupport.Quote(key)} {AdbShellSupport.Quote(expectedValue)}",
+            cancellationToken).ConfigureAwait(false);
+        return setprop.ExitCode == 0
+            ? Success(
+                $"{FormatDeviceProfilePropertyLabel(key)} updated.",
+                AdbShellSupport.Collapse(setprop.CombinedOutput))
+            : Failure($"Device profile failed at {key}.", setprop.CombinedOutput);
+    }
+
+    private async Task<DevicePropertyStatus> QueryDeviceProfilePropertyStatusAsync(
+        string selector,
+        string key,
+        string expectedValue,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(key, ProfileBrightnessPercentKey, StringComparison.OrdinalIgnoreCase))
+        {
+            var brightness = await QueryScreenBrightnessStatusAsync(selector, cancellationToken).ConfigureAwait(false);
+            var expectedPercent = int.TryParse(expectedValue, out var parsedExpectedPercent)
+                ? Math.Clamp(parsedExpectedPercent, 0, 100)
+                : (int?)null;
+            var reported = brightness.Percent.HasValue
+                ? brightness.RawValue.HasValue
+                    ? $"{brightness.Percent.Value}% ({brightness.RawValue.Value}/255{(brightness.IsManualMode ? ", manual" : ", auto")})"
+                    : $"{brightness.Percent.Value}%"
+                : string.Empty;
+            return new DevicePropertyStatus(
+                key,
+                expectedValue,
+                reported,
+                expectedPercent.HasValue &&
+                brightness.Percent == expectedPercent &&
+                brightness.IsManualMode);
+        }
+
+        if (string.Equals(key, ProfileMediaVolumeKey, StringComparison.OrdinalIgnoreCase))
+        {
+            var mediaVolume = await QueryMediaVolumeStatusAsync(selector, cancellationToken).ConfigureAwait(false);
+            var expectedLevel = int.TryParse(expectedValue, out var parsedExpectedLevel) ? Math.Max(parsedExpectedLevel, 0) : (int?)null;
+            var reported = mediaVolume.Level.HasValue
+                ? mediaVolume.MaxLevel.HasValue
+                    ? $"{mediaVolume.Level.Value}/{mediaVolume.MaxLevel.Value}"
+                    : mediaVolume.Level.Value.ToString()
+                : string.Empty;
+            return new DevicePropertyStatus(
+                key,
+                expectedValue,
+                reported,
+                expectedLevel.HasValue && mediaVolume.Level == expectedLevel);
+        }
+
+        if (string.Equals(key, ProfileHeadsetBatteryMinimumKey, StringComparison.OrdinalIgnoreCase))
+        {
+            var batteryOutput = await RunShellAsync(selector, "dumpsys battery", cancellationToken).ConfigureAwait(false);
+            var batteryLevel = batteryOutput.ExitCode == 0 ? AdbShellSupport.ParseBatteryLevel(batteryOutput.StdOut) : null;
+            var expectedMinimum = int.TryParse(expectedValue, out var parsedExpectedMinimum)
+                ? Math.Clamp(parsedExpectedMinimum, 0, 100)
+                : (int?)null;
+            return new DevicePropertyStatus(
+                key,
+                expectedValue,
+                batteryLevel.HasValue ? $"{batteryLevel.Value}%" : string.Empty,
+                expectedMinimum.HasValue && batteryLevel.HasValue && batteryLevel.Value >= expectedMinimum.Value);
+        }
+
+        if (string.Equals(key, ProfileRightControllerBatteryMinimumKey, StringComparison.OrdinalIgnoreCase))
+        {
+            var trackingOutput = await RunShellAsync(selector, "dumpsys tracking", cancellationToken).ConfigureAwait(false);
+            var controllerStatuses = trackingOutput.ExitCode == 0
+                ? ParseControllerStatuses(trackingOutput.StdOut)
+                : Array.Empty<QuestControllerStatus>();
+            var rightController = controllerStatuses.FirstOrDefault(
+                status => string.Equals(status.HandLabel, "Right", StringComparison.OrdinalIgnoreCase));
+            var expectedMinimum = int.TryParse(expectedValue, out var parsedExpectedMinimum)
+                ? Math.Clamp(parsedExpectedMinimum, 0, 100)
+                : (int?)null;
+            var reported = rightController is null
+                ? string.Empty
+                : rightController.BatteryLevel.HasValue
+                    ? $"{rightController.BatteryLevel.Value}% ({rightController.ConnectionState})"
+                    : rightController.ConnectionState;
+            return new DevicePropertyStatus(
+                key,
+                expectedValue,
+                reported,
+                expectedMinimum.HasValue &&
+                rightController?.BatteryLevel is int batteryLevel &&
+                batteryLevel >= expectedMinimum.Value);
+        }
+
+        var reportedValue = await TryReadShellValueAsync(
+            selector,
+            $"getprop {AdbShellSupport.Quote(key)}",
+            cancellationToken).ConfigureAwait(false);
+        return new DevicePropertyStatus(
+            key,
+            expectedValue,
+            reportedValue,
+            string.Equals(expectedValue, reportedValue, StringComparison.Ordinal));
+    }
+
+    private async Task<QuestScreenBrightnessStatus> QueryScreenBrightnessStatusAsync(string selector, CancellationToken cancellationToken)
+    {
+        var brightnessRaw = ParseOptionalInt(
+            await TryReadShellValueAsync(selector, "settings get system screen_brightness", cancellationToken).ConfigureAwait(false));
+        var brightnessMode = ParseOptionalInt(
+            await TryReadShellValueAsync(selector, "settings get system screen_brightness_mode", cancellationToken).ConfigureAwait(false));
+        return new QuestScreenBrightnessStatus(
+            brightnessRaw.HasValue ? ConvertBrightnessRawToPercent(brightnessRaw.Value) : null,
+            brightnessRaw,
+            brightnessMode == 0);
+    }
+
+    private async Task<QuestMediaVolumeStatus> QueryMediaVolumeStatusAsync(string selector, CancellationToken cancellationToken)
+    {
+        var output = await RunShellAsync(selector, "cmd media_session volume --stream 3 --get", cancellationToken).ConfigureAwait(false);
+        if (output.ExitCode != 0 || !TryParseMediaVolumeStatus(output.StdOut, out var level, out var maxLevel))
+        {
+            return default;
+        }
+
+        return new QuestMediaVolumeStatus(level, maxLevel);
+    }
+
+    private static bool TryParseMediaVolumeStatus(string rawOutput, out int level, out int maxLevel)
+    {
+        level = 0;
+        maxLevel = 0;
+        if (string.IsNullOrWhiteSpace(rawOutput))
+        {
+            return false;
+        }
+
+        const string volumeMarker = "volume is ";
+        const string rangeMarker = " in range [0..";
+        var volumeIndex = rawOutput.IndexOf(volumeMarker, StringComparison.OrdinalIgnoreCase);
+        if (volumeIndex < 0)
+        {
+            return false;
+        }
+
+        var levelStart = volumeIndex + volumeMarker.Length;
+        var rangeIndex = rawOutput.IndexOf(rangeMarker, levelStart, StringComparison.OrdinalIgnoreCase);
+        if (rangeIndex < 0)
+        {
+            return false;
+        }
+
+        var levelText = rawOutput[levelStart..rangeIndex].Trim();
+        if (!int.TryParse(levelText, out level))
+        {
+            return false;
+        }
+
+        var maxStart = rangeIndex + rangeMarker.Length;
+        var maxEnd = rawOutput.IndexOf(']', maxStart);
+        if (maxEnd < 0)
+        {
+            return false;
+        }
+
+        return int.TryParse(rawOutput[maxStart..maxEnd].Trim(), out maxLevel);
+    }
+
+    private static int ConvertBrightnessPercentToRaw(int percent)
+        => (int)Math.Round(Math.Clamp(percent, 0, 100) * 255d / 100d, MidpointRounding.AwayFromZero);
+
+    private static int ConvertBrightnessRawToPercent(int rawBrightness)
+        => (int)Math.Round(Math.Clamp(rawBrightness, 0, 255) * 100d / 255d, MidpointRounding.AwayFromZero);
+
+    private static bool IsDeviceProfileThresholdKey(string key)
+        => string.Equals(key, ProfileHeadsetBatteryMinimumKey, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(key, ProfileRightControllerBatteryMinimumKey, StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatDeviceProfilePropertyLabel(string key)
+        => key.ToLowerInvariant() switch
+        {
+            ProfileBrightnessPercentKey => "Screen brightness",
+            ProfileMediaVolumeKey => "Media volume",
+            ProfileHeadsetBatteryMinimumKey => "Minimum headset battery",
+            ProfileRightControllerBatteryMinimumKey => "Minimum right-controller battery",
+            _ => key
+        };
 
     private static string FormatSoftwareVersion(string? releaseOrCodename, string? incrementalBuild, string? displayId)
     {
@@ -1548,8 +1814,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var candidates = new List<string>(3);
         lock (_sync)
         {
-            AddSelectorCandidate(candidates, _activeSelector);
             AddSelectorCandidate(candidates, _lastTcpSelector);
+            AddSelectorCandidate(candidates, _activeSelector);
             AddSelectorCandidate(candidates, _lastUsbSelector);
         }
 
@@ -2451,11 +2717,16 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     private static HostWifiStatus QueryHostWifiStatus()
     {
+        var netshPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            "System32",
+            "netsh.exe");
+
         try
         {
             using var process = Process.Start(new ProcessStartInfo
             {
-                FileName = "netsh",
+                FileName = File.Exists(netshPath) ? netshPath : "netsh",
                 Arguments = "wlan show interfaces",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -2470,8 +2741,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
             var output = process.StandardOutput.ReadToEnd();
             process.WaitForExit(5000);
-            return process.ExitCode == 0
-                ? ParseHostWifiStatus(output)
+            if (process.ExitCode != 0)
+            {
+                return new HostWifiStatus(string.Empty, string.Empty);
+            }
+
+            var status = ParseHostWifiStatus(output);
+            return !string.IsNullOrWhiteSpace(status.Ssid)
+                ? status
                 : new HostWifiStatus(string.Empty, string.Empty);
         }
         catch
@@ -2486,7 +2763,10 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         {
             lock (_sync)
             {
-                return _lastKnownHostWifiStatus;
+                if (!string.IsNullOrWhiteSpace(_lastKnownHostWifiStatus.Ssid))
+                {
+                    return _lastKnownHostWifiStatus;
+                }
             }
         }
 
@@ -2526,3 +2806,12 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         return separatorIndex > 0 ? selector[..separatorIndex] : string.Empty;
     }
 }
+
+internal readonly record struct QuestScreenBrightnessStatus(
+    int? Percent,
+    int? RawValue,
+    bool IsManualMode);
+
+internal readonly record struct QuestMediaVolumeStatus(
+    int? Level,
+    int? MaxLevel);

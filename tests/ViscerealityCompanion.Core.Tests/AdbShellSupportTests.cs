@@ -103,18 +103,18 @@ public sealed class AdbShellSupportTests
     public void ParseForegroundSnapshot_prefers_authoritative_focused_component_over_historical_visible_entries()
     {
         const string output = """
-        topResumedActivity=ActivityRecord{c61340f u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity t5749}
+        topResumedActivity=ActivityRecord{c61340f u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity t5749}
         topResumedActivity=ActivityRecord{f3d8c93 u0 com.oculus.os.vrlockscreen/.SensorLockActivity t5709}
-        ResumedActivity: ActivityRecord{c61340f u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity t5749}
-        mCurrentFocus=Window{461264c u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity}
-        mFocusedApp=ActivityRecord{c61340f u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity t5749}
+        ResumedActivity: ActivityRecord{c61340f u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity t5749}
+        mCurrentFocus=Window{461264c u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity}
+        mFocusedApp=ActivityRecord{c61340f u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity t5749}
         """;
 
         var snapshot = AdbShellSupport.ParseForegroundSnapshot(output);
 
         Assert.NotNull(snapshot);
-        Assert.Equal("com.Viscereality.LslTwin", snapshot!.PackageId);
-        Assert.Equal("com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity", snapshot.PrimaryComponent);
+        Assert.Equal("com.Viscereality.SussexExperiment", snapshot!.PackageId);
+        Assert.Equal("com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity", snapshot.PrimaryComponent);
         Assert.Equal(2, snapshot.VisibleComponents.Count);
         Assert.Contains("com.oculus.os.vrlockscreen/.SensorLockActivity", snapshot.VisibleComponents);
     }
@@ -145,12 +145,12 @@ public sealed class AdbShellSupportTests
     public void ParseRecentTaskId_ExtractsTaskIdForPackage()
     {
         const string output = """
-        * Recent #3: Task{f7032e0 #6247 type=standard A=10237:com.Viscereality.LslTwin}
+        * Recent #3: Task{f7032e0 #6247 type=standard A=10237:com.Viscereality.SussexExperiment}
           userId=0 effectiveUid=u0a237 mCallingUid=2000
         * Recent #4: Task{7a32bb6 #6246 type=standard A=10043:com.oculus.systemux:2065988206}
         """;
 
-        var taskId = AdbShellSupport.ParseRecentTaskId(output, "com.Viscereality.LslTwin");
+        var taskId = AdbShellSupport.ParseRecentTaskId(output, "com.Viscereality.SussexExperiment");
 
         Assert.Equal(6247, taskId);
     }
@@ -161,13 +161,13 @@ public sealed class AdbShellSupportTests
         const string output = """
         ACTIVITY MANAGER RECENT TASKS (dumpsys activity recents)
           Recent tasks:
-          * Recent #0: Task{1814e4e #6668 type=standard A=10237:com.Viscereality.LslTwin}
+          * Recent #0: Task{1814e4e #6668 type=standard A=10237:com.Viscereality.SussexExperiment}
             userId=0 effectiveUid=u0a237 mCallingUid=2000 mUserSetupComplete=true mCallingPackage=com.android.shell mCallingFeatureId=null
-            affinity=10237:com.Viscereality.LslTwin
-            intent={act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10a10100 cmp=com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity}
-            mActivityComponent=com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity
+            affinity=10237:com.Viscereality.SussexExperiment
+            intent={act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10a10100 cmp=com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity}
+            mActivityComponent=com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity
             rootWasReset=true mNeverRelinquishIdentity=true mReuseTask=false mLockTaskAuth=LOCK_TASK_AUTH_PINNABLE
-            Activities=[ActivityRecord{1bb2549 u0 com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity t6668}]
+            Activities=[ActivityRecord{1bb2549 u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity t6668}]
             askedCompatMode=false inRecents=true isAvailable=true
             taskId=6668 rootTaskId=3
             hasChildPipActivity=false
@@ -176,7 +176,7 @@ public sealed class AdbShellSupportTests
             taskId=6518 rootTaskId=6517
         """;
 
-        var taskId = AdbShellSupport.ParseRecentTaskId(output, "com.Viscereality.LslTwin");
+        var taskId = AdbShellSupport.ParseRecentTaskId(output, "com.Viscereality.SussexExperiment");
 
         Assert.Equal(6668, taskId);
     }

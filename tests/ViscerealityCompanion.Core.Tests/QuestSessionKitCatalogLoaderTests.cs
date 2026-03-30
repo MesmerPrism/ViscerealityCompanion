@@ -40,13 +40,11 @@ public sealed class QuestSessionKitCatalogLoaderTests
 
           var twinApp = Assert.Single(
             catalog.Apps,
-            app => string.Equals(app.ApkFile, "LslTwin.apk", StringComparison.OrdinalIgnoreCase));
+            app => string.Equals(app.ApkFile, "SussexExperiment.apk", StringComparison.OrdinalIgnoreCase));
 
-          Assert.Equal("com.Viscereality.LslTwin", twinApp.PackageId);
+          Assert.Equal("com.Viscereality.SussexExperiment", twinApp.PackageId);
           Assert.Contains("viscereality", twinApp.Tags, StringComparer.OrdinalIgnoreCase);
           Assert.Contains("runtime", twinApp.Tags, StringComparer.OrdinalIgnoreCase);
-          Assert.Contains("lsl", twinApp.Tags, StringComparer.OrdinalIgnoreCase);
-          Assert.Contains("twin", twinApp.Tags, StringComparer.OrdinalIgnoreCase);
         }
         finally
         {
@@ -66,7 +64,7 @@ public sealed class QuestSessionKitCatalogLoaderTests
 
           var twinApp = Assert.Single(
             catalog.Apps,
-            app => string.Equals(app.PackageId, "com.Viscereality.LslTwin", StringComparison.OrdinalIgnoreCase));
+            app => string.Equals(app.PackageId, "com.Viscereality.SussexExperiment", StringComparison.OrdinalIgnoreCase));
 
           Assert.Equal(ViscerealityCompanion.Core.Models.ApkCompatibilityStatus.Compatible, twinApp.CompatibilityStatus);
           Assert.Equal("Twin runtime verified", twinApp.CompatibilityProfile);
@@ -220,7 +218,7 @@ public sealed class QuestSessionKitCatalogLoaderTests
             """);
 
         File.WriteAllBytes(Path.Combine(root, "APKs", "KarateBio.apk"), [0x50, 0x4B, 0x03, 0x04]);
-        File.WriteAllBytes(Path.Combine(root, "APKs", "LslTwin.apk"), [0x50, 0x4B, 0x03, 0x04]);
+        File.WriteAllBytes(Path.Combine(root, "APKs", "SussexExperiment.apk"), [0x50, 0x4B, 0x03, 0x04]);
 
         File.WriteAllText(
             Path.Combine(root, "HotloadProfiles", "profiles.json"),
@@ -255,14 +253,14 @@ public sealed class QuestSessionKitCatalogLoaderTests
             {
               "apks": [
                 {
-                  "file": "LslTwin.apk",
-                  "packageId": "com.Viscereality.LslTwin"
+                  "file": "SussexExperiment.apk",
+                  "packageId": "com.Viscereality.SussexExperiment"
                 }
               ]
             }
             """);
 
-        var apkPath = Path.Combine(root, "APKs", "LslTwin.apk");
+        var apkPath = Path.Combine(root, "APKs", "SussexExperiment.apk");
         File.WriteAllBytes(apkPath, [0x50, 0x4B, 0x03, 0x04, 0x10, 0x20]);
         var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(apkPath)));
 
@@ -297,7 +295,7 @@ public sealed class QuestSessionKitCatalogLoaderTests
             Path.Combine(root, "HotloadProfiles", "profiles.json"),
             """
             {
-              "defaultPackageIds": [ "com.Viscereality.LslTwin" ],
+              "defaultPackageIds": [ "com.Viscereality.SussexExperiment" ],
               "profiles": []
             }
             """);

@@ -32,7 +32,7 @@ function Get-Sha256Hex {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $defaultAstralRepoRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot '..\AstralKarateDojo'))
 $resolvedSourceApkPath = if ([string]::IsNullOrWhiteSpace($SourceApkPath)) {
-    [System.IO.Path]::GetFullPath((Join-Path $defaultAstralRepoRoot 'Artifacts\APKs\SussexControllerStudy.apk'))
+    [System.IO.Path]::GetFullPath((Join-Path $defaultAstralRepoRoot 'Artifacts\APKs\SussexExperiment.apk'))
 } else {
     [System.IO.Path]::GetFullPath($SourceApkPath)
 }
@@ -41,7 +41,7 @@ if (-not (Test-Path $resolvedSourceApkPath)) {
     throw "Source Sussex APK not found at $resolvedSourceApkPath"
 }
 
-$bundledApkPath = Join-Path $repoRoot 'samples\quest-session-kit\APKs\SussexControllerStudy.apk'
+$bundledApkPath = Join-Path $repoRoot 'samples\quest-session-kit\APKs\SussexExperiment.apk'
 $compatibilityPath = Join-Path $repoRoot 'samples\quest-session-kit\APKs\compatibility.json'
 $studyShellPath = Join-Path $repoRoot 'samples\study-shells\sussex-university.json'
 
@@ -54,20 +54,10 @@ if ($null -eq $compatibility.apps -or @($compatibility.apps).Count -lt 1) {
 }
 
 $compatibility.apps[0].sha256 = $sha256
-if ($compatibility.apps[0].PSObject.Properties.Match('verification').Count -gt 0) {
-    $compatibility.apps[0].verification = $null
-} else {
-    $compatibility.apps[0] | Add-Member -NotePropertyName verification -NotePropertyValue $null
-}
 $compatibility | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $compatibilityPath -Encoding utf8
 
 $studyShell = Get-Content -LiteralPath $studyShellPath -Raw | ConvertFrom-Json
 $studyShell.app.sha256 = $sha256
-if ($studyShell.app.PSObject.Properties.Match('verification').Count -gt 0) {
-    $studyShell.app.verification = $null
-} else {
-    $studyShell.app | Add-Member -NotePropertyName verification -NotePropertyValue $null
-}
 if (-not [string]::IsNullOrWhiteSpace($VersionName)) {
     $studyShell.app.versionName = $VersionName
 }

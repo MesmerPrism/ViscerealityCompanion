@@ -57,7 +57,7 @@ The repo-local session-kit sample is now the preferred default source. It
 currently contains one public Sussex Quest target plus one scene-matched
 runtime baseline. That keeps older internal APK and profile variants out of the
 public operator shell unless you explicitly point it at another catalog root.
-The committed `samples/quest-session-kit/APKs/SussexControllerStudy.apk` is the same
+The committed `samples/quest-session-kit/APKs/SussexExperiment.apk` is the same
 Sussex APK used by the packaged study shell, so run `git lfs pull`
 before assuming the repo copy is present locally.
 

@@ -43,6 +43,29 @@ public sealed class WindowsAdbQuestControlServiceTests
     }
 
     [Fact]
+    public void ParseHostWifiStatus_ignores_netsh_header_lines()
+    {
+        var output = """
+            There is 1 interface on the system:
+
+                Name                   : Wi-Fi
+                Description            : Realtek 8852CE WiFi 6E PCI-E NIC
+                GUID                   : 12345678-1234-1234-1234-1234567890ab
+                Physical address       : 00:11:22:33:44:55
+                State                  : connected
+                SSID                   : MagentaWLAN-R5V4
+                BSSID                  : aa:bb:cc:dd:ee:ff
+                Network type           : Infrastructure
+                Radio type             : 802.11ax
+            """;
+
+        var status = WindowsAdbQuestControlService.ParseHostWifiStatus(output);
+
+        Assert.Equal("Wi-Fi", status.InterfaceName);
+        Assert.Equal("MagentaWLAN-R5V4", status.Ssid);
+    }
+
+    [Fact]
     public void ParseHostWifiStatus_returns_empty_when_no_connected_interface_is_present()
     {
         var output = """
@@ -195,11 +218,11 @@ public sealed class WindowsAdbQuestControlServiceTests
             true,
             "wakefulness Awake; interactive true; display ON");
         var snapshot = new AdbShellSupport.ForegroundAppSnapshot(
-            "com.Viscereality.LslTwin",
+            "com.Viscereality.SussexExperiment",
             "com.unity3d.player.UnityPlayerGameActivity",
-            "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
+            "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
             [
-                "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
+                "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
                 "com.oculus.os.vrlockscreen/.SensorLockActivity",
                 "com.oculus.vrshell/.HomeActivity"
             ]);
@@ -221,11 +244,11 @@ public sealed class WindowsAdbQuestControlServiceTests
             true,
             "wakefulness Awake; interactive true; display ON");
         var snapshot = new AdbShellSupport.ForegroundAppSnapshot(
-            "com.Viscereality.LslTwin",
+            "com.Viscereality.SussexExperiment",
             "com.unity3d.player.UnityPlayerGameActivity",
-            "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
+            "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
             [
-                "com.Viscereality.LslTwin/com.unity3d.player.UnityPlayerGameActivity",
+                "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
                 "com.oculus.vrshell/.FocusPlaceholderActivity",
                 "com.oculus.vrshell/.HomeActivity"
             ]);

@@ -63,6 +63,12 @@ that study shell.
 - First-session walkthrough: [docs/first-session.md](docs/first-session.md)
 - Study-shell guide: [docs/study-shells.md](docs/study-shells.md)
 
+For Sussex specifically, the packaged app now includes a sequential onboarding
+guide on the workflow tab. That step-by-step window is the intended first-run
+path for USB trust, Wi-Fi handoff, APK/profile checks, kiosk launch, LSL
+verification, particle checks, the optional controller-calibration probe, and
+the short validation capture.
+
 For local development:
 
 ```powershell
@@ -75,7 +81,7 @@ dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
 ```
 
-`git lfs pull` matters here because the committed `samples/quest-session-kit/APKs/SussexControllerStudy.apk`
+`git lfs pull` matters here because the committed `samples/quest-session-kit/APKs/SussexExperiment.apk`
 is the real Sussex APK bundled into the public package, not a placeholder.
 
 If Windows Smart App Control or Code Integrity blocks the repo-built WPF app,
@@ -124,7 +130,7 @@ packaging, run:
 powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-Apk.ps1
 ```
 
-That copies `AstralKarateDojo/Artifacts/APKs/SussexControllerStudy.apk` into
+That copies `AstralKarateDojo/Artifacts/APKs/SussexExperiment.apk` into
 `samples/quest-session-kit/APKs/` and updates the pinned Sussex hash metadata.
 
 To produce that upstream APK from the Unity repo, use the dedicated Sussex
@@ -135,11 +141,12 @@ cd C:\Users\tillh\source\repos\AstralKarateDojo
 & "C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Unity.exe" `
   -batchmode -nographics -quit `
   -projectPath "$PWD" `
+  -activeBuildProfile "Assets/Settings/Build Profiles/Meta Quest Sussex Experiment.asset" `
   -logFile "$PWD\Logs\build_sussex_study_apk.log" `
   -executeMethod AstralKarateDojo.IndirectParticles.Editor.BuildWorkflowTools.BuildMetaQuestSussexStudyApk
 ```
 
-That build writes `Artifacts/APKs/SussexControllerStudy.apk`, which is the
+That build writes `Artifacts/APKs/SussexExperiment.apk`, which is the
 approved public Sussex runtime this repo mirrors under
 `samples/quest-session-kit/APKs/`.
 

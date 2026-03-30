@@ -1,0 +1,432 @@
+<Window x:Class="ViscerealityCompanion.App.StudyWorkflowGuideWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:local="clr-namespace:ViscerealityCompanion.App"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Sussex Sequential Guide"
+        Icon="Assets/viscereality-companion.ico"
+        Width="1080"
+        Height="900"
+        MinWidth="920"
+        MinHeight="680"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <local:OutcomeKindToBrushConverter x:Key="OutcomeKindToBrush" />
+        <local:OutcomeKindToSoftBrushConverter x:Key="OutcomeKindToSoftBrush" />
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
+        <Style x:Key="GuidePanelStyle" TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
+            <Setter Property="Padding" Value="18" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+
+        <Style x:Key="GuideSectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="24" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+        </Style>
+
+        <Style x:Key="GuideMicroLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+
+        <Style x:Key="GuideBodyStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="GuideDetailStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="GuidePathStyle" TargetType="TextBlock" BasedOn="{StaticResource GuideDetailStyle}">
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+            <Setter Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Margin" Value="0,6,0,0" />
+        </Style>
+
+        <Style x:Key="GuideActionButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="MinWidth" Value="180" />
+            <Setter Property="Padding" Value="16,10" />
+            <Setter Property="Margin" Value="0,0,10,10" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="14" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Style="{StaticResource GuidePanelStyle}"
+                Background="{Binding WorkflowGuideStepLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                BorderBrush="{Binding WorkflowGuideStepLevel, Converter={StaticResource OutcomeKindToBrush}}">
+            <StackPanel>
+                <TextBlock Text="Sequential Sussex Guide"
+                           Style="{StaticResource GuideSectionTitleStyle}" />
+                <TextBlock Text="{Binding WorkflowGuideStepLabel}"
+                           Style="{StaticResource GuideMicroLabelStyle}" />
+                <TextBlock Text="{Binding WorkflowGuideStepTitle}"
+                           FontSize="32"
+                           FontWeight="Bold"
+                           Foreground="{StaticResource InkBrush}"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="{Binding WorkflowGuideStepExplanation}"
+                           Style="{StaticResource GuideBodyStyle}"
+                           Margin="0,12,0,0" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="2"
+                      VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Background="{Binding WorkflowGuideStepLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                        BorderBrush="{Binding WorkflowGuideStepLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                    <StackPanel>
+                        <TextBlock Text="Before You Continue"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="{Binding WorkflowGuideGateSummary}"
+                                   FontSize="22"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource InkBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding WorkflowGuideGateDetail}"
+                                   Style="{StaticResource GuideBodyStyle}"
+                                   Margin="0,10,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Current Step Status"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="{Binding WorkflowGuideStepSummary}"
+                                   FontSize="22"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource InkBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding WorkflowGuideStepDetail}"
+                                   Style="{StaticResource GuideBodyStyle}"
+                                   Margin="0,10,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Live Checks For This Step"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <ItemsControl ItemsSource="{Binding WorkflowGuideChecks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,12"
+                                            Padding="14"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Background="{Binding Level, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                            BorderBrush="{Binding Level, Converter={StaticResource OutcomeKindToBrush}}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Label}"
+                                                       Style="{StaticResource GuideMicroLabelStyle}" />
+                                            <TextBlock Text="{Binding Summary}"
+                                                       FontSize="20"
+                                                       FontWeight="Bold"
+                                                       Foreground="{StaticResource InkBrush}"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Detail}"
+                                                       Style="{StaticResource GuideDetailStyle}"
+                                                       Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0"
+                        Visibility="{Binding WorkflowGuideShowsDeviceProfileRows, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Text="Pinned Device Profile Values"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <ItemsControl ItemsSource="{Binding DeviceProfileRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,10"
+                                            Padding="12"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Background="{Binding Level, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                            BorderBrush="{Binding Level, Converter={StaticResource OutcomeKindToBrush}}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2.2*" />
+                                                <ColumnDefinition Width="1.4*" />
+                                                <ColumnDefinition Width="1.2*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding Label}"
+                                                           Style="{StaticResource GuideMicroLabelStyle}" />
+                                                <TextBlock Text="{Binding Detail}"
+                                                           Style="{StaticResource GuideDetailStyle}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1"
+                                                        Margin="12,0,0,0">
+                                                <TextBlock Text="Current"
+                                                           Style="{StaticResource GuideMicroLabelStyle}" />
+                                                <TextBlock Text="{Binding Value}"
+                                                           Style="{StaticResource GuideBodyStyle}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2"
+                                                        Margin="12,0,0,0">
+                                                <TextBlock Text="Expected"
+                                                           Style="{StaticResource GuideMicroLabelStyle}" />
+                                                <TextBlock Text="{Binding Expected}"
+                                                           Style="{StaticResource GuideBodyStyle}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0"
+                        Visibility="{Binding WorkflowGuideShowsCalibrationTelemetry, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Text="Calibration Telemetry"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="Calibration progress"
+                                   Style="{StaticResource GuideMicroLabelStyle}" />
+                        <ProgressBar Value="{Binding ControllerCalibrationPercent, Mode=OneWay}"
+                                     Height="22"
+                                     Margin="0,0,0,8" />
+                        <TextBlock Text="{Binding ControllerCalibrationLabel}"
+                                   Style="{StaticResource GuideBodyStyle}" />
+                        <TextBlock Text="{Binding ControllerSummary}"
+                                   Style="{StaticResource GuideDetailStyle}"
+                                   Margin="0,10,0,0" />
+                        <TextBlock Text="{Binding ControllerDetail}"
+                                   Style="{StaticResource GuideDetailStyle}"
+                                   Margin="0,6,0,0" />
+                        <TextBlock Text="{Binding ControllerValueLabel, StringFormat=Current controller volume: {0}}"
+                                   Style="{StaticResource GuideBodyStyle}"
+                                   Margin="0,10,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Do This Now"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="Only the controls relevant to this step are shown here. Some steps are manual and will have no app buttons."
+                                   Style="{StaticResource GuideDetailStyle}"
+                                   Margin="0,0,0,12" />
+                        <ItemsControl ItemsSource="{Binding WorkflowGuideActions}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding Label}"
+                                            Style="{StaticResource GuideActionButtonStyle}"
+                                            Command="{Binding Command}"
+                                            IsEnabled="{Binding IsEnabled}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0"
+                        Background="{Binding WorkflowGuideActionLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                        BorderBrush="{Binding WorkflowGuideActionLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                    <StackPanel>
+                        <TextBlock Text="Action Feedback"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="{Binding WorkflowGuideActionSummary}"
+                                   FontSize="20"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource InkBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding WorkflowGuideActionDetail}"
+                                   Style="{StaticResource GuideBodyStyle}"
+                                   Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0"
+                        Visibility="{Binding WorkflowGuideShowsQuestScreenshotVerification, Converter={StaticResource BoolToVisibility}}"
+                        Background="{Binding WorkflowGuideQuestScreenshotLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                        BorderBrush="{Binding WorkflowGuideQuestScreenshotLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                    <StackPanel>
+                        <TextBlock Text="Quest Screenshot Verification"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="{Binding WorkflowGuideQuestScreenshotSummary}"
+                                   FontSize="20"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource InkBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding WorkflowGuideQuestScreenshotDetail}"
+                                   Style="{StaticResource GuideBodyStyle}"
+                                   Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding WorkflowGuideQuestScreenshotPath}"
+                                   Style="{StaticResource GuidePathStyle}"
+                                   Visibility="{Binding CanOpenWorkflowGuideQuestScreenshot, Converter={StaticResource BoolToVisibility}}" />
+                        <Image Source="{Binding WorkflowGuideQuestScreenshotPreview}"
+                               Stretch="Uniform"
+                               MaxHeight="220"
+                               Margin="0,10,0,0"
+                               Visibility="{Binding CanOpenWorkflowGuideQuestScreenshot, Converter={StaticResource BoolToVisibility}}" />
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Content="Capture Quest Screenshot"
+                                    Style="{StaticResource GuideActionButtonStyle}"
+                                    Command="{Binding CaptureQuestScreenshotCommand}"
+                                    IsEnabled="{Binding CanCaptureQuestScreenshot}" />
+                            <Button Content="Open Last Screenshot"
+                                    Style="{StaticResource GuideActionButtonStyle}"
+                                    Command="{Binding OpenLastQuestScreenshotCommand}"
+                                    IsEnabled="{Binding CanOpenWorkflowGuideQuestScreenshot}" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0"
+                        Visibility="{Binding WorkflowGuideShowsParticipantEntry, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Text="Temporary Subject Id"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="Enter a temporary validation id for the 20 second test run. Duplicate ids warn but do not block."
+                                   Style="{StaticResource GuideBodyStyle}" />
+                        <TextBox Text="{Binding ParticipantIdDraft, UpdateSourceTrigger=PropertyChanged}"
+                                 FontSize="18"
+                                 Margin="0,14,0,0" />
+                        <TextBlock Text="{Binding ParticipantEntrySummary}"
+                                   FontSize="18"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource InkBrush}"
+                                   Margin="0,8,0,0"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding ParticipantEntryDetail}"
+                                   Style="{StaticResource GuideDetailStyle}"
+                                   Margin="0,6,0,0" />
+                        <TextBlock Text="{Binding ParticipantExistingSessionsLabel}"
+                                   Style="{StaticResource GuideDetailStyle}"
+                                   Margin="0,6,0,0"
+                                   Visibility="{Binding ParticipantHasExistingSessions, Converter={StaticResource BoolToVisibility}}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,14,0,0"
+                        Visibility="{Binding WorkflowGuideShowsValidationCaptureState, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Text="Validation Capture Result"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="{Binding ValidationCaptureSummary}"
+                                   FontSize="20"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource InkBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding ValidationCaptureDetail}"
+                                   Style="{StaticResource GuideBodyStyle}"
+                                   Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding RecordingSummary}"
+                                   Style="{StaticResource GuideDetailStyle}"
+                                   Margin="0,10,0,0" />
+                        <TextBlock Text="{Binding ValidationCaptureParticipantId, StringFormat=Validation subject id: {0}}"
+                                   Style="{StaticResource GuideDetailStyle}"
+                                   Margin="0,10,0,0" />
+                        <TextBlock Text="Windows session folder"
+                                   Style="{StaticResource GuideMicroLabelStyle}"
+                                   Margin="0,12,0,0" />
+                        <TextBlock Text="{Binding ValidationCaptureLocalFolderPath}"
+                                   Style="{StaticResource GuidePathStyle}" />
+                        <TextBlock Text="Pulled Quest backup folder"
+                                   Style="{StaticResource GuideMicroLabelStyle}"
+                                   Margin="0,12,0,0" />
+                        <TextBlock Text="{Binding ValidationCaptureDevicePullFolderPath}"
+                                   Style="{StaticResource GuidePathStyle}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="4"
+                Style="{StaticResource GuidePanelStyle}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           VerticalAlignment="Center"
+                           Text="This guide enforces the order of setup checks. Physical power-button handling and boundary drawing stay manual."
+                           Style="{StaticResource GuideDetailStyle}" />
+
+                <WrapPanel Grid.Column="1"
+                           VerticalAlignment="Center">
+                    <Button Content="Back"
+                            Style="{StaticResource GuideActionButtonStyle}"
+                            Command="{Binding PreviousWorkflowGuideStepCommand}"
+                            IsEnabled="{Binding CanGoToPreviousWorkflowGuideStep}" />
+
+                    <Button Content="Next"
+                            Command="{Binding NextWorkflowGuideStepCommand}"
+                            IsEnabled="{Binding CanGoToNextWorkflowGuideStep}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource GuideActionButtonStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding WorkflowGuideIsFinalStep}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <Button Content="Return To Main Window"
+                            Command="{Binding CloseWorkflowGuideWindowCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource GuideActionButtonStyle}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding WorkflowGuideIsFinalStep}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </WrapPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

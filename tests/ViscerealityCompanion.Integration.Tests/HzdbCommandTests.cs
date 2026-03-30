@@ -11,8 +11,8 @@ namespace ViscerealityCompanion.Integration.Tests;
 [Collection("QuestDevice")]
 public class HzdbCommandTests
 {
-    private const string StudyPackage = "com.Viscereality.LslTwin";
-    private const string StudyFilesDir = "/sdcard/Android/data/com.Viscereality.LslTwin/files/";
+    private const string StudyPackage = "com.Viscereality.SussexExperiment";
+    private const string StudyFilesDir = "/sdcard/Android/data/com.Viscereality.SussexExperiment/files/";
     private readonly QuestDeviceFixture _device;
     private static readonly Lazy<string?> _npxCommandPath = new(WindowsHzdbService.ResolveNpxCommandPath);
     private static readonly Lazy<bool> _hzdbAvailable = new(() =>

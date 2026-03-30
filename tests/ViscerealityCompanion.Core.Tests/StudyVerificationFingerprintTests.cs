@@ -9,14 +9,14 @@ public sealed class StudyVerificationFingerprintTests
     public void Compute_ReturnsStableHashForEquivalentValues()
     {
         var left = StudyVerificationFingerprint.Compute(
-            "com.Viscereality.LslTwin",
+            "com.Viscereality.SussexExperiment",
             "ABC123",
             "14",
             "2921110053000610",
             "sussex-study-profile",
             "UP1A.231005.007.A1");
         var right = StudyVerificationFingerprint.Compute(
-            " com.viscereality.lsltwin ",
+            " com.viscereality.sussexexperiment ",
             "abc123",
             " 14 ",
             "2921110053000610",
@@ -41,7 +41,7 @@ public sealed class StudyVerificationFingerprintTests
 
         Assert.True(StudyVerificationFingerprint.Matches(
             baseline,
-            "com.Viscereality.LslTwin",
+            "com.Viscereality.SussexExperiment",
             "ABC123",
             "14",
             "2921110053000610",
