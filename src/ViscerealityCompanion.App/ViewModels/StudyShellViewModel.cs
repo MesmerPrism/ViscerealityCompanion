@@ -1864,16 +1864,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false)),
                 exitKioskMode: _study.App.LaunchInKioskMode)
             .ConfigureAwait(false);
-        if (_study.App.LaunchInKioskMode && outcome.Kind != OperationOutcomeKind.Failure)
-        {
-            await DispatchAsync(() =>
-            {
-                MarkQuestVisualConfirmationPending("Kiosk exit was sent. Capture a Quest screenshot to verify that Meta Home is actually visible.");
-            }).ConfigureAwait(false);
-            outcome = BuildKioskVisualVerificationOutcome(
-                outcome,
-                "Kiosk exit was sent. Visual confirmation pending.");
-        }
 
         await ApplyOutcomeAsync(
             _study.App.LaunchInKioskMode ? "Exit Sussex Kiosk Mode" : "Stop Sussex APK",
@@ -2816,7 +2806,28 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return string.Empty;
         }
 
+        if (trimmed.StartsWith("Permissions", StringComparison.OrdinalIgnoreCase) ||
+            Regex.IsMatch(trimmed, @"^-{3,}$", RegexOptions.CultureInvariant) ||
+            Regex.IsMatch(trimmed, @"^\d+\s+items?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            return string.Empty;
+        }
+
         var normalized = trimmed.Replace('\\', '/').TrimEnd('/');
+        if (normalized.Contains('/', StringComparison.Ordinal))
+        {
+            var pathFileName = normalized[(normalized.LastIndexOf('/') + 1)..];
+            return pathFileName is "." or ".." ? string.Empty : pathFileName;
+        }
+
+        var tokens = Regex.Split(trimmed, @"\s+")
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .ToArray();
+        if (tokens.Length >= 4 && Regex.IsMatch(tokens[0], @"^[d\-lbcps][rwx\-]{9}$", RegexOptions.CultureInvariant))
+        {
+            return tokens[^1];
+        }
+
         var fileName = normalized[(normalized.LastIndexOf('/') + 1)..];
         return fileName is "." or ".." ? string.Empty : fileName;
     }
@@ -6802,23 +6813,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _questVisualConfirmationPendingReason = string.Empty;
         UpdateQuestScreenshotCard();
         UpdateLiveRuntimeCard();
-    }
-
-    private static OperationOutcome BuildKioskVisualVerificationOutcome(OperationOutcome outcome, string summary)
-    {
-        if (outcome.Kind == OperationOutcomeKind.Failure)
-        {
-            return outcome;
-        }
-
-        return new OperationOutcome(
-            OperationOutcomeKind.Warning,
-            summary,
-            $"{outcome.Summary} {outcome.Detail} Capture a Quest screenshot in Bench tools to confirm what is actually visible on the headset."
-                .Trim(),
-            outcome.Endpoint,
-            outcome.PackageId,
-            outcome.Items);
     }
 
     private IReadOnlyList<string> ResolveHzdbSelectorCandidates()
