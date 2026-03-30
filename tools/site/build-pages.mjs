@@ -99,6 +99,7 @@ function renderPage(page, pages) {
     const assetPrefix = path.relative(path.dirname(page.outputPath), siteDir).replace(/\\/g, "/") || ".";
     const stylesheetHref = `${assetPrefix}/assets/site.css`;
     const brandMarkHref = `${assetPrefix}/assets/viscereality-mark.png`;
+    const brandWordmarkHref = `${assetPrefix}/assets/viscereality-wordmark.png`;
     const homeHref = path.relative(path.dirname(page.outputPath), homePage.outputPath).replace(/\\/g, "/");
     const downloadPage = pages.find(candidate => candidate.relativePath === "download.md");
     const firstSessionPage = pages.find(candidate => candidate.relativePath === "first-session.md");
@@ -144,8 +145,8 @@ function renderPage(page, pages) {
       <a class="brand" href="${homeHref}">
         <img class="brand-mark" src="${brandMarkHref}" alt="Viscereality Companion mark">
         <div class="brand-copy">
-          <span>Windows Operator App</span>
-          <strong>Viscereality Companion</strong>
+          <img class="brand-wordmark" src="${brandWordmarkHref}" alt="Altered States of Viscereality">
+          <span>Companion desktop operator surface</span>
         </div>
       </a>
       <nav class="top-nav">${topNav}</nav>

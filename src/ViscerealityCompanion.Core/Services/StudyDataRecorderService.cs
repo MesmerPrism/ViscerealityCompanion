@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.Core.Services;
 
@@ -266,6 +267,7 @@ public sealed class StudyDataRecordingSession : IDisposable
     private readonly StreamWriter _eventsWriter;
     private readonly StreamWriter _signalsWriter;
     private readonly StreamWriter _breathingWriter;
+    private readonly StreamWriter _clockAlignmentWriter;
     private readonly Dictionary<string, string> _lastSignalValues = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _disposed;
@@ -286,15 +288,18 @@ public sealed class StudyDataRecordingSession : IDisposable
         EventsCsvPath = Path.Combine(SessionFolderPath, "session_events.csv");
         SignalsCsvPath = Path.Combine(SessionFolderPath, "signals_long.csv");
         BreathingCsvPath = Path.Combine(SessionFolderPath, "breathing_trace.csv");
+        ClockAlignmentCsvPath = Path.Combine(SessionFolderPath, "clock_alignment_roundtrip.csv");
         SettingsJsonPath = Path.Combine(SessionFolderPath, "session_settings.json");
 
         _eventsWriter = CreateWriter(EventsCsvPath, encoding);
         _signalsWriter = CreateWriter(SignalsCsvPath, encoding);
         _breathingWriter = CreateWriter(BreathingCsvPath, encoding);
+        _clockAlignmentWriter = CreateWriter(ClockAlignmentCsvPath, encoding);
 
         WriteLine(_eventsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,event_name,event_detail,command_action_id,result");
         WriteLine(_signalsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,lsl_timestamp_seconds,source,signal_group,signal_name,value_numeric,value_text,unit,sequence,quest_selector");
         WriteLine(_breathingWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,breath_volume01,sphere_radius_progress01,sphere_radius_raw,controller_active,controller_calibrated");
+        WriteLine(_clockAlignmentWriter, "participant_id,session_id,dataset_id,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
 
         _settings = new StudyDataRecordingSettingsDocument(
             request.StudyId,
@@ -325,7 +330,13 @@ public sealed class StudyDataRecordingSession : IDisposable
             request.RuntimeHotloadProfileVersion,
             request.RuntimeHotloadProfileChannel,
             request.WindowsMachineName,
-            request.QuestSelector);
+            request.QuestSelector,
+            ClockAlignmentCsvPath,
+            SussexClockAlignmentStreamContract.DefaultDurationSeconds,
+            SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds,
+            null,
+            null,
+            0);
 
         WriteSettingsDocument();
     }
@@ -351,6 +362,8 @@ public sealed class StudyDataRecordingSession : IDisposable
     public string SignalsCsvPath { get; }
 
     public string BreathingCsvPath { get; }
+
+    public string ClockAlignmentCsvPath { get; }
 
     public string SettingsJsonPath { get; }
 
@@ -493,6 +506,47 @@ public sealed class StudyDataRecordingSession : IDisposable
         }
     }
 
+    public void RecordClockAlignmentSample(StudyClockAlignmentSample sample)
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposed();
+            WriteLine(
+                _clockAlignmentWriter,
+                string.Join(
+                    ",",
+                    Csv(ParticipantId),
+                    Csv(SessionId),
+                    Csv(DatasetId),
+                    Csv(sample.ProbeSequence.ToString(CultureInfo.InvariantCulture)),
+                    Csv(sample.ProbeSentAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
+                    Csv(sample.ProbeSentLocalClockSeconds.ToString("0.########", CultureInfo.InvariantCulture)),
+                    Csv(sample.EchoReceivedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
+                    Csv(sample.EchoReceivedLocalClockSeconds.ToString("0.########", CultureInfo.InvariantCulture)),
+                    Csv(sample.EchoSampleTimestampSeconds?.ToString("0.########", CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(sample.QuestReceivedAtUtc),
+                    Csv(sample.QuestReceivedLocalClockSeconds.ToString("0.########", CultureInfo.InvariantCulture)),
+                    Csv(sample.QuestEchoLocalClockSeconds.ToString("0.########", CultureInfo.InvariantCulture)),
+                    Csv(sample.QuestMinusWindowsClockSeconds.ToString("0.########", CultureInfo.InvariantCulture)),
+                    Csv(sample.RoundTripSeconds.ToString("0.########", CultureInfo.InvariantCulture))));
+        }
+    }
+
+    public void UpdateClockAlignmentSummary(StudyClockAlignmentSummary summary)
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposed();
+            _settings = _settings with
+            {
+                ClockAlignmentRecommendedQuestMinusWindowsClockSeconds = summary.RecommendedQuestMinusWindowsClockSeconds,
+                ClockAlignmentMeanRoundTripSeconds = summary.MeanRoundTripSeconds,
+                ClockAlignmentSampleCount = summary.EchoesReceived
+            };
+            WriteSettingsDocument();
+        }
+    }
+
     public void Complete(DateTimeOffset endedAtUtc)
     {
         lock (_sync)
@@ -527,9 +581,10 @@ public sealed class StudyDataRecordingSession : IDisposable
 
     private void DisposeWriters()
     {
-        _eventsWriter.Dispose();
-        _signalsWriter.Dispose();
-        _breathingWriter.Dispose();
+            _eventsWriter.Dispose();
+            _signalsWriter.Dispose();
+            _breathingWriter.Dispose();
+            _clockAlignmentWriter.Dispose();
     }
 
     private void ThrowIfDisposed()
@@ -627,5 +682,11 @@ public sealed class StudyDataRecordingSession : IDisposable
         string RuntimeHotloadProfileVersion,
         string RuntimeHotloadProfileChannel,
         string WindowsMachineName,
-        string QuestSelector);
+        string QuestSelector,
+        string ClockAlignmentFile,
+        int ClockAlignmentDurationSeconds,
+        int ClockAlignmentProbeIntervalMilliseconds,
+        double? ClockAlignmentRecommendedQuestMinusWindowsClockSeconds,
+        double? ClockAlignmentMeanRoundTripSeconds,
+        int ClockAlignmentSampleCount);
 }

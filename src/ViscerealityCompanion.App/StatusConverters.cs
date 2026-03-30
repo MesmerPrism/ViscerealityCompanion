@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
-using System.Windows.Media;
 using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.App;
@@ -105,25 +104,16 @@ public sealed class LogLevelToBrushConverter : IValueConverter
 
 public sealed class BatteryToBrushConverter : IValueConverter
 {
-    private static readonly Brush CriticalBrush = new SolidColorBrush(Color.FromRgb(0xB8, 0x4C, 0x4C));
-    private static readonly Brush LowBrush = new SolidColorBrush(Color.FromRgb(0xCC, 0xA0, 0x2E));
-    private static readonly Brush GoodBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x9D, 0x5C));
-
-    static BatteryToBrushConverter()
-    {
-        CriticalBrush.Freeze();
-        LowBrush.Freeze();
-        GoodBrush.Freeze();
-    }
-
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (value is not int pct) return LowBrush;
+        if (value is not int pct)
+            return Application.Current.FindResource("StatusWarningBrush");
+
         return pct switch
         {
-            <= 15 => CriticalBrush,
-            <= 35 => LowBrush,
-            _ => GoodBrush,
+            <= 15 => Application.Current.FindResource("StatusFailureBrush"),
+            <= 35 => Application.Current.FindResource("StatusWarningBrush"),
+            _ => Application.Current.FindResource("StatusSuccessBrush"),
         };
     }
 

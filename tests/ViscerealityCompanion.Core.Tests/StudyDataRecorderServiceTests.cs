@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Core.Tests;
@@ -85,6 +86,27 @@ public sealed class StudyDataRecorderServiceTests
 
             session.RecordTwinState(twinState, startedAtUtc.AddSeconds(2), "192.168.1.8:5555");
             session.RecordTwinState(twinState, startedAtUtc.AddSeconds(3), "192.168.1.8:5555");
+            session.RecordClockAlignmentSample(new StudyClockAlignmentSample(
+                7,
+                startedAtUtc.AddSeconds(1),
+                100.25,
+                startedAtUtc.AddSeconds(4),
+                103.75,
+                100.25,
+                "2026-03-29T12:34:57.0000000Z",
+                101.10,
+                101.35,
+                0.42,
+                0.315));
+            session.UpdateClockAlignmentSummary(new StudyClockAlignmentSummary(
+                8,
+                1,
+                0.42,
+                0.42,
+                0.42,
+                0.315,
+                0.315,
+                0.315));
             session.Complete(startedAtUtc.AddMinutes(8));
 
             var eventLines = File.ReadAllLines(session.EventsCsvPath);
@@ -105,6 +127,12 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Contains("0.58", breathingLines[1], StringComparison.Ordinal);
             Assert.Contains("1.75", breathingLines[1], StringComparison.Ordinal);
 
+            var clockAlignmentLines = File.ReadAllLines(session.ClockAlignmentCsvPath);
+            Assert.Equal(2, clockAlignmentLines.Length);
+            Assert.Contains("probe_sequence", clockAlignmentLines[0], StringComparison.Ordinal);
+            Assert.Contains(",7,", clockAlignmentLines[1], StringComparison.Ordinal);
+            Assert.Contains("0.315", clockAlignmentLines[1], StringComparison.Ordinal);
+
             using var settingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath));
             var rootElement = settingsDocument.RootElement;
             Assert.Equal("P007", rootElement.GetProperty("ParticipantId").GetString());
@@ -117,6 +145,12 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Equal("CONFIG_HASH", rootElement.GetProperty("RuntimeConfigJsonHash").GetString());
             Assert.Equal("viscereality_lsltwin_scene", rootElement.GetProperty("RuntimeHotloadProfileId").GetString());
             Assert.Equal("Quest-Selector-01", rootElement.GetProperty("QuestSelector").GetString());
+            Assert.Equal(session.ClockAlignmentCsvPath, rootElement.GetProperty("ClockAlignmentFile").GetString());
+            Assert.Equal(10, rootElement.GetProperty("ClockAlignmentDurationSeconds").GetInt32());
+            Assert.Equal(250, rootElement.GetProperty("ClockAlignmentProbeIntervalMilliseconds").GetInt32());
+            Assert.Equal(0.42, rootElement.GetProperty("ClockAlignmentRecommendedQuestMinusWindowsClockSeconds").GetDouble(), 3);
+            Assert.Equal(0.315, rootElement.GetProperty("ClockAlignmentMeanRoundTripSeconds").GetDouble(), 3);
+            Assert.Equal(1, rootElement.GetProperty("ClockAlignmentSampleCount").GetInt32());
             Assert.Equal("2026-03-29T12:42:56+00:00", rootElement.GetProperty("SessionEndedAtUtc").GetString());
         }
         finally

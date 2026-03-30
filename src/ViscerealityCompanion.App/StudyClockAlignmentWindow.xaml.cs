@@ -3,13 +3,13 @@ using ViscerealityCompanion.App.ViewModels;
 
 namespace ViscerealityCompanion.App;
 
-public partial class StudyWorkflowGuideWindow : Window
+public partial class StudyClockAlignmentWindow : Window
 {
-    public StudyWorkflowGuideWindow(StudyShellViewModel viewModel)
+    public StudyClockAlignmentWindow(StudyShellViewModel viewModel)
     {
         InitializeComponent();
         WindowThemeHelper.Attach(this);
         DataContext = viewModel;
-        Title = $"{viewModel.StudyLabel} Sequential Guide";
+        Title = $"{viewModel.StudyLabel} Clock Alignment";
     }
 }

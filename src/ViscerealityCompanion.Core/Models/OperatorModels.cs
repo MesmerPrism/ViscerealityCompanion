@@ -138,7 +138,9 @@ public sealed record LslMonitorReading(
     DateTimeOffset Timestamp,
     string? TextValue = null,
     IReadOnlyList<string>? SampleValues = null,
-    LslChannelFormat ChannelFormat = LslChannelFormat.Unknown);
+    LslChannelFormat ChannelFormat = LslChannelFormat.Unknown,
+    double? SampleTimestampSeconds = null,
+    double? ObservedLocalClockSeconds = null);
 
 public sealed record TwinModeCommand(string ActionId, string DisplayName)
 {

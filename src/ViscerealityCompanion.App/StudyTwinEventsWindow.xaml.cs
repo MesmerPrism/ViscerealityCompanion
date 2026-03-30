@@ -8,6 +8,7 @@ public partial class StudyTwinEventsWindow : Window
     public StudyTwinEventsWindow(StudyShellViewModel viewModel)
     {
         InitializeComponent();
+        WindowThemeHelper.Attach(this);
         DataContext = viewModel;
         Title = $"{viewModel.StudyLabel} Twin Event Log";
     }

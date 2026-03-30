@@ -26,11 +26,16 @@
           Link="samples\study-shells\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\tools\reports\generate_sussex_validation_pdf.py"
+          Link="tools\reports\generate_sussex_validation_pdf.py"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
     <Resource Include="Assets\viscereality-companion.ico" />
     <Resource Include="Assets\viscereality-companion.png" />
+    <Resource Include="Assets\viscereality-wordmark.png" />
   </ItemGroup>
 
 </Project>

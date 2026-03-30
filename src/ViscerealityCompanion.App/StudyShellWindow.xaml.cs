@@ -11,6 +11,7 @@ public partial class StudyShellWindow : Window
     public StudyShellWindow(StudyShellDefinition study)
     {
         InitializeComponent();
+        WindowThemeHelper.Attach(this);
         _viewModel = new StudyShellViewModel(study);
         DataContext = _viewModel;
         Title = $"{study.Label} Study Shell";

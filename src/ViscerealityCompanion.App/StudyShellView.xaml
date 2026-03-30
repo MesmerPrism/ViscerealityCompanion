@@ -39,6 +39,7 @@
 
         <Style x:Key="CompactStatusExpanderStyle" TargetType="Expander">
             <Setter Property="Margin" Value="0,6,0,0" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
 
         <Style x:Key="DataGridCellTextStyle" TargetType="TextBlock">
@@ -53,8 +54,11 @@
         </Style>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <Grid Margin="4,8,4,6">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  Background="{StaticResource AppBackgroundBrush}"
+                  BorderThickness="0">
+        <Grid Margin="4,8,4,6"
+              Background="{StaticResource AppBackgroundBrush}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="12" />
@@ -267,6 +271,15 @@
                                     <TextBlock Text="{Binding LslSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,8,0,0" />
                                     <TextBlock Text="{Binding ControllerSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
                                     <TextBlock Text="{Binding ControllerCalibrationLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding ControllerCalibrationQualityBadge, StringFormat=Calibration quality: {0}}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0"
+                                               Foreground="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBlock Text="{Binding ControllerCalibrationQualitySummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0"
+                                               Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}" />
                                     <TextBlock Text="{Binding LslBenchStateLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
                                     <WrapPanel Margin="0,10,0,0">
                                         <Button Content="Start Calibration"
@@ -834,13 +847,64 @@
                                                    FontWeight="Bold"
                                                    Foreground="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                    TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding ControllerCalibrationLabel}"
+                                                   Style="{StaticResource CompactCaptionStyle}"
+                                                   Margin="0,6,0,0" />
                                         <ProgressBar Margin="0,10,0,0"
                                                      Height="8"
                                                      Maximum="100"
                                                      Value="{Binding ControllerValuePercent, Mode=OneWay}"
                                                      Foreground="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToBrush}}" />
-                                        <TextBlock Text="{Binding ControllerValueLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
-                                        <TextBlock Text="{Binding ControllerDetail}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
+                                        <TextBlock Text="{Binding ControllerValueLabel, StringFormat=Current controller volume {0}}"
+                                                   Style="{StaticResource CompactCaptionStyle}"
+                                                   Margin="0,6,0,0" />
+
+                                        <Border Margin="0,10,0,0"
+                                                Padding="10"
+                                                Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}"
+                                                Background="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                                BorderBrush="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                BorderThickness="1"
+                                                CornerRadius="8">
+                                            <StackPanel>
+                                                <TextBlock Text="Calibration Quality" Style="{StaticResource InfoLabelStyle}" />
+                                                <TextBlock Text="{Binding ControllerCalibrationQualityBadge}"
+                                                           FontSize="14"
+                                                           FontWeight="Bold"
+                                                           Foreground="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding ControllerCalibrationQualitySummary}"
+                                                           Style="{StaticResource CompactCaptionStyle}"
+                                                           Margin="0,4,0,0"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding ControllerCalibrationQualityMetrics}"
+                                                           Style="{StaticResource CompactCaptionStyle}"
+                                                           Margin="0,4,0,0"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding ControllerCalibrationQualityCause}"
+                                                           Style="{StaticResource CompactCaptionStyle}"
+                                                           Margin="0,4,0,0"
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{Binding HasControllerCalibrationQualityCause, Converter={StaticResource BoolToVisibility}}" />
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Expander Style="{StaticResource CompactStatusExpanderStyle}"
+                                                  Margin="0,10,0,0">
+                                            <Expander.Header>
+                                                <TextBlock Text="Controller details" Style="{StaticResource InfoLabelStyle}" Margin="0" />
+                                            </Expander.Header>
+                                            <StackPanel Margin="0,6,0,0">
+                                                <TextBlock Text="{Binding ControllerDetail}"
+                                                           Style="{StaticResource CompactCaptionStyle}"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding ControllerCalibrationQualityDetail}"
+                                                           Style="{StaticResource CompactCaptionStyle}"
+                                                           Margin="0,6,0,0"
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}" />
+                                            </StackPanel>
+                                        </Expander>
                                     </StackPanel>
                                 </Border>
 

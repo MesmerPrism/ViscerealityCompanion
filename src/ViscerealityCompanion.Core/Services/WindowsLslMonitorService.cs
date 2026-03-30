@@ -219,7 +219,7 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
         }
     }
 
-    private static LslMonitorReading BuildReading(
+    private LslMonitorReading BuildReading(
         LslMonitorSubscription subscription,
         LslMonitorSample sample,
         float sampleRateHz)
@@ -233,7 +233,9 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
             DateTimeOffset.UtcNow,
             sample.TextValue,
             sample.SampleValues,
-            sample.ChannelFormat);
+            sample.ChannelFormat,
+            sample.TimestampSeconds,
+            _bridge.GetLocalClockSeconds());
 
     private static LslMonitorReading BuildReading(
         LslMonitorSubscription subscription,
@@ -255,6 +257,7 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
 internal interface ILslMonitorBridge
 {
     LslRuntimeState GetRuntimeState();
+    double? GetLocalClockSeconds();
     LslMonitorSession? OpenStream(LslMonitorSubscription subscription);
     LslMonitorSample? PullSample(LslMonitorSession session);
     void CloseStream(LslMonitorSession session);
@@ -271,6 +274,7 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
     private readonly LslRuntimeState _runtimeState = NativeMethods.GetRuntimeState();
 
     public LslRuntimeState GetRuntimeState() => _runtimeState;
+    public double? GetLocalClockSeconds() => _runtimeState.Available ? NativeMethods.GetLocalClockSeconds() : null;
 
     public LslMonitorSession? OpenStream(LslMonitorSubscription subscription)
     {
@@ -539,6 +543,7 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
         }
 
         internal static LslRuntimeState GetRuntimeState() => RuntimeState.Value;
+        internal static double GetLocalClockSeconds() => lsl_local_clock();
 
         private static LslRuntimeState LoadRuntimeState()
         {
@@ -568,6 +573,9 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
 
         [DllImport("lsl", EntryPoint = "lsl_last_error", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr lsl_last_error();
+
+        [DllImport("lsl", EntryPoint = "lsl_local_clock", CallingConvention = CallingConvention.Cdecl)]
+        private static extern double lsl_local_clock();
 
         [DllImport("lsl", EntryPoint = "lsl_library_info", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr lsl_library_info();

@@ -60,7 +60,9 @@ For first-time Sussex setup, open the workflow tab and use the
 `Open Sequential Guide` window. It walks the operator through USB probe,
 Wi-Fi ADB handoff, Wi-Fi-only verification, APK/profile checks, kiosk launch,
 LSL confirmation, particle verification, an optional-for-now controller
-calibration check, and the short 20 second validation capture.
+calibration check, and the short 20 second validation capture. After that
+capture finishes, the guide now gives one-click access to the Windows session
+folder, the pulled Quest backup folder, and the formatted PDF preview report.
 
 ## 3. Install The Study Build
 

@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -14,6 +15,11 @@ using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App.ViewModels;
+
+internal sealed record ValidationCapturePlotLoadResult(
+    bool HasData,
+    string Summary,
+    PointCollection Points);
 
 public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
@@ -28,6 +34,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly string[] QuestScreenshotShellCaptureMethods = ["metacam", "screencap"];
     private static readonly string[] QuestScreenshotRuntimeCaptureMethods = ["screencap", "metacam"];
     private const int WorkflowGuideValidationCaptureDurationSeconds = 20;
+    private const int WorkflowClockAlignmentDurationSeconds = SussexClockAlignmentStreamContract.DefaultDurationSeconds;
+    private const double ValidationPlotCanvasWidth = 300d;
+    private const double ValidationPlotCanvasHeight = 120d;
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DeviceSnapshotRefreshInterval = TimeSpan.FromSeconds(1);
@@ -57,7 +66,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         new(9, "Verify LSL reaches the headset", "Confirm the external heartbeat/biofeedback LSL stream is reaching the Sussex runtime and that the resulting live state is visible back in the companion."),
         new(10, "Test particle commands", "Use the companion controls to turn particles on and then off again. This confirms the Unity command bridge is still reacting."),
         new(11, "Try controller calibration", "Controller-volume breathing calibration is available here, but the current Sussex APK path is still unstable. Try it if useful, but it is not required before continuing."),
-        new(12, "Run a 20 second validation capture", "Enter a temporary subject id, record a short validation run, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
+        new(12, "Run a 20 second validation capture", "Enter a temporary subject id, record a short validation run, let the first 10 seconds perform the dedicated clock-alignment handshake, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
         new(13, "Reset for the real participant", "Reset calibration, make sure particles are off, and close the guide so the main runtime tab can be used for the real participant later.")
     ];
     private static readonly string[] WorkflowGuideExpectedDeviceRecordingFiles =
@@ -66,6 +75,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         "session_events.csv",
         "signals_long.csv",
         "breathing_trace.csv",
+        "clock_alignment_samples.csv",
         "lsl_samples.csv"
     ];
 
@@ -76,12 +86,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly IHzdbService _hzdbService = HzdbServiceFactory.CreateDefault();
     private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateShared();
     private readonly ITestLslSignalService _testLslSignalService = TestLslSignalServiceFactory.CreateDefault();
+    private readonly IStudyClockAlignmentService _clockAlignmentService = StudyClockAlignmentServiceFactory.CreateDefault();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
     private readonly DispatcherTimer? _deviceSnapshotRefreshTimer;
     private Window? _twinEventsWindow;
     private Window? _workflowGuideWindow;
+    private Window? _clockAlignmentWindow;
     private bool _initialized;
     private bool _twinRefreshPending;
     private bool _proximityRefreshPending;
@@ -199,6 +211,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _controllerValueLabel = "n/a";
     private double _controllerCalibrationPercent;
     private string _controllerCalibrationLabel = "Calibration n/a";
+    private bool _controllerCalibrationQualityVisible;
+    private OperationOutcomeKind _controllerCalibrationQualityLevel = OperationOutcomeKind.Preview;
+    private string _controllerCalibrationQualityBadge = "Calibration quality n/a";
+    private string _controllerCalibrationQualitySummary = "Quality guidance will appear during controller validation.";
+    private string _controllerCalibrationQualityMetrics = "Progress n/a · Accepted n/a · Acceptance n/a";
+    private string _controllerCalibrationQualityCause = string.Empty;
+    private string _controllerCalibrationQualityDetail = "Raw validation counters stay hidden until you expand details.";
+    private int? _controllerValidationLastObservedFrames;
+    private int? _controllerValidationLastAcceptedFrames;
+    private int _controllerValidationStalledUpdateCount;
     private OperationOutcomeKind _workflowCurrentStepLevel = OperationOutcomeKind.Warning;
     private string _workflowCurrentStepSummary = "Finish headset setup before starting the Sussex protocol.";
     private string _workflowCurrentStepDetail = "Use the workflow tab as the operator-facing protocol and keep the legacy tabs for deeper inspection.";
@@ -216,7 +238,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowHandoffDetail = "Reset Calibration is part of the Sussex shell contract, and the handoff should still end with the physical power button.";
     private OperationOutcomeKind _workflowParticipantStartLevel = OperationOutcomeKind.Warning;
     private string _workflowParticipantStartSummary = "Participant-run controls are staged behind the workflow checks.";
-    private string _workflowParticipantStartDetail = "Participant number entry, screenshot confirmation, and Start Experiment drive both the Windows recorder and the Quest-side backup recorder.";
+    private string _workflowParticipantStartDetail = "Participant number entry, screenshot confirmation, and Start Experiment drive both the Windows recorder and the Quest-side backup recorder, including a 10 second clock-alignment window at the start of each run.";
     private OperationOutcomeKind _workflowParticipantEndLevel = OperationOutcomeKind.Warning;
     private string _workflowParticipantEndSummary = "Participant-end controls wait for an active run.";
     private string _workflowParticipantEndDetail = "End Experiment now closes the Quest-side backup recorder and the Windows recorder before the shell runs cleanup.";
@@ -245,7 +267,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _latestDeviceRecordingSessionDir = string.Empty;
     private int _workflowGuideStepIndex;
     private OperationOutcomeKind _workflowGuideStepLevel = OperationOutcomeKind.Warning;
-    private string _workflowGuideStepLabel = "Step 1 of 12";
+    private string _workflowGuideStepLabel = "Step 1 of 13";
     private string _workflowGuideStepTitle = "Verify USB visibility";
     private string _workflowGuideStepExplanation = "Start with a real USB connection. The headset must be visible over USB ADB before the guide can bootstrap remote control.";
     private string _workflowGuideStepSummary = "USB ADB has not been verified yet.";
@@ -263,10 +285,28 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _validationCaptureSummary = "No validation capture has been run yet.";
     private string _validationCaptureDetail = "Enter a temporary subject id and run the 20 second validation capture once the earlier setup steps are complete.";
     private string _validationCaptureLocalFolderPath = string.Empty;
+    private string _validationCaptureDeviceSessionPath = string.Empty;
     private string _validationCaptureDevicePullFolderPath = string.Empty;
+    private string _validationCapturePdfPath = string.Empty;
     private bool _validationCaptureRunning;
     private bool _validationCaptureCompleted;
     private string _validationCaptureParticipantId = string.Empty;
+    private double _validationCaptureProgressPercent;
+    private string _validationCaptureProgressLabel = "No validation capture is running yet.";
+    private PointCollection _validationCaptureBreathingPlotPoints = [];
+    private PointCollection _validationCaptureCoherencePlotPoints = [];
+    private string _validationCaptureBreathingPlotSummary = "Breathing plot not loaded yet.";
+    private string _validationCaptureCoherencePlotSummary = "Coherence plot not loaded yet.";
+    private bool _validationCaptureBreathingPlotAvailable;
+    private bool _validationCaptureCoherencePlotAvailable;
+    private bool _clockAlignmentRunning;
+    private string _clockAlignmentSummary = "Clock alignment has not run yet.";
+    private string _clockAlignmentDetail = "Start the participant run to capture a dedicated 10 second quest-minus-Windows clock alignment sample window.";
+    private double _clockAlignmentProgressPercent;
+    private string _clockAlignmentProgressLabel = "No clock alignment is running yet.";
+    private string _clockAlignmentProbeStatsLabel = "No probes sent yet.";
+    private string _clockAlignmentOffsetStatsLabel = "Offset estimate n/a";
+    private string _clockAlignmentRoundTripStatsLabel = "Round-trip estimate n/a";
     private double _coherencePercent;
     private string _coherenceValueLabel = "n/a";
     private double _performancePercent;
@@ -360,6 +400,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         PreviousWorkflowGuideStepCommand = new AsyncRelayCommand(PreviousWorkflowGuideStepAsync);
         NextWorkflowGuideStepCommand = new AsyncRelayCommand(NextWorkflowGuideStepAsync);
         RunWorkflowValidationCaptureCommand = new AsyncRelayCommand(RunWorkflowValidationCaptureAsync);
+        OpenValidationCaptureLocalFolderCommand = new AsyncRelayCommand(OpenValidationCaptureLocalFolderAsync);
+        OpenValidationCaptureDevicePullFolderCommand = new AsyncRelayCommand(OpenValidationCaptureDevicePullFolderAsync);
+        OpenValidationCapturePdfCommand = new AsyncRelayCommand(OpenValidationCapturePdfAsync);
         CloseWorkflowGuideWindowCommand = new AsyncRelayCommand(CloseWorkflowGuideWindowAsync);
         RegisterWorkflowGuideCommands();
         UpdateHeadsetSnapshotModeState();
@@ -1135,10 +1178,22 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _validationCaptureLocalFolderPath, value);
     }
 
+    public string ValidationCaptureDeviceSessionPath
+    {
+        get => _validationCaptureDeviceSessionPath;
+        private set => SetProperty(ref _validationCaptureDeviceSessionPath, value);
+    }
+
     public string ValidationCaptureDevicePullFolderPath
     {
         get => _validationCaptureDevicePullFolderPath;
         private set => SetProperty(ref _validationCaptureDevicePullFolderPath, value);
+    }
+
+    public string ValidationCapturePdfPath
+    {
+        get => _validationCapturePdfPath;
+        private set => SetProperty(ref _validationCapturePdfPath, value);
     }
 
     public bool ValidationCaptureRunning
@@ -1158,6 +1213,114 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         get => _validationCaptureParticipantId;
         private set => SetProperty(ref _validationCaptureParticipantId, value);
     }
+
+    public double ValidationCaptureProgressPercent
+    {
+        get => _validationCaptureProgressPercent;
+        private set => SetProperty(ref _validationCaptureProgressPercent, value);
+    }
+
+    public string ValidationCaptureProgressLabel
+    {
+        get => _validationCaptureProgressLabel;
+        private set => SetProperty(ref _validationCaptureProgressLabel, value);
+    }
+
+    public PointCollection ValidationCaptureBreathingPlotPoints
+    {
+        get => _validationCaptureBreathingPlotPoints;
+        private set => SetProperty(ref _validationCaptureBreathingPlotPoints, value);
+    }
+
+    public PointCollection ValidationCaptureCoherencePlotPoints
+    {
+        get => _validationCaptureCoherencePlotPoints;
+        private set => SetProperty(ref _validationCaptureCoherencePlotPoints, value);
+    }
+
+    public string ValidationCaptureBreathingPlotSummary
+    {
+        get => _validationCaptureBreathingPlotSummary;
+        private set => SetProperty(ref _validationCaptureBreathingPlotSummary, value);
+    }
+
+    public string ValidationCaptureCoherencePlotSummary
+    {
+        get => _validationCaptureCoherencePlotSummary;
+        private set => SetProperty(ref _validationCaptureCoherencePlotSummary, value);
+    }
+
+    public bool ValidationCaptureBreathingPlotAvailable
+    {
+        get => _validationCaptureBreathingPlotAvailable;
+        private set => SetProperty(ref _validationCaptureBreathingPlotAvailable, value);
+    }
+
+    public bool ValidationCaptureCoherencePlotAvailable
+    {
+        get => _validationCaptureCoherencePlotAvailable;
+        private set => SetProperty(ref _validationCaptureCoherencePlotAvailable, value);
+    }
+
+    public bool ClockAlignmentRunning
+    {
+        get => _clockAlignmentRunning;
+        private set => SetProperty(ref _clockAlignmentRunning, value);
+    }
+
+    public string ClockAlignmentSummary
+    {
+        get => _clockAlignmentSummary;
+        private set => SetProperty(ref _clockAlignmentSummary, value);
+    }
+
+    public string ClockAlignmentDetail
+    {
+        get => _clockAlignmentDetail;
+        private set => SetProperty(ref _clockAlignmentDetail, value);
+    }
+
+    public double ClockAlignmentProgressPercent
+    {
+        get => _clockAlignmentProgressPercent;
+        private set => SetProperty(ref _clockAlignmentProgressPercent, value);
+    }
+
+    public string ClockAlignmentProgressLabel
+    {
+        get => _clockAlignmentProgressLabel;
+        private set => SetProperty(ref _clockAlignmentProgressLabel, value);
+    }
+
+    public string ClockAlignmentProbeStatsLabel
+    {
+        get => _clockAlignmentProbeStatsLabel;
+        private set => SetProperty(ref _clockAlignmentProbeStatsLabel, value);
+    }
+
+    public string ClockAlignmentOffsetStatsLabel
+    {
+        get => _clockAlignmentOffsetStatsLabel;
+        private set => SetProperty(ref _clockAlignmentOffsetStatsLabel, value);
+    }
+
+    public string ClockAlignmentRoundTripStatsLabel
+    {
+        get => _clockAlignmentRoundTripStatsLabel;
+        private set => SetProperty(ref _clockAlignmentRoundTripStatsLabel, value);
+    }
+
+    public bool CanOpenValidationCaptureLocalFolder
+        => !string.IsNullOrWhiteSpace(ValidationCaptureLocalFolderPath)
+            && Directory.Exists(ValidationCaptureLocalFolderPath);
+
+    public bool CanOpenValidationCaptureDevicePullFolder
+        => !string.IsNullOrWhiteSpace(ValidationCaptureDevicePullFolderPath)
+            && Directory.Exists(ValidationCaptureDevicePullFolderPath);
+
+    public bool CanOpenValidationCapturePdf
+        => !string.IsNullOrWhiteSpace(ValidationCapturePdfPath)
+            && File.Exists(ValidationCapturePdfPath);
 
     public string DeviceProfileSummary
     {
@@ -1463,6 +1626,57 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _controllerCalibrationLabel, value);
     }
 
+    public bool ControllerCalibrationQualityVisible
+    {
+        get => _controllerCalibrationQualityVisible;
+        private set => SetProperty(ref _controllerCalibrationQualityVisible, value);
+    }
+
+    public OperationOutcomeKind ControllerCalibrationQualityLevel
+    {
+        get => _controllerCalibrationQualityLevel;
+        private set => SetProperty(ref _controllerCalibrationQualityLevel, value);
+    }
+
+    public string ControllerCalibrationQualityBadge
+    {
+        get => _controllerCalibrationQualityBadge;
+        private set => SetProperty(ref _controllerCalibrationQualityBadge, value);
+    }
+
+    public string ControllerCalibrationQualitySummary
+    {
+        get => _controllerCalibrationQualitySummary;
+        private set => SetProperty(ref _controllerCalibrationQualitySummary, value);
+    }
+
+    public string ControllerCalibrationQualityMetrics
+    {
+        get => _controllerCalibrationQualityMetrics;
+        private set => SetProperty(ref _controllerCalibrationQualityMetrics, value);
+    }
+
+    public string ControllerCalibrationQualityCause
+    {
+        get => _controllerCalibrationQualityCause;
+        private set
+        {
+            if (SetProperty(ref _controllerCalibrationQualityCause, value))
+            {
+                OnPropertyChanged(nameof(HasControllerCalibrationQualityCause));
+            }
+        }
+    }
+
+    public bool HasControllerCalibrationQualityCause
+        => !string.IsNullOrWhiteSpace(ControllerCalibrationQualityCause);
+
+    public string ControllerCalibrationQualityDetail
+    {
+        get => _controllerCalibrationQualityDetail;
+        private set => SetProperty(ref _controllerCalibrationQualityDetail, value);
+    }
+
     public double CoherencePercent
     {
         get => _coherencePercent;
@@ -1530,7 +1744,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             && IsStudyRuntimeForeground()
             && !string.IsNullOrWhiteSpace(ParticipantIdDraft)
             && _activeRecordingSession is null
-            && !_participantRunStopping;
+            && !_participantRunStopping
+            && !ClockAlignmentRunning;
 
     public bool CanEndParticipantExperiment
         => CanEndExperiment
@@ -1542,6 +1757,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             && CanEndExperiment
             && IsStudyRuntimeForeground()
             && !_participantRunStopping
+            && !ClockAlignmentRunning
             && !ValidationCaptureRunning
             && !string.IsNullOrWhiteSpace(ParticipantIdDraft);
 
@@ -1641,6 +1857,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand PreviousWorkflowGuideStepCommand { get; }
     public AsyncRelayCommand NextWorkflowGuideStepCommand { get; }
     public AsyncRelayCommand RunWorkflowValidationCaptureCommand { get; }
+    public AsyncRelayCommand OpenValidationCaptureLocalFolderCommand { get; }
+    public AsyncRelayCommand OpenValidationCaptureDevicePullFolderCommand { get; }
+    public AsyncRelayCommand OpenValidationCapturePdfCommand { get; }
     public AsyncRelayCommand CloseWorkflowGuideWindowCommand { get; }
 
     public async Task InitializeAsync()
@@ -1694,7 +1913,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         CloseTwinEventsWindow();
         CloseWorkflowGuideWindow();
+        CloseClockAlignmentWindow();
         _activeRecordingSession?.Dispose();
+        _clockAlignmentService.Dispose();
         _testLslSignalService.Dispose();
     }
 
@@ -2479,10 +2700,22 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             null,
             deviceConfirmationOutcome.Kind.ToString());
 
-        if (deviceConfirmationOutcome.Kind is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
-        {
-            await ApplyOutcomeAsync("Start Participant Run", deviceConfirmationOutcome).ConfigureAwait(false);
-        }
+        var clockAlignmentOutcome = await RunClockAlignmentAsync(recordingSession).ConfigureAwait(false);
+        recordingSession.RecordEvent(
+            "clock_alignment.result",
+            BuildRecorderEventDetail(clockAlignmentOutcome),
+            null,
+            clockAlignmentOutcome.Kind.ToString());
+
+        var overallOutcome = CombineWorkflowOutcomes(
+            "Start Participant Run",
+            [
+                ("Start Experiment", outcome),
+                ("Quest Recorder", deviceConfirmationOutcome),
+                ("Clock Alignment", clockAlignmentOutcome)
+            ],
+            "Started the participant run, confirmed the Quest-side recorder, and collected the dedicated clock-alignment window.");
+        await ApplyOutcomeAsync("Start Participant Run", overallOutcome).ConfigureAwait(false);
 
         await DispatchAsync(UpdateParticipantSessionState).ConfigureAwait(false);
     }
@@ -2503,7 +2736,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _study.Controls.EndExperimentActionId,
             "pending");
 
-        var outcomes = new List<(string Label, OperationOutcome Outcome)>(3);
+        var outcomes = new List<(string Label, OperationOutcome Outcome)>(4);
+        var cleanupPermitted = activeSession is null;
         try
         {
             var endOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.EndExperimentActionId, "End Experiment").ConfigureAwait(false);
@@ -2514,40 +2748,48 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 _study.Controls.EndExperimentActionId,
                 endOutcome.Kind.ToString());
 
-            if (CanResetBreathingCalibration)
+            if (activeSession is null)
             {
-                var resetOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ResetBreathingCalibrationActionId, "Reset Breathing Calibration").ConfigureAwait(false);
-                outcomes.Add(("Reset Calibration", resetOutcome));
-                activeSession?.RecordEvent(
-                    "experiment.reset_calibration",
-                    BuildRecorderEventDetail(resetOutcome),
-                    _study.Controls.ResetBreathingCalibrationActionId,
-                    resetOutcome.Kind.ToString());
+                cleanupPermitted = endOutcome.Kind != OperationOutcomeKind.Failure;
             }
-
-            if (CanToggleParticles)
+            else
             {
-                var particlesOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ParticleVisibleOffActionId, "Particles Off").ConfigureAwait(false);
-                outcomes.Add(("Particles Off", particlesOutcome));
-                activeSession?.RecordEvent(
-                    "experiment.particles_off",
-                    BuildRecorderEventDetail(particlesOutcome),
-                    _study.Controls.ParticleVisibleOffActionId,
-                    particlesOutcome.Kind.ToString());
+                var deviceStopOutcome = await ConfirmDeviceRecordingStoppedAsync(activeSession).ConfigureAwait(false);
+                outcomes.Add(("Quest Recorder Stop", deviceStopOutcome));
+                activeSession.RecordEvent(
+                    "recording.device_stop_confirmation",
+                    BuildRecorderEventDetail(deviceStopOutcome),
+                    null,
+                    deviceStopOutcome.Kind.ToString());
+
+                var closedAtUtc = DateTimeOffset.UtcNow;
+                await FinishParticipantRecordingAsync(
+                        activeSession,
+                        closedAtUtc,
+                        "recording.stopped",
+                        "Participant recording closed from the Sussex workflow shell before cleanup commands.",
+                        deviceStopOutcome.Kind == OperationOutcomeKind.Success ? "completed" : "warning",
+                        clearParticipantId: true)
+                    .ConfigureAwait(false);
+
+                cleanupPermitted = endOutcome.Kind != OperationOutcomeKind.Failure;
             }
         }
         finally
         {
-            if (activeSession is not null)
+            if (cleanupPermitted)
             {
-                await FinishParticipantRecordingAsync(
-                        activeSession,
-                        DateTimeOffset.UtcNow,
-                        "recording.stopped",
-                        "Participant recording closed from the Sussex workflow shell.",
-                        "completed",
-                        clearParticipantId: true)
-                    .ConfigureAwait(false);
+                if (CanResetBreathingCalibration)
+                {
+                    var resetOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ResetBreathingCalibrationActionId, "Reset Breathing Calibration").ConfigureAwait(false);
+                    outcomes.Add(("Reset Calibration", resetOutcome));
+                }
+
+                if (CanToggleParticles)
+                {
+                    var particlesOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ParticleVisibleOffActionId, "Particles Off").ConfigureAwait(false);
+                    outcomes.Add(("Particles Off", particlesOutcome));
+                }
             }
             else
             {
@@ -2565,7 +2807,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             outcomes,
             activeSession is null
                 ? "Ended the participant flow without an active local recording session."
-                : "Ended the participant flow, ran shell cleanup, and closed the local recording session.");
+                : "Ended the participant flow, waited for Quest recorder stop confirmation, closed the local recording session, and only then ran shell cleanup.");
         await ApplyOutcomeAsync("End Participant Run", overallOutcome).ConfigureAwait(false);
     }
 
@@ -2581,10 +2823,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ValidationCaptureRunning = true;
             ValidationCaptureCompleted = false;
             ValidationCaptureSummary = "Validation capture is starting.";
-            ValidationCaptureDetail = "The guide will start a 20 second recording, stop it again, and then pull the Quest-side backup files.";
-            ValidationCaptureLocalFolderPath = string.Empty;
-            ValidationCaptureDevicePullFolderPath = string.Empty;
+            ValidationCaptureDetail = "The guide will start a 20 second recording, run the dedicated 10 second clock-alignment handshake at the beginning, stop it again, and then pull the Quest-side backup files.";
+            SetValidationCaptureFolders(string.Empty, string.Empty, string.Empty, string.Empty);
             ValidationCaptureParticipantId = string.Empty;
+            SetValidationCaptureProgress(0d, "Preparing the validation capture and waiting for the clock-alignment window to begin.");
+            ClearValidationCapturePlots();
             UpdateWorkflowGuideState();
         }).ConfigureAwait(false);
 
@@ -2601,6 +2844,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     ValidationCaptureCompleted = false;
                     ValidationCaptureSummary = "Validation capture did not start.";
                     ValidationCaptureDetail = "The participant recorder never became active. Fix the earlier guide steps and try again.";
+                    SetValidationCaptureProgress(0d, "Validation capture did not start.");
                     UpdateWorkflowGuideState();
                 }).ConfigureAwait(false);
                 return;
@@ -2613,13 +2857,42 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() =>
             {
                 ValidationCaptureParticipantId = participantId;
-                ValidationCaptureLocalFolderPath = localSessionFolderPath;
+                SetValidationCaptureFolders(localSessionFolderPath, remoteSessionDir ?? string.Empty, string.Empty, string.Empty);
                 ValidationCaptureSummary = $"Validation capture running for {participantId}.";
                 ValidationCaptureDetail = $"Recording for {WorkflowGuideValidationCaptureDurationSeconds} seconds. Windows session folder: {localSessionFolderPath}";
+                SetValidationCaptureProgress(0d, $"Collecting data: 0.0 of {WorkflowGuideValidationCaptureDurationSeconds} seconds.");
                 UpdateWorkflowGuideState();
             }).ConfigureAwait(false);
 
-            await Task.Delay(TimeSpan.FromSeconds(WorkflowGuideValidationCaptureDurationSeconds)).ConfigureAwait(false);
+            var captureDuration = TimeSpan.FromSeconds(WorkflowGuideValidationCaptureDurationSeconds);
+            var progressUpdateInterval = TimeSpan.FromMilliseconds(250);
+            var captureStopwatch = Stopwatch.StartNew();
+
+            while (captureStopwatch.Elapsed < captureDuration)
+            {
+                var remaining = captureDuration - captureStopwatch.Elapsed;
+                var delay = remaining < progressUpdateInterval ? remaining : progressUpdateInterval;
+                await Task.Delay(delay).ConfigureAwait(false);
+
+                var elapsed = captureStopwatch.Elapsed > captureDuration ? captureDuration : captureStopwatch.Elapsed;
+                var percent = captureDuration.TotalMilliseconds <= 0d
+                    ? 100d
+                    : Math.Clamp(elapsed.TotalMilliseconds / captureDuration.TotalMilliseconds * 100d, 0d, 100d);
+
+                await DispatchAsync(() =>
+                {
+                    SetValidationCaptureProgress(
+                        percent,
+                        $"Collecting data: {elapsed.TotalSeconds:0.0} of {captureDuration.TotalSeconds:0} seconds.");
+                }).ConfigureAwait(false);
+            }
+
+            await DispatchAsync(() =>
+            {
+                SetValidationCaptureProgress(100d, "Recording finished. Pulling Quest backup files.");
+                UpdateWorkflowGuideState();
+            }).ConfigureAwait(false);
+
             await EndExperimentAsync().ConfigureAwait(false);
 
             if (string.IsNullOrWhiteSpace(remoteSessionDir))
@@ -2640,6 +2913,23 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             var detail = completed
                 ? $"Windows data: {completedLocalFolder} Quest pullback: {pulledFolderPath}"
                 : $"{pullOutcome.Detail} Windows data: {completedLocalFolder}";
+            var breathingPlot = await Task.Run(() => LoadBreathingValidationCapturePlot(completedLocalFolder)).ConfigureAwait(false);
+            var coherencePlot = await Task.Run(() => LoadCoherenceValidationCapturePlot(completedLocalFolder)).ConfigureAwait(false);
+            var pdfReportOutcome = await GenerateValidationCapturePdfAsync(completedLocalFolder).ConfigureAwait(false);
+            var pdfPath = pdfReportOutcome.Items?.FirstOrDefault() ?? string.Empty;
+            if (pdfReportOutcome.Kind == OperationOutcomeKind.Success)
+            {
+                detail = string.IsNullOrWhiteSpace(detail)
+                    ? $"Validation PDF: {pdfPath}"
+                    : $"{detail} Validation PDF: {pdfPath}";
+            }
+            else if (!string.IsNullOrWhiteSpace(pdfReportOutcome.Detail))
+            {
+                detail = string.IsNullOrWhiteSpace(detail)
+                    ? pdfReportOutcome.Detail
+                    : $"{detail} {pdfReportOutcome.Detail}";
+            }
+
             var outcome = new OperationOutcome(
                 completed ? OperationOutcomeKind.Success : pullOutcome.Kind == OperationOutcomeKind.Failure ? OperationOutcomeKind.Warning : pullOutcome.Kind,
                 summary,
@@ -2647,17 +2937,23 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 Items:
                 [
                     completedLocalFolder,
-                    pulledFolderPath
+                    pulledFolderPath,
+                    pdfPath
                 ]);
 
             await DispatchAsync(() =>
             {
                 ValidationCaptureRunning = false;
                 ValidationCaptureCompleted = completed;
-                ValidationCaptureLocalFolderPath = completedLocalFolder;
-                ValidationCaptureDevicePullFolderPath = pulledFolderPath;
+                SetValidationCaptureFolders(completedLocalFolder, remoteSessionDir ?? string.Empty, pulledFolderPath, pdfPath);
                 ValidationCaptureSummary = summary;
                 ValidationCaptureDetail = detail;
+                SetValidationCaptureProgress(
+                    100d,
+                    completed
+                        ? "Validation capture complete. The Windows session folder and pulled Quest backup are ready to inspect."
+                        : "Validation capture finished, but the pulled Quest backup is incomplete.");
+                ApplyValidationCapturePlots(breathingPlot, coherencePlot);
                 UpdateWorkflowGuideState();
             }).ConfigureAwait(false);
 
@@ -2671,6 +2967,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ValidationCaptureCompleted = false;
                 ValidationCaptureSummary = "Validation capture failed.";
                 ValidationCaptureDetail = exception.Message;
+                SetValidationCaptureProgress(0d, "Validation capture failed.");
+                ClearValidationCapturePlots();
                 UpdateWorkflowGuideState();
             }).ConfigureAwait(false);
 
@@ -2690,6 +2988,443 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 UpdateWorkflowGuideState();
             }).ConfigureAwait(false);
         }
+    }
+
+    private void SetValidationCaptureFolders(string localFolderPath, string deviceSessionPath, string devicePullFolderPath)
+    {
+        ValidationCaptureLocalFolderPath = localFolderPath;
+        ValidationCaptureDeviceSessionPath = deviceSessionPath;
+        ValidationCaptureDevicePullFolderPath = devicePullFolderPath;
+        ValidationCapturePdfPath = string.Empty;
+        OnPropertyChanged(nameof(CanOpenValidationCaptureLocalFolder));
+        OnPropertyChanged(nameof(CanOpenValidationCaptureDevicePullFolder));
+        OnPropertyChanged(nameof(CanOpenValidationCapturePdf));
+    }
+
+    private void SetValidationCaptureFolders(string localFolderPath, string deviceSessionPath, string devicePullFolderPath, string pdfPath)
+    {
+        ValidationCaptureLocalFolderPath = localFolderPath;
+        ValidationCaptureDeviceSessionPath = deviceSessionPath;
+        ValidationCaptureDevicePullFolderPath = devicePullFolderPath;
+        ValidationCapturePdfPath = pdfPath;
+        OnPropertyChanged(nameof(CanOpenValidationCaptureLocalFolder));
+        OnPropertyChanged(nameof(CanOpenValidationCaptureDevicePullFolder));
+        OnPropertyChanged(nameof(CanOpenValidationCapturePdf));
+    }
+
+    private void SetValidationCaptureProgress(double percent, string label)
+    {
+        ValidationCaptureProgressPercent = Math.Clamp(percent, 0d, 100d);
+        ValidationCaptureProgressLabel = label;
+    }
+
+    private void ClearValidationCapturePlots()
+        => ApplyValidationCapturePlots(
+            new ValidationCapturePlotLoadResult(false, "Breathing plot not loaded yet.", []),
+            new ValidationCapturePlotLoadResult(false, "Coherence plot not loaded yet.", []));
+
+    private void ApplyValidationCapturePlots(
+        ValidationCapturePlotLoadResult breathingPlot,
+        ValidationCapturePlotLoadResult coherencePlot)
+    {
+        ValidationCaptureBreathingPlotAvailable = breathingPlot.HasData;
+        ValidationCaptureBreathingPlotSummary = breathingPlot.Summary;
+        ValidationCaptureBreathingPlotPoints = breathingPlot.Points;
+
+        ValidationCaptureCoherencePlotAvailable = coherencePlot.HasData;
+        ValidationCaptureCoherencePlotSummary = coherencePlot.Summary;
+        ValidationCaptureCoherencePlotPoints = coherencePlot.Points;
+    }
+
+    private static ValidationCapturePlotLoadResult LoadBreathingValidationCapturePlot(string localSessionFolderPath)
+        => LoadValidationCapturePlot(
+            localSessionFolderPath,
+            "breathing_trace.csv",
+            "breath_volume01",
+            "Breathing",
+            "breathing samples");
+
+    private static ValidationCapturePlotLoadResult LoadCoherenceValidationCapturePlot(string localSessionFolderPath)
+        => LoadValidationCapturePlot(
+            localSessionFolderPath,
+            "signals_long.csv",
+            "coherence.value01",
+            "Coherence",
+            "coherence samples",
+            signalNameColumnName: "signal_name",
+            numericValueColumnName: "value_numeric");
+
+    private static string? TryResolveValidationCapturePdfScriptPath()
+        => new[]
+        {
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "tools", "reports", "generate_sussex_validation_pdf.py")),
+            Path.Combine(AppContext.BaseDirectory, "tools", "reports", "generate_sussex_validation_pdf.py"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "ViscerealityCompanion",
+                "tools",
+                "reports",
+                "generate_sussex_validation_pdf.py")
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        .Select(Path.GetFullPath)
+        .FirstOrDefault();
+
+    private static ValidationCapturePlotLoadResult LoadValidationCapturePlot(
+        string localSessionFolderPath,
+        string fileName,
+        string targetColumnOrSignalName,
+        string label,
+        string sampleLabel,
+        string? signalNameColumnName = null,
+        string? numericValueColumnName = null)
+    {
+        if (string.IsNullOrWhiteSpace(localSessionFolderPath) || !Directory.Exists(localSessionFolderPath))
+        {
+            return new ValidationCapturePlotLoadResult(false, $"{label} plot unavailable because the Windows session folder is missing.", CreateFrozenPointCollection());
+        }
+
+        var filePath = Path.Combine(localSessionFolderPath, fileName);
+        if (!File.Exists(filePath))
+        {
+            return new ValidationCapturePlotLoadResult(false, $"{label} plot unavailable because {fileName} was not written.", CreateFrozenPointCollection());
+        }
+
+        string[] lines;
+        try
+        {
+            lines = File.ReadAllLines(filePath);
+        }
+        catch (Exception ex)
+        {
+            return new ValidationCapturePlotLoadResult(false, $"{label} plot could not be loaded from {fileName}: {ex.Message}", CreateFrozenPointCollection());
+        }
+
+        if (lines.Length < 2)
+        {
+            return new ValidationCapturePlotLoadResult(false, $"{label} plot unavailable because {fileName} has no recorded rows yet.", CreateFrozenPointCollection());
+        }
+
+        var headers = lines[0].Split(',');
+        var values = signalNameColumnName is null
+            ? ReadColumnValues(lines, headers, targetColumnOrSignalName)
+            : ReadFilteredSignalValues(lines, headers, signalNameColumnName, targetColumnOrSignalName, numericValueColumnName ?? "value_numeric");
+
+        if (values.Count == 0)
+        {
+            return new ValidationCapturePlotLoadResult(false, $"{label} plot unavailable because no {sampleLabel} were found in {fileName}.", CreateFrozenPointCollection());
+        }
+
+        var points = BuildValidationPlotPoints(values, ValidationPlotCanvasWidth, ValidationPlotCanvasHeight);
+        return new ValidationCapturePlotLoadResult(true, $"{values.Count} {sampleLabel} loaded from {fileName}.", points);
+    }
+
+    private static List<double> ReadColumnValues(IReadOnlyList<string> lines, IReadOnlyList<string> headers, string columnName)
+    {
+        var columnIndex = FindCsvColumnIndex(headers, columnName);
+        if (columnIndex < 0)
+        {
+            return [];
+        }
+
+        var values = new List<double>(lines.Count - 1);
+        for (var index = 1; index < lines.Count; index++)
+        {
+            var cells = lines[index].Split(',');
+            if (columnIndex >= cells.Length)
+            {
+                continue;
+            }
+
+            if (TryParseUnitInterval(cells[columnIndex], out var value))
+            {
+                values.Add(value);
+            }
+        }
+
+        return values;
+    }
+
+    private static List<double> ReadFilteredSignalValues(
+        IReadOnlyList<string> lines,
+        IReadOnlyList<string> headers,
+        string signalNameColumnName,
+        string targetSignalName,
+        string numericValueColumnName)
+    {
+        var signalNameIndex = FindCsvColumnIndex(headers, signalNameColumnName);
+        var valueIndex = FindCsvColumnIndex(headers, numericValueColumnName);
+        if (signalNameIndex < 0 || valueIndex < 0)
+        {
+            return [];
+        }
+
+        var values = new List<double>(lines.Count - 1);
+        for (var index = 1; index < lines.Count; index++)
+        {
+            var cells = lines[index].Split(',');
+            if (signalNameIndex >= cells.Length || valueIndex >= cells.Length)
+            {
+                continue;
+            }
+
+            if (!string.Equals(cells[signalNameIndex], targetSignalName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (TryParseUnitInterval(cells[valueIndex], out var value))
+            {
+                values.Add(value);
+            }
+        }
+
+        return values;
+    }
+
+    private static int FindCsvColumnIndex(IReadOnlyList<string> headers, string columnName)
+    {
+        for (var index = 0; index < headers.Count; index++)
+        {
+            if (string.Equals(headers[index], columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool TryParseUnitInterval(string raw, out double value)
+    {
+        if (double.TryParse(raw, NumberStyles.Float | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var parsed))
+        {
+            value = Math.Clamp(parsed, 0d, 1d);
+            return true;
+        }
+
+        value = 0d;
+        return false;
+    }
+
+    private static PointCollection BuildValidationPlotPoints(IReadOnlyList<double> values, double width, double height)
+    {
+        if (values.Count == 0)
+        {
+            return CreateFrozenPointCollection();
+        }
+
+        if (values.Count == 1)
+        {
+            var y = (1d - values[0]) * height;
+            return CreateFrozenPointCollection(
+            [
+                new Point(width * 0.5d, y)
+            ]);
+        }
+
+        var points = new List<Point>(values.Count);
+        for (var index = 0; index < values.Count; index++)
+        {
+            var x = index * width / (values.Count - 1d);
+            var y = (1d - values[index]) * height;
+            points.Add(new Point(x, y));
+        }
+
+        return CreateFrozenPointCollection(points);
+    }
+
+    private static PointCollection CreateFrozenPointCollection(IEnumerable<Point>? points = null)
+    {
+        var collection = points is null ? [] : new PointCollection(points);
+        if (collection.CanFreeze)
+        {
+            collection.Freeze();
+        }
+
+        return collection;
+    }
+
+    private async Task OpenValidationCaptureLocalFolderAsync()
+    {
+        var folderPath = await DispatchAsync(() => ValidationCaptureLocalFolderPath).ConfigureAwait(false);
+        await OpenValidationCaptureFolderAsync(
+            folderPath,
+            "Open Windows Session Folder",
+            "Windows session folder is not available yet.",
+            "Run the validation capture first so the Windows-side session folder exists.").ConfigureAwait(false);
+    }
+
+    private async Task OpenValidationCaptureDevicePullFolderAsync()
+    {
+        var folderPath = await DispatchAsync(() => ValidationCaptureDevicePullFolderPath).ConfigureAwait(false);
+        await OpenValidationCaptureFolderAsync(
+            folderPath,
+            "Open Pulled Quest Backup",
+            "Pulled Quest backup folder is not available yet.",
+            "Finish the validation capture and Quest pullback first so the pulled backup folder exists.").ConfigureAwait(false);
+    }
+
+    private async Task OpenValidationCapturePdfAsync()
+    {
+        var pdfPath = await DispatchAsync(() => ValidationCapturePdfPath).ConfigureAwait(false);
+        await OpenValidationCaptureFileAsync(
+            pdfPath,
+            "Open Validation PDF",
+            "Validation PDF is not available yet.",
+            "Finish the validation capture first so the formatted PDF preview can be generated.").ConfigureAwait(false);
+    }
+
+    private async Task OpenValidationCaptureFolderAsync(string folderPath, string actionLabel, string unavailableSummary, string unavailableDetail)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+        {
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    unavailableSummary,
+                    unavailableDetail,
+                    Items: string.IsNullOrWhiteSpace(folderPath) ? [] : [folderPath])).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = folderPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    $"{actionLabel} failed.",
+                    ex.Message,
+                    Items: [folderPath])).ConfigureAwait(false);
+        }
+    }
+
+    private async Task OpenValidationCaptureFileAsync(string filePath, string actionLabel, string unavailableSummary, string unavailableDetail)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    unavailableSummary,
+                    unavailableDetail,
+                    Items: string.IsNullOrWhiteSpace(filePath) ? [] : [filePath])).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = filePath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    $"{actionLabel} failed.",
+                    ex.Message,
+                    Items: [filePath])).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<OperationOutcome> GenerateValidationCapturePdfAsync(string localSessionFolderPath)
+    {
+        if (string.IsNullOrWhiteSpace(localSessionFolderPath) || !Directory.Exists(localSessionFolderPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Validation PDF could not be generated.",
+                "The Windows validation session folder is missing.");
+        }
+
+        var scriptPath = TryResolveValidationCapturePdfScriptPath();
+        if (string.IsNullOrWhiteSpace(scriptPath) || !File.Exists(scriptPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Validation PDF generator is missing.",
+                "The companion could not find the bundled Sussex validation PDF generator script.");
+        }
+
+        var outputPdfPath = Path.Combine(localSessionFolderPath, "validation_capture_preview.pdf");
+        var pythonCommands = new[]
+        {
+            ("python", $"\"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\""),
+            ("py", $"-3 \"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\"")
+        };
+
+        var errors = new List<string>();
+        foreach (var (fileName, arguments) in pythonCommands)
+        {
+            try
+            {
+                using var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = fileName,
+                        Arguments = arguments,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                };
+
+                process.Start();
+                var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+                var standardErrorTask = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                var standardOutput = await standardOutputTask.ConfigureAwait(false);
+                var standardError = await standardErrorTask.ConfigureAwait(false);
+
+                if (process.ExitCode == 0 && File.Exists(outputPdfPath))
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Success,
+                        "Validation PDF generated.",
+                        string.IsNullOrWhiteSpace(standardOutput) ? outputPdfPath : standardOutput.Trim(),
+                        Items: [outputPdfPath]);
+                }
+
+                var combinedError = string.Join(
+                    " ",
+                    new[] { standardOutput?.Trim(), standardError?.Trim() }.Where(value => !string.IsNullOrWhiteSpace(value)));
+                if (!string.IsNullOrWhiteSpace(combinedError))
+                {
+                    errors.Add($"{fileName}: {combinedError}");
+                }
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{fileName}: {ex.Message}");
+            }
+        }
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            "Validation PDF could not be generated automatically.",
+            errors.Count == 0
+                ? "The companion could not launch the Sussex validation PDF generator."
+                : string.Join(" ", errors));
     }
 
     private async Task<OperationOutcome> PullQuestRecordingArtifactsAsync(string remoteSessionDir, string localSessionFolderPath)
@@ -4198,6 +4933,264 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "The Start Experiment command succeeded, but the live twin state did not confirm the expected session id/hash plus device-side recording activity within the timeout window.");
     }
 
+    private async Task<OperationOutcome> RunClockAlignmentAsync(StudyDataRecordingSession recordingSession)
+    {
+        var request = new StudyClockAlignmentRunRequest(
+            recordingSession.SessionId,
+            recordingSession.DatasetHash,
+            TimeSpan.FromSeconds(WorkflowClockAlignmentDurationSeconds),
+            TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds),
+            TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultEchoGraceMilliseconds));
+
+        if (!_clockAlignmentService.RuntimeState.Available)
+        {
+            var unavailableOutcome = new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Clock alignment unavailable on this machine.",
+                _clockAlignmentService.RuntimeState.Detail);
+            await DispatchAsync(() =>
+            {
+                ClockAlignmentRunning = false;
+                ClockAlignmentSummary = unavailableOutcome.Summary;
+                ClockAlignmentDetail = unavailableOutcome.Detail;
+                ClockAlignmentProgressPercent = 0d;
+                ClockAlignmentProgressLabel = "Clock alignment did not run.";
+                ClockAlignmentProbeStatsLabel = "No probes sent.";
+                ClockAlignmentOffsetStatsLabel = "Offset estimate unavailable.";
+                ClockAlignmentRoundTripStatsLabel = "Round-trip estimate unavailable.";
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+            return unavailableOutcome;
+        }
+
+        recordingSession.RecordEvent(
+            "clock_alignment.started",
+            $"Dedicated {WorkflowClockAlignmentDurationSeconds} second Sussex clock-alignment run started.",
+            null,
+            "pending");
+
+        await DispatchAsync(() =>
+        {
+            ResetClockAlignmentStateForRun();
+            OpenClockAlignmentWindow();
+            UpdateParticipantSessionState();
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+
+        var progress = new Progress<StudyClockAlignmentProgress>(update =>
+        {
+            _ = DispatchAsync(() =>
+            {
+                ApplyClockAlignmentProgress(update);
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+            });
+        });
+
+        StudyClockAlignmentRunResult result;
+        try
+        {
+            result = await _clockAlignmentService.RunAsync(request, progress).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            var failureOutcome = new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                "Clock alignment failed.",
+                exception.Message);
+            await DispatchAsync(() =>
+            {
+                ClockAlignmentRunning = false;
+                ClockAlignmentSummary = failureOutcome.Summary;
+                ClockAlignmentDetail = failureOutcome.Detail;
+                ClockAlignmentProgressLabel = "Clock alignment aborted.";
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+            return failureOutcome;
+        }
+
+        try
+        {
+            foreach (var sample in result.Samples)
+            {
+                recordingSession.RecordClockAlignmentSample(sample);
+            }
+
+            recordingSession.UpdateClockAlignmentSummary(result.Summary);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() => SetRecorderFault("Write clock alignment samples", exception)).ConfigureAwait(false);
+            var persistenceOutcome = new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                "Clock alignment ran, but the Windows recorder could not persist the samples.",
+                exception.Message);
+            await DispatchAsync(() =>
+            {
+                ClockAlignmentRunning = false;
+                ClockAlignmentSummary = persistenceOutcome.Summary;
+                ClockAlignmentDetail = persistenceOutcome.Detail;
+                ClockAlignmentProgressLabel = "Clock alignment samples could not be written.";
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+            return persistenceOutcome;
+        }
+
+        await DispatchAsync(() =>
+        {
+            ApplyClockAlignmentOutcome(result);
+            UpdateParticipantSessionState();
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+
+        if (result.Outcome.Kind == OperationOutcomeKind.Success)
+        {
+            await DispatchAsync(CloseClockAlignmentWindow).ConfigureAwait(false);
+        }
+
+        return result.Outcome;
+    }
+
+    private async Task<OperationOutcome> ConfirmDeviceRecordingStoppedAsync(StudyDataRecordingSession recordingSession)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var confirmation = await DispatchAsync(() =>
+            {
+                var sessionId = GetFirstValue("study.session.id");
+                var datasetHash = GetFirstValue("study.session.dataset_hash");
+                var deviceRecordingActive = ParseBool(GetFirstValue("study.recording.device.active")) == true;
+                var experimentActive = ParseBool(GetFirstValue("study.session.experiment_active")) == true;
+                var deviceSessionDir = GetFirstValue("study.recording.device.session_dir");
+                var matchesSession =
+                    string.IsNullOrWhiteSpace(sessionId) ||
+                    string.Equals(sessionId, recordingSession.SessionId, StringComparison.Ordinal);
+                var matchesHash =
+                    string.IsNullOrWhiteSpace(datasetHash) ||
+                    string.Equals(datasetHash, recordingSession.DatasetHash, StringComparison.OrdinalIgnoreCase);
+
+                return (
+                    Confirmed: !deviceRecordingActive && !experimentActive && matchesSession && matchesHash,
+                    DeviceSessionDir: deviceSessionDir);
+            }).ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(confirmation.DeviceSessionDir))
+            {
+                await DispatchAsync(() => _latestDeviceRecordingSessionDir = confirmation.DeviceSessionDir).ConfigureAwait(false);
+            }
+
+            if (confirmation.Confirmed)
+            {
+                var detail = string.IsNullOrWhiteSpace(confirmation.DeviceSessionDir)
+                    ? "Quest reports the participant recorder inactive and the experiment session ended."
+                    : $"Quest reports the participant recorder inactive and the experiment session ended. Last device session folder: {confirmation.DeviceSessionDir}.";
+                return new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    "Quest-side participant recorder stopped.",
+                    detail);
+            }
+
+            await Task.Delay(150).ConfigureAwait(false);
+        }
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            "End Experiment was sent, but Quest recorder stop confirmation is still missing.",
+            "The command completed, but the live twin state did not confirm the expected stopped recorder state within the timeout window.");
+    }
+
+    private void ResetClockAlignmentStateForRun()
+    {
+        ClockAlignmentRunning = true;
+        ClockAlignmentSummary = $"Clock alignment is running for {WorkflowClockAlignmentDurationSeconds} seconds.";
+        ClockAlignmentDetail = "The companion is sending dedicated Sussex clock probes and waiting for the Quest echo stream so both clocks can be aligned before the main run continues.";
+        ClockAlignmentProgressPercent = 0d;
+        ClockAlignmentProgressLabel = "Starting the dedicated quest-minus-Windows clock-alignment window.";
+        ClockAlignmentProbeStatsLabel = "Probes sent: 0 | Quest echoes: 0";
+        ClockAlignmentOffsetStatsLabel = "Offset estimate pending.";
+        ClockAlignmentRoundTripStatsLabel = "Round-trip estimate pending.";
+    }
+
+    private void ApplyClockAlignmentProgress(StudyClockAlignmentProgress progress)
+    {
+        ClockAlignmentRunning = true;
+        ClockAlignmentSummary = progress.Summary;
+        ClockAlignmentDetail = progress.Detail;
+        ClockAlignmentProgressPercent = Math.Clamp(progress.PercentComplete, 0d, 100d);
+        ClockAlignmentProgressLabel = $"Progress {ClockAlignmentProgressPercent:0}% | Probes {progress.ProbesSent} | Echoes {progress.EchoesReceived}";
+        ClockAlignmentProbeStatsLabel = $"Probes sent: {progress.ProbesSent} | Quest echoes: {progress.EchoesReceived}";
+    }
+
+    private void ApplyClockAlignmentOutcome(StudyClockAlignmentRunResult result)
+    {
+        ClockAlignmentRunning = false;
+        ClockAlignmentSummary = result.Outcome.Summary;
+        ClockAlignmentDetail = result.Outcome.Detail;
+        ClockAlignmentProgressPercent = result.Summary.ProbesSent > 0 ? 100d : 0d;
+        ClockAlignmentProgressLabel = result.Summary.EchoesReceived > 0
+            ? $"Completed with {result.Summary.EchoesReceived} echoed probe(s) out of {result.Summary.ProbesSent}."
+            : "No Quest echoes were captured during the alignment window.";
+        ClockAlignmentProbeStatsLabel = $"Probes sent: {result.Summary.ProbesSent} | Quest echoes: {result.Summary.EchoesReceived}";
+        ClockAlignmentOffsetStatsLabel = BuildClockAlignmentOffsetStatsLabel(result.Summary);
+        ClockAlignmentRoundTripStatsLabel = BuildClockAlignmentRoundTripStatsLabel(result.Summary);
+    }
+
+    private static string BuildClockAlignmentOffsetStatsLabel(StudyClockAlignmentSummary summary)
+    {
+        if (summary.RecommendedQuestMinusWindowsClockSeconds is not double recommendedOffset)
+        {
+            return "Offset estimate unavailable.";
+        }
+
+        var builder = new StringBuilder();
+        builder.Append("Recommended quest-minus-Windows offset ");
+        builder.Append(FormatClockAlignmentMilliseconds(recommendedOffset));
+        if (summary.MedianQuestMinusWindowsClockSeconds is double medianOffset)
+        {
+            builder.Append(" | Median ");
+            builder.Append(FormatClockAlignmentMilliseconds(medianOffset));
+        }
+
+        if (summary.MeanQuestMinusWindowsClockSeconds is double meanOffset)
+        {
+            builder.Append(" | Mean ");
+            builder.Append(FormatClockAlignmentMilliseconds(meanOffset));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string BuildClockAlignmentRoundTripStatsLabel(StudyClockAlignmentSummary summary)
+    {
+        if (summary.MeanRoundTripSeconds is not double meanRoundTrip)
+        {
+            return "Round-trip estimate unavailable.";
+        }
+
+        var builder = new StringBuilder();
+        builder.Append("Mean RTT ");
+        builder.Append(FormatClockAlignmentMilliseconds(meanRoundTrip));
+        if (summary.MinRoundTripSeconds is double minRoundTrip)
+        {
+            builder.Append(" | Min ");
+            builder.Append(FormatClockAlignmentMilliseconds(minRoundTrip));
+        }
+
+        if (summary.MaxRoundTripSeconds is double maxRoundTrip)
+        {
+            builder.Append(" | Max ");
+            builder.Append(FormatClockAlignmentMilliseconds(maxRoundTrip));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string FormatClockAlignmentMilliseconds(double seconds)
+        => $"{seconds * 1000d:0.0} ms";
+
     private void TryRecordLiveTwinState(DateTimeOffset recordedAtUtc)
     {
         if (_activeRecordingSession is null || _reportedTwinState.Count == 0)
@@ -4334,10 +5327,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (_activeRecordingSession is not null)
         {
-            RecorderStateLabel = "Recording";
-            RecordingLevel = OperationOutcomeKind.Success;
-            RecordingSummary = $"Recording participant {_activeRecordingSession.ParticipantId}.";
-            RecordingDetail = $"Writing session events, long-form signals, breathing trace, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}.";
+            RecorderStateLabel = ClockAlignmentRunning ? "Aligning" : "Recording";
+            RecordingLevel = ClockAlignmentRunning ? OperationOutcomeKind.Preview : OperationOutcomeKind.Success;
+            RecordingSummary = ClockAlignmentRunning
+                ? $"Recording participant {_activeRecordingSession.ParticipantId} and aligning clocks."
+                : $"Recording participant {_activeRecordingSession.ParticipantId}.";
+            RecordingDetail = ClockAlignmentRunning
+                ? $"Writing session events, long-form signals, breathing trace, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. {ClockAlignmentDetail}"
+                : $"Writing session events, long-form signals, breathing trace, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}.";
             RecordingSessionLabel = $"Active session: {_activeRecordingSession.SessionId}";
             RecordingFolderPath = _activeRecordingSession.SessionFolderPath;
             return;
@@ -4922,7 +5919,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             10 =>
             [
-                new WorkflowGuideCheckItem("Calibration state", ControllerSummary, $"Calibration is optional on the current Sussex APK. {ControllerCalibrationLabel}. {ControllerDetail}", ControllerLevel),
+                new WorkflowGuideCheckItem(
+                    "Calibration quality",
+                    ControllerCalibrationQualityVisible
+                        ? $"{ControllerCalibrationQualityBadge}: {ControllerCalibrationQualitySummary}"
+                        : ControllerSummary,
+                    ControllerCalibrationQualityVisible
+                        ? $"Calibration is optional on the current Sussex APK. {ControllerCalibrationQualityMetrics}{(string.IsNullOrWhiteSpace(ControllerCalibrationQualityCause) ? string.Empty : $" {ControllerCalibrationQualityCause}.")} {ControllerCalibrationQualityDetail}"
+                        : $"Calibration is optional on the current Sussex APK. {ControllerCalibrationLabel}. {ControllerDetail}",
+                    ControllerCalibrationQualityVisible ? ControllerCalibrationQualityLevel : ControllerLevel),
                 new WorkflowGuideCheckItem("Volume readback", $"Current controller volume {ControllerValueLabel}.", "If calibration succeeds, a live volume readback should appear here. The guide can still continue while this path remains unstable.", string.Equals(ControllerValueLabel, "n/a", StringComparison.OrdinalIgnoreCase) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
             ],
             11 =>
@@ -5172,12 +6177,51 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 false);
         }
 
-        var ready = PinnedBuildLevel == OperationOutcomeKind.Success;
+        var ready = PinnedBuildLevel == OperationOutcomeKind.Success || IsPinnedBuildReadyForApprovalRun();
+        var summary = ready && PinnedBuildLevel != OperationOutcomeKind.Success
+            ? "Pinned Sussex APK is newer than the last verified run."
+            : PinnedBuildSummary;
+        var detail = ready && PinnedBuildLevel != OperationOutcomeKind.Success
+            ? $"{PinnedBuildDetail} OS/build/profile still match the approved Sussex baseline. Continue with this live session as the approval run for the new APK hash."
+            : PinnedBuildDetail;
         return new WorkflowGuideGateState(
             ready ? OperationOutcomeKind.Success : PinnedBuildLevel == OperationOutcomeKind.Failure ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning,
-            PinnedBuildSummary,
-            PinnedBuildDetail,
+            summary,
+            detail,
             ready);
+    }
+
+    private bool IsPinnedBuildReadyForApprovalRun()
+    {
+        var baseline = VerificationBaseline;
+        if (baseline is null)
+        {
+            return false;
+        }
+
+        if (HashMatches(baseline.ApkSha256, _study.App.Sha256))
+        {
+            return false;
+        }
+
+        var installedHash = _installedAppStatus?.InstalledSha256 ?? string.Empty;
+        var installedMatchesPinnedHash = _installedAppStatus?.IsInstalled == true && HashMatches(installedHash, _study.App.Sha256);
+        var hasSoftwareIdentity =
+            !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareReleaseOrCodename) &&
+            !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareBuildId);
+        var softwareMatchesBaseline =
+            hasSoftwareIdentity &&
+            string.Equals(_headsetStatus!.SoftwareReleaseOrCodename, baseline.SoftwareVersion, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(_headsetStatus.SoftwareBuildId, baseline.BuildId, StringComparison.OrdinalIgnoreCase);
+        var displayMatchesBaseline =
+            string.IsNullOrWhiteSpace(baseline.DisplayId) ||
+            string.Equals(_headsetStatus?.SoftwareDisplayId, baseline.DisplayId, StringComparison.OrdinalIgnoreCase);
+        var deviceProfileMatchesBaseline =
+            _deviceProfileStatus?.IsActive == true &&
+            (string.IsNullOrWhiteSpace(baseline.DeviceProfileId) ||
+             string.Equals(baseline.DeviceProfileId, _study.DeviceProfile.Id, StringComparison.OrdinalIgnoreCase));
+
+        return installedMatchesPinnedHash && softwareMatchesBaseline && displayMatchesBaseline && deviceProfileMatchesBaseline;
     }
 
     private int? GetDeviceProfileIntegerValue(string key)
@@ -5275,6 +6319,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         builder.AppendLine(runtimeHotloadProfileVersion ?? string.Empty);
         builder.AppendLine(runtimeHotloadProfileChannel ?? string.Empty);
         builder.AppendLine(environmentHash ?? string.Empty);
+        builder.AppendLine(SussexClockAlignmentStreamContract.ProbeStreamName);
+        builder.AppendLine(SussexClockAlignmentStreamContract.ProbeStreamType);
+        builder.AppendLine(SussexClockAlignmentStreamContract.EchoStreamName);
+        builder.AppendLine(SussexClockAlignmentStreamContract.EchoStreamType);
+        builder.AppendLine(WorkflowClockAlignmentDurationSeconds.ToString(CultureInfo.InvariantCulture));
+        builder.AppendLine(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds.ToString(CultureInfo.InvariantCulture));
 
         foreach (var pair in deviceProfileProperties.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
         {
@@ -5717,6 +6767,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var calibrated = ParseBool(GetFirstValue("tracker.breathing.controller.calibrated"));
         var validating = ParseBool(GetFirstValue("tracker.breathing.controller.validating"));
         var validationProgress = ParseUnitInterval(GetFirstValue("tracker.breathing.controller.validation_progress01"));
+        var validationAxisMode = GetFirstValue("tracker.breathing.controller.validation_axis_mode");
+        var validationFramesObserved = ParseInt(GetFirstValue("tracker.breathing.controller.validation_frames_observed"));
+        var validationFramesAccepted = ParseInt(GetFirstValue("tracker.breathing.controller.validation_frames_accepted"));
+        var validationFramesRejected = ParseInt(GetFirstValue("tracker.breathing.controller.validation_frames_rejected"));
+        var validationFramesRejectedBadTracking = ParseInt(GetFirstValue("tracker.breathing.controller.validation_frames_rejected_bad_tracking"));
+        var validationFramesRejectedLowMotion = ParseInt(GetFirstValue("tracker.breathing.controller.validation_frames_rejected_low_motion"));
+        var validationAcceptance = ParseUnitInterval(GetFirstValue("tracker.breathing.controller.validation_acceptance01"));
         var failureReason = GetFirstValue("tracker.breathing.controller.failure_reason");
         var routingLabel = GetFirstValue("routing.breathing.label");
         var routingMode = GetFirstValue("routing.breathing.mode");
@@ -5729,6 +6786,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : validating == true && validationProgress.HasValue
                 ? $"Validating {validationProgress.Value:P0}"
                 : "Calibration n/a";
+        ApplyControllerCalibrationQuality(BuildControllerCalibrationQualityStatus(
+            validating,
+            calibrated,
+            validationProgress,
+            validationAxisMode,
+            validationFramesObserved,
+            validationFramesAccepted,
+            validationFramesRejected,
+            validationFramesRejectedBadTracking,
+            validationFramesRejectedLowMotion,
+            validationAcceptance,
+            failureReason));
 
         if (_reportedTwinState.Count == 0)
         {
@@ -5760,6 +6829,191 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : "Controller breathing is not active yet.";
         ControllerDetail = $"Route {(string.IsNullOrWhiteSpace(routingLabel) ? "n/a" : routingLabel)} (mode {routingMode ?? "n/a"}). State {(string.IsNullOrWhiteSpace(state) ? "n/a" : state)}. Controller value {ControllerValueLabel}.";
     }
+
+    private void ApplyControllerCalibrationQuality(ControllerCalibrationQualityStatus status)
+    {
+        ControllerCalibrationQualityVisible = status.Visible;
+        ControllerCalibrationQualityLevel = status.Level;
+        ControllerCalibrationQualityBadge = status.Badge;
+        ControllerCalibrationQualitySummary = status.Summary;
+        ControllerCalibrationQualityMetrics = status.Metrics;
+        ControllerCalibrationQualityCause = status.Cause;
+        ControllerCalibrationQualityDetail = status.Detail;
+    }
+
+    private ControllerCalibrationQualityStatus BuildControllerCalibrationQualityStatus(
+        bool? validating,
+        bool? calibrated,
+        double? validationProgress,
+        string? validationAxisMode,
+        int? validationFramesObserved,
+        int? validationFramesAccepted,
+        int? validationFramesRejected,
+        int? validationFramesRejectedBadTracking,
+        int? validationFramesRejectedLowMotion,
+        double? validationAcceptance,
+        string? failureReason)
+    {
+        var hasValidationTelemetry =
+            validating == true
+            || calibrated == true
+            || validationProgress.HasValue
+            || validationFramesObserved.HasValue
+            || validationFramesAccepted.HasValue
+            || validationAcceptance.HasValue
+            || !string.IsNullOrWhiteSpace(failureReason);
+
+        if (!hasValidationTelemetry)
+        {
+            ResetControllerCalibrationStallTracking();
+            return new ControllerCalibrationQualityStatus(
+                Visible: false,
+                Level: OperationOutcomeKind.Preview,
+                Badge: "Calibration quality n/a",
+                Summary: "Quality guidance will appear during controller validation.",
+                Metrics: "Progress n/a · Accepted n/a · Acceptance n/a",
+                Cause: string.Empty,
+                Detail: "Raw validation counters stay hidden until you expand details.");
+        }
+
+        var effectiveAcceptance = validationAcceptance
+            ?? (validationFramesObserved is > 0 && validationFramesAccepted.HasValue
+                ? Math.Clamp((double)validationFramesAccepted.Value / validationFramesObserved.Value, 0d, 1d)
+                : null);
+        var estimatedTargetFrames = EstimateControllerValidationTargetFrames(validationFramesAccepted, validationProgress, calibrated == true);
+        var stalled = UpdateControllerCalibrationStallTracking(validating == true, validationFramesObserved, validationFramesAccepted);
+        var badTrackingRejects = validationFramesRejectedBadTracking.GetValueOrDefault();
+        var lowMotionRejects = validationFramesRejectedLowMotion.GetValueOrDefault();
+        var knownRejectBreakdown = badTrackingRejects + lowMotionRejects;
+        var badTrackingDominant = knownRejectBreakdown > 0 && badTrackingRejects >= lowMotionRejects && badTrackingRejects >= Math.Ceiling(knownRejectBreakdown * 0.55);
+        var lowMotionDominant = knownRejectBreakdown > 0 && lowMotionRejects > badTrackingRejects && lowMotionRejects >= Math.Ceiling(knownRejectBreakdown * 0.55);
+        var lowAcceptance = effectiveAcceptance is <= 0.35d;
+        var middlingAcceptance = effectiveAcceptance is > 0.35d and < 0.65d;
+
+        var level = OperationOutcomeKind.Success;
+        var badge = "Good";
+        var summary = calibrated == true && validating != true
+            ? "Calibration completed successfully"
+            : "Calibration progressing normally";
+        var cause = string.Empty;
+
+        if (stalled)
+        {
+            level = OperationOutcomeKind.Failure;
+            badge = "Stalled";
+            summary = "Calibration stalled";
+            cause = "No accepted frames in the last few updates";
+        }
+        else if (badTrackingDominant || lowAcceptance || ContainsCalibrationKeyword(failureReason, "tracking"))
+        {
+            level = OperationOutcomeKind.Failure;
+            badge = "Poor";
+            summary = "Tracking unstable";
+            cause = "Many frames rejected by tracking";
+        }
+        else if (lowMotionDominant || middlingAcceptance || ContainsCalibrationKeyword(failureReason, "motion", "movement"))
+        {
+            level = OperationOutcomeKind.Warning;
+            badge = "Degraded";
+            summary = "Movement too small";
+            cause = "Many frames rejected for low movement";
+        }
+
+        var progressLabel = calibrated == true && validationProgress is null
+            ? "100%"
+            : validationProgress.HasValue
+                ? $"{validationProgress.Value * 100d:0}%"
+                : "n/a";
+        var acceptedLabel = validationFramesAccepted?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
+        var targetLabel = estimatedTargetFrames?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
+        var acceptanceLabel = effectiveAcceptance.HasValue
+            ? $"{effectiveAcceptance.Value * 100d:0}%"
+            : "n/a";
+        var metrics = $"Progress {progressLabel} · Accepted {acceptedLabel} / {targetLabel} · Acceptance {acceptanceLabel}";
+
+        var rawRejectedLabel = validationFramesRejected?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
+        var detailParts = new List<string>
+        {
+            $"Axis {(string.IsNullOrWhiteSpace(validationAxisMode) ? "n/a" : validationAxisMode)}.",
+            $"Observed {FormatControllerValidationCount(validationFramesObserved)}.",
+            $"Accepted {FormatControllerValidationCount(validationFramesAccepted)}.",
+            $"Rejected {rawRejectedLabel} (tracking {FormatControllerValidationCount(validationFramesRejectedBadTracking)}, low motion {FormatControllerValidationCount(validationFramesRejectedLowMotion)})."
+        };
+        if (!string.IsNullOrWhiteSpace(failureReason))
+        {
+            detailParts.Add($"Failure reason {failureReason.Trim()}.");
+        }
+
+        return new ControllerCalibrationQualityStatus(
+            Visible: true,
+            Level: level,
+            Badge: badge,
+            Summary: summary,
+            Metrics: metrics,
+            Cause: cause,
+            Detail: string.Join(" ", detailParts));
+    }
+
+    private bool UpdateControllerCalibrationStallTracking(bool validating, int? observedFrames, int? acceptedFrames)
+    {
+        if (!validating || !observedFrames.HasValue || !acceptedFrames.HasValue)
+        {
+            ResetControllerCalibrationStallTracking();
+            return false;
+        }
+
+        if (_controllerValidationLastObservedFrames.HasValue && _controllerValidationLastAcceptedFrames.HasValue)
+        {
+            var observedDelta = observedFrames.Value - _controllerValidationLastObservedFrames.Value;
+            var acceptedDelta = acceptedFrames.Value - _controllerValidationLastAcceptedFrames.Value;
+            if (observedDelta >= 6 && acceptedDelta <= 0)
+            {
+                _controllerValidationStalledUpdateCount++;
+            }
+            else
+            {
+                _controllerValidationStalledUpdateCount = 0;
+            }
+        }
+        else
+        {
+            _controllerValidationStalledUpdateCount = 0;
+        }
+
+        _controllerValidationLastObservedFrames = observedFrames;
+        _controllerValidationLastAcceptedFrames = acceptedFrames;
+        return _controllerValidationStalledUpdateCount >= 3;
+    }
+
+    private void ResetControllerCalibrationStallTracking()
+    {
+        _controllerValidationLastObservedFrames = null;
+        _controllerValidationLastAcceptedFrames = null;
+        _controllerValidationStalledUpdateCount = 0;
+    }
+
+    private static bool ContainsCalibrationKeyword(string? value, params string[] keywords)
+        => !string.IsNullOrWhiteSpace(value)
+            && keywords.Any(keyword => value.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+    private static int? EstimateControllerValidationTargetFrames(int? acceptedFrames, double? progress01, bool calibrated)
+    {
+        if (acceptedFrames is not > 0)
+        {
+            return calibrated ? acceptedFrames : null;
+        }
+
+        if (progress01 is > 0.001d and <= 1d)
+        {
+            var estimate = (int)Math.Round(acceptedFrames.Value / progress01.Value, MidpointRounding.AwayFromZero);
+            return Math.Max(acceptedFrames.Value, estimate);
+        }
+
+        return calibrated ? acceptedFrames : null;
+    }
+
+    private static string FormatControllerValidationCount(int? value)
+        => value?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
 
     private void UpdateHeartbeatCard()
     {
@@ -6358,7 +7612,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             CreateStudyRow("Controller active", ["tracker.breathing.controller.active"], string.Empty, "Whether controller breathing is currently active."),
             CreateStudyRow("Controller state", ["tracker.breathing.controller.state"], string.Empty, "Runtime-reported controller state."),
             CreateStudyRow("Controller calibrated", ["tracker.breathing.controller.calibrated"], string.Empty, "Whether controller breathing is calibrated."),
+            CreateStudyRow("Controller validating", ["tracker.breathing.controller.validating"], string.Empty, "Whether controller validation is currently running."),
             CreateStudyRow("Validation progress", ["tracker.breathing.controller.validation_progress01"], string.Empty, "Controller validation progress."),
+            CreateStudyRow("Validation acceptance", ["tracker.breathing.controller.validation_acceptance01"], string.Empty, "Accepted-frame ratio for controller validation."),
+            CreateStudyRow("Validation axis", ["tracker.breathing.controller.validation_axis_mode"], string.Empty, "Controller validation axis mode."),
+            CreateStudyRow("Frames observed", ["tracker.breathing.controller.validation_frames_observed"], string.Empty, "Observed controller-validation frames."),
+            CreateStudyRow("Frames accepted", ["tracker.breathing.controller.validation_frames_accepted"], string.Empty, "Accepted controller-validation frames."),
+            CreateStudyRow("Frames rejected", ["tracker.breathing.controller.validation_frames_rejected"], string.Empty, "Rejected controller-validation frames."),
+            CreateStudyRow("Rejected: bad tracking", ["tracker.breathing.controller.validation_frames_rejected_bad_tracking"], string.Empty, "Validation frames rejected because controller tracking was unstable."),
+            CreateStudyRow("Rejected: low motion", ["tracker.breathing.controller.validation_frames_rejected_low_motion"], string.Empty, "Validation frames rejected because controller movement was too small."),
             CreateStudyRow("Controller value", _study.Monitoring.ControllerValueKeys, string.Empty, "Latest breathing-control value."),
             CreateStudyRow("Failure reason", ["tracker.breathing.controller.failure_reason"], string.Empty, "Failure reason when controller breathing cannot activate.")
         ];
@@ -7579,6 +8841,56 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _workflowGuideWindow = null;
     }
 
+    private void OpenClockAlignmentWindow()
+    {
+        if (_clockAlignmentWindow is { IsLoaded: true })
+        {
+            if (_clockAlignmentWindow.WindowState == WindowState.Minimized)
+            {
+                _clockAlignmentWindow.WindowState = WindowState.Normal;
+            }
+
+            _clockAlignmentWindow.Activate();
+            return;
+        }
+
+        var owner = Application.Current?.Windows
+            .OfType<Window>()
+            .FirstOrDefault(window => window.IsActive)
+            ?? _workflowGuideWindow
+            ?? Application.Current?.MainWindow;
+
+        var window = new StudyClockAlignmentWindow(this)
+        {
+            Owner = owner
+        };
+        window.Closed += OnClockAlignmentWindowClosed;
+        _clockAlignmentWindow = window;
+        window.Show();
+        window.Activate();
+    }
+
+    private void OnClockAlignmentWindowClosed(object? sender, EventArgs e)
+    {
+        if (_clockAlignmentWindow is not null)
+        {
+            _clockAlignmentWindow.Closed -= OnClockAlignmentWindowClosed;
+            _clockAlignmentWindow = null;
+        }
+    }
+
+    private void CloseClockAlignmentWindow()
+    {
+        if (_clockAlignmentWindow is null)
+        {
+            return;
+        }
+
+        _clockAlignmentWindow.Closed -= OnClockAlignmentWindowClosed;
+        _clockAlignmentWindow.Close();
+        _clockAlignmentWindow = null;
+    }
+
     private void CloseTwinEventsWindow()
     {
         if (_twinEventsWindow is null)
@@ -7764,6 +9076,15 @@ internal readonly record struct ParticleVisibilityEffectObservation(
     bool? PreviousVisible,
     bool? CurrentVisible,
     bool? RequestedVisible);
+
+internal sealed record ControllerCalibrationQualityStatus(
+    bool Visible,
+    OperationOutcomeKind Level,
+    string Badge,
+    string Summary,
+    string Metrics,
+    string Cause,
+    string Detail);
 
 public sealed record StudyValueSection(string Id, string Label, string Description)
 {

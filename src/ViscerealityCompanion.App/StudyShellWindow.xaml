@@ -11,8 +11,11 @@
         Height="980"
         MinWidth="1240"
         MinHeight="860"
-        WindowStartupLocation="CenterOwner">
-    <Grid Margin="20">
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AppBackgroundBrush}"
+        Foreground="{StaticResource InkBrush}">
+    <Grid Margin="20"
+          Background="{StaticResource AppBackgroundBrush}">
         <local:StudyShellView />
     </Grid>
 </Window>

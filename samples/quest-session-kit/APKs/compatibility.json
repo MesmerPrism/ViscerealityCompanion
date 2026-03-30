@@ -1,7 +1,7 @@
 ﻿{
     "apps":  [
                  {
-                     "sha256":  "51997FF29ABF3119B1EB015F566713BADE7DAA66F0BB748505640A01D569D46A",
+                     "sha256":  "239BA1A797C1EF269334B685F1FCDD04FE26B3936D20AAEEF8821CDAAC0CAB6C",
                      "status":  "compatible",
                      "label":  "Sussex experiment build",
                      "notes":  "Bundled Sussex Experiment runtime. Matches the approved Sussex study shell hash.",

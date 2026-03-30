@@ -11,7 +11,9 @@
         Height="720"
         MinWidth="780"
         MinHeight="520"
-        WindowStartupLocation="CenterOwner">
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AppBackgroundBrush}"
+        Foreground="{StaticResource InkBrush}">
     <Window.Resources>
         <local:LogLevelToBrushConverter x:Key="LogLevelToBrush" />
 

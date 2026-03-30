@@ -6,31 +6,31 @@
         <FontFamily x:Key="UiFont">Bahnschrift Condensed</FontFamily>
         <FontFamily x:Key="MonoFont">Consolas</FontFamily>
 
-        <Color x:Key="AppPaperColor">#FFFDF9</Color>
-        <Color x:Key="SurfaceLightColor">#F6F1E9</Color>
-        <Color x:Key="SurfaceTintColor">#FBF7EF</Color>
-        <Color x:Key="CarbonColor">#1F2226</Color>
-        <Color x:Key="GraphiteColor">#5B636F</Color>
-        <Color x:Key="PanelEdgeColor">#D7CFC4</Color>
-        <Color x:Key="FocusBlueColor">#258ACB</Color>
-        <Color x:Key="SignalRedColor">#C94E3A</Color>
-        <Color x:Key="SignalRedSoftColor">#FFE7E1</Color>
-        <Color x:Key="HazardYellowColor">#9E7714</Color>
-        <Color x:Key="HazardYellowSoftColor">#F6EFD5</Color>
-        <Color x:Key="TelemetryGreenColor">#628F37</Color>
-        <Color x:Key="TelemetryGreenSoftColor">#EAF2E2</Color>
-        <Color x:Key="FailureColor">#B84C4C</Color>
-        <Color x:Key="FailureSoftColor">#FBE5E5</Color>
-        <Color x:Key="InfoSoftColor">#E7F3FA</Color>
+        <Color x:Key="AppPaperColor">#000000</Color>
+        <Color x:Key="SurfaceLightColor">#0E1824</Color>
+        <Color x:Key="SurfaceTintColor">#040B12</Color>
+        <Color x:Key="CarbonColor">#FAFDFF</Color>
+        <Color x:Key="GraphiteColor">#D0DBEA</Color>
+        <Color x:Key="PanelEdgeColor">#18456A</Color>
+        <Color x:Key="FocusBlueColor">#00E8FF</Color>
+        <Color x:Key="SignalRedColor">#00D7FF</Color>
+        <Color x:Key="SignalRedSoftColor">#041D29</Color>
+        <Color x:Key="HazardYellowColor">#FFC73A</Color>
+        <Color x:Key="HazardYellowSoftColor">#2A1700</Color>
+        <Color x:Key="TelemetryGreenColor">#00FF99</Color>
+        <Color x:Key="TelemetryGreenSoftColor">#031D11</Color>
+        <Color x:Key="FailureColor">#FF4D98</Color>
+        <Color x:Key="FailureSoftColor">#260614</Color>
+        <Color x:Key="InfoSoftColor">#041D29</Color>
 
         <SolidColorBrush x:Key="AppBackgroundBrush" Color="{StaticResource AppPaperColor}" />
-        <SolidColorBrush x:Key="PanelBrush" Color="{StaticResource AppPaperColor}" />
+        <SolidColorBrush x:Key="PanelBrush" Color="#02060B" />
         <SolidColorBrush x:Key="PanelAltBrush" Color="{StaticResource SurfaceTintColor}" />
         <SolidColorBrush x:Key="LineBrush" Color="{StaticResource PanelEdgeColor}" />
         <SolidColorBrush x:Key="InkBrush" Color="{StaticResource CarbonColor}" />
         <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource GraphiteColor}" />
-        <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource SignalRedColor}" />
-        <SolidColorBrush x:Key="AccentSoftBrush" Color="{StaticResource SignalRedSoftColor}" />
+        <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource FocusBlueColor}" />
+        <SolidColorBrush x:Key="AccentSoftBrush" Color="{StaticResource InfoSoftColor}" />
         <SolidColorBrush x:Key="FocusBlueBrush" Color="{StaticResource FocusBlueColor}" />
         <SolidColorBrush x:Key="SurfaceLightBrush" Color="{StaticResource SurfaceLightColor}" />
         <SolidColorBrush x:Key="SurfaceTintBrush" Color="{StaticResource SurfaceTintColor}" />
@@ -56,9 +56,308 @@
             <Setter Property="Background" Value="{StaticResource PanelBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="Padding" Value="16" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14" />
             <Setter Property="SnapsToDevicePixels" Value="True" />
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect BlurRadius="22"
+                                      ShadowDepth="0"
+                                      Color="{StaticResource FocusBlueColor}"
+                                      Opacity="0.18" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ScrollBarTrackButtonStyle" TargetType="RepeatButton">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Border Background="{TemplateBinding Background}"
+                                SnapsToDevicePixels="True" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ScrollBarThumbStyle" TargetType="Thumb">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Background" Value="{StaticResource FocusBlueBrush}" />
+            <Setter Property="BorderBrush" Value="#A3FBFF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="MinWidth" Value="26" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="Chrome"
+                                Margin="2"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                SnapsToDevicePixels="True">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="16"
+                                                  ShadowDepth="0"
+                                                  Color="{StaticResource FocusBlueColor}"
+                                                  Opacity="0.3" />
+                            </Border.Effect>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#42F0FF" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#63F3FF" />
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#D6FDFF" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <ControlTemplate x:Key="VerticalScrollBarTemplate" TargetType="ScrollBar">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    SnapsToDevicePixels="True">
+                <Grid Width="18">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="18" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="18" />
+                    </Grid.RowDefinitions>
+
+                    <RepeatButton Grid.Row="0"
+                                  Command="{x:Static ScrollBar.LineUpCommand}"
+                                  Background="{StaticResource SurfaceLightBrush}"
+                                  BorderBrush="{StaticResource LineBrush}"
+                                  BorderThickness="0,0,0,1"
+                                  Focusable="False">
+                        <RepeatButton.Template>
+                            <ControlTemplate TargetType="RepeatButton">
+                                <Border x:Name="Chrome"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        SnapsToDevicePixels="True">
+                                    <Path Width="8"
+                                          Height="8"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Data="M 1 5 L 4 2 L 7 5"
+                                          Stroke="{StaticResource FocusBlueBrush}"
+                                          StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+                                        <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsPressed" Value="True">
+                                        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PanelBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </RepeatButton.Template>
+                    </RepeatButton>
+
+                    <Track x:Name="PART_Track"
+                           Grid.Row="1"
+                           Focusable="False"
+                           IsDirectionReversed="True"
+                           Minimum="{TemplateBinding Minimum}"
+                           Maximum="{TemplateBinding Maximum}"
+                           Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                           ViewportSize="{TemplateBinding ViewportSize}">
+                        <Track.DecreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                          Style="{StaticResource ScrollBarTrackButtonStyle}" />
+                        </Track.DecreaseRepeatButton>
+                        <Track.Thumb>
+                            <Thumb Style="{StaticResource ScrollBarThumbStyle}" />
+                        </Track.Thumb>
+                        <Track.IncreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                          Style="{StaticResource ScrollBarTrackButtonStyle}" />
+                        </Track.IncreaseRepeatButton>
+                    </Track>
+
+                    <RepeatButton Grid.Row="2"
+                                  Command="{x:Static ScrollBar.LineDownCommand}"
+                                  Background="{StaticResource SurfaceLightBrush}"
+                                  BorderBrush="{StaticResource LineBrush}"
+                                  BorderThickness="0,1,0,0"
+                                  Focusable="False">
+                        <RepeatButton.Template>
+                            <ControlTemplate TargetType="RepeatButton">
+                                <Border x:Name="Chrome"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        SnapsToDevicePixels="True">
+                                    <Path Width="8"
+                                          Height="8"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Data="M 1 3 L 4 6 L 7 3"
+                                          Stroke="{StaticResource FocusBlueBrush}"
+                                          StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+                                        <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsPressed" Value="True">
+                                        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PanelBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </RepeatButton.Template>
+                    </RepeatButton>
+                </Grid>
+            </Border>
+        </ControlTemplate>
+
+        <ControlTemplate x:Key="HorizontalScrollBarTemplate" TargetType="ScrollBar">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    SnapsToDevicePixels="True">
+                <Grid Height="18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="18" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="18" />
+                    </Grid.ColumnDefinitions>
+
+                    <RepeatButton Grid.Column="0"
+                                  Command="{x:Static ScrollBar.LineLeftCommand}"
+                                  Background="{StaticResource SurfaceLightBrush}"
+                                  BorderBrush="{StaticResource LineBrush}"
+                                  BorderThickness="0,0,1,0"
+                                  Focusable="False">
+                        <RepeatButton.Template>
+                            <ControlTemplate TargetType="RepeatButton">
+                                <Border x:Name="Chrome"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        SnapsToDevicePixels="True">
+                                    <Path Width="8"
+                                          Height="8"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Data="M 5 1 L 2 4 L 5 7"
+                                          Stroke="{StaticResource FocusBlueBrush}"
+                                          StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+                                        <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsPressed" Value="True">
+                                        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PanelBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </RepeatButton.Template>
+                    </RepeatButton>
+
+                    <Track x:Name="PART_Track"
+                           Grid.Column="1"
+                           Focusable="False"
+                           Minimum="{TemplateBinding Minimum}"
+                           Maximum="{TemplateBinding Maximum}"
+                           Value="{Binding Value, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                           ViewportSize="{TemplateBinding ViewportSize}">
+                        <Track.DecreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageLeftCommand}"
+                                          Style="{StaticResource ScrollBarTrackButtonStyle}" />
+                        </Track.DecreaseRepeatButton>
+                        <Track.Thumb>
+                            <Thumb Style="{StaticResource ScrollBarThumbStyle}" />
+                        </Track.Thumb>
+                        <Track.IncreaseRepeatButton>
+                            <RepeatButton Command="{x:Static ScrollBar.PageRightCommand}"
+                                          Style="{StaticResource ScrollBarTrackButtonStyle}" />
+                        </Track.IncreaseRepeatButton>
+                    </Track>
+
+                    <RepeatButton Grid.Column="2"
+                                  Command="{x:Static ScrollBar.LineRightCommand}"
+                                  Background="{StaticResource SurfaceLightBrush}"
+                                  BorderBrush="{StaticResource LineBrush}"
+                                  BorderThickness="1,0,0,0"
+                                  Focusable="False">
+                        <RepeatButton.Template>
+                            <ControlTemplate TargetType="RepeatButton">
+                                <Border x:Name="Chrome"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        SnapsToDevicePixels="True">
+                                    <Path Width="8"
+                                          Height="8"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Data="M 3 1 L 6 4 L 3 7"
+                                          Stroke="{StaticResource FocusBlueBrush}"
+                                          StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round"
+                                          StrokeLineJoin="Round" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+                                        <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsPressed" Value="True">
+                                        <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PanelBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </RepeatButton.Template>
+                    </RepeatButton>
+                </Grid>
+            </Border>
+        </ControlTemplate>
+
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource FocusBlueBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Template" Value="{StaticResource VerticalScrollBarTemplate}" />
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Width" Value="Auto" />
+                    <Setter Property="Height" Value="18" />
+                    <Setter Property="Template" Value="{StaticResource HorizontalScrollBarTemplate}" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
@@ -79,7 +378,7 @@
             <Setter Property="Margin" Value="0,0,8,8" />
             <Setter Property="Padding" Value="12,8" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
@@ -92,7 +391,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8"
+                                CornerRadius="7"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter Margin="{TemplateBinding Padding}"
                                               HorizontalAlignment="Center"
@@ -106,19 +405,29 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceTintBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceLightBrush}" />
+                                <Setter TargetName="Chrome" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect BlurRadius="24"
+                                                          ShadowDepth="0"
+                                                          Color="{StaticResource FocusBlueColor}"
+                                                          Opacity="0.42" />
+                                    </Setter.Value>
+                                </Setter>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceLightBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AppBackgroundBrush}" />
                                 <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusBlueBrush}" />
+                                <Setter TargetName="Chrome" Property="Effect" Value="{x:Null}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceLightBrush}" />
                                 <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource LineBrush}" />
-                                <Setter Property="Foreground" Value="{StaticResource LineBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+                                <Setter TargetName="Chrome" Property="Effect" Value="{x:Null}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -142,7 +451,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8"
+                                CornerRadius="7"
                                 SnapsToDevicePixels="True">
                             <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
                         </Border>
@@ -152,7 +461,7 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Chrome" Property="Background" Value="{StaticResource SurfaceLightBrush}" />
-                                <Setter Property="Foreground" Value="{StaticResource LineBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

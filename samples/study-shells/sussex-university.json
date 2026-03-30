@@ -8,7 +8,7 @@
                 "packageId":  "com.Viscereality.SussexExperiment",
                 "apkPath":  "../quest-session-kit/APKs/SussexExperiment.apk",
                 "launchComponent":  "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
-                "sha256":  "51997FF29ABF3119B1EB015F566713BADE7DAA66F0BB748505640A01D569D46A",
+                "sha256":  "239BA1A797C1EF269334B685F1FCDD04FE26B3936D20AAEEF8821CDAAC0CAB6C",
                 "versionName":  "0.1.0",
                 "notes":  "The Sussex shell ships with a bundled Sussex Experiment APK. The operator shell keeps checking the bundled APK hash and the installed headset hash against the approved Sussex study build.",
                 "allowManualSelection":  false,

@@ -253,7 +253,9 @@ public sealed class PreviewLslMonitorService : ILslMonitorService
             $"Searching for `{subscription.StreamName}` / `{subscription.StreamType}` channel {subscription.ChannelIndex} in preview mode.",
             null,
             0f,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            SampleTimestampSeconds: null,
+            ObservedLocalClockSeconds: null);
 
         await Task.Delay(TimeSpan.FromMilliseconds(300), cancellationToken).ConfigureAwait(false);
 
@@ -262,7 +264,9 @@ public sealed class PreviewLslMonitorService : ILslMonitorService
             "Preview bridge attached. Replace PreviewLslMonitorService with a real liblsl-backed monitor when the desktop runtime is ready.",
             0.42f,
             30f,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            SampleTimestampSeconds: null,
+            ObservedLocalClockSeconds: null);
 
         var startedAt = DateTime.UtcNow;
         while (!cancellationToken.IsCancellationRequested)
@@ -275,7 +279,9 @@ public sealed class PreviewLslMonitorService : ILslMonitorService
                 $"Preview sample for `{subscription.StreamName}` / `{subscription.StreamType}`.",
                 Math.Clamp(value, 0f, 1f),
                 30f,
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow,
+                SampleTimestampSeconds: null,
+                ObservedLocalClockSeconds: null);
 
             await Task.Delay(TimeSpan.FromMilliseconds(300), cancellationToken).ConfigureAwait(false);
         }

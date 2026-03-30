@@ -10,6 +10,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        WindowThemeHelper.Attach(this);
         _viewModel = new MainWindowViewModel();
         DataContext = _viewModel;
         Loaded += OnLoaded;

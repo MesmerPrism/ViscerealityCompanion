@@ -36,6 +36,10 @@ and immediate access to the bundled Sussex APK inside the app payload.
 Sussex operators should not need a separate APK download if they are using the
 packaged preview install.
 
+The current Sussex preview also includes the updated sequential guide flow that
+was live-checked on-head on `2026-03-30`, including the validation-capture PDF
+preview that is generated directly from the short sample run.
+
 ## Before You Start
 
 - Windows 10 or later
