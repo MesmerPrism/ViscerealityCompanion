@@ -22,10 +22,10 @@ public interface IHzdbService
 public sealed class WindowsHzdbService : IHzdbService
 {
     private const string HzdbPerfCaptureFormatPanicMarker = "Mismatch between definition and access of `format`";
-    private static readonly Regex VrPowerManagerVirtualStateRegex = new(@"^Virtual proximity state:\s*(.+)$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
-    private static readonly Regex VrPowerManagerAutosleepDisabledRegex = new(@"^isAutosleepDisabled:\s*(true|false)$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
-    private static readonly Regex VrPowerManagerAutoSleepTimeRegex = new(@"^AutoSleepTime:\s*(\d+)\s*ms$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
-    private static readonly Regex VrPowerManagerHeadsetStateRegex = new(@"^State:\s*(.+)$", RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerVirtualStateRegex = new(@"Virtual proximity state:\s*(.+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerAutosleepDisabledRegex = new(@"isAutosleepDisabled:\s*(true|false)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerAutoSleepTimeRegex = new(@"AutoSleepTime:\s*(\d+)\s*ms", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex VrPowerManagerHeadsetStateRegex = new(@"State:\s*(.+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex VrPowerManagerBroadcastRegex = new(
         @"^\s*\d+(?:\.\d+)?s \(([\d\.]+)s ago\) - received com\.oculus\.vrpowermanager\.(prox_close|automation_disable) broadcast: duration=(\d+)",
         RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
