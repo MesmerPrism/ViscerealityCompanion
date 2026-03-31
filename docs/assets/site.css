@@ -166,8 +166,16 @@ button:focus-visible {
   grid-template-columns: minmax(0, 1fr) 340px;
 }
 
+.hero-focused {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .page-layout {
   grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.page-layout-focused {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .hero-copy,
@@ -310,6 +318,43 @@ button:focus-visible {
   margin: 18px 0 22px;
 }
 
+.download-start {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
+  gap: 14px;
+  margin: 18px 0 24px;
+}
+
+.download-path {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(8, 17, 26, 0.95);
+}
+
+.download-path h2 {
+  margin: 0 0 8px;
+}
+
+.download-path p {
+  margin: 0 0 14px;
+}
+
+.download-path-primary {
+  border-color: rgba(0, 232, 255, 0.42);
+  background: rgba(12, 22, 34, 0.98);
+  box-shadow: 0 0 18px rgba(0, 232, 255, 0.1);
+}
+
+.step-list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.step-list li + li {
+  margin-top: 0.55rem;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -382,6 +427,10 @@ button:focus-visible {
 .prose pre,
 .prose img {
   margin: 0 0 1rem;
+}
+
+.layout-focused .content-panel.prose > h1:first-child {
+  display: none;
 }
 
 .prose ul,
@@ -457,7 +506,8 @@ button:focus-visible {
 
 @media (max-width: 980px) {
   .hero,
-  .page-layout {
+  .page-layout,
+  .download-start {
     grid-template-columns: 1fr;
   }
 

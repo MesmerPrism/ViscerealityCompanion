@@ -5,6 +5,7 @@ summary: The current public installer is a Sussex-focused preview. The recommend
 nav_label: Download
 nav_group: Start Here
 nav_order: 15
+layout: focused
 ---
 
 # Download & Install
@@ -20,16 +21,46 @@ The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
 and immediate access to the bundled Sussex APK inside the app payload.
 
-<div class="action-row">
-  <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe">Guided setup</a>
-  <a class="button" href="ms-appinstaller:?source=https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">Install with App Installer</a>
-  <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer">Download certificate</a>
-  <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">Download appinstaller</a>
-  <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.msix">Download MSIX</a>
-  <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases">Open releases</a>
+<div class="download-start">
+  <section class="download-path download-path-primary">
+    <h2>Start Here</h2>
+    <p>Most people should use the guided setup helper. It handles the preview trust step and then opens the packaged install flow.</p>
+    <div class="action-row">
+      <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe">Download guided setup</a>
+      <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases">Open release page</a>
+    </div>
+    <ol class="step-list">
+      <li>Download and run <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe"><code>ViscerealityCompanion-Preview-Setup.exe</code></a>.</li>
+      <li>Accept the Windows prompt so the helper can trust the preview certificate and open App Installer.</li>
+      <li>Install the app, then launch <strong>Viscereality Companion</strong> from the Start menu.</li>
+      <li>Inside the app, stay in <code>Sussex University experiment mode</code> and use the sequential guide.</li>
+    </ol>
+  </section>
+
+  <section class="download-path">
+    <h2>Manual Fallback</h2>
+    <p>Use this only if the guided helper is blocked by policy or you prefer to install the certificate and App Installer package yourself.</p>
+    <ol class="step-list">
+      <li>Download <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer"><code>ViscerealityCompanion.cer</code></a>.</li>
+      <li>Install it into <code>Local Machine</code> → <code>Trusted People</code>.</li>
+      <li>Open <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller"><code>ViscerealityCompanion.appinstaller</code></a> from disk, or use <a href="ms-appinstaller:?source=https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">App Installer directly</a>.</li>
+    </ol>
+  </section>
 </div>
 
-## What The Sussex Preview Already Includes
+## Direct Downloads
+
+If you know exactly which file you want, use these direct links:
+
+- [Guided setup helper (`ViscerealityCompanion-Preview-Setup.exe`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe)
+- [App Installer file (`ViscerealityCompanion.appinstaller`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller)
+- [Windows package (`ViscerealityCompanion.msix`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.msix)
+- [Preview signing certificate (`ViscerealityCompanion.cer`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer)
+- [Portable Windows zip (`ViscerealityCompanion-win-x64.zip`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-win-x64.zip)
+- [CLI zip (`viscereality-cli-win-x64.zip`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/viscereality-cli-win-x64.zip)
+- [Checksums (`SHA256SUMS.txt`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/SHA256SUMS.txt)
+
+## What The Sussex Preview Includes
 
 - the Windows operator app
 - the dedicated `Sussex University experiment mode` shell
@@ -57,52 +88,21 @@ kiosk-exit return to Meta Home, and the current approved Sussex APK hash
 If developer mode is not already enabled on the headset, fix that before
 expecting the companion to install or launch anything.
 
-## Fast Path
+## After Install
 
-1. Download `ViscerealityCompanion-Preview-Setup.exe`.
-2. Accept the admin prompt so the helper can trust the preview certificate and open App Installer.
-3. Finish the Windows install and launch `Viscereality Companion` from the Start menu.
-4. Plug the Quest in once over USB, approve the USB debugging prompt in-headset, then use **Probe USB** and **Enable Wi-Fi ADB** if you want the session on Wi-Fi.
-5. Stay in `Sussex University experiment mode`, confirm the bundled Sussex APK, and click **Install Sussex APK**.
-6. Click **Apply Study Device Profile**, then **Launch Study Runtime**.
+1. Launch `Viscereality Companion` from the Start menu.
+2. Confirm it opens in `Sussex University experiment mode`.
+3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
+4. Use the sequential guide for the full Sussex setup path.
 
 If you see the full app instead of Sussex mode, you are probably running an
 older build or a repo-local source build instead of the packaged Sussex preview.
 
-## Manual fallback
+Continue with:
 
-Use this if the guided helper is blocked by policy or you prefer to trust the
-certificate yourself.
-
-1. Download [ViscerealityCompanion.cer](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer).
-2. Open the certificate and choose `Install Certificate`.
-3. Select `Local Machine`.
-4. Choose `Place all certificates in the following store`.
-5. Select `Trusted People`.
-6. Finish the import, then open `ViscerealityCompanion.appinstaller`.
-
-Until the project uses a certificate from a publicly trusted CA, Windows needs
-that trust step before App Installer will accept the research preview package.
-
-If the browser refuses the `ms-appinstaller:` link, download
-`ViscerealityCompanion.appinstaller` and open it from disk after trusting
-`ViscerealityCompanion.cer`.
-
-## Release assets
-
-Tagged preview releases are set up to publish:
-
-- `ViscerealityCompanion-Preview-Setup.exe`
-- `ViscerealityCompanion.msix`
-- `ViscerealityCompanion.appinstaller`
-- `ViscerealityCompanion.cer`
-- `ViscerealityCompanion-win-x64.zip`
-- `viscereality-cli-win-x64.zip`
-- `SHA256SUMS.txt`
-
-Use the portable zip only if you need a no-installer build for a controlled lab
-machine. Use the source-build path only when you are validating or changing the
-repo itself.
+- [First Session](first-session.md) for the operator path
+- [Study Shells](study-shells.md) for what is bundled into Sussex mode
+- [Troubleshooting](troubleshooting.md) if the headset does not respond over USB or Wi-Fi ADB
 
 ## Common First-Run Problems
 
@@ -134,7 +134,14 @@ For the packaged Sussex preview you do not need:
 - a separate device-profile file
 - the full operator workspace if the Sussex study shell is the intended surface
 
-## If no public release exists yet
+## If You Need A Portable Or Repo Build
+
+Use the portable zip only if you need a no-installer build for a controlled lab
+machine:
+
+- [Portable Windows zip (`ViscerealityCompanion-win-x64.zip`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-win-x64.zip)
+
+Use the repo build only when you are validating or changing the source:
 
 Use the repo build directly:
 

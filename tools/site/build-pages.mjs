@@ -25,6 +25,7 @@ for (const sourcePath of markdownFiles) {
     const navLabel = frontmatter.nav_label ?? title;
     const navGroup = frontmatter.nav_group ?? "Docs";
     const navOrder = Number(frontmatter.nav_order ?? 999);
+    const layout = frontmatter.layout ?? "default";
     const outputRelative = relativePath.replace(/\.md$/i, ".html");
     const outputPath = path.join(siteDir, outputRelative);
 
@@ -35,6 +36,7 @@ for (const sourcePath of markdownFiles) {
         navLabel,
         navGroup,
         navOrder,
+        layout,
         sourcePath,
         relativePath,
         outputRelative,
@@ -129,6 +131,34 @@ function renderPage(page, pages) {
             return `<a class="aside-link" href="${relativeHref}">${escapeHtml(candidate.navLabel)}</a>`;
         })
         .join("");
+    const focusedLayout = page.layout === "focused";
+    const heroAside = focusedLayout
+        ? ""
+        : `<aside class="hero-aside panel">
+        <h2>New here?</h2>
+        <ol class="quick-steps">
+          <li>Install the Windows preview package or guided setup helper.</li>
+          <li>Make sure the Quest is in developer mode, then approve USB debugging once on that headset.</li>
+          <li>The Sussex package already includes the Sussex APK, device profile, and study shell, so you can connect Quest and run the session from Windows without a separate APK handoff.</li>
+        </ol>
+        <div class="aside-links">${onboardingLinks}</div>
+        <p class="aside-note">This repo is the public Windows operator surface. The Unity runtime and study APK development stay in AstralKarateDojo.</p>
+      </aside>`;
+    const sidebar = focusedLayout ? "" : `<nav class="sidebar">
+        ${navSections}
+      </nav>`;
+    const heroSection = focusedLayout
+        ? ""
+        : `<section class="hero">
+      <div class="hero-copy panel">
+        <p class="kicker">${escapeHtml(page.navGroup)}</p>
+        <h1>${escapeHtml(page.title)}</h1>
+        <p class="page-intro">${escapeHtml(page.summary)}</p>
+      </div>
+      ${heroAside}
+    </section>`;
+
+    const bodyClass = focusedLayout ? "layout-focused" : "layout-default";
 
     return `<!doctype html>
 <html lang="en">
@@ -139,7 +169,7 @@ function renderPage(page, pages) {
   <meta name="description" content="${escapeHtml(page.description)}">
   <link rel="stylesheet" href="${stylesheetHref}">
 </head>
-<body>
+<body class="${bodyClass}">
   <div class="site-shell">
     <header class="site-header">
       <a class="brand" href="${homeHref}">
@@ -152,28 +182,10 @@ function renderPage(page, pages) {
       <nav class="top-nav">${topNav}</nav>
     </header>
 
-    <section class="hero">
-      <div class="hero-copy panel">
-        <p class="kicker">${escapeHtml(page.navGroup)}</p>
-        <h1>${escapeHtml(page.title)}</h1>
-        <p class="page-intro">${escapeHtml(page.summary)}</p>
-      </div>
-      <aside class="hero-aside panel">
-        <h2>New here?</h2>
-        <ol class="quick-steps">
-          <li>Install the Windows preview package or guided setup helper.</li>
-          <li>Make sure the Quest is in developer mode, then approve USB debugging once on that headset.</li>
-          <li>The Sussex package already includes the Sussex APK, device profile, and study shell, so you can connect Quest and run the session from Windows without a separate APK handoff.</li>
-        </ol>
-        <div class="aside-links">${onboardingLinks}</div>
-        <p class="aside-note">This repo is the public Windows operator surface. The Unity runtime and study APK development stay in AstralKarateDojo.</p>
-      </aside>
-    </section>
+    ${heroSection}
 
-    <main class="page-layout">
-      <nav class="sidebar">
-        ${navSections}
-      </nav>
+    <main class="page-layout${focusedLayout ? " page-layout-focused" : ""}">
+      ${sidebar}
       <article class="content-panel prose">${page.html}</article>
     </main>
   </div>
