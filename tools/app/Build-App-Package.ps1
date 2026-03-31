@@ -247,6 +247,7 @@ try {
             Replace('{Version}', $Version).
             Replace('{Name}', $PackageId).
             Replace('{Publisher}', $Publisher).
+            Replace('{ProcessorArchitecture}', $Platform).
             Replace('{MainPackageUri}', $MainPackageUri)
 
         $appInstallerOutputPath = Join-Path $outputPath $AppInstallerFileName
