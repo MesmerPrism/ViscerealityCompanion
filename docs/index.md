@@ -24,6 +24,7 @@ watch live state, and keep session control on the operator side.
 ## If You Are Here For Sussex
 
 - use the packaged Windows preview unless you are actively changing the repo
+- the current public installer is a Sussex-focused preview rather than the full general operator release
 - the dedicated Sussex package already includes the bundled Sussex APK
 - the app opens directly into `Sussex University experiment mode`
 - the operator only needs Windows, a Quest in developer mode, one USB cable, and a shared Wi-Fi network for Wi-Fi ADB
@@ -58,7 +59,7 @@ Use these three pages in order:
 <div class="card-grid">
   <a class="path-card" href="download.md">
     <h3>Install The Launcher</h3>
-    <p>Preferred path for operators. The Sussex preview already bundles the Sussex APK and opens in the dedicated study shell.</p>
+    <p>Preferred path for operators. The current public installer is a Sussex-focused preview that already bundles the Sussex APK and opens in the dedicated study shell.</p>
   </a>
   <a class="path-card" href="first-session.md">
     <h3>First Sussex Session</h3>

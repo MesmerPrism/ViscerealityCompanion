@@ -8,7 +8,7 @@ monitor live state, and keep session control on the operator side.
 
 Start with [Docs Home](docs/index.md) or the live
 [Pages site](https://mesmerprism.github.io/ViscerealityCompanion/).
-If a public research preview release exists, install it from
+If a public Sussex-focused research preview release exists, install it from
 [Download & Install](https://mesmerprism.github.io/ViscerealityCompanion/download.html).
 
 This repo is deliberately separate from the Unity scene repo. It does not copy
@@ -55,7 +55,7 @@ Verified on March 25, 2026 against a live Quest reachable over Wi-Fi ADB:
 ## Install Or Build
 
 For operators, the intended path is the packaged launcher once preview releases
-are published. The Sussex preview path now bundles the Sussex APK inside
+are published. The current public preview is Sussex-focused and bundles the Sussex APK inside
 the installed app payload, so operators do not need a separate APK download for
 that study shell.
 

@@ -1,7 +1,7 @@
 ---
 title: Download & Install
-description: Install the Viscereality Companion Windows research preview from the latest public release, or fall back to the repo build when no preview package exists yet.
-summary: The recommended path is the guided setup bootstrapper, which trusts the preview certificate, opens App Installer, and gives the installed app immediate access to the bundled Sussex APK.
+description: Install the Sussex-focused Viscereality Companion Windows research preview from the latest public release, or fall back to the repo build when no preview package exists yet.
+summary: The current public installer is a Sussex-focused preview. The recommended path is the guided setup bootstrapper, which trusts the preview certificate, opens App Installer, and gives the installed app immediate access to the bundled Sussex APK.
 nav_label: Download
 nav_group: Start Here
 nav_order: 15
@@ -11,6 +11,10 @@ nav_order: 15
 
 Use this page when you want the packaged Windows app instead of building the
 repo from source.
+
+The current public package is a **Sussex-focused preview**. It is meant for the
+`Sussex University experiment mode` workflow first, not yet as the final
+general-purpose multi-study release.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,

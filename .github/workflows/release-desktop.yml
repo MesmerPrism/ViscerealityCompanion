@@ -1,4 +1,4 @@
-name: Release Windows Research Preview
+name: Release Windows Sussex-Focused Preview
 
 on:
   push:
@@ -193,7 +193,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tagName = '${{ steps.version.outputs.tag_name }}'
-          $releaseTitle = "Viscereality Companion Research Preview ${{ steps.version.outputs.package_version }}"
+          $releaseTitle = "Viscereality Companion Sussex-Focused Research Preview ${{ steps.version.outputs.package_version }}"
           $assets = @(
             "artifacts\windows-installer\$env:PREVIEW_SETUP_FILE_NAME",
             "artifacts\windows-installer\$env:PACKAGE_FILE_NAME",
