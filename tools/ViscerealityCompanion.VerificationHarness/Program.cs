@@ -222,15 +222,31 @@ public static class HarnessScenarioRunner
             outputRoot,
             outlet);
 
-        var stopActionLevel = OperationOutcomeKind.Warning;
-        var stopActionDetail = "Skipped Stop Study App and home-scene validation because the headset was off-head and kiosk exit is a known unstable state there.";
-        var homeScreenshotPath = participantRunResult.EndedQuestScreenshotPath;
+        var preExitRuntimeHealthy = studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning;
+        var preExitLslHealthy = studyViewModel.LslLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning;
+
+        var stopVerification = await ValidateKioskExitAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            participantRunResult.EndedQuestScreenshotPath);
+        var stopActionLevel = stopVerification.Level;
+        var stopActionDetail = stopVerification.Detail;
+        var homeScreenshotPath = stopVerification.HomeScreenshotPath;
         CaptureWindow(window, Path.Combine(outputRoot, "sussex-main-window-live.png"));
-        var verificationPersistence = new VerificationPersistenceResult(
-            Persisted: false,
-            Summary: "Verification baseline unchanged.",
-            Detail: stopActionDetail,
-            Baseline: null);
+        var verificationPersistence = await PersistVerifiedEnvironmentBaselineAsync(
+            repoRoot,
+            studyViewModel,
+            senderRestartResult,
+            recenterResult,
+            particlesOffResult,
+            particlesHidden,
+            particlesOnResult,
+            particlesVisible,
+            preExitRuntimeHealthy,
+            preExitLslHealthy,
+            stopActionLevel,
+            stopActionDetail);
 
         await File.WriteAllTextAsync(
             Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
@@ -250,6 +266,43 @@ public static class HarnessScenarioRunner
                 kioskScreenshotPath,
                 homeScreenshotPath,
                 verificationPersistence));
+    }
+
+    private static async Task<StopAppVerificationResult> ValidateKioskExitAsync(
+        StudyShellViewModel studyViewModel,
+        Window window,
+        string outputRoot,
+        string fallbackScreenshotPath)
+    {
+        try
+        {
+            await studyViewModel.StopStudyAppAsync();
+            await WaitForConditionAsync(
+                () =>
+                    !studyViewModel.HeadsetForegroundLabel.Contains(studyViewModel.PinnedPackageId, StringComparison.OrdinalIgnoreCase)
+                    && !studyViewModel.QuestStatusSummary.Contains("is active", StringComparison.OrdinalIgnoreCase),
+                TimeSpan.FromSeconds(20),
+                "The Sussex runtime stayed foregrounded after Exit Kiosk Runtime.");
+
+            var homeScreenshotPath = await CaptureQuestScreenshotProofAsync(
+                studyViewModel,
+                window,
+                outputRoot,
+                "quest-home-proof.png",
+                "sussex-main-window-home-proof.png");
+
+            return new StopAppVerificationResult(
+                OperationOutcomeKind.Success,
+                $"Exit Kiosk Runtime returned the headset to a non-study foreground scene ({studyViewModel.HeadsetForegroundLabel}).",
+                homeScreenshotPath);
+        }
+        catch (Exception exception)
+        {
+            return new StopAppVerificationResult(
+                OperationOutcomeKind.Warning,
+                $"Exit Kiosk Runtime could not be fully verified. {exception.Message}",
+                fallbackScreenshotPath);
+        }
     }
 
     private static async Task WarmUpLslAsync(FloatLslTestOutlet outlet, StudyShellViewModel studyViewModel)
@@ -464,7 +517,7 @@ public static class HarnessScenarioRunner
 
         await WaitForSessionFilesAsync(
             localSessionFolderPath,
-            ["session_events.csv", "signals_long.csv", "breathing_trace.csv", "session_settings.json"],
+            ["session_events.csv", "signals_long.csv", "breathing_trace.csv", "clock_alignment_roundtrip.csv", "upstream_lsl_monitor.csv", "session_settings.json"],
             TimeSpan.FromSeconds(10));
 
         var runningQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
@@ -475,6 +528,21 @@ public static class HarnessScenarioRunner
             "sussex-main-window-participant-running-proof.png");
 
         var lslFlowResult = await DriveParticipantRunLslAsync(outlet, studyViewModel, lslCountBefore);
+
+        var clockAlignmentPath = Path.Combine(localSessionFolderPath, "clock_alignment_roundtrip.csv");
+        try
+        {
+            await WaitForConditionAsync(
+                () => File.Exists(clockAlignmentPath)
+                      && ContainsTextWithSharedRead(clockAlignmentPath, "BackgroundSparse"),
+                TimeSpan.FromSeconds(12),
+                "The participant run never captured a sparse background clock-alignment probe.");
+        }
+        catch (TimeoutException)
+        {
+            // The sparse probe path is informative for long runs, but it should not block
+            // the main Sussex verification harness from completing a clean on-head pass.
+        }
 
         await WaitForConditionAsync(
             () => HasMinimumCsvDataRows(Path.Combine(localSessionFolderPath, "signals_long.csv"), 8)
@@ -503,7 +571,9 @@ public static class HarnessScenarioRunner
             "session_settings.json",
             "session_events.csv",
             "signals_long.csv",
-            "breathing_trace.csv");
+            "breathing_trace.csv",
+            "clock_alignment_roundtrip.csv",
+            "upstream_lsl_monitor.csv");
         var localMetadata = ReadSessionMetadata(Path.Combine(localSessionFolderPath, "session_settings.json"));
 
         var deviceSelector = ResolveHzdbSelector(mainViewModel, studyViewModel);
@@ -521,6 +591,8 @@ public static class HarnessScenarioRunner
             "session_events.csv",
             "signals_long.csv",
             "breathing_trace.csv",
+            "clock_alignment_samples.csv",
+            "timing_markers.csv",
             "lsl_samples.csv");
         var deviceMetadata = ReadSessionMetadata(Path.Combine(devicePullDirectory, "session_settings.json"));
 
@@ -1153,6 +1225,8 @@ public static class HarnessScenarioRunner
         ObservationResult particlesHidden,
         ObservationResult particlesOnResult,
         ObservationResult particlesVisible,
+        bool preExitRuntimeHealthy,
+        bool preExitLslHealthy,
         OperationOutcomeKind stopActionLevel,
         string stopActionDetail)
     {
@@ -1164,6 +1238,8 @@ public static class HarnessScenarioRunner
                 particlesHidden,
                 particlesOnResult,
                 particlesVisible,
+                preExitRuntimeHealthy,
+                preExitLslHealthy,
                 stopActionLevel))
         {
             return new VerificationPersistenceResult(
@@ -1209,13 +1285,15 @@ public static class HarnessScenarioRunner
         ObservationResult particlesHidden,
         ObservationResult particlesOnResult,
         ObservationResult particlesVisible,
+        bool preExitRuntimeHealthy,
+        bool preExitLslHealthy,
         OperationOutcomeKind stopActionLevel)
         => MatchesHash(studyViewModel.InstalledApkHash, studyViewModel.PinnedBuildHash)
            && !string.IsNullOrWhiteSpace(studyViewModel.HeadsetSoftwareRelease)
            && !string.IsNullOrWhiteSpace(studyViewModel.HeadsetSoftwareBuildId)
            && studyViewModel.DeviceProfileLevel == OperationOutcomeKind.Success
-           && studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning
-           && studyViewModel.LslLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning
+           && preExitRuntimeHealthy
+           && preExitLslHealthy
            && stopActionLevel == OperationOutcomeKind.Success
            && senderRestartResult.Success
            && recenterResult.Success
@@ -1328,6 +1406,7 @@ public static class HarnessScenarioRunner
     private sealed record LatencyResult(float Value, DateTimeOffset SentAt, DateTimeOffset? ObservedAt, string SourceKey, double? LatencyMs);
     private sealed record ObservedValueResult(DateTimeOffset? Timestamp, string SourceKey);
     private sealed record ObservationResult(string Label, bool Success, string Detail);
+    private sealed record StopAppVerificationResult(OperationOutcomeKind Level, string Detail, string HomeScreenshotPath);
     private sealed record VerificationPersistenceResult(bool Persisted, string Summary, string Detail, StudyVerificationBaseline? Baseline);
     private sealed record FileInspectionResult(string Path, bool Exists, long LengthBytes, string Preview);
     private sealed record SessionMetadataResult(string Path, bool IsAvailable, IReadOnlyDictionary<string, string> Values, string Summary);

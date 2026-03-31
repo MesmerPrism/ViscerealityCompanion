@@ -65,28 +65,24 @@ public sealed class StudyDataRecorderServiceTests
                 ["study.pose.controller.local_rot_y"] = "0.8",
                 ["study.pose.controller.local_rot_z"] = "0.9",
                 ["study.pose.controller.local_rot_w"] = "1.0",
-                ["study.pose.controller.connected"] = "true",
-                ["study.pose.controller.tracked"] = "true",
                 ["study.heartbeat.value01"] = "0.71",
                 ["study.heartbeat.real_beat_value01"] = "1",
                 ["study.coherence.value01"] = "0.63",
-                ["study.coherence.confidence_value01"] = "0.82",
                 ["study.breathing.value01"] = "0.58",
                 ["study.radius.sphere.progress01"] = "0.34",
                 ["study.radius.sphere.raw"] = "1.75",
-                ["study.radius.pacer.progress01"] = "0.31",
-                ["study.radius.pacer.raw"] = "1.52",
                 ["study.lsl.received_sample_count"] = "42",
                 ["study.lsl.latest_timestamp"] = "1234.56",
                 ["study.lsl.latest_default_value"] = "0.63",
                 ["study.session.state_label"] = "Running",
-                ["study.session.experiment_active"] = "true",
+                ["tracker.breathing.controller.calibrated"] = "true",
                 ["study.session.run_index"] = "3"
             };
 
             session.RecordTwinState(twinState, startedAtUtc.AddSeconds(2), "192.168.1.8:5555");
             session.RecordTwinState(twinState, startedAtUtc.AddSeconds(3), "192.168.1.8:5555");
             session.RecordClockAlignmentSample(new StudyClockAlignmentSample(
+                StudyClockAlignmentWindowKind.StartBurst,
                 7,
                 startedAtUtc.AddSeconds(1),
                 100.25,
@@ -98,7 +94,7 @@ public sealed class StudyDataRecorderServiceTests
                 101.35,
                 0.42,
                 0.315));
-            session.UpdateClockAlignmentSummary(new StudyClockAlignmentSummary(
+            session.UpdateClockAlignmentSummary(StudyClockAlignmentWindowKind.StartBurst, new StudyClockAlignmentSummary(
                 8,
                 1,
                 0.42,
@@ -107,6 +103,19 @@ public sealed class StudyDataRecorderServiceTests
                 0.315,
                 0.315,
                 0.315));
+            session.RecordUpstreamLslObservation(new StudyUpstreamLslObservation(
+                startedAtUtc.AddSeconds(1.5),
+                100.5,
+                99.75,
+                "HRV_Biofeedback",
+                "HRV",
+                0,
+                LslChannelFormat.Float32,
+                0.63f,
+                null,
+                12,
+                "Streaming LSL sample.",
+                "Numeric sample from `HRV_Biofeedback` / `HRV`."));
             session.Complete(startedAtUtc.AddMinutes(8));
 
             var eventLines = File.ReadAllLines(session.EventsCsvPath);
@@ -119,19 +128,30 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Equal(signalLines.Distinct(StringComparer.Ordinal).Count(), signalLines.Length);
             Assert.Contains("headset.position.x", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
             Assert.Contains("breathing.value01", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
-            Assert.Contains("session.experiment_active", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
+            Assert.DoesNotContain("pacer_radius.progress01", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
 
             var breathingLines = File.ReadAllLines(session.BreathingCsvPath);
             Assert.Equal(2, breathingLines.Length);
             Assert.Equal(breathingLines.Distinct(StringComparer.Ordinal).Count(), breathingLines.Length);
+            Assert.Contains("controller_calibrated", breathingLines[0], StringComparison.Ordinal);
+            Assert.DoesNotContain("controller_active", breathingLines[0], StringComparison.Ordinal);
             Assert.Contains("0.58", breathingLines[1], StringComparison.Ordinal);
             Assert.Contains("1.75", breathingLines[1], StringComparison.Ordinal);
+            Assert.EndsWith(",true", breathingLines[1], StringComparison.OrdinalIgnoreCase);
 
             var clockAlignmentLines = File.ReadAllLines(session.ClockAlignmentCsvPath);
             Assert.Equal(2, clockAlignmentLines.Length);
+            Assert.Contains("window_kind", clockAlignmentLines[0], StringComparison.Ordinal);
             Assert.Contains("probe_sequence", clockAlignmentLines[0], StringComparison.Ordinal);
+            Assert.Contains("StartBurst", clockAlignmentLines[1], StringComparison.Ordinal);
             Assert.Contains(",7,", clockAlignmentLines[1], StringComparison.Ordinal);
             Assert.Contains("0.315", clockAlignmentLines[1], StringComparison.Ordinal);
+
+            var upstreamLines = File.ReadAllLines(session.UpstreamLslMonitorCsvPath);
+            Assert.Equal(2, upstreamLines.Length);
+            Assert.Contains("stream_name", upstreamLines[0], StringComparison.Ordinal);
+            Assert.Contains("HRV_Biofeedback", upstreamLines[1], StringComparison.Ordinal);
+            Assert.Contains("0.63", upstreamLines[1], StringComparison.Ordinal);
 
             using var settingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath));
             var rootElement = settingsDocument.RootElement;
@@ -148,9 +168,16 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Equal(session.ClockAlignmentCsvPath, rootElement.GetProperty("ClockAlignmentFile").GetString());
             Assert.Equal(10, rootElement.GetProperty("ClockAlignmentDurationSeconds").GetInt32());
             Assert.Equal(250, rootElement.GetProperty("ClockAlignmentProbeIntervalMilliseconds").GetInt32());
+            Assert.Equal(10, rootElement.GetProperty("ClockAlignmentBackgroundProbeIntervalSeconds").GetInt32());
             Assert.Equal(0.42, rootElement.GetProperty("ClockAlignmentRecommendedQuestMinusWindowsClockSeconds").GetDouble(), 3);
             Assert.Equal(0.315, rootElement.GetProperty("ClockAlignmentMeanRoundTripSeconds").GetDouble(), 3);
             Assert.Equal(1, rootElement.GetProperty("ClockAlignmentSampleCount").GetInt32());
+            Assert.Equal(0.42, rootElement.GetProperty("ClockAlignmentStartRecommendedQuestMinusWindowsClockSeconds").GetDouble(), 3);
+            Assert.Equal(0.315, rootElement.GetProperty("ClockAlignmentStartMeanRoundTripSeconds").GetDouble(), 3);
+            Assert.Equal(1, rootElement.GetProperty("ClockAlignmentStartSampleCount").GetInt32());
+            Assert.Equal(0, rootElement.GetProperty("ClockAlignmentBackgroundSampleCount").GetInt32());
+            Assert.Equal(session.UpstreamLslMonitorCsvPath, rootElement.GetProperty("UpstreamLslMonitorFile").GetString());
+            Assert.Equal(1, rootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
             Assert.Equal("2026-03-29T12:42:56+00:00", rootElement.GetProperty("SessionEndedAtUtc").GetString());
         }
         finally

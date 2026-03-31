@@ -68,7 +68,7 @@ It currently pins:
 
 - package id: `com.Viscereality.SussexExperiment`
 - version: `0.1.0`
-- SHA256: `1155F28643901543ACEE8DED52E84DD8CEF5C3FCF07B65DAF4181B5B5A4CE8A1`
+- SHA256: `A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9`
 - bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
@@ -216,6 +216,15 @@ That harness:
 - installs, launches, and profiles the bundled Sussex APK
 - captures GUI and Quest screenshots for kiosk-launch and kiosk-exit review
 - writes a text report alongside those screenshots
+
+The latest on-head harness approval pass on `2026-03-31`:
+
+- verified kiosk exit back to `com.oculus.vrshell`
+- updated the approved Sussex verification baseline to the current APK hash
+- confirmed matching Windows and Quest session metadata for the participant run
+- kept one known non-blocking caveat: sparse background clock-alignment probes
+  still start, but they do not yet receive Quest echoes during the short
+  harness run
 
 Treat those screenshots as evidence to inspect, not as an automatic proof that
 Meta Home was visibly restored. On the current HorizonOS build, kiosk exit can

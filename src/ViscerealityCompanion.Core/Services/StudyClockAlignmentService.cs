@@ -119,6 +119,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                             (questEchoLocalClockSeconds - payload.QuestReceiveLocalClockSeconds);
 
                         var sample = new StudyClockAlignmentSample(
+                            request.WindowKind,
                             payload.Sequence,
                             probe.SentAtUtc,
                             probe.SentLocalClockSeconds,

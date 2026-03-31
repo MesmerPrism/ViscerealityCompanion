@@ -12,14 +12,23 @@ public static class SussexClockAlignmentStreamContract
     public const int DefaultEchoGraceMilliseconds = 1500;
 }
 
+public enum StudyClockAlignmentWindowKind
+{
+    StartBurst = 0,
+    BackgroundSparse = 1,
+    EndBurst = 2
+}
+
 public sealed record StudyClockAlignmentRunRequest(
     string SessionId,
     string DatasetHash,
+    StudyClockAlignmentWindowKind WindowKind,
     TimeSpan Duration,
     TimeSpan ProbeInterval,
     TimeSpan EchoGracePeriod);
 
 public sealed record StudyClockAlignmentSample(
+    StudyClockAlignmentWindowKind WindowKind,
     int ProbeSequence,
     DateTimeOffset ProbeSentAtUtc,
     double ProbeSentLocalClockSeconds,

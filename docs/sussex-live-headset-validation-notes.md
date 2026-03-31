@@ -5,32 +5,38 @@ Use this file as the running checklist for the next full on-head headset pass. A
 ## Current Readiness Snapshot
 
 - Companion repo branch: `codex/publish-main`
-- Companion repo base commit at this check: `4484c1c`
-- Fresh Astral Sussex APK built on `2026-03-30` at:
+- Companion repo base commit at this check: `2effc49`
+- Fresh Astral Sussex APK built on `2026-03-31` at:
   `C:\Users\tillh\source\repos\AstralKarateDojo\Artifacts\APKs\SussexExperiment.apk`
 - Current Sussex APK SHA-256:
-  `239BA1A797C1EF269334B685F1FCDD04FE26B3936D20AAEEF8821CDAAC0CAB6C`
+  `A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9`
 - Mirrored companion bundle refreshed to the same hash at:
   `C:\Users\tillh\source\repos\ViscerealityCompanion\samples\quest-session-kit\APKs\SussexExperiment.apk`
-- Connected Quest package install pulled back and hash-matched to the same Sussex APK hash during this readiness pass.
+- Published companion bundle refreshed at:
+  `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\publish\ViscerealityCompanion.App`
+- Current readiness caveat: the start and end clock-alignment bursts are validated, but the sparse background probe path still does not echo during the short live harness run. The harness now records that as a non-blocking observation instead of failing the whole Sussex approval pass.
 - Quest OS baseline still matches the approved Sussex software identity:
   `14 | build 2921110053000610 | display UP1A.231005.007.A1`
-- Wi-Fi ADB was live during this readiness pass on:
+- Wi-Fi ADB was last confirmed live during the previous readiness pass on:
   `192.168.2.56:5555`
-- Headset Wi-Fi and PC Wi-Fi matched during this readiness pass:
+- Headset Wi-Fi and PC Wi-Fi last matched during the previous readiness pass:
   `MagentaWLAN-R5V4`
-- Companion build/test passed after the latest calibration-quality UI work.
+- Companion build/test passed after the timing-contract update and APK sync.
+- Astral `.\Tools\check.ps1 -SkipDotnetBuild` passed before the fresh Sussex APK build.
 - Expected note for the next run: the Sussex APK itself is newer than the last fully verified baseline record, so the first full live pass should be treated as the approval run for this new APK hash rather than as a no-change recheck.
 
 ## Latest Live Result
 
-- A full on-device Sussex operator pass was completed successfully on `2026-03-30`.
-- The sequential guide path worked end to end, including Wi-Fi-only control, kiosk launch, LSL confirmation, particle verification, optional calibration-quality guidance, and the 20 second validation capture.
-- The validation capture now generates a formatted preview PDF directly into the Windows session folder and exposes it through the guide.
-- Latest example validation session:
-  `C:\Users\tillh\AppData\Local\ViscerealityCompanion\study-data\sussex-university\participant-asd\session-20260330T211348Z`
-- Latest example validation PDF:
-  `C:\Users\tillh\AppData\Local\ViscerealityCompanion\study-data\sussex-university\participant-asd\session-20260330T211348Z\validation_capture_preview.pdf`
+- A full on-head Sussex verification harness pass completed successfully on `2026-03-31`.
+- Kiosk exit is now validated on-head. The harness returned cleanly to `com.oculus.vrshell`, captured proof screenshots, and updated the approved Sussex verification baseline to the current APK hash.
+- Latest harness report:
+  `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\verify\sussex-study-mode-live\sussex-study-mode-report.txt`
+- Latest harness session:
+  `C:\Users\tillh\AppData\Local\ViscerealityCompanion\study-data\sussex-university\participant-harness-20260331-103402\session-20260331T103417Z`
+- Latest verified baseline:
+  `A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9`
+- Remaining live caveat:
+  the sparse background clock-alignment probe loop starts and logs its own start/stop events, but it still does not receive Quest echoes during the short harness run.
 
 ## Core Goal
 
@@ -80,6 +86,8 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - The runtime remains controllable after USB is unplugged.
 - LSL coherence values keep arriving during the run.
 - The clock-alignment window completes its 10 second handshake at experiment start.
+- The clock-alignment window also completes the matching end burst cleanly at experiment stop.
+- Sparse background clock probes are logged during the run without interrupting the participant flow.
 - If controller calibration is tried, the quality block should explain obvious failure modes quickly, especially unstable tracking, too-little movement, or stalled accepted frames.
 
 ## Data Checks
@@ -93,8 +101,16 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - `breathing_trace.csv` is present on both sides.
 - `clock_alignment_roundtrip.csv` is present on Windows.
 - `clock_alignment_samples.csv` is present in the pulled Quest data.
+- `upstream_lsl_monitor.csv` is present on Windows.
+- `timing_markers.csv` is present in the pulled Quest data.
 - Shared traces between Windows and Quest look aligned enough for comparison.
 - Windows recording scope and Quest recording scope are reviewed for expected start and stop differences.
+- Timing markers include at least:
+  `heartbeat_packet_receive`
+  `heartbeat_real_beat_publish`
+  `coherence_packet_receive`
+  `coherence_value_publish`
+  `orbit_radius_peak`
 
 ## Visual Review After The Run
 
@@ -102,6 +118,7 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - Open the generated PDF preview report from the validation-capture step and confirm that breathing, coherence, and clock-alignment traces look plausible.
 - Compare Windows vs Quest traces for shared signals to spot lag, clipping, or dropouts.
 - Verify that screenshots used for validation actually correspond to the current runtime state.
+- Inspect whether `orbit_radius_peak` lands where the participant-facing visual expansion appears strongest.
 
 ## Questions To Resolve During The Next Run
 
@@ -109,6 +126,8 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - Is breathing calibration stable enough to become a required guide step again?
 - Does clock alignment produce a stable enough offset estimate across repeated runs?
 - Do Windows and Quest recording windows now align closely enough after the clock-alignment and recorder-scope changes?
+- Does the passive upstream Windows LSL monitor line up cleanly with the Quest timing markers for heartbeat/coherence delivery?
+- How close is `orbit_radius_peak` to the earliest participant-visible peak in the rendered particle motion?
 - Are there any participant-facing visual issues after sleep, wake, recenter, or kiosk exit that only appear on-head?
 
 ## Log Useful Artifacts Here

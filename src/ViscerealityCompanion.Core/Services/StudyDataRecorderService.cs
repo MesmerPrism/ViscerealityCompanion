@@ -36,29 +36,21 @@ public sealed class StudyDataRecorderService
         new("controller_pose", "controller.rotation.qy", "quaternion", ["study.pose.controller.local_rot_y"]),
         new("controller_pose", "controller.rotation.qz", "quaternion", ["study.pose.controller.local_rot_z"]),
         new("controller_pose", "controller.rotation.qw", "quaternion", ["study.pose.controller.local_rot_w"]),
-        new("controller_pose", "controller.connected", "bool", ["study.pose.controller.connected"]),
-        new("controller_pose", "controller.tracked", "bool", ["study.pose.controller.tracked"]),
         new("heartbeat", "heartbeat.value01", "unit01", ["study.heartbeat.value01"]),
         new("heartbeat", "heartbeat.real_beat_value01", "unit01", ["study.heartbeat.real_beat_value01"]),
         new("heartbeat", "heartbeat.packet_value01", "unit01", ["study.lsl.latest_default_value", "study.lsl.latest_ch0_value"]),
         new("coherence", "coherence.value01", "unit01", ["study.coherence.value01"]),
-        new("coherence", "coherence.tracking01", "unit01", ["study.coherence.tracking_value01"]),
-        new("coherence", "coherence.confidence01", "unit01", ["study.coherence.confidence_value01"]),
         new("breathing", "breathing.value01", "unit01", ["study.breathing.value01", "signal01.breathing_controller", "tracker.breathing.controller.volume01"]),
         new("breathing", "sphere_radius.progress01", "unit01", ["study.radius.sphere.progress01"]),
         new("breathing", "sphere_radius.raw", "units", ["study.radius.sphere.raw"]),
-        new("breathing", "pacer_radius.progress01", "unit01", ["study.radius.pacer.progress01"]),
-        new("breathing", "pacer_radius.raw", "units", ["study.radius.pacer.raw"]),
         new("lsl", "lsl.sample_count", "count", ["study.lsl.received_sample_count"]),
         new("lsl", "lsl.latest_timestamp_seconds", "seconds", ["study.lsl.latest_timestamp"]),
         new("session", "session.state", string.Empty, ["study.session.state_label"]),
-        new("session", "session.experiment_active", "bool", ["study.session.experiment_active"]),
         new("session", "session.run_index", "count", ["study.session.run_index"]),
         new("session", "session.dataset_id", string.Empty, ["study.session.dataset_id"]),
         new("session", "session.dataset_hash", string.Empty, ["study.session.dataset_hash"]),
         new("session", "session.settings_hash", string.Empty, ["study.session.settings_hash"]),
-        new("session", "session.environment_hash", string.Empty, ["study.session.environment_hash"]),
-        new("session", "session.device_recording_active", "bool", ["study.recording.device.active"])
+        new("session", "session.environment_hash", string.Empty, ["study.session.environment_hash"])
     ];
 
     internal static IReadOnlyList<StudyRecorderSignalSpec> SignalSpecs => RecorderSignalSpecs;
@@ -250,12 +242,6 @@ public sealed class StudyDataRecordingSession : IDisposable
         "study.radius.sphere.raw"
     ];
 
-    private static readonly string[] ControllerActiveKeys =
-    [
-        "tracker.breathing.controller.active",
-        "study.pose.controller.tracked"
-    ];
-
     private static readonly string[] ControllerCalibratedKeys =
     [
         "tracker.breathing.controller.calibrated",
@@ -268,6 +254,7 @@ public sealed class StudyDataRecordingSession : IDisposable
     private readonly StreamWriter _signalsWriter;
     private readonly StreamWriter _breathingWriter;
     private readonly StreamWriter _clockAlignmentWriter;
+    private readonly StreamWriter _upstreamLslMonitorWriter;
     private readonly Dictionary<string, string> _lastSignalValues = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _disposed;
@@ -289,17 +276,20 @@ public sealed class StudyDataRecordingSession : IDisposable
         SignalsCsvPath = Path.Combine(SessionFolderPath, "signals_long.csv");
         BreathingCsvPath = Path.Combine(SessionFolderPath, "breathing_trace.csv");
         ClockAlignmentCsvPath = Path.Combine(SessionFolderPath, "clock_alignment_roundtrip.csv");
+        UpstreamLslMonitorCsvPath = Path.Combine(SessionFolderPath, "upstream_lsl_monitor.csv");
         SettingsJsonPath = Path.Combine(SessionFolderPath, "session_settings.json");
 
         _eventsWriter = CreateWriter(EventsCsvPath, encoding);
         _signalsWriter = CreateWriter(SignalsCsvPath, encoding);
         _breathingWriter = CreateWriter(BreathingCsvPath, encoding);
         _clockAlignmentWriter = CreateWriter(ClockAlignmentCsvPath, encoding);
+        _upstreamLslMonitorWriter = CreateWriter(UpstreamLslMonitorCsvPath, encoding);
 
         WriteLine(_eventsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,event_name,event_detail,command_action_id,result");
         WriteLine(_signalsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,lsl_timestamp_seconds,source,signal_group,signal_name,value_numeric,value_text,unit,sequence,quest_selector");
-        WriteLine(_breathingWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,breath_volume01,sphere_radius_progress01,sphere_radius_raw,controller_active,controller_calibrated");
-        WriteLine(_clockAlignmentWriter, "participant_id,session_id,dataset_id,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
+        WriteLine(_breathingWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,breath_volume01,sphere_radius_progress01,sphere_radius_raw,controller_calibrated");
+        WriteLine(_clockAlignmentWriter, "participant_id,session_id,dataset_id,window_kind,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
+        WriteLine(_upstreamLslMonitorWriter, "participant_id,session_id,dataset_id,recorded_at_utc,observed_local_clock_seconds,stream_sample_timestamp_seconds,stream_name,stream_type,channel_index,channel_format,value_numeric,value_text,sequence,status,detail");
 
         _settings = new StudyDataRecordingSettingsDocument(
             request.StudyId,
@@ -334,8 +324,18 @@ public sealed class StudyDataRecordingSession : IDisposable
             ClockAlignmentCsvPath,
             SussexClockAlignmentStreamContract.DefaultDurationSeconds,
             SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds,
+            10,
             null,
             null,
+            0,
+            null,
+            null,
+            0,
+            null,
+            null,
+            0,
+            0,
+            UpstreamLslMonitorCsvPath,
             0);
 
         WriteSettingsDocument();
@@ -364,6 +364,8 @@ public sealed class StudyDataRecordingSession : IDisposable
     public string BreathingCsvPath { get; }
 
     public string ClockAlignmentCsvPath { get; }
+
+    public string UpstreamLslMonitorCsvPath { get; }
 
     public string SettingsJsonPath { get; }
 
@@ -459,14 +461,11 @@ public sealed class StudyDataRecordingSession : IDisposable
             var sphereRaw = TryGetFirstValue(twinState, SphereRadiusRawKeys, out var sphereRawValue)
                 ? sphereRawValue
                 : string.Empty;
-            var controllerActive = TryGetFirstValue(twinState, ControllerActiveKeys, out var controllerActiveRaw)
-                ? controllerActiveRaw
-                : string.Empty;
             var controllerCalibrated = TryGetFirstValue(twinState, ControllerCalibratedKeys, out var controllerCalibratedRaw)
                 ? controllerCalibratedRaw
                 : string.Empty;
 
-            var signature = string.Join("|", breathingVolume, sphereProgress, sphereRaw, controllerActive, controllerCalibrated);
+            var signature = string.Join("|", breathingVolume, sphereProgress, sphereRaw, controllerCalibrated);
             if (string.Equals(signature, _lastBreathingSignature, StringComparison.Ordinal))
             {
                 return;
@@ -485,7 +484,6 @@ public sealed class StudyDataRecordingSession : IDisposable
                     Csv(breathingVolume),
                     Csv(sphereProgress),
                     Csv(sphereRaw),
-                    Csv(controllerActive),
                     Csv(controllerCalibrated)));
         }
     }
@@ -518,6 +516,7 @@ public sealed class StudyDataRecordingSession : IDisposable
                     Csv(ParticipantId),
                     Csv(SessionId),
                     Csv(DatasetId),
+                    Csv(sample.WindowKind.ToString()),
                     Csv(sample.ProbeSequence.ToString(CultureInfo.InvariantCulture)),
                     Csv(sample.ProbeSentAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
                     Csv(sample.ProbeSentLocalClockSeconds.ToString("0.########", CultureInfo.InvariantCulture)),
@@ -532,16 +531,65 @@ public sealed class StudyDataRecordingSession : IDisposable
         }
     }
 
-    public void UpdateClockAlignmentSummary(StudyClockAlignmentSummary summary)
+    public void UpdateClockAlignmentSummary(StudyClockAlignmentWindowKind windowKind, StudyClockAlignmentSummary summary)
     {
         lock (_sync)
         {
             ThrowIfDisposed();
+            _settings = windowKind switch
+            {
+                StudyClockAlignmentWindowKind.StartBurst => _settings with
+                {
+                    ClockAlignmentRecommendedQuestMinusWindowsClockSeconds = summary.RecommendedQuestMinusWindowsClockSeconds,
+                    ClockAlignmentMeanRoundTripSeconds = summary.MeanRoundTripSeconds,
+                    ClockAlignmentSampleCount = summary.EchoesReceived,
+                    ClockAlignmentStartRecommendedQuestMinusWindowsClockSeconds = summary.RecommendedQuestMinusWindowsClockSeconds,
+                    ClockAlignmentStartMeanRoundTripSeconds = summary.MeanRoundTripSeconds,
+                    ClockAlignmentStartSampleCount = summary.EchoesReceived
+                },
+                StudyClockAlignmentWindowKind.EndBurst => _settings with
+                {
+                    ClockAlignmentEndRecommendedQuestMinusWindowsClockSeconds = summary.RecommendedQuestMinusWindowsClockSeconds,
+                    ClockAlignmentEndMeanRoundTripSeconds = summary.MeanRoundTripSeconds,
+                    ClockAlignmentEndSampleCount = summary.EchoesReceived
+                },
+                StudyClockAlignmentWindowKind.BackgroundSparse => _settings with
+                {
+                    ClockAlignmentBackgroundSampleCount = _settings.ClockAlignmentBackgroundSampleCount + summary.EchoesReceived
+                },
+                _ => _settings
+            };
+            WriteSettingsDocument();
+        }
+    }
+
+    public void RecordUpstreamLslObservation(StudyUpstreamLslObservation observation)
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposed();
+            WriteLine(
+                _upstreamLslMonitorWriter,
+                string.Join(
+                    ",",
+                    Csv(ParticipantId),
+                    Csv(SessionId),
+                    Csv(DatasetId),
+                    Csv(observation.RecordedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
+                    Csv(observation.ObservedLocalClockSeconds?.ToString("0.########", CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(observation.SampleTimestampSeconds?.ToString("0.########", CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(observation.StreamName),
+                    Csv(observation.StreamType),
+                    Csv(observation.ChannelIndex.ToString(CultureInfo.InvariantCulture)),
+                    Csv(observation.ChannelFormat.ToString()),
+                    Csv(observation.NumericValue?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(observation.TextValue ?? string.Empty),
+                    Csv(observation.Sequence.ToString(CultureInfo.InvariantCulture)),
+                    Csv(observation.Status),
+                    Csv(observation.Detail)));
             _settings = _settings with
             {
-                ClockAlignmentRecommendedQuestMinusWindowsClockSeconds = summary.RecommendedQuestMinusWindowsClockSeconds,
-                ClockAlignmentMeanRoundTripSeconds = summary.MeanRoundTripSeconds,
-                ClockAlignmentSampleCount = summary.EchoesReceived
+                UpstreamLslMonitorSampleCount = _settings.UpstreamLslMonitorSampleCount + 1
             };
             WriteSettingsDocument();
         }
@@ -585,6 +633,7 @@ public sealed class StudyDataRecordingSession : IDisposable
             _signalsWriter.Dispose();
             _breathingWriter.Dispose();
             _clockAlignmentWriter.Dispose();
+            _upstreamLslMonitorWriter.Dispose();
     }
 
     private void ThrowIfDisposed()
@@ -686,7 +735,31 @@ public sealed class StudyDataRecordingSession : IDisposable
         string ClockAlignmentFile,
         int ClockAlignmentDurationSeconds,
         int ClockAlignmentProbeIntervalMilliseconds,
+        int ClockAlignmentBackgroundProbeIntervalSeconds,
         double? ClockAlignmentRecommendedQuestMinusWindowsClockSeconds,
         double? ClockAlignmentMeanRoundTripSeconds,
-        int ClockAlignmentSampleCount);
+        int ClockAlignmentSampleCount,
+        double? ClockAlignmentStartRecommendedQuestMinusWindowsClockSeconds,
+        double? ClockAlignmentStartMeanRoundTripSeconds,
+        int ClockAlignmentStartSampleCount,
+        double? ClockAlignmentEndRecommendedQuestMinusWindowsClockSeconds,
+        double? ClockAlignmentEndMeanRoundTripSeconds,
+        int ClockAlignmentEndSampleCount,
+        int ClockAlignmentBackgroundSampleCount,
+        string UpstreamLslMonitorFile,
+        int UpstreamLslMonitorSampleCount);
 }
+
+public sealed record StudyUpstreamLslObservation(
+    DateTimeOffset RecordedAtUtc,
+    double? ObservedLocalClockSeconds,
+    double? SampleTimestampSeconds,
+    string StreamName,
+    string StreamType,
+    int ChannelIndex,
+    LslChannelFormat ChannelFormat,
+    float? NumericValue,
+    string? TextValue,
+    int Sequence,
+    string Status,
+    string Detail);

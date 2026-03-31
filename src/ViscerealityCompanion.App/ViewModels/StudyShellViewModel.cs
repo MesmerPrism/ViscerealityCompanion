@@ -35,6 +35,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly string[] QuestScreenshotRuntimeCaptureMethods = ["screencap", "metacam"];
     private const int WorkflowGuideValidationCaptureDurationSeconds = 20;
     private const int WorkflowClockAlignmentDurationSeconds = SussexClockAlignmentStreamContract.DefaultDurationSeconds;
+    private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = 10;
+    private static readonly TimeSpan WorkflowClockAlignmentSparseProbeDuration = TimeSpan.FromSeconds(2.5);
     private const double ValidationPlotCanvasWidth = 300d;
     private const double ValidationPlotCanvasHeight = 120d;
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
@@ -66,7 +68,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         new(9, "Verify LSL reaches the headset", "Confirm the external heartbeat/biofeedback LSL stream is reaching the Sussex runtime and that the resulting live state is visible back in the companion."),
         new(10, "Test particle commands", "Use the companion controls to turn particles on and then off again. This confirms the Unity command bridge is still reacting."),
         new(11, "Try controller calibration", "Controller-volume breathing calibration is available here, but the current Sussex APK path is still unstable. Try it if useful, but it is not required before continuing."),
-        new(12, "Run a 20 second validation capture", "Enter a temporary subject id, record a short validation run, let the first 10 seconds perform the dedicated clock-alignment handshake, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
+        new(12, "Run a 20 second validation capture", "Enter a temporary subject id, record a short validation run, let the start and end clock-alignment bursts plus sparse background probes run automatically, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
         new(13, "Reset for the real participant", "Reset calibration, make sure particles are off, and close the guide so the main runtime tab can be used for the real participant later.")
     ];
     private static readonly string[] WorkflowGuideExpectedDeviceRecordingFiles =
@@ -76,6 +78,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         "signals_long.csv",
         "breathing_trace.csv",
         "clock_alignment_samples.csv",
+        "timing_markers.csv",
         "lsl_samples.csv"
     ];
 
@@ -87,6 +90,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateShared();
     private readonly ITestLslSignalService _testLslSignalService = TestLslSignalServiceFactory.CreateDefault();
     private readonly IStudyClockAlignmentService _clockAlignmentService = StudyClockAlignmentServiceFactory.CreateDefault();
+    private readonly ILslMonitorService _upstreamLslMonitorService = LslMonitorServiceFactory.CreateDefault();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
@@ -238,7 +242,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowHandoffDetail = "Reset Calibration is part of the Sussex shell contract, and the handoff should still end with the physical power button.";
     private OperationOutcomeKind _workflowParticipantStartLevel = OperationOutcomeKind.Warning;
     private string _workflowParticipantStartSummary = "Participant-run controls are staged behind the workflow checks.";
-    private string _workflowParticipantStartDetail = "Participant number entry, screenshot confirmation, and Start Experiment drive both the Windows recorder and the Quest-side backup recorder, including a 10 second clock-alignment window at the start of each run.";
+    private string _workflowParticipantStartDetail = "Participant number entry, screenshot confirmation, and Start Experiment drive both the Windows recorder and the Quest-side backup recorder, including start/end clock-alignment bursts plus sparse background drift probes.";
     private OperationOutcomeKind _workflowParticipantEndLevel = OperationOutcomeKind.Warning;
     private string _workflowParticipantEndSummary = "Participant-end controls wait for an active run.";
     private string _workflowParticipantEndDetail = "End Experiment now closes the Quest-side backup recorder and the Windows recorder before the shell runs cleanup.";
@@ -262,6 +266,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private bool _participantRunStopping;
     private string _recorderFaultDetail = string.Empty;
     private StudyDataRecordingSession? _activeRecordingSession;
+    private CancellationTokenSource? _upstreamLslMonitorCts;
+    private Task? _upstreamLslMonitorTask;
+    private CancellationTokenSource? _backgroundClockAlignmentCts;
+    private Task? _backgroundClockAlignmentTask;
     private bool _workflowGuideParticlesOnVerified;
     private bool _workflowGuideParticlesOffVerified;
     private string _latestDeviceRecordingSessionDir = string.Empty;
@@ -301,7 +309,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private bool _validationCaptureCoherencePlotAvailable;
     private bool _clockAlignmentRunning;
     private string _clockAlignmentSummary = "Clock alignment has not run yet.";
-    private string _clockAlignmentDetail = "Start the participant run to capture a dedicated 10 second quest-minus-Windows clock alignment sample window.";
+    private string _clockAlignmentDetail = "Start the participant run to capture the dedicated Sussex clock-alignment bursts and sparse background drift probes.";
     private double _clockAlignmentProgressPercent;
     private string _clockAlignmentProgressLabel = "No clock alignment is running yet.";
     private string _clockAlignmentProbeStatsLabel = "No probes sent yet.";
@@ -1886,6 +1894,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        CancelExperimentTimingTasks();
+
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
             lslBridge.StateChanged -= OnTwinBridgeStateChanged;
@@ -2631,6 +2641,28 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        try
+        {
+            StartUpstreamLslMonitor(recordingSession);
+            recordingSession.RecordEvent(
+                "lsl.upstream_monitor.started",
+                $"Passive Windows-side monitor subscribed to {HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType}.",
+                null,
+                "success");
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() => SetRecorderFault("Start passive upstream LSL monitor", exception)).ConfigureAwait(false);
+            await ApplyOutcomeAsync(
+                    "Start Participant Run",
+                    new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        "Participant run did not start.",
+                        $"The local recorder was created, but the passive upstream LSL monitor could not be started: {exception.Message}"))
+                .ConfigureAwait(false);
+            return;
+        }
+
         var metadataOutcome = await PublishParticipantSessionMetadataAsync(recordingSession).ConfigureAwait(false);
         recordingSession.RecordEvent(
             "recording.device_metadata_publish",
@@ -2640,6 +2672,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (metadataOutcome.Kind == OperationOutcomeKind.Failure)
         {
+            await StopUpstreamLslMonitorAsync().ConfigureAwait(false);
             await FinishParticipantRecordingAsync(
                     recordingSession,
                     DateTimeOffset.UtcNow,
@@ -2674,6 +2707,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (outcome.Kind == OperationOutcomeKind.Failure)
         {
+            await StopUpstreamLslMonitorAsync().ConfigureAwait(false);
             await FinishParticipantRecordingAsync(
                     recordingSession,
                     DateTimeOffset.UtcNow,
@@ -2700,21 +2734,23 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             null,
             deviceConfirmationOutcome.Kind.ToString());
 
-        var clockAlignmentOutcome = await RunClockAlignmentAsync(recordingSession).ConfigureAwait(false);
+        var clockAlignmentOutcome = await RunClockAlignmentAsync(recordingSession, StudyClockAlignmentWindowKind.StartBurst).ConfigureAwait(false);
         recordingSession.RecordEvent(
-            "clock_alignment.result",
+            "clock_alignment.start_burst.result",
             BuildRecorderEventDetail(clockAlignmentOutcome),
             null,
             clockAlignmentOutcome.Kind.ToString());
+
+        StartBackgroundClockAlignmentMonitoring(recordingSession);
 
         var overallOutcome = CombineWorkflowOutcomes(
             "Start Participant Run",
             [
                 ("Start Experiment", outcome),
                 ("Quest Recorder", deviceConfirmationOutcome),
-                ("Clock Alignment", clockAlignmentOutcome)
+                ("Clock Alignment (Start Burst)", clockAlignmentOutcome)
             ],
-            "Started the participant run, confirmed the Quest-side recorder, and collected the dedicated clock-alignment window.");
+            "Started the participant run, confirmed the Quest-side recorder, collected the dedicated start clock-alignment burst, and armed sparse background timing probes.");
         await ApplyOutcomeAsync("Start Participant Run", overallOutcome).ConfigureAwait(false);
 
         await DispatchAsync(UpdateParticipantSessionState).ConfigureAwait(false);
@@ -2740,6 +2776,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var cleanupPermitted = activeSession is null;
         try
         {
+            if (activeSession is not null)
+            {
+                var backgroundStopOutcome = await StopBackgroundClockAlignmentMonitoringAsync().ConfigureAwait(false);
+                outcomes.Add(("Background Clock Alignment", backgroundStopOutcome));
+                activeSession.RecordEvent(
+                    "clock_alignment.background_monitor.result",
+                    BuildRecorderEventDetail(backgroundStopOutcome),
+                    null,
+                    backgroundStopOutcome.Kind.ToString());
+
+                var endClockAlignmentOutcome = await RunClockAlignmentAsync(activeSession, StudyClockAlignmentWindowKind.EndBurst).ConfigureAwait(false);
+                outcomes.Add(("Clock Alignment (End Burst)", endClockAlignmentOutcome));
+                activeSession.RecordEvent(
+                    "clock_alignment.end_burst.result",
+                    BuildRecorderEventDetail(endClockAlignmentOutcome),
+                    null,
+                    endClockAlignmentOutcome.Kind.ToString());
+            }
+
             var endOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.EndExperimentActionId, "End Experiment").ConfigureAwait(false);
             outcomes.Add(("End Experiment", endOutcome));
             activeSession?.RecordEvent(
@@ -2761,6 +2816,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     BuildRecorderEventDetail(deviceStopOutcome),
                     null,
                     deviceStopOutcome.Kind.ToString());
+
+                var upstreamMonitorStopOutcome = await StopUpstreamLslMonitorAsync().ConfigureAwait(false);
+                outcomes.Add(("Upstream LSL Monitor", upstreamMonitorStopOutcome));
+                activeSession.RecordEvent(
+                    "lsl.upstream_monitor.stopped",
+                    BuildRecorderEventDetail(upstreamMonitorStopOutcome),
+                    null,
+                    upstreamMonitorStopOutcome.Kind.ToString());
 
                 var closedAtUtc = DateTimeOffset.UtcNow;
                 await FinishParticipantRecordingAsync(
@@ -2807,7 +2870,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             outcomes,
             activeSession is null
                 ? "Ended the participant flow without an active local recording session."
-                : "Ended the participant flow, waited for Quest recorder stop confirmation, closed the local recording session, and only then ran shell cleanup.");
+                : "Ended the participant flow, captured the matching end clock-alignment burst, waited for Quest recorder stop confirmation, closed the upstream monitor and local recording session, and only then ran shell cleanup.");
         await ApplyOutcomeAsync("End Participant Run", overallOutcome).ConfigureAwait(false);
     }
 
@@ -2823,10 +2886,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ValidationCaptureRunning = true;
             ValidationCaptureCompleted = false;
             ValidationCaptureSummary = "Validation capture is starting.";
-            ValidationCaptureDetail = "The guide will start a 20 second recording, run the dedicated 10 second clock-alignment handshake at the beginning, stop it again, and then pull the Quest-side backup files.";
+            ValidationCaptureDetail = "The guide will start a 20 second recording, run the dedicated start and end clock-alignment bursts plus sparse background drift probes, stop it again, and then pull the Quest-side backup files.";
             SetValidationCaptureFolders(string.Empty, string.Empty, string.Empty, string.Empty);
             ValidationCaptureParticipantId = string.Empty;
-            SetValidationCaptureProgress(0d, "Preparing the validation capture and waiting for the clock-alignment window to begin.");
+            SetValidationCaptureProgress(0d, "Preparing the validation capture and waiting for the first clock-alignment burst to begin.");
             ClearValidationCapturePlots();
             UpdateWorkflowGuideState();
         }).ConfigureAwait(false);
@@ -4933,14 +4996,225 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "The Start Experiment command succeeded, but the live twin state did not confirm the expected session id/hash plus device-side recording activity within the timeout window.");
     }
 
-    private async Task<OperationOutcome> RunClockAlignmentAsync(StudyDataRecordingSession recordingSession)
+    private void StartUpstreamLslMonitor(StudyDataRecordingSession recordingSession)
+    {
+        CancelUpstreamLslMonitor();
+        var cts = new CancellationTokenSource();
+        _upstreamLslMonitorCts = cts;
+        _upstreamLslMonitorTask = MonitorUpstreamLslAsync(recordingSession, cts.Token);
+    }
+
+    private async Task MonitorUpstreamLslAsync(StudyDataRecordingSession recordingSession, CancellationToken cancellationToken)
+    {
+        var subscription = new LslMonitorSubscription(
+            HrvBiofeedbackStreamContract.StreamName,
+            HrvBiofeedbackStreamContract.StreamType,
+            HrvBiofeedbackStreamContract.DefaultChannelIndex);
+        var observationSequence = 0;
+
+        try
+        {
+            await foreach (var reading in _upstreamLslMonitorService.MonitorAsync(subscription, cancellationToken).ConfigureAwait(false))
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                if (!reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase) ||
+                    (reading.Value is null && string.IsNullOrWhiteSpace(reading.TextValue)))
+                {
+                    continue;
+                }
+
+                observationSequence++;
+                recordingSession.RecordUpstreamLslObservation(new StudyUpstreamLslObservation(
+                    reading.Timestamp,
+                    reading.ObservedLocalClockSeconds,
+                    reading.SampleTimestampSeconds,
+                    HrvBiofeedbackStreamContract.StreamName,
+                    HrvBiofeedbackStreamContract.StreamType,
+                    HrvBiofeedbackStreamContract.DefaultChannelIndex,
+                    reading.ChannelFormat,
+                    reading.Value,
+                    reading.TextValue,
+                    observationSequence,
+                    reading.Status,
+                    reading.Detail));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() => SetRecorderFault("Write passive upstream LSL monitor samples", exception)).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<OperationOutcome> StopUpstreamLslMonitorAsync()
+    {
+        var cts = _upstreamLslMonitorCts;
+        var task = _upstreamLslMonitorTask;
+        _upstreamLslMonitorCts = null;
+        _upstreamLslMonitorTask = null;
+
+        if (cts is null && task is null)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Passive upstream LSL monitor already idle.",
+                "No passive Windows-side HRV monitor task was running.");
+        }
+
+        cts?.Cancel();
+        try
+        {
+            if (task is not null)
+            {
+                await task.ConfigureAwait(false);
+            }
+
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Passive upstream LSL monitor stopped.",
+                $"Stopped the passive Windows-side monitor for {HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType}.");
+        }
+        catch (Exception exception)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Passive upstream LSL monitor stopped with issues.",
+                exception.Message);
+        }
+        finally
+        {
+            cts?.Dispose();
+        }
+    }
+
+    private void StartBackgroundClockAlignmentMonitoring(StudyDataRecordingSession recordingSession)
+    {
+        CancelBackgroundClockAlignmentMonitoring();
+        var cts = new CancellationTokenSource();
+        _backgroundClockAlignmentCts = cts;
+        _backgroundClockAlignmentTask = RunBackgroundClockAlignmentLoopAsync(recordingSession, cts.Token);
+    }
+
+    private async Task RunBackgroundClockAlignmentLoopAsync(StudyDataRecordingSession recordingSession, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(WorkflowClockAlignmentBackgroundProbeIntervalSeconds), cancellationToken).ConfigureAwait(false);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                var outcome = await RunClockAlignmentAsync(
+                        recordingSession,
+                        StudyClockAlignmentWindowKind.BackgroundSparse,
+                        showWindow: false,
+                        updateUi: false,
+                        durationOverride: WorkflowClockAlignmentSparseProbeDuration)
+                    .ConfigureAwait(false);
+                recordingSession.RecordEvent(
+                    "clock_alignment.background_sparse.result",
+                    BuildRecorderEventDetail(outcome),
+                    null,
+                    outcome.Kind.ToString());
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() => SetRecorderFault("Run background clock-alignment probes", exception)).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<OperationOutcome> StopBackgroundClockAlignmentMonitoringAsync()
+    {
+        var cts = _backgroundClockAlignmentCts;
+        var task = _backgroundClockAlignmentTask;
+        _backgroundClockAlignmentCts = null;
+        _backgroundClockAlignmentTask = null;
+
+        if (cts is null && task is null)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Background clock-alignment monitor already idle.",
+                "No sparse background clock-alignment loop was running.");
+        }
+
+        cts?.Cancel();
+        try
+        {
+            if (task is not null)
+            {
+                await task.ConfigureAwait(false);
+            }
+
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Background clock-alignment monitor stopped.",
+                $"Stopped the sparse background probe loop ({WorkflowClockAlignmentBackgroundProbeIntervalSeconds}s interval).");
+        }
+        catch (Exception exception)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Background clock-alignment monitor stopped with issues.",
+                exception.Message);
+        }
+        finally
+        {
+            cts?.Dispose();
+        }
+    }
+
+    private void CancelExperimentTimingTasks()
+    {
+        CancelBackgroundClockAlignmentMonitoring();
+        CancelUpstreamLslMonitor();
+    }
+
+    private void CancelBackgroundClockAlignmentMonitoring()
+    {
+        _backgroundClockAlignmentCts?.Cancel();
+        _backgroundClockAlignmentCts?.Dispose();
+        _backgroundClockAlignmentCts = null;
+        _backgroundClockAlignmentTask = null;
+    }
+
+    private void CancelUpstreamLslMonitor()
+    {
+        _upstreamLslMonitorCts?.Cancel();
+        _upstreamLslMonitorCts?.Dispose();
+        _upstreamLslMonitorCts = null;
+        _upstreamLslMonitorTask = null;
+    }
+
+    private async Task<OperationOutcome> RunClockAlignmentAsync(
+        StudyDataRecordingSession recordingSession,
+        StudyClockAlignmentWindowKind windowKind,
+        bool showWindow = true,
+        bool updateUi = true,
+        TimeSpan? durationOverride = null)
     {
         var request = new StudyClockAlignmentRunRequest(
             recordingSession.SessionId,
             recordingSession.DatasetHash,
-            TimeSpan.FromSeconds(WorkflowClockAlignmentDurationSeconds),
+            windowKind,
+            durationOverride ?? TimeSpan.FromSeconds(WorkflowClockAlignmentDurationSeconds),
             TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds),
             TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultEchoGraceMilliseconds));
+        var windowToken = BuildClockAlignmentWindowToken(windowKind);
+        var windowLabel = BuildClockAlignmentWindowLabel(windowKind);
 
         if (!_clockAlignmentService.RuntimeState.Available)
         {
@@ -4948,41 +5222,56 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 OperationOutcomeKind.Warning,
                 "Clock alignment unavailable on this machine.",
                 _clockAlignmentService.RuntimeState.Detail);
-            await DispatchAsync(() =>
+            if (updateUi)
             {
-                ClockAlignmentRunning = false;
-                ClockAlignmentSummary = unavailableOutcome.Summary;
-                ClockAlignmentDetail = unavailableOutcome.Detail;
-                ClockAlignmentProgressPercent = 0d;
-                ClockAlignmentProgressLabel = "Clock alignment did not run.";
-                ClockAlignmentProbeStatsLabel = "No probes sent.";
-                ClockAlignmentOffsetStatsLabel = "Offset estimate unavailable.";
-                ClockAlignmentRoundTripStatsLabel = "Round-trip estimate unavailable.";
-                UpdateParticipantSessionState();
-                RefreshBenchToolsStatus();
-            }).ConfigureAwait(false);
+                await DispatchAsync(() =>
+                {
+                    ClockAlignmentRunning = false;
+                    ClockAlignmentSummary = unavailableOutcome.Summary;
+                    ClockAlignmentDetail = unavailableOutcome.Detail;
+                    ClockAlignmentProgressPercent = 0d;
+                    ClockAlignmentProgressLabel = $"{windowLabel} did not run.";
+                    ClockAlignmentProbeStatsLabel = "No probes sent.";
+                    ClockAlignmentOffsetStatsLabel = "Offset estimate unavailable.";
+                    ClockAlignmentRoundTripStatsLabel = "Round-trip estimate unavailable.";
+                    UpdateParticipantSessionState();
+                    RefreshBenchToolsStatus();
+                }).ConfigureAwait(false);
+            }
             return unavailableOutcome;
         }
 
         recordingSession.RecordEvent(
-            "clock_alignment.started",
-            $"Dedicated {WorkflowClockAlignmentDurationSeconds} second Sussex clock-alignment run started.",
+            $"clock_alignment.{windowToken}.started",
+            $"{windowLabel} started for {request.Duration.TotalSeconds:0.#} seconds.",
             null,
             "pending");
 
-        await DispatchAsync(() =>
+        if (updateUi)
         {
-            ResetClockAlignmentStateForRun();
-            OpenClockAlignmentWindow();
-            UpdateParticipantSessionState();
-            RefreshBenchToolsStatus();
-        }).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                ResetClockAlignmentStateForRun(windowKind, request.Duration);
+                if (showWindow)
+                {
+                    OpenClockAlignmentWindow();
+                }
+
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+        }
 
         var progress = new Progress<StudyClockAlignmentProgress>(update =>
         {
+            if (!updateUi)
+            {
+                return;
+            }
+
             _ = DispatchAsync(() =>
             {
-                ApplyClockAlignmentProgress(update);
+                ApplyClockAlignmentProgress(windowKind, update);
                 UpdateParticipantSessionState();
                 RefreshBenchToolsStatus();
             });
@@ -4997,17 +5286,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             var failureOutcome = new OperationOutcome(
                 OperationOutcomeKind.Failure,
-                "Clock alignment failed.",
+                $"{windowLabel} failed.",
                 exception.Message);
-            await DispatchAsync(() =>
+            if (updateUi)
             {
-                ClockAlignmentRunning = false;
-                ClockAlignmentSummary = failureOutcome.Summary;
-                ClockAlignmentDetail = failureOutcome.Detail;
-                ClockAlignmentProgressLabel = "Clock alignment aborted.";
-                UpdateParticipantSessionState();
-                RefreshBenchToolsStatus();
-            }).ConfigureAwait(false);
+                await DispatchAsync(() =>
+                {
+                    ClockAlignmentRunning = false;
+                    ClockAlignmentSummary = failureOutcome.Summary;
+                    ClockAlignmentDetail = failureOutcome.Detail;
+                    ClockAlignmentProgressLabel = $"{windowLabel} aborted.";
+                    UpdateParticipantSessionState();
+                    RefreshBenchToolsStatus();
+                }).ConfigureAwait(false);
+            }
             return failureOutcome;
         }
 
@@ -5018,35 +5310,41 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 recordingSession.RecordClockAlignmentSample(sample);
             }
 
-            recordingSession.UpdateClockAlignmentSummary(result.Summary);
+            recordingSession.UpdateClockAlignmentSummary(windowKind, result.Summary);
         }
         catch (Exception exception)
         {
             await DispatchAsync(() => SetRecorderFault("Write clock alignment samples", exception)).ConfigureAwait(false);
             var persistenceOutcome = new OperationOutcome(
                 OperationOutcomeKind.Failure,
-                "Clock alignment ran, but the Windows recorder could not persist the samples.",
+                $"{windowLabel} ran, but the Windows recorder could not persist the samples.",
                 exception.Message);
-            await DispatchAsync(() =>
+            if (updateUi)
             {
-                ClockAlignmentRunning = false;
-                ClockAlignmentSummary = persistenceOutcome.Summary;
-                ClockAlignmentDetail = persistenceOutcome.Detail;
-                ClockAlignmentProgressLabel = "Clock alignment samples could not be written.";
-                UpdateParticipantSessionState();
-                RefreshBenchToolsStatus();
-            }).ConfigureAwait(false);
+                await DispatchAsync(() =>
+                {
+                    ClockAlignmentRunning = false;
+                    ClockAlignmentSummary = persistenceOutcome.Summary;
+                    ClockAlignmentDetail = persistenceOutcome.Detail;
+                    ClockAlignmentProgressLabel = $"{windowLabel} samples could not be written.";
+                    UpdateParticipantSessionState();
+                    RefreshBenchToolsStatus();
+                }).ConfigureAwait(false);
+            }
             return persistenceOutcome;
         }
 
-        await DispatchAsync(() =>
+        if (updateUi)
         {
-            ApplyClockAlignmentOutcome(result);
-            UpdateParticipantSessionState();
-            RefreshBenchToolsStatus();
-        }).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                ApplyClockAlignmentOutcome(windowKind, result);
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+        }
 
-        if (result.Outcome.Kind == OperationOutcomeKind.Success)
+        if (showWindow && updateUi && result.Outcome.Kind == OperationOutcomeKind.Success)
         {
             await DispatchAsync(CloseClockAlignmentWindow).ConfigureAwait(false);
         }
@@ -5102,32 +5400,40 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "The command completed, but the live twin state did not confirm the expected stopped recorder state within the timeout window.");
     }
 
-    private void ResetClockAlignmentStateForRun()
+    private void ResetClockAlignmentStateForRun(StudyClockAlignmentWindowKind windowKind, TimeSpan duration)
     {
+        var label = BuildClockAlignmentWindowLabel(windowKind);
         ClockAlignmentRunning = true;
-        ClockAlignmentSummary = $"Clock alignment is running for {WorkflowClockAlignmentDurationSeconds} seconds.";
-        ClockAlignmentDetail = "The companion is sending dedicated Sussex clock probes and waiting for the Quest echo stream so both clocks can be aligned before the main run continues.";
+        ClockAlignmentSummary = $"{label} is running for {duration.TotalSeconds:0.#} seconds.";
+        ClockAlignmentDetail = windowKind switch
+        {
+            StudyClockAlignmentWindowKind.StartBurst => "The companion is sending dedicated Sussex clock probes and waiting for the Quest echo stream so the clocks can be aligned before the main run continues.",
+            StudyClockAlignmentWindowKind.EndBurst => "The companion is capturing a matching end-of-run clock-alignment burst before it stops the Sussex runtime so clock drift over the session can be compared.",
+            _ => "The companion is sending a sparse background clock probe to track Quest-minus-Windows clock drift during the run."
+        };
         ClockAlignmentProgressPercent = 0d;
-        ClockAlignmentProgressLabel = "Starting the dedicated quest-minus-Windows clock-alignment window.";
+        ClockAlignmentProgressLabel = $"Starting {label}.";
         ClockAlignmentProbeStatsLabel = "Probes sent: 0 | Quest echoes: 0";
         ClockAlignmentOffsetStatsLabel = "Offset estimate pending.";
         ClockAlignmentRoundTripStatsLabel = "Round-trip estimate pending.";
     }
 
-    private void ApplyClockAlignmentProgress(StudyClockAlignmentProgress progress)
+    private void ApplyClockAlignmentProgress(StudyClockAlignmentWindowKind windowKind, StudyClockAlignmentProgress progress)
     {
         ClockAlignmentRunning = true;
-        ClockAlignmentSummary = progress.Summary;
+        ClockAlignmentSummary = $"{BuildClockAlignmentWindowLabel(windowKind)} in progress.";
         ClockAlignmentDetail = progress.Detail;
         ClockAlignmentProgressPercent = Math.Clamp(progress.PercentComplete, 0d, 100d);
         ClockAlignmentProgressLabel = $"Progress {ClockAlignmentProgressPercent:0}% | Probes {progress.ProbesSent} | Echoes {progress.EchoesReceived}";
         ClockAlignmentProbeStatsLabel = $"Probes sent: {progress.ProbesSent} | Quest echoes: {progress.EchoesReceived}";
     }
 
-    private void ApplyClockAlignmentOutcome(StudyClockAlignmentRunResult result)
+    private void ApplyClockAlignmentOutcome(StudyClockAlignmentWindowKind windowKind, StudyClockAlignmentRunResult result)
     {
         ClockAlignmentRunning = false;
-        ClockAlignmentSummary = result.Outcome.Summary;
+        ClockAlignmentSummary = result.Outcome.Kind == OperationOutcomeKind.Success
+            ? $"{BuildClockAlignmentWindowLabel(windowKind)} completed."
+            : result.Outcome.Summary;
         ClockAlignmentDetail = result.Outcome.Detail;
         ClockAlignmentProgressPercent = result.Summary.ProbesSent > 0 ? 100d : 0d;
         ClockAlignmentProgressLabel = result.Summary.EchoesReceived > 0
@@ -5137,6 +5443,22 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ClockAlignmentOffsetStatsLabel = BuildClockAlignmentOffsetStatsLabel(result.Summary);
         ClockAlignmentRoundTripStatsLabel = BuildClockAlignmentRoundTripStatsLabel(result.Summary);
     }
+
+    private static string BuildClockAlignmentWindowLabel(StudyClockAlignmentWindowKind windowKind)
+        => windowKind switch
+        {
+            StudyClockAlignmentWindowKind.StartBurst => "Start clock-alignment burst",
+            StudyClockAlignmentWindowKind.EndBurst => "End clock-alignment burst",
+            _ => "Background clock-alignment probe"
+        };
+
+    private static string BuildClockAlignmentWindowToken(StudyClockAlignmentWindowKind windowKind)
+        => windowKind switch
+        {
+            StudyClockAlignmentWindowKind.StartBurst => "start_burst",
+            StudyClockAlignmentWindowKind.EndBurst => "end_burst",
+            _ => "background_sparse"
+        };
 
     private static string BuildClockAlignmentOffsetStatsLabel(StudyClockAlignmentSummary summary)
     {
@@ -5235,6 +5557,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void SetRecorderFault(string stage, Exception exception)
     {
+        CancelExperimentTimingTasks();
         _lastCompletedRecordingFolderPath = _activeRecordingSession?.SessionFolderPath ?? _lastCompletedRecordingFolderPath;
         _activeRecordingSession?.Dispose();
         _activeRecordingSession = null;
@@ -5333,8 +5656,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? $"Recording participant {_activeRecordingSession.ParticipantId} and aligning clocks."
                 : $"Recording participant {_activeRecordingSession.ParticipantId}.";
             RecordingDetail = ClockAlignmentRunning
-                ? $"Writing session events, long-form signals, breathing trace, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. {ClockAlignmentDetail}"
-                : $"Writing session events, long-form signals, breathing trace, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}.";
+                ? $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. {ClockAlignmentDetail}"
+                : $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}.";
             RecordingSessionLabel = $"Active session: {_activeRecordingSession.SessionId}";
             RecordingFolderPath = _activeRecordingSession.SessionFolderPath;
             return;

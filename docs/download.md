@@ -37,8 +37,10 @@ Sussex operators should not need a separate APK download if they are using the
 packaged preview install.
 
 The current Sussex preview also includes the updated sequential guide flow that
-was live-checked on-head on `2026-03-30`, including the validation-capture PDF
-preview that is generated directly from the short sample run.
+was live-checked on-head on `2026-03-31`, including the validation-capture PDF
+preview that is generated directly from the short sample run, the verified
+kiosk-exit return to Meta Home, and the current approved Sussex APK hash
+`A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9`.
 
 ## Before You Start
 
