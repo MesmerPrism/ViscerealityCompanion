@@ -17,6 +17,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Test-InstalledPackagePresent {
+    try {
+        return $null -ne (Get-AppxPackage 'MesmerPrism.ViscerealityCompanion' -ErrorAction Stop)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Get-NewestInputWriteTimeUtc {
     param(
         [Parameter(Mandatory = $true)]
@@ -47,6 +56,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $publishScript = Join-Path $PSScriptRoot 'Publish-Desktop-App.ps1'
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
 $exePath = Join-Path $outputPath 'ViscerealityCompanion.exe'
+$shouldRefreshLaunchers = -not $SkipLauncherRefresh -and -not (Test-InstalledPackagePresent)
 
 if (-not (Test-Path $publishScript)) {
     throw "Publish script not found at $publishScript"
@@ -69,9 +79,9 @@ if ($needsPublish) {
         -Configuration $Configuration `
         -RuntimeIdentifier $RuntimeIdentifier `
         -OutputRelativePath $OutputRelativePath `
-        -RefreshLaunchers:(-not $SkipLauncherRefresh) | Out-Null
+        -RefreshLaunchers:$shouldRefreshLaunchers | Out-Null
 }
-elseif (-not $SkipLauncherRefresh) {
+elseif ($shouldRefreshLaunchers) {
     $refreshLauncherScript = Join-Path $PSScriptRoot 'Refresh-Desktop-Launcher.ps1'
     if (-not (Test-Path $refreshLauncherScript)) {
         throw "Launcher refresh script not found at $refreshLauncherScript"
