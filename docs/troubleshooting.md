@@ -28,6 +28,12 @@ Make sure Android platform-tools are installed. The app looks for `adb.exe` in:
 If this machine is using the Unity-bundled `adb.exe`, add that folder to
 `PATH` or install the normal platform-tools package.
 
+If Wi-Fi ADB only works after manual `adb kill-server` / `adb start-server`
+recovery in `cmd`, update to the latest packaged preview first. The Sussex
+Wi-Fi bootstrap now restarts the local ADB server automatically and falls back
+to parsing `adb shell ip route` when `getprop dhcp.wlan0.ipaddress` does not
+return a usable headset IP.
+
 ## The app launches but live LSL features stay unavailable
 
 The packaged preview and portable Windows zip now bundle the official Windows

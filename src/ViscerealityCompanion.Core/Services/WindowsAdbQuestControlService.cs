@@ -139,6 +139,13 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     public async Task<OperationOutcome> EnableWifiFromUsbAsync(CancellationToken cancellationToken = default)
     {
+        var restart = await RestartAdbServerAsync(cancellationToken).ConfigureAwait(false);
+        if (!restart.Succeeded)
+        {
+            return Failure("Wi-Fi ADB bootstrap failed.", restart.Detail);
+        }
+
+        await ProbeUsbAsync(cancellationToken).ConfigureAwait(false);
         var selector = await EnsureUsbSelectorAsync(cancellationToken).ConfigureAwait(false);
         var tcpip = await RunAdbAsync(["-s", selector, "tcpip", "5555"], cancellationToken).ConfigureAwait(false);
         if (tcpip.ExitCode != 0)
@@ -146,15 +153,15 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             return Failure("Wi-Fi ADB bootstrap failed.", tcpip.CombinedOutput);
         }
 
-        var ipAddress = await TryReadShellValueAsync(selector, "getprop dhcp.wlan0.ipaddress", cancellationToken).ConfigureAwait(false);
+        var ipAddress = await TryReadQuestWifiIpAddressAsync(selector, cancellationToken).ConfigureAwait(false);
         var endpoint = string.IsNullOrWhiteSpace(ipAddress) ? string.Empty : $"{ipAddress}:5555";
 
         return new OperationOutcome(
             OperationOutcomeKind.Success,
             "Quest switched to TCP/IP mode on port 5555.",
             string.IsNullOrWhiteSpace(endpoint)
-                ? "Wi-Fi ADB bootstrap completed. If the session remains on USB, reconnect from the companion before removing the cable."
-                : "Wi-Fi ADB bootstrap completed.",
+                ? $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail} If the session remains on USB, reconnect from the companion before removing the cable."
+                : $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail}",
             Endpoint: endpoint);
     }
 
@@ -164,7 +171,20 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var result = await RunAdbAsync(["connect", normalized], cancellationToken).ConfigureAwait(false);
         if (result.ExitCode != 0)
         {
-            return Failure($"ADB connect failed for {normalized}.", result.CombinedOutput, endpoint: normalized);
+            var restart = await RestartAdbServerAsync(cancellationToken).ConfigureAwait(false);
+            if (!restart.Succeeded)
+            {
+                return Failure($"ADB connect failed for {normalized}.", $"{AdbShellSupport.Collapse(result.CombinedOutput)} {restart.Detail}".Trim(), endpoint: normalized);
+            }
+
+            result = await RunAdbAsync(["connect", normalized], cancellationToken).ConfigureAwait(false);
+            if (result.ExitCode != 0)
+            {
+                return Failure(
+                    $"ADB connect failed for {normalized}.",
+                    $"{AdbShellSupport.Collapse(result.CombinedOutput)} Retried after restarting the local ADB server. {restart.Detail}".Trim(),
+                    endpoint: normalized);
+            }
         }
 
         var model = await TryReadShellValueAsync(normalized, "getprop ro.product.model", cancellationToken).ConfigureAwait(false);
@@ -1845,6 +1865,17 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             .FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(activeUsbSelector))
         {
+            var inferredWifiIp = await TryReadQuestWifiIpAddressAsync(activeUsbSelector, cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(inferredWifiIp))
+            {
+                var inferredEndpoint = NormalizeEndpoint(inferredWifiIp);
+                var reconnected = await TryActivateSelectorAsync(inferredEndpoint, cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(reconnected))
+                {
+                    return reconnected;
+                }
+            }
+
             RememberSelector(activeUsbSelector);
             return activeUsbSelector;
         }
@@ -1931,6 +1962,27 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     {
         var result = await RunShellAsync(selector, command, cancellationToken).ConfigureAwait(false);
         return result.ExitCode == 0 ? result.StdOut.Trim() : string.Empty;
+    }
+
+    private async Task<string> TryReadQuestWifiIpAddressAsync(string selector, CancellationToken cancellationToken)
+    {
+        var ipAddress = await TryReadShellValueAsync(selector, "getprop dhcp.wlan0.ipaddress", cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(ipAddress))
+        {
+            return ipAddress;
+        }
+
+        var routeOutput = await RunShellAsync(selector, "ip route", cancellationToken).ConfigureAwait(false);
+        if (routeOutput.ExitCode == 0)
+        {
+            var parsed = ParseQuestWifiIpAddressFromIpRoute(routeOutput.StdOut);
+            if (!string.IsNullOrWhiteSpace(parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return string.Empty;
     }
 
     private async Task<(AdbCommandResult Output, AdbShellSupport.ForegroundAppSnapshot? Snapshot)> QueryForegroundSnapshotAsync(
@@ -2072,6 +2124,18 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var stdout = await stdoutTask.ConfigureAwait(false);
         var stderr = await stderrTask.ConfigureAwait(false);
         return new AdbCommandResult(process.ExitCode, stdout, stderr);
+    }
+
+    private async Task<(bool Succeeded, string Detail)> RestartAdbServerAsync(CancellationToken cancellationToken)
+    {
+        var kill = await RunAdbAsync(["kill-server"], cancellationToken).ConfigureAwait(false);
+        var start = await RunAdbAsync(["start-server"], cancellationToken).ConfigureAwait(false);
+        if (start.ExitCode != 0)
+        {
+            return (false, $"ADB start-server failed. {AdbShellSupport.Collapse($"{kill.CombinedOutput} {start.CombinedOutput}")}".Trim());
+        }
+
+        return (true, AdbShellSupport.Collapse($"{kill.CombinedOutput} {start.CombinedOutput}"));
     }
 
     private static string NormalizeEndpoint(string endpoint)
@@ -2297,6 +2361,39 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         }
 
         return BuildStatus(name, state, ssid);
+    }
+
+    internal static string ParseQuestWifiIpAddressFromIpRoute(string output)
+    {
+        foreach (var rawLine in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!rawLine.Contains("wlan0", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var srcIndex = rawLine.IndexOf(" src ", StringComparison.OrdinalIgnoreCase);
+            if (srcIndex < 0)
+            {
+                continue;
+            }
+
+            var remainder = rawLine[(srcIndex + " src ".Length)..].Trim();
+            if (string.IsNullOrWhiteSpace(remainder))
+            {
+                continue;
+            }
+
+            var token = remainder.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                continue;
+            }
+
+            return token.Trim();
+        }
+
+        return string.Empty;
     }
 
     internal static IReadOnlyList<QuestControllerStatus> ParseControllerStatuses(string output)

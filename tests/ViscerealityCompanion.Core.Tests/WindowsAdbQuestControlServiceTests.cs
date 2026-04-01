@@ -83,6 +83,31 @@ public sealed class WindowsAdbQuestControlServiceTests
     }
 
     [Fact]
+    public void ParseQuestWifiIpAddressFromIpRoute_extracts_src_ip_from_wlan_route()
+    {
+        var output = """
+            139.184.120.0/21 dev wlan0 proto kernel scope link src 139.184.125.224
+            """;
+
+        var ipAddress = WindowsAdbQuestControlService.ParseQuestWifiIpAddressFromIpRoute(output);
+
+        Assert.Equal("139.184.125.224", ipAddress);
+    }
+
+    [Fact]
+    public void ParseQuestWifiIpAddressFromIpRoute_ignores_non_wlan_routes()
+    {
+        var output = """
+            default via 192.168.1.1 dev rmnet_data0
+            192.168.1.0/24 dev rmnet_data0 proto kernel scope link src 192.168.1.12
+            """;
+
+        var ipAddress = WindowsAdbQuestControlService.ParseQuestWifiIpAddressFromIpRoute(output);
+
+        Assert.Equal(string.Empty, ipAddress);
+    }
+
+    [Fact]
     public void ParseQuestPowerStatus_reports_awake_state_from_power_dump()
     {
         var output = """
