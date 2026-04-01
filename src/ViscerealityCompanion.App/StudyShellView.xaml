@@ -200,6 +200,7 @@
                                     <TextBlock Text="{Binding DeviceProfileSummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
                                     <TextBlock Text="{Binding HeadsetBatteryLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
                                     <TextBlock Text="{Binding HeadsetSoftwareVersionLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
+                                    <TextBlock Text="{Binding LslRuntimeLibrarySummary}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
                                     <TextBlock Text="{Binding DeviceSnapshotTimestampLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
                                     <TextBlock Text="Quest endpoint" Style="{StaticResource InfoLabelStyle}" Margin="0,10,0,6" />
                                     <TextBox Text="{Binding EndpointDraft, UpdateSourceTrigger=PropertyChanged}" />
@@ -734,9 +735,17 @@
                                                     <TextBlock Text="{Binding TestLslSenderValueLabel}"
                                                                Style="{StaticResource CompactCaptionStyle}"
                                                                Margin="0,6,0,0" />
+                                                    <TextBlock Text="{Binding LslRuntimeLibrarySummary}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,4,0,0" />
                                                     <TextBlock Text="{Binding TestLslSenderDetail}"
                                                                Style="{StaticResource CompactCaptionStyle}"
                                                                Margin="0,4,0,0" />
+                                                    <TextBlock Text="{Binding LslRuntimeLibraryDetail}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,6,0,0"
+                                                               FontFamily="{StaticResource MonoFont}"
+                                                               TextWrapping="Wrap" />
                                                     <Button Content="{Binding TestLslSenderActionLabel}"
                                                             Command="{Binding ToggleTestLslSenderCommand}"
                                                             IsEnabled="{Binding CanToggleTestLslSender}"

@@ -485,6 +485,17 @@
                                            Style="{StaticResource MicroCaptionStyle}"
                                            Margin="0,4,0,0"
                                            TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding LslRuntimeSummary}"
+                                           Style="{StaticResource MicroCaptionStyle}"
+                                           Margin="0,8,0,0"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource FocusBlueBrush}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding LslRuntimeDetail}"
+                                           Style="{StaticResource MicroCaptionStyle}"
+                                           Margin="0,4,0,0"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
                     </Border>
@@ -566,6 +577,12 @@
                                 <TextBlock Text="{Binding ActiveStudyShell.StudyPartner}"
                                            Style="{StaticResource MicroCaptionStyle}"
                                            Margin="0,2,0,0"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding LslRuntimeSummary}"
+                                           Style="{StaticResource MicroCaptionStyle}"
+                                           Margin="0,6,0,0"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource FocusBlueBrush}"
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Grid>
@@ -952,6 +969,15 @@
                                     <TextBlock Text="{Binding ActiveStudyShell.LastActionDetail}"
                                                Style="{StaticResource MicroCaptionStyle}"
                                                Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding LslRuntimeSummary}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,8,0,0"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource FocusBlueBrush}" />
+                                    <TextBlock Text="{Binding LslRuntimeDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,4,0,0"
+                                               FontFamily="{StaticResource MonoFont}" />
                                 </StackPanel>
                             </Expander>
                         </StackPanel>

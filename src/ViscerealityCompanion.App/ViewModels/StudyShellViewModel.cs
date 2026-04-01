@@ -204,6 +204,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes smoothed HRV biofeedback samples on an irregular heartbeat-timed profile; Sussex treats packet arrival as heartbeat timing and the payload as the routed coherence value.";
     private string _testLslSenderValueLabel = "Not running";
     private string _testLslSenderActionLabel = "Start TEST Sender";
+    private string _lslRuntimeLibrarySummary = "liblsl runtime not checked yet.";
+    private string _lslRuntimeLibraryDetail = "The packaged sender/runtime path will appear here once the desktop runtime is initialized.";
     private string _lastTwinStateTimestampLabel = "No live app-state timestamp yet.";
     private string _lastActionLabel = "None";
     private string _lastActionDetail = "No study action has run yet.";
@@ -413,6 +415,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OpenValidationCapturePdfCommand = new AsyncRelayCommand(OpenValidationCapturePdfAsync);
         CloseWorkflowGuideWindowCommand = new AsyncRelayCommand(CloseWorkflowGuideWindowAsync);
         RegisterWorkflowGuideCommands();
+        UpdateLslRuntimeLibraryState();
         UpdateHeadsetSnapshotModeState();
         UpdateDeviceSnapshotTimerState();
         UpdateParticipantSessionState();
@@ -1584,6 +1587,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _testLslSenderActionLabel;
         private set => SetProperty(ref _testLslSenderActionLabel, value);
+    }
+
+    public string LslRuntimeLibrarySummary
+    {
+        get => _lslRuntimeLibrarySummary;
+        private set => SetProperty(ref _lslRuntimeLibrarySummary, value);
+    }
+
+    public string LslRuntimeLibraryDetail
+    {
+        get => _lslRuntimeLibraryDetail;
+        private set => SetProperty(ref _lslRuntimeLibraryDetail, value);
     }
 
     public string LastTwinStateTimestampLabel
@@ -7818,6 +7833,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : _study.Monitoring.ExpectedLslStreamType;
 
         TestLslSenderActionLabel = _testLslSignalService.IsRunning ? "Stop TEST Sender" : "Start TEST Sender";
+        UpdateLslRuntimeLibraryState();
 
         if (_testLslSignalService.IsRunning)
         {
@@ -7854,6 +7870,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         TestLslSenderValueLabel = "Not running";
         TestLslSenderDetail =
             $"Start the Windows TEST sender to publish smoothed HRV biofeedback samples on {expectedName} / {expectedType}. This is bench-only traffic; packet arrival acts as heartbeat timing and the payload is the routed coherence value.";
+    }
+
+    private void UpdateLslRuntimeLibraryState()
+    {
+        var runtimeState = _testLslSignalService.RuntimeState;
+        LslRuntimeLibrarySummary = runtimeState.Available
+            ? "liblsl runtime ready for the Windows TEST sender."
+            : "liblsl runtime unavailable for the Windows TEST sender.";
+        LslRuntimeLibraryDetail = runtimeState.Detail;
     }
 
     private void RefreshFocusRows(bool forceRebuild = false)

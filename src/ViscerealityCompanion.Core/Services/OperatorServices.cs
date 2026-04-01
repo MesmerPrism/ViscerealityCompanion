@@ -46,6 +46,8 @@ public interface IQuestControlService
 
 public interface ILslMonitorService
 {
+    LslRuntimeState RuntimeState { get; }
+
     IAsyncEnumerable<LslMonitorReading> MonitorAsync(
         LslMonitorSubscription subscription,
         CancellationToken cancellationToken = default);
@@ -244,6 +246,8 @@ public sealed class PreviewQuestControlService : IQuestControlService
 
 public sealed class PreviewLslMonitorService : ILslMonitorService
 {
+    public LslRuntimeState RuntimeState { get; } = new(false, "Preview LSL monitor. No liblsl runtime loaded.");
+
     public async IAsyncEnumerable<LslMonitorReading> MonitorAsync(
         LslMonitorSubscription subscription,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)

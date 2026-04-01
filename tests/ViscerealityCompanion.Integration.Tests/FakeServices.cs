@@ -56,6 +56,8 @@ public sealed class FakeMonitorService : ILslMonitorService
 {
     private readonly Queue<LslMonitorReading> _readings = new();
 
+    public LslRuntimeState RuntimeState { get; } = new(true, "Fake liblsl runtime for integration tests.");
+
     public void EnqueueReading(LslMonitorReading reading) => _readings.Enqueue(reading);
 
     public void EnqueueReadings(IEnumerable<LslMonitorReading> readings)

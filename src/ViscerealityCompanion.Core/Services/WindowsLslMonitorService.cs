@@ -15,6 +15,8 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
     private readonly TimeSpan _valueEmitInterval;
     private readonly TimeSpan _staleReconnectInterval;
 
+    public LslRuntimeState RuntimeState { get; }
+
     public WindowsLslMonitorService()
         : this(null, null, null, null, null, null)
     {
@@ -34,13 +36,14 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
         _idleEmitInterval = idleEmitInterval ?? TimeSpan.FromMilliseconds(1500);
         _valueEmitInterval = valueEmitInterval ?? TimeSpan.FromMilliseconds(50);
         _staleReconnectInterval = staleReconnectInterval ?? TimeSpan.FromMilliseconds(5000);
+        RuntimeState = _bridge.GetRuntimeState();
     }
 
     public async IAsyncEnumerable<LslMonitorReading> MonitorAsync(
         LslMonitorSubscription subscription,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var runtimeState = _bridge.GetRuntimeState();
+        var runtimeState = RuntimeState;
         if (!runtimeState.Available)
         {
             yield return BuildReading(subscription, "LSL unavailable.", runtimeState.Detail);

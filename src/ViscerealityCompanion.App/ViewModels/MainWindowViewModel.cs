@@ -75,6 +75,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _hzdbStatusDetail = "Use Refresh Device Snapshot to collect extra device details when hzdb is available.";
     private string _monitorSummary = "LSL monitor idle.";
     private string _monitorDetail = "Use quest_monitor / quest.telemetry to follow the live Quest telemetry outlet.";
+    private string _lslRuntimeSummary = "liblsl runtime not checked yet.";
+    private string _lslRuntimeDetail = "The packaged Windows runtime path will appear here once the desktop monitor initializes.";
     private float _monitorValue;
     private float _monitorSampleRateHz;
     private string _monitorStreamName = "quest_monitor";
@@ -130,6 +132,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         _twinBridgeSummary = _twinBridge.Status.Summary;
         _twinBridgeDetail = _twinBridge.Status.Detail;
+        UpdateLslRuntimeState();
         _runtimeConfig.PropertyChanged += OnRuntimeConfigPropertyChanged;
         foreach (var scope in TwinInspectorScopeCatalog)
         {
@@ -547,6 +550,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         get => _monitorDetail;
         private set => SetProperty(ref _monitorDetail, value);
+    }
+
+    public string LslRuntimeSummary
+    {
+        get => _lslRuntimeSummary;
+        private set => SetProperty(ref _lslRuntimeSummary, value);
+    }
+
+    public string LslRuntimeDetail
+    {
+        get => _lslRuntimeDetail;
+        private set => SetProperty(ref _lslRuntimeDetail, value);
     }
 
     public float MonitorValue
@@ -1737,6 +1752,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private async Task RestartMonitorAsync()
     {
+        UpdateLslRuntimeState();
         _monitorCts?.Cancel();
         _monitorCts?.Dispose();
         _monitorCts = new CancellationTokenSource();
@@ -1787,6 +1803,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             OperatorLogLevel.Info,
             "LSL monitor restarted.",
             $"{subscription.StreamName} / {subscription.StreamType} channel {subscription.ChannelIndex}")).ConfigureAwait(false);
+    }
+
+    private void UpdateLslRuntimeState()
+    {
+        var runtimeState = _monitorService.RuntimeState;
+        LslRuntimeSummary = runtimeState.Available
+            ? "liblsl runtime ready."
+            : "liblsl runtime unavailable.";
+        LslRuntimeDetail = runtimeState.Detail;
     }
 
     private async Task ExportManifestAsync()

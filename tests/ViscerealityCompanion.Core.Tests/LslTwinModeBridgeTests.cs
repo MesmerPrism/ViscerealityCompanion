@@ -251,6 +251,8 @@ public class LslTwinModeBridgeTests
     {
         private readonly Queue<LslMonitorReading> _readings = new();
 
+        public LslRuntimeState RuntimeState { get; } = new(true, "Fake liblsl runtime for core tests.");
+
         public void EnqueueReading(LslMonitorReading reading) => _readings.Enqueue(reading);
 
         public async IAsyncEnumerable<LslMonitorReading> MonitorAsync(
