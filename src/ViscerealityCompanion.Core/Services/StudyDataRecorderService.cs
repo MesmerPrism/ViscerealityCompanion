@@ -256,6 +256,7 @@ public sealed class StudyDataRecordingSession : IDisposable
     private readonly StreamWriter _clockAlignmentWriter;
     private readonly StreamWriter _upstreamLslMonitorWriter;
     private readonly Dictionary<string, string> _lastSignalValues = new(StringComparer.OrdinalIgnoreCase);
+    private const int UpstreamLslMonitorSettingsPersistInterval = 25;
 
     private bool _disposed;
     private string _lastBreathingSignature = string.Empty;
@@ -591,7 +592,10 @@ public sealed class StudyDataRecordingSession : IDisposable
             {
                 UpstreamLslMonitorSampleCount = _settings.UpstreamLslMonitorSampleCount + 1
             };
-            WriteSettingsDocument();
+            if (_settings.UpstreamLslMonitorSampleCount % UpstreamLslMonitorSettingsPersistInterval == 0)
+            {
+                WriteSettingsDocument();
+            }
         }
     }
 

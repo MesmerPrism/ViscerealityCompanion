@@ -116,6 +116,12 @@ public sealed class StudyDataRecorderServiceTests
                 12,
                 "Streaming LSL sample.",
                 "Numeric sample from `HRV_Biofeedback` / `HRV`."));
+
+            using (var preCompleteSettingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath)))
+            {
+                Assert.Equal(0, preCompleteSettingsDocument.RootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
+            }
+
             session.Complete(startedAtUtc.AddMinutes(8));
 
             var eventLines = File.ReadAllLines(session.EventsCsvPath);
@@ -179,6 +185,68 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Equal(session.UpstreamLslMonitorCsvPath, rootElement.GetProperty("UpstreamLslMonitorFile").GetString());
             Assert.Equal(1, rootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
             Assert.Equal("2026-03-29T12:42:56+00:00", rootElement.GetProperty("SessionEndedAtUtc").GetString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RecordUpstreamLslObservation_PersistsSettingsCountInBatchesAndOnComplete()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var service = new StudyDataRecorderService(root);
+            var startedAtUtc = new DateTimeOffset(2026, 03, 29, 12, 34, 56, TimeSpan.Zero);
+            using var session = service.StartSession(CreateRequest("P008", "session-20260329T223456Z", startedAtUtc));
+
+            for (var index = 1; index <= 25; index++)
+            {
+                session.RecordUpstreamLslObservation(new StudyUpstreamLslObservation(
+                    startedAtUtc.AddSeconds(index),
+                    100d + index,
+                    99d + index,
+                    "HRV_Biofeedback",
+                    "HRV",
+                    0,
+                    LslChannelFormat.Float32,
+                    0.5f,
+                    null,
+                    index,
+                    "Streaming LSL sample.",
+                    "Regression batch persistence sample."));
+            }
+
+            using (var batchedSettingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath)))
+            {
+                Assert.Equal(25, batchedSettingsDocument.RootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
+            }
+
+            session.RecordUpstreamLslObservation(new StudyUpstreamLslObservation(
+                startedAtUtc.AddSeconds(26),
+                126d,
+                125d,
+                "HRV_Biofeedback",
+                "HRV",
+                0,
+                LslChannelFormat.Float32,
+                0.5f,
+                null,
+                26,
+                "Streaming LSL sample.",
+                "Regression completion sample."));
+
+            using (var preCompleteSettingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath)))
+            {
+                Assert.Equal(25, preCompleteSettingsDocument.RootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
+            }
+
+            session.Complete(startedAtUtc.AddMinutes(1));
+
+            using var completedSettingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath));
+            Assert.Equal(26, completedSettingsDocument.RootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
         }
         finally
         {

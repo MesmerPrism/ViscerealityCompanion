@@ -2665,28 +2665,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        try
-        {
-            StartUpstreamLslMonitor(recordingSession);
-            recordingSession.RecordEvent(
-                "lsl.upstream_monitor.started",
-                $"Passive Windows-side monitor subscribed to {HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType}.",
-                null,
-                "success");
-        }
-        catch (Exception exception)
-        {
-            await DispatchAsync(() => SetRecorderFault("Start passive upstream LSL monitor", exception)).ConfigureAwait(false);
-            await ApplyOutcomeAsync(
-                    "Start Participant Run",
-                    new OperationOutcome(
-                        OperationOutcomeKind.Failure,
-                        "Participant run did not start.",
-                        $"The local recorder was created, but the passive upstream LSL monitor could not be started: {exception.Message}"))
-                .ConfigureAwait(false);
-            return;
-        }
-
         var metadataOutcome = await PublishParticipantSessionMetadataAsync(recordingSession).ConfigureAwait(false);
         recordingSession.RecordEvent(
             "recording.device_metadata_publish",
@@ -2765,6 +2743,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             null,
             clockAlignmentOutcome.Kind.ToString());
 
+        var upstreamMonitorOutcome = TryStartUpstreamLslMonitor(recordingSession);
+        recordingSession.RecordEvent(
+            "lsl.upstream_monitor.start",
+            BuildRecorderEventDetail(upstreamMonitorOutcome),
+            null,
+            upstreamMonitorOutcome.Kind.ToString());
+
         StartBackgroundClockAlignmentMonitoring(recordingSession);
 
         var overallOutcome = CombineWorkflowOutcomes(
@@ -2772,7 +2757,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             [
                 ("Start Experiment", outcome),
                 ("Quest Recorder", deviceConfirmationOutcome),
-                ("Clock Alignment (Start Burst)", clockAlignmentOutcome)
+                ("Clock Alignment (Start Burst)", clockAlignmentOutcome),
+                ("Passive Upstream LSL Monitor", upstreamMonitorOutcome)
             ],
             "Started the participant run, confirmed the Quest-side recorder, collected the dedicated start clock-alignment burst, and armed sparse background timing probes.");
         await ApplyOutcomeAsync("Start Participant Run", overallOutcome).ConfigureAwait(false);
@@ -5060,16 +5046,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         CancelUpstreamLslMonitor();
         var cts = new CancellationTokenSource();
         _upstreamLslMonitorCts = cts;
-        // MonitorAsync performs initial liblsl stream resolution before its first asynchronous yield.
-        // Running the monitor loop directly here can therefore block the caller thread, which for the
-        // Sussex workflow is often the UI path that is about to open the clock-alignment window.
-        _upstreamLslMonitorTask = Task.Run(
-            () => MonitorUpstreamLslAsync(recordingSession, cts.Token),
-            CancellationToken.None);
+        _upstreamLslMonitorTask = Task.Factory.StartNew(
+                () => MonitorUpstreamLslAsync(recordingSession, cts.Token),
+                CancellationToken.None,
+                TaskCreationOptions.DenyChildAttach | TaskCreationOptions.LongRunning,
+                TaskScheduler.Default)
+            .Unwrap();
     }
 
     private async Task MonitorUpstreamLslAsync(StudyDataRecordingSession recordingSession, CancellationToken cancellationToken)
     {
+        await Task.Yield();
         var subscription = new LslMonitorSubscription(
             HrvBiofeedbackStreamContract.StreamName,
             HrvBiofeedbackStreamContract.StreamType,
@@ -5113,6 +5100,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         catch (Exception exception)
         {
             await DispatchAsync(() => SetRecorderFault("Write passive upstream LSL monitor samples", exception)).ConfigureAwait(false);
+        }
+    }
+
+    private OperationOutcome TryStartUpstreamLslMonitor(StudyDataRecordingSession recordingSession)
+    {
+        try
+        {
+            StartUpstreamLslMonitor(recordingSession);
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Passive upstream LSL monitor armed.",
+                $"The passive Windows-side monitor for {HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType} starts after the initial clock-alignment burst so it cannot stall the validation-capture startup path.");
+        }
+        catch (Exception exception)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Passive upstream LSL monitor did not start.",
+                $"The Sussex run can continue, but the passive Windows-side LSL monitor could not be armed: {exception.Message}");
         }
     }
 
