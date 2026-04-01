@@ -30,6 +30,9 @@
           Link="tools\reports\generate_sussex_validation_pdf.py"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
+    <None Include="runtimes\win-x64\native\lsl.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

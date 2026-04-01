@@ -30,14 +30,19 @@ If this machine is using the Unity-bundled `adb.exe`, add that folder to
 
 ## The app launches but live LSL features stay unavailable
 
-Confirm `lsl.dll` is reachable through one of the expected locations:
+The packaged preview and portable Windows zip now bundle the official Windows
+x64 `lsl.dll`. On those builds, live LSL features should work without a
+separate liblsl install.
+
+If LSL still stays unavailable, confirm `lsl.dll` is reachable through one of
+the expected locations:
 
 - `%VISCEREALITY_LSL_DLL%`
 - next to the app executable
 - `runtimes/win-x64/native/lsl.dll`
 
-If the DLL is missing, the app falls back to preview messaging for those
-features.
+If the bundled DLL is missing or blocked, the app falls back to preview
+messaging for those features.
 
 ## The packaged launcher path is not available yet
 
