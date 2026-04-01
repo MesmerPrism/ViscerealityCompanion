@@ -1,7 +1,7 @@
 ---
 title: Download & Install
 description: Install the Sussex-focused Viscereality Companion Windows research preview from the latest public release, or fall back to the repo build when no preview package exists yet.
-summary: The current public installer is a Sussex-focused preview. The recommended path is the guided setup bootstrapper, which trusts the preview certificate, opens App Installer, and gives the installed app immediate access to the bundled Sussex APK.
+summary: The current public installer is a Sussex-focused preview. The recommended path is the signed App Installer package plus the preview certificate; the helper EXE is optional and may be blocked by Smart App Control on some Windows machines.
 nav_label: Download
 nav_group: Start Here
 nav_order: 15
@@ -21,29 +21,35 @@ The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
 and immediate access to the bundled Sussex APK inside the app payload.
 
+The safest public install path is the **certificate + App Installer** route.
+The optional helper EXE is still available, but it is an ordinary Windows
+bootstrapper and can be blocked by Smart App Control on some machines.
+
 <div class="download-start">
   <section class="download-path download-path-primary">
     <h2>Start Here</h2>
-    <p>Most people should use the guided setup helper. It handles the preview trust step and then opens the packaged install flow.</p>
+    <p>Use the signed App Installer flow directly. This avoids relying on the optional helper EXE, which Smart App Control may block on some Windows machines.</p>
     <div class="action-row">
-      <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe">Download guided setup</a>
+      <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer">Download certificate</a>
+      <a class="button" href="ms-appinstaller:?source=https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">Open App Installer</a>
       <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases">Open release page</a>
     </div>
     <ol class="step-list">
-      <li>Download and run <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe"><code>ViscerealityCompanion-Preview-Setup.exe</code></a>.</li>
-      <li>Accept the Windows prompt so the helper can trust the preview certificate and open App Installer.</li>
+      <li>Download <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer"><code>ViscerealityCompanion.cer</code></a>.</li>
+      <li>Install it into <code>Local Machine</code> → <code>Trusted People</code>.</li>
+      <li>Open <a href="ms-appinstaller:?source=https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">Windows App Installer directly</a> or download <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller"><code>ViscerealityCompanion.appinstaller</code></a> and open it from disk.</li>
       <li>Install the app, then launch <strong>Viscereality Companion</strong> from the Start menu.</li>
       <li>Inside the app, stay in <code>Sussex University experiment mode</code> and use the sequential guide.</li>
     </ol>
   </section>
 
   <section class="download-path">
-    <h2>Manual Fallback</h2>
-    <p>Use this only if the guided helper is blocked by policy or you prefer to install the certificate and App Installer package yourself.</p>
+    <h2>Optional Helper EXE</h2>
+    <p>Use this only if you want the branded bootstrapper. It downloads the same certificate and then opens App Installer, but Smart App Control may block it because it is a standalone EXE.</p>
     <ol class="step-list">
-      <li>Download <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer"><code>ViscerealityCompanion.cer</code></a>.</li>
-      <li>Install it into <code>Local Machine</code> → <code>Trusted People</code>.</li>
-      <li>Open <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller"><code>ViscerealityCompanion.appinstaller</code></a> from disk, or use <a href="ms-appinstaller:?source=https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">App Installer directly</a>.</li>
+      <li>Download and run <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe"><code>ViscerealityCompanion-Preview-Setup.exe</code></a>.</li>
+      <li>If Windows blocks it, go back to the certificate + App Installer path above instead.</li>
+      <li>If it runs, let it trust the certificate and then hand off to Windows App Installer.</li>
     </ol>
   </section>
 </div>
