@@ -96,7 +96,8 @@ packaged preview install.
 
 The current Sussex preview also includes the updated sequential guide flow that
 was live-checked on-head on `2026-03-31`, including the validation-capture PDF
-preview that is generated directly from the short sample run, the verified
+preview that is generated directly from the short sample run, the inline
+clock-alignment view inside the 20 second validation step, the verified
 kiosk-exit return to Meta Home, and the current approved Sussex APK hash
 `A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9`.
 

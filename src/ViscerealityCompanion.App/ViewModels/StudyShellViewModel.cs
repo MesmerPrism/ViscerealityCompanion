@@ -318,6 +318,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _validationCaptureCoherencePlotSummary = "Coherence plot not loaded yet.";
     private bool _validationCaptureBreathingPlotAvailable;
     private bool _validationCaptureCoherencePlotAvailable;
+    private OperationOutcomeKind _clockAlignmentLevel = OperationOutcomeKind.Preview;
     private bool _clockAlignmentRunning;
     private string _clockAlignmentSummary = "Clock alignment has not run yet.";
     private string _clockAlignmentDetail = "Start the participant run to capture the dedicated Sussex clock-alignment bursts and sparse background drift probes.";
@@ -326,6 +327,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _clockAlignmentProbeStatsLabel = "No probes sent yet.";
     private string _clockAlignmentOffsetStatsLabel = "Offset estimate n/a";
     private string _clockAlignmentRoundTripStatsLabel = "Round-trip estimate n/a";
+    private OperationOutcomeKind _validationClockAlignmentStartLevel = OperationOutcomeKind.Preview;
+    private string _validationClockAlignmentStartSummary = "Queued until recording starts.";
+    private string _validationClockAlignmentStartDetail = "The validation flow begins with a dedicated 10 second echo burst before data collection.";
+    private OperationOutcomeKind _validationClockAlignmentBackgroundLevel = OperationOutcomeKind.Preview;
+    private string _validationClockAlignmentBackgroundSummary = "Armed after the start burst.";
+    private string _validationClockAlignmentBackgroundDetail = "Sparse drift probes stay idle until the 20 second recording is underway.";
+    private OperationOutcomeKind _validationClockAlignmentEndLevel = OperationOutcomeKind.Preview;
+    private string _validationClockAlignmentEndSummary = "Queued until recording stops.";
+    private string _validationClockAlignmentEndDetail = "A matching end burst runs after the 20 second recording so the session can compare start and end timing.";
+    private bool _validationClockAlignmentBackgroundProbeObserved;
     private double _coherencePercent;
     private string _coherenceValueLabel = "n/a";
     private double _performancePercent;
@@ -1288,6 +1299,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _clockAlignmentRunning, value);
     }
 
+    public OperationOutcomeKind ClockAlignmentLevel
+    {
+        get => _clockAlignmentLevel;
+        private set => SetProperty(ref _clockAlignmentLevel, value);
+    }
+
     public string ClockAlignmentSummary
     {
         get => _clockAlignmentSummary;
@@ -1836,6 +1853,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public ObservableCollection<OperatorLogEntry> Logs { get; } = new();
     public ObservableCollection<WorkflowGuideCheckItem> WorkflowGuideChecks { get; } = new();
     public ObservableCollection<WorkflowGuideActionItem> WorkflowGuideActions { get; } = new();
+    public ObservableCollection<WorkflowGuideCheckItem> ValidationClockAlignmentChecks { get; } = new();
 
     public bool TryGetObservedLslValue(out double value, out string sourceKey)
     {
@@ -2736,7 +2754,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             null,
             deviceConfirmationOutcome.Kind.ToString());
 
-        var clockAlignmentOutcome = await RunClockAlignmentAsync(recordingSession, StudyClockAlignmentWindowKind.StartBurst).ConfigureAwait(false);
+        var clockAlignmentOutcome = await RunClockAlignmentAsync(
+                recordingSession,
+                StudyClockAlignmentWindowKind.StartBurst,
+                showWindow: false)
+            .ConfigureAwait(false);
         recordingSession.RecordEvent(
             "clock_alignment.start_burst.result",
             BuildRecorderEventDetail(clockAlignmentOutcome),
@@ -2796,7 +2818,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     null,
                     backgroundStopOutcome.Kind.ToString());
 
-                var endClockAlignmentOutcome = await RunClockAlignmentAsync(activeSession, StudyClockAlignmentWindowKind.EndBurst).ConfigureAwait(false);
+                var endClockAlignmentOutcome = await RunClockAlignmentAsync(
+                        activeSession,
+                        StudyClockAlignmentWindowKind.EndBurst,
+                        showWindow: false)
+                    .ConfigureAwait(false);
                 outcomes.Add(("Clock Alignment (End Burst)", endClockAlignmentOutcome));
                 activeSession.RecordEvent(
                     "clock_alignment.end_burst.result",
@@ -2896,10 +2922,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ValidationCaptureRunning = true;
             ValidationCaptureCompleted = false;
             ValidationCaptureSummary = "Validation capture is starting.";
-            ValidationCaptureDetail = "The guide will start a 20 second recording, run the dedicated start and end clock-alignment bursts plus sparse background drift probes, stop it again, and then pull the Quest-side backup files.";
+            ValidationCaptureDetail = "The guide will run a start clock burst, record 20 seconds of data with sparse drift probes armed in the background, run a matching end burst, and then pull the Quest-side backup files.";
             SetValidationCaptureFolders(string.Empty, string.Empty, string.Empty, string.Empty);
             ValidationCaptureParticipantId = string.Empty;
-            SetValidationCaptureProgress(0d, "Preparing the validation capture and waiting for the first clock-alignment burst to begin.");
+            ResetValidationClockAlignmentGuideState();
+            SetValidationCaptureProgress(0d, "Phase 1 of 4: preparing the start clock-alignment burst.");
             ClearValidationCapturePlots();
             UpdateWorkflowGuideState();
         }).ConfigureAwait(false);
@@ -2933,7 +2960,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 SetValidationCaptureFolders(localSessionFolderPath, remoteSessionDir ?? string.Empty, string.Empty, string.Empty);
                 ValidationCaptureSummary = $"Validation capture running for {participantId}.";
                 ValidationCaptureDetail = $"Recording for {WorkflowGuideValidationCaptureDurationSeconds} seconds. Windows session folder: {localSessionFolderPath}";
-                SetValidationCaptureProgress(0d, $"Collecting data: 0.0 of {WorkflowGuideValidationCaptureDurationSeconds} seconds.");
+                SetValidationCaptureProgress(0d, $"Phase 2 of 4: collecting data for 0.0 of {WorkflowGuideValidationCaptureDurationSeconds} seconds.");
                 UpdateWorkflowGuideState();
             }).ConfigureAwait(false);
 
@@ -2956,13 +2983,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 {
                     SetValidationCaptureProgress(
                         percent,
-                        $"Collecting data: {elapsed.TotalSeconds:0.0} of {captureDuration.TotalSeconds:0} seconds.");
+                        $"Phase 2 of 4: collecting data for {elapsed.TotalSeconds:0.0} of {captureDuration.TotalSeconds:0} seconds.");
                 }).ConfigureAwait(false);
             }
 
             await DispatchAsync(() =>
             {
-                SetValidationCaptureProgress(100d, "Recording finished. Pulling Quest backup files.");
+                SetValidationCaptureProgress(100d, "Phase 3 of 4: finishing the run and starting the end clock-alignment burst.");
                 UpdateWorkflowGuideState();
             }).ConfigureAwait(false);
 
@@ -2974,6 +3001,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             }
 
             var completedLocalFolder = await DispatchAsync(() => string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath) ? localSessionFolderPath : _lastCompletedRecordingFolderPath).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                FinalizeValidationClockAlignmentBackgroundState();
+                SetValidationCaptureProgress(100d, "Phase 4 of 4: pulling Quest backup files and building the validation PDF.");
+                UpdateWorkflowGuideState();
+            }).ConfigureAwait(false);
             var pullOutcome = await PullQuestRecordingArtifactsAsync(remoteSessionDir, completedLocalFolder).ConfigureAwait(false);
             var pulledFolderPath = pullOutcome.Items?.FirstOrDefault() ?? string.Empty;
             var completed = pullOutcome.Kind == OperationOutcomeKind.Success
@@ -3756,8 +3789,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private async Task<OperationOutcome?> TryWakeHeadsetBeforeStudyActionAsync(string actionLabel)
     {
-        var selector = await DispatchAsync(ResolveHeadsetActionSelector).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(selector))
+        var shouldWake = await DispatchAsync(() =>
+        {
+            var selector = ResolveHeadsetActionSelector();
+            if (string.IsNullOrWhiteSpace(selector))
+            {
+                return false;
+            }
+
+            return _headsetStatus is null
+                || _headsetStatus.IsAwake == false
+                || _headsetStatus.IsInWakeLimbo
+                || IsHeadsetWakeBlockedByLockScreen();
+        }).ConfigureAwait(false);
+
+        if (!shouldWake)
         {
             return null;
         }
@@ -3775,8 +3821,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (wakeOutcome.Kind != OperationOutcomeKind.Failure)
         {
-            await Task.Delay(250).ConfigureAwait(false);
-            await RefreshHeadsetStatusAsync().ConfigureAwait(false);
+            await Task.Delay(150).ConfigureAwait(false);
         }
 
         return wakeOutcome;
@@ -5175,6 +5220,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void StartBackgroundClockAlignmentMonitoring(StudyDataRecordingSession recordingSession)
     {
         CancelBackgroundClockAlignmentMonitoring();
+        MarkValidationClockAlignmentBackgroundArmed();
         var cts = new CancellationTokenSource();
         _backgroundClockAlignmentCts = cts;
         _backgroundClockAlignmentTask = RunBackgroundClockAlignmentLoopAsync(recordingSession, cts.Token);
@@ -5196,7 +5242,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         recordingSession,
                         StudyClockAlignmentWindowKind.BackgroundSparse,
                         showWindow: false,
-                        updateUi: false,
+                        updateUi: true,
                         durationOverride: WorkflowClockAlignmentSparseProbeDuration,
                         cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
@@ -5317,6 +5363,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 await DispatchAsync(() =>
                 {
+                    ClockAlignmentLevel = unavailableOutcome.Kind;
                     ClockAlignmentRunning = false;
                     ClockAlignmentSummary = unavailableOutcome.Summary;
                     ClockAlignmentDetail = unavailableOutcome.Detail;
@@ -5325,6 +5372,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     ClockAlignmentProbeStatsLabel = "No probes sent.";
                     ClockAlignmentOffsetStatsLabel = "Offset estimate unavailable.";
                     ClockAlignmentRoundTripStatsLabel = "Round-trip estimate unavailable.";
+                    UpdateValidationClockAlignmentStage(windowKind, unavailableOutcome.Kind, unavailableOutcome.Summary, unavailableOutcome.Detail);
                     UpdateParticipantSessionState();
                     RefreshBenchToolsStatus();
                 }).ConfigureAwait(false);
@@ -5387,10 +5435,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 await DispatchAsync(() =>
                 {
+                    ClockAlignmentLevel = timeoutOutcome.Kind;
                     ClockAlignmentRunning = false;
                     ClockAlignmentSummary = timeoutOutcome.Summary;
                     ClockAlignmentDetail = timeoutOutcome.Detail;
                     ClockAlignmentProgressLabel = $"{windowLabel} timed out.";
+                    UpdateValidationClockAlignmentStage(windowKind, timeoutOutcome.Kind, timeoutOutcome.Summary, timeoutOutcome.Detail);
                     UpdateParticipantSessionState();
                     RefreshBenchToolsStatus();
                 }).ConfigureAwait(false);
@@ -5407,10 +5457,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 await DispatchAsync(() =>
                 {
+                    ClockAlignmentLevel = failureOutcome.Kind;
                     ClockAlignmentRunning = false;
                     ClockAlignmentSummary = failureOutcome.Summary;
                     ClockAlignmentDetail = failureOutcome.Detail;
                     ClockAlignmentProgressLabel = $"{windowLabel} aborted.";
+                    UpdateValidationClockAlignmentStage(windowKind, failureOutcome.Kind, failureOutcome.Summary, failureOutcome.Detail);
                     UpdateParticipantSessionState();
                     RefreshBenchToolsStatus();
                 }).ConfigureAwait(false);
@@ -5438,10 +5490,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 await DispatchAsync(() =>
                 {
+                    ClockAlignmentLevel = persistenceOutcome.Kind;
                     ClockAlignmentRunning = false;
                     ClockAlignmentSummary = persistenceOutcome.Summary;
                     ClockAlignmentDetail = persistenceOutcome.Detail;
                     ClockAlignmentProgressLabel = $"{windowLabel} samples could not be written.";
+                    UpdateValidationClockAlignmentStage(windowKind, persistenceOutcome.Kind, persistenceOutcome.Summary, persistenceOutcome.Detail);
                     UpdateParticipantSessionState();
                     RefreshBenchToolsStatus();
                 }).ConfigureAwait(false);
@@ -5518,6 +5572,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void ResetClockAlignmentStateForRun(StudyClockAlignmentWindowKind windowKind, TimeSpan duration)
     {
         var label = BuildClockAlignmentWindowLabel(windowKind);
+        ClockAlignmentLevel = OperationOutcomeKind.Preview;
         ClockAlignmentRunning = true;
         ClockAlignmentSummary = $"{label} is running for {duration.TotalSeconds:0.#} seconds.";
         ClockAlignmentDetail = windowKind switch
@@ -5531,10 +5586,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ClockAlignmentProbeStatsLabel = "Probes sent: 0 | Quest echoes: 0";
         ClockAlignmentOffsetStatsLabel = "Offset estimate pending.";
         ClockAlignmentRoundTripStatsLabel = "Round-trip estimate pending.";
+        UpdateValidationClockAlignmentStage(windowKind, OperationOutcomeKind.Preview, $"{label} running.", ClockAlignmentDetail);
+        if (ValidationCaptureRunning)
+        {
+            switch (windowKind)
+            {
+                case StudyClockAlignmentWindowKind.StartBurst:
+                    SetValidationCaptureProgress(0d, "Phase 1 of 4: running the start clock-alignment burst.");
+                    break;
+                case StudyClockAlignmentWindowKind.EndBurst:
+                    SetValidationCaptureProgress(100d, "Phase 3 of 4: running the end clock-alignment burst.");
+                    break;
+            }
+        }
     }
 
     private void ApplyClockAlignmentProgress(StudyClockAlignmentWindowKind windowKind, StudyClockAlignmentProgress progress)
     {
+        ClockAlignmentLevel = OperationOutcomeKind.Preview;
         ClockAlignmentRunning = true;
         ClockAlignmentSummary = $"{BuildClockAlignmentWindowLabel(windowKind)} in progress.";
         ClockAlignmentDetail = progress.Detail;
@@ -5545,6 +5614,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void ApplyClockAlignmentOutcome(StudyClockAlignmentWindowKind windowKind, StudyClockAlignmentRunResult result)
     {
+        ClockAlignmentLevel = result.Outcome.Kind;
         ClockAlignmentRunning = false;
         ClockAlignmentSummary = result.Outcome.Kind == OperationOutcomeKind.Success
             ? $"{BuildClockAlignmentWindowLabel(windowKind)} completed."
@@ -5557,6 +5627,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ClockAlignmentProbeStatsLabel = $"Probes sent: {result.Summary.ProbesSent} | Quest echoes: {result.Summary.EchoesReceived}";
         ClockAlignmentOffsetStatsLabel = BuildClockAlignmentOffsetStatsLabel(result.Summary);
         ClockAlignmentRoundTripStatsLabel = BuildClockAlignmentRoundTripStatsLabel(result.Summary);
+        UpdateValidationClockAlignmentStage(windowKind, ClockAlignmentLevel, ClockAlignmentSummary, ClockAlignmentDetail);
     }
 
     private static string BuildClockAlignmentWindowLabel(StudyClockAlignmentWindowKind windowKind)
@@ -5852,6 +5923,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var actions = BuildWorkflowGuideActionItems(stepIndex);
         ReplaceWorkflowGuideCheckItems(WorkflowGuideChecks, checks);
         ReplaceWorkflowGuideActionItems(WorkflowGuideActions, actions);
+        ReplaceWorkflowGuideCheckItems(ValidationClockAlignmentChecks, BuildValidationClockAlignmentCheckItems());
         UpdateWorkflowGuideQuestScreenshotState(stepIndex);
         UpdateWorkflowGuideActionFeedback(stepIndex, actions);
 
@@ -6280,6 +6352,98 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ValidationCaptureSummary,
             ValidationCaptureDetail,
             true);
+    }
+
+    private IReadOnlyList<WorkflowGuideCheckItem> BuildValidationClockAlignmentCheckItems()
+        =>
+        [
+            new WorkflowGuideCheckItem(
+                "Start burst",
+                _validationClockAlignmentStartSummary,
+                _validationClockAlignmentStartDetail,
+                _validationClockAlignmentStartLevel),
+            new WorkflowGuideCheckItem(
+                "Background drift",
+                _validationClockAlignmentBackgroundSummary,
+                _validationClockAlignmentBackgroundDetail,
+                _validationClockAlignmentBackgroundLevel),
+            new WorkflowGuideCheckItem(
+                "End burst",
+                _validationClockAlignmentEndSummary,
+                _validationClockAlignmentEndDetail,
+                _validationClockAlignmentEndLevel)
+        ];
+
+    private void ResetValidationClockAlignmentGuideState()
+    {
+        _validationClockAlignmentBackgroundProbeObserved = false;
+        ClockAlignmentLevel = OperationOutcomeKind.Preview;
+        ClockAlignmentRunning = false;
+        ClockAlignmentSummary = "Clock alignment queued for this validation run.";
+        ClockAlignmentDetail = "The validation flow will run a start burst first, keep sparse drift probes armed during the 20 second recording, and finish with a matching end burst.";
+        ClockAlignmentProgressPercent = 0d;
+        ClockAlignmentProgressLabel = "Waiting for the start clock-alignment burst.";
+        ClockAlignmentProbeStatsLabel = "Probes sent: 0 | Quest echoes: 0";
+        ClockAlignmentOffsetStatsLabel = "Offset estimate pending.";
+        ClockAlignmentRoundTripStatsLabel = "Round-trip estimate pending.";
+        _validationClockAlignmentStartLevel = OperationOutcomeKind.Preview;
+        _validationClockAlignmentStartSummary = "Queued until recording starts.";
+        _validationClockAlignmentStartDetail = "The validation flow begins with a dedicated 10 second echo burst before data collection.";
+        _validationClockAlignmentBackgroundLevel = OperationOutcomeKind.Preview;
+        _validationClockAlignmentBackgroundSummary = "Armed after the start burst.";
+        _validationClockAlignmentBackgroundDetail = $"Sparse drift probes stay idle until the {WorkflowGuideValidationCaptureDurationSeconds} second recording is underway.";
+        _validationClockAlignmentEndLevel = OperationOutcomeKind.Preview;
+        _validationClockAlignmentEndSummary = "Queued until recording stops.";
+        _validationClockAlignmentEndDetail = "A matching end burst runs after the 20 second recording so the session can compare start and end timing.";
+    }
+
+    private void UpdateValidationClockAlignmentStage(
+        StudyClockAlignmentWindowKind windowKind,
+        OperationOutcomeKind level,
+        string summary,
+        string detail)
+    {
+        switch (windowKind)
+        {
+            case StudyClockAlignmentWindowKind.StartBurst:
+                _validationClockAlignmentStartLevel = level;
+                _validationClockAlignmentStartSummary = summary;
+                _validationClockAlignmentStartDetail = detail;
+                break;
+            case StudyClockAlignmentWindowKind.EndBurst:
+                _validationClockAlignmentEndLevel = level;
+                _validationClockAlignmentEndSummary = summary;
+                _validationClockAlignmentEndDetail = detail;
+                break;
+            default:
+                _validationClockAlignmentBackgroundProbeObserved = level != OperationOutcomeKind.Preview
+                    || _validationClockAlignmentBackgroundProbeObserved;
+                _validationClockAlignmentBackgroundLevel = level;
+                _validationClockAlignmentBackgroundSummary = summary;
+                _validationClockAlignmentBackgroundDetail = detail;
+                break;
+        }
+    }
+
+    private void MarkValidationClockAlignmentBackgroundArmed()
+    {
+        _validationClockAlignmentBackgroundLevel = OperationOutcomeKind.Preview;
+        _validationClockAlignmentBackgroundSummary = "Armed during recording.";
+        _validationClockAlignmentBackgroundDetail =
+            $"A {WorkflowClockAlignmentSparseProbeDuration.TotalSeconds:0.#} second sparse drift probe will run every {WorkflowClockAlignmentBackgroundProbeIntervalSeconds} seconds during the {WorkflowGuideValidationCaptureDurationSeconds} second capture.";
+    }
+
+    private void FinalizeValidationClockAlignmentBackgroundState()
+    {
+        if (_validationClockAlignmentBackgroundProbeObserved)
+        {
+            return;
+        }
+
+        _validationClockAlignmentBackgroundLevel = OperationOutcomeKind.Preview;
+        _validationClockAlignmentBackgroundSummary = "No sparse drift probe finished.";
+        _validationClockAlignmentBackgroundDetail =
+            "This run still recorded the start and end bursts, but the short capture window finished before a background drift probe completed.";
     }
 
     private IReadOnlyList<WorkflowGuideCheckItem> BuildWorkflowGuideCheckItems(int stepIndex)

@@ -190,8 +190,23 @@ window that walks the operator through the fixed Sussex protocol step by step:
 - kiosk launch
 - LSL and particle verification
 - optional controller calibration
-- 20 second validation capture with local and pulled Quest output folders
+- 20 second validation capture with inline timing alignment, local and pulled Quest output folders, and a generated PDF review report
 - reset-to-ready handoff back to the main shell
+
+The validation step now keeps the timing workflow inside the same guide
+surface. Instead of opening a separate timing window, step 12 shows:
+
+- the start clock-alignment burst
+- the sparse drift probe state during the 20 second capture
+- the matching end burst before pullback and PDF generation
+
+That makes it easier for the operator to see which phase is currently running
+without losing the main workflow context.
+
+The Sussex command path was also tightened so normal study buttons do not do a
+full pre-send wake + snapshot refresh when the headset is already awake. On a
+healthy live session, command presses should now reach the runtime noticeably
+faster than the earlier public builds.
 
 The current public shell can also send the study recenter command and the
 dedicated particle visibility on/off commands.

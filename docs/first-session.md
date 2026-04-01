@@ -63,6 +63,10 @@ LSL confirmation, particle verification, an optional-for-now controller
 calibration check, and the short 20 second validation capture. After that
 capture finishes, the guide now gives one-click access to the Windows session
 folder, the pulled Quest backup folder, and the formatted PDF preview report.
+That validation step now keeps the clock-alignment process inline in the guide
+itself: start burst first, the 20 second capture in the middle with sparse
+drift probes armed in the background, then the matching end burst before
+pullback and PDF generation.
 
 ## 3. Install The Study Build
 
@@ -176,6 +180,7 @@ viscereality twin send twin-pause
 - the top status cards should be treated as the main pre-session checklist
 - controller breathing calibration is still exposed in the guide, but it is currently optional until the Sussex runtime calibration path is stabilized
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
+- if the headset is already awake, normal Sussex command buttons should now react faster because the app no longer forces a full pre-send snapshot refresh before every command
 
 ## Catalog Discovery
 

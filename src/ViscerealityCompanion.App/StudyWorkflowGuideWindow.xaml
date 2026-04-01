@@ -489,6 +489,86 @@
                         Margin="0,10,0,0"
                         Visibility="{Binding WorkflowGuideShowsValidationCaptureState, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel>
+                        <TextBlock Text="Timing Alignment"
+                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                        <TextBlock Text="The validation run stays in this window: start burst first, 20 seconds of recording with sparse drift probes armed in the background, then a matching end burst before pullback."
+                                   Style="{StaticResource GuideDetailStyle}" />
+
+                        <Border Margin="0,10,0,0"
+                                Padding="10"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Background="{Binding ClockAlignmentLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding ClockAlignmentLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Current timing phase"
+                                           Style="{StaticResource GuideMicroLabelStyle}" />
+                                <TextBlock Text="{Binding ClockAlignmentSummary}"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="{StaticResource InkBrush}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ClockAlignmentDetail}"
+                                           Style="{StaticResource GuideDetailStyle}"
+                                           Margin="0,6,0,0" />
+                                <TextBlock Text="{Binding ClockAlignmentProgressLabel}"
+                                           Style="{StaticResource GuideDetailStyle}"
+                                           Margin="0,8,0,0" />
+                                <ProgressBar Minimum="0"
+                                             Maximum="100"
+                                             Height="14"
+                                             Margin="0,8,0,0"
+                                             Value="{Binding ClockAlignmentProgressPercent, Mode=OneWay}" />
+                                <TextBlock Text="{Binding ClockAlignmentProbeStatsLabel}"
+                                           Style="{StaticResource GuideDetailStyle}"
+                                           Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding ClockAlignmentOffsetStatsLabel}"
+                                           Style="{StaticResource GuideDetailStyle}"
+                                           Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding ClockAlignmentRoundTripStatsLabel}"
+                                           Style="{StaticResource GuideDetailStyle}"
+                                           Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <ItemsControl ItemsSource="{Binding ValidationClockAlignmentChecks}"
+                                      Margin="0,10,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="3" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,8,0"
+                                            Padding="10"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Background="{Binding Level, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                            BorderBrush="{Binding Level, Converter={StaticResource OutcomeKindToBrush}}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Label}"
+                                                       Style="{StaticResource GuideMicroLabelStyle}" />
+                                            <TextBlock Text="{Binding Summary}"
+                                                       FontSize="17"
+                                                       FontWeight="Bold"
+                                                       Foreground="{StaticResource InkBrush}"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Detail}"
+                                                       Style="{StaticResource GuideDetailStyle}"
+                                                       Margin="0,6,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource GuidePanelStyle}"
+                        Margin="0,10,0,0"
+                        Visibility="{Binding WorkflowGuideShowsValidationCaptureState, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
                         <TextBlock Text="Validation Capture Result"
                                    Style="{StaticResource GuideSectionTitleStyle}" />
                         <TextBlock Text="{Binding ValidationCaptureSummary}"
