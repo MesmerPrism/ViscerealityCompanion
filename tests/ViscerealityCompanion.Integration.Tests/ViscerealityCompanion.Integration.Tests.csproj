@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\ViscerealityCompanion.App\ViscerealityCompanion.App.csproj" />
     <ProjectReference Include="..\..\src\ViscerealityCompanion.Core\ViscerealityCompanion.Core.csproj" />
     <ProjectReference Include="..\..\tools\ViscerealityCompanion.VerificationHarness\ViscerealityCompanion.VerificationHarness.csproj" />
   </ItemGroup>

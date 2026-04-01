@@ -5060,7 +5060,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         CancelUpstreamLslMonitor();
         var cts = new CancellationTokenSource();
         _upstreamLslMonitorCts = cts;
-        _upstreamLslMonitorTask = MonitorUpstreamLslAsync(recordingSession, cts.Token);
+        // MonitorAsync performs initial liblsl stream resolution before its first asynchronous yield.
+        // Running the monitor loop directly here can therefore block the caller thread, which for the
+        // Sussex workflow is often the UI path that is about to open the clock-alignment window.
+        _upstreamLslMonitorTask = Task.Run(
+            () => MonitorUpstreamLslAsync(recordingSession, cts.Token),
+            CancellationToken.None);
     }
 
     private async Task MonitorUpstreamLslAsync(StudyDataRecordingSession recordingSession, CancellationToken cancellationToken)
