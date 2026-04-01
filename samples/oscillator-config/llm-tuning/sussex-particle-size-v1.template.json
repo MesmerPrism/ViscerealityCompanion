@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "sussex-particle-size-tuning/v1",
+  "documentKind": "sussex_particle_size_tuning",
+  "study": {
+    "packageId": "com.Viscereality.SussexExperiment",
+    "baselineHotloadProfileId": "viscereality_lsltwin_scene",
+    "baselineRuntimeConfigAssetPath": "Assets/Configs/SussexStudyConfig.asset",
+    "notes": [
+      "This is a partial experimenter-facing file. The companion should compile it onto the pinned Sussex baseline before upload.",
+      "The headset hotload path should continue to receive a full compiled runtime config, not this partial file directly."
+    ]
+  },
+  "intent": "Adjust only the minimum and maximum particle size envelope bounds while leaving curve shape, routing, coupling, and radius-drive behavior unchanged.",
+  "llmEditingRules": {
+    "editOnlyPaths": [
+      "controls.particle_size_min.value",
+      "controls.particle_size_max.value"
+    ],
+    "doNotEditPaths": [
+      "schemaVersion",
+      "documentKind",
+      "study",
+      "systemDynamics",
+      "lockedBaselineAssumptions",
+      "controls.particle_size_min.runtimeMapping",
+      "controls.particle_size_max.runtimeMapping",
+      "controls.particle_size_min.safeRange",
+      "controls.particle_size_max.safeRange",
+      "compilerHints"
+    ]
+  },
+  "systemDynamics": {
+    "summary": "The two values below are envelope bounds, not direct final sizes by themselves. The runtime computes a size phase, shapes it with the baseline size envelope curve, interpolates between the min and max bounds, then multiplies that result by the current sphere radius because UsePercentSize is enabled."
+  },
+  "lockedBaselineAssumptions": {
+    "usePercentSize": true,
+    "sizeDimensionIndex": 1,
+    "sizeDriverMode": "oscillator",
+    "sizeEnvelopeCycleMultiplier": 1,
+    "sharedRadiusDriveMode": "breathing_state"
+  },
+  "controls": {
+    "particle_size_min": {
+      "id": "particle_size_min",
+      "label": "Particle Size Minimum",
+      "editable": true,
+      "value": 0.04,
+      "baselineValue": 0.04,
+      "type": "float",
+      "units": "fraction_of_current_sphere_radius",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 0.5
+      },
+      "runtimeMapping": {
+        "companionModelPath": "size.limits.minimum",
+        "unityConfigField": "PEOscillatorConfig.ParticleSizeEnvelopeLimits.x",
+        "compiledUnityJsonField": "ParticleSizeEnvelopeLimits.x"
+      }
+    },
+    "particle_size_max": {
+      "id": "particle_size_max",
+      "label": "Particle Size Maximum",
+      "editable": true,
+      "value": 0.115,
+      "baselineValue": 0.115,
+      "type": "float",
+      "units": "fraction_of_current_sphere_radius",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 0.5
+      },
+      "runtimeMapping": {
+        "companionModelPath": "size.limits.maximum",
+        "unityConfigField": "PEOscillatorConfig.ParticleSizeEnvelopeLimits.y",
+        "compiledUnityJsonField": "ParticleSizeEnvelopeLimits.y"
+      }
+    }
+  },
+  "crossFieldValidation": [
+    "controls.particle_size_min.value must be greater than or equal to 0.0",
+    "controls.particle_size_max.value must be greater than or equal to 0.0",
+    "controls.particle_size_min.value must be less than or equal to 0.5",
+    "controls.particle_size_max.value must be less than or equal to 0.5",
+    "controls.particle_size_min.value must be less than or equal to controls.particle_size_max.value"
+  ],
+  "compilerHints": {
+    "mergeStrategy": "overlay_on_pinned_sussex_baseline",
+    "hotloadTargetKey": "showcase_active_runtime_config_json",
+    "outputContract": "Compile this partial file into the full Sussex runtime config payload before upload. Do not upload this file directly to the headset as the final hotload artifact.",
+    "compiledUnityJsonOverlayExample": {
+      "ParticleSizeEnvelopeLimits": {
+        "x": 0.04,
+        "y": 0.115
+      }
+    }
+  }
+}

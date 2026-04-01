@@ -342,6 +342,54 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
         return path;
     }
 
+    public bool TrySetValue(string key, string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+        var row = Sections
+            .SelectMany(section => section.Rows)
+            .FirstOrDefault(candidate => string.Equals(candidate.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+        {
+            return false;
+        }
+
+        switch (row)
+        {
+            case SingleValueRowViewModel single:
+                single.ValueText = value;
+                return true;
+            case MultilineRowViewModel multiline:
+                multiline.ValueText = value;
+                return true;
+            case ChoiceRowViewModel choice:
+                choice.SelectedOption = value;
+                return true;
+            case ToggleRowViewModel toggle when bool.TryParse(value, out var boolValue):
+                toggle.Value = boolValue;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public bool TryGetValue(string key, out string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+
+        var row = Sections
+            .SelectMany(section => section.Rows)
+            .FirstOrDefault(candidate => string.Equals(candidate.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+        {
+            value = string.Empty;
+            return false;
+        }
+
+        value = GetRowValue(row);
+        return true;
+    }
+
     private void RebuildSections()
     {
         Sections.Clear();

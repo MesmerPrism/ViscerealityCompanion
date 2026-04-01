@@ -31,12 +31,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const string TestSenderHeartbeatMode = "3";
     private const string TestSenderCoherenceMode = "2";
     private const string QuestSensorLockActivity = "SensorLockActivity";
+    private static readonly bool SuppressClockAlignmentWindows =
+        string.Equals(Environment.GetEnvironmentVariable("VC_SUPPRESS_ALIGNMENT_WINDOWS"), "1", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Environment.GetEnvironmentVariable("VC_SUPPRESS_ALIGNMENT_WINDOWS"), "true", StringComparison.OrdinalIgnoreCase);
     private static readonly string[] QuestScreenshotShellCaptureMethods = ["metacam", "screencap"];
     private static readonly string[] QuestScreenshotRuntimeCaptureMethods = ["screencap", "metacam"];
     private const int WorkflowGuideValidationCaptureDurationSeconds = 20;
     private const int WorkflowClockAlignmentDurationSeconds = SussexClockAlignmentStreamContract.DefaultDurationSeconds;
     private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = 10;
     private static readonly TimeSpan WorkflowClockAlignmentSparseProbeDuration = TimeSpan.FromSeconds(2.5);
+    private static readonly TimeSpan WorkflowClockAlignmentRunSafetyMargin = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan WorkflowClockAlignmentStopTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan WorkflowUpstreamMonitorStopTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan WorkflowValidationPdfTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan WorkflowHzdbListTimeout = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan WorkflowHzdbPullTimeout = TimeSpan.FromSeconds(20);
     private const double ValidationPlotCanvasWidth = 300d;
     private const double ValidationPlotCanvasHeight = 120d;
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
@@ -3470,7 +3479,26 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 process.Start();
                 var standardOutputTask = process.StandardOutput.ReadToEndAsync();
                 var standardErrorTask = process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync().ConfigureAwait(false);
+                var processExitTask = process.WaitForExitAsync();
+                var completedTask = await Task.WhenAny(
+                        processExitTask,
+                        Task.Delay(WorkflowValidationPdfTimeout))
+                    .ConfigureAwait(false);
+                if (!ReferenceEquals(completedTask, processExitTask))
+                {
+                    TryKillProcessTree(process);
+                    var standardOutputTimeout = await standardOutputTask.ConfigureAwait(false);
+                    var standardErrorTimeout = await standardErrorTask.ConfigureAwait(false);
+                    var combinedTimeoutOutput = string.Join(
+                        " ",
+                        new[] { standardOutputTimeout?.Trim(), standardErrorTimeout?.Trim() }
+                            .Where(value => !string.IsNullOrWhiteSpace(value)));
+                    errors.Add(string.IsNullOrWhiteSpace(combinedTimeoutOutput)
+                        ? $"{fileName}: Sussex validation PDF generation exceeded {WorkflowValidationPdfTimeout.TotalSeconds:0} seconds and was stopped."
+                        : $"{fileName}: Sussex validation PDF generation exceeded {WorkflowValidationPdfTimeout.TotalSeconds:0} seconds and was stopped. {combinedTimeoutOutput}");
+                    continue;
+                }
+
                 var standardOutput = await standardOutputTask.ConfigureAwait(false);
                 var standardError = await standardErrorTask.ConfigureAwait(false);
 
@@ -3543,7 +3571,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var localPullFolderPath = Path.Combine(localSessionFolderPath, "device-session-pull");
         Directory.CreateDirectory(localPullFolderPath);
 
-        var listOutcome = await _hzdbService.ListFilesAsync(selector, remoteSessionDir).ConfigureAwait(false);
+        using var listCts = new CancellationTokenSource(WorkflowHzdbListTimeout);
+        var listOutcome = await _hzdbService.ListFilesAsync(selector, remoteSessionDir, listCts.Token).ConfigureAwait(false);
         var remoteFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (listOutcome.Kind != OperationOutcomeKind.Failure)
         {
@@ -3568,8 +3597,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var failures = new List<string>();
         foreach (var pair in remoteFiles.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
         {
+            using var pullCts = new CancellationTokenSource(WorkflowHzdbPullTimeout);
             var pullOutcome = await _hzdbService
-                .PullFileAsync(selector, pair.Value, Path.Combine(localPullFolderPath, pair.Key))
+                .PullFileAsync(selector, pair.Value, Path.Combine(localPullFolderPath, pair.Key), pullCts.Token)
                 .ConfigureAwait(false);
             if (pullOutcome.Kind == OperationOutcomeKind.Success)
             {
@@ -3655,6 +3685,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         var normalizedDir = remoteSessionDir.Replace('\\', '/').TrimEnd('/');
         return $"{normalizedDir}/{fileName}";
+    }
+
+    private static void TryKillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+        }
     }
 
     public Task RecenterAsync()
@@ -5087,6 +5131,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             if (task is not null)
             {
+                var completedTask = await Task.WhenAny(task, Task.Delay(WorkflowUpstreamMonitorStopTimeout)).ConfigureAwait(false);
+                if (!ReferenceEquals(completedTask, task))
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Passive upstream LSL monitor stop timed out.",
+                        $"The passive Windows-side HRV monitor did not stop within {WorkflowUpstreamMonitorStopTimeout.TotalSeconds:0} seconds. The Sussex workflow can continue, but the monitor may still be unwinding.");
+                }
+
                 await task.ConfigureAwait(false);
             }
 
@@ -5133,7 +5186,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         StudyClockAlignmentWindowKind.BackgroundSparse,
                         showWindow: false,
                         updateUi: false,
-                        durationOverride: WorkflowClockAlignmentSparseProbeDuration)
+                        durationOverride: WorkflowClockAlignmentSparseProbeDuration,
+                        cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
                 recordingSession.RecordEvent(
                     "clock_alignment.background_sparse.result",
@@ -5171,6 +5225,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             if (task is not null)
             {
+                var completedTask = await Task.WhenAny(task, Task.Delay(WorkflowClockAlignmentStopTimeout)).ConfigureAwait(false);
+                if (!ReferenceEquals(completedTask, task))
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Background clock-alignment monitor stop timed out.",
+                        $"The sparse background probe did not stop within {WorkflowClockAlignmentStopTimeout.TotalSeconds:0} seconds. The Sussex run can continue, but the background probe may still be unwinding.");
+                }
+
                 await task.ConfigureAwait(false);
             }
 
@@ -5219,7 +5282,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         StudyClockAlignmentWindowKind windowKind,
         bool showWindow = true,
         bool updateUi = true,
-        TimeSpan? durationOverride = null)
+        TimeSpan? durationOverride = null,
+        CancellationToken cancellationToken = default)
     {
         var request = new StudyClockAlignmentRunRequest(
             recordingSession.SessionId,
@@ -5230,6 +5294,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultEchoGraceMilliseconds));
         var windowToken = BuildClockAlignmentWindowToken(windowKind);
         var windowLabel = BuildClockAlignmentWindowLabel(windowKind);
+        var timeout = request.Duration + request.EchoGracePeriod + WorkflowClockAlignmentRunSafetyMargin;
 
         if (!_clockAlignmentService.RuntimeState.Available)
         {
@@ -5267,7 +5332,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() =>
             {
                 ResetClockAlignmentStateForRun(windowKind, request.Duration);
-                if (showWindow)
+                if (showWindow && !SuppressClockAlignmentWindows)
                 {
                     OpenClockAlignmentWindow();
                 }
@@ -5293,9 +5358,33 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         });
 
         StudyClockAlignmentRunResult result;
+        using var alignmentCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        alignmentCts.CancelAfter(timeout);
         try
         {
-            result = await _clockAlignmentService.RunAsync(request, progress).ConfigureAwait(false);
+            result = await _clockAlignmentService.RunAsync(request, progress, alignmentCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (alignmentCts.IsCancellationRequested)
+        {
+            var timeoutOutcome = new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"{windowLabel} timed out.",
+                cancellationToken.IsCancellationRequested
+                    ? $"{windowLabel} was canceled while the companion was stopping the background timing probe."
+                    : $"{windowLabel} did not finish within {timeout.TotalSeconds:0} seconds, so the companion continued without waiting forever.");
+            if (updateUi)
+            {
+                await DispatchAsync(() =>
+                {
+                    ClockAlignmentRunning = false;
+                    ClockAlignmentSummary = timeoutOutcome.Summary;
+                    ClockAlignmentDetail = timeoutOutcome.Detail;
+                    ClockAlignmentProgressLabel = $"{windowLabel} timed out.";
+                    UpdateParticipantSessionState();
+                    RefreshBenchToolsStatus();
+                }).ConfigureAwait(false);
+            }
+            return timeoutOutcome;
         }
         catch (Exception exception)
         {
@@ -5359,7 +5448,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             }).ConfigureAwait(false);
         }
 
-        if (showWindow && updateUi && result.Outcome.Kind == OperationOutcomeKind.Success)
+        if (showWindow && !SuppressClockAlignmentWindows && updateUi && result.Outcome.Kind == OperationOutcomeKind.Success)
         {
             await DispatchAsync(CloseClockAlignmentWindow).ConfigureAwait(false);
         }

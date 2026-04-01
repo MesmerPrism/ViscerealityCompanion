@@ -20,6 +20,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
     private const int ProbeChannelCount = 1;
     private const int OutletChunkSize = 1;
     private const int OutletMaxBufferedSeconds = 2;
+    private static readonly TimeSpan MonitorShutdownTimeout = TimeSpan.FromSeconds(2);
     private readonly ILslMonitorService _monitorService;
     private readonly Lock _sync = new();
     private nint _streamInfo;
@@ -74,7 +75,8 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         var echoesReceived = 0;
         var pending = new ConcurrentDictionary<int, PendingProbe>();
         var receivedSamples = new ConcurrentQueue<StudyClockAlignmentSample>();
-        using var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var monitorShutdownTimedOut = false;
+        var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var monitorTask = Task.Run(
             async () =>
             {
@@ -205,10 +207,35 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             monitorCts.Cancel();
             try
             {
-                await monitorTask.ConfigureAwait(false);
+                var completedTask = await Task.WhenAny(
+                        monitorTask,
+                        Task.Delay(MonitorShutdownTimeout, CancellationToken.None))
+                    .ConfigureAwait(false);
+
+                if (ReferenceEquals(completedTask, monitorTask))
+                {
+                    await monitorTask.ConfigureAwait(false);
+                    monitorCts.Dispose();
+                }
+                else
+                {
+                    monitorShutdownTimedOut = true;
+                    _ = monitorTask.ContinueWith(
+                        static (_, state) => ((CancellationTokenSource)state!).Dispose(),
+                        monitorCts,
+                        CancellationToken.None,
+                        TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                }
             }
             catch (OperationCanceledException)
             {
+                monitorCts.Dispose();
+            }
+            catch
+            {
+                monitorCts.Dispose();
+                throw;
             }
 
             CloseProbeOutlet();
@@ -219,6 +246,20 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             .ToArray();
         var summary = BuildSummary(orderedSamples, probesSent);
         var outcome = BuildOutcome(summary);
+        if (monitorShutdownTimedOut)
+        {
+            outcome = new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Clock alignment completed, but the echo monitor took too long to unwind.",
+                string.Join(
+                    " ",
+                    new[]
+                    {
+                        outcome.Detail,
+                        $"The companion stopped waiting after {MonitorShutdownTimeout.TotalSeconds:0} seconds so the Sussex workflow would not hang."
+                    }.Where(value => !string.IsNullOrWhiteSpace(value))));
+        }
+
         progress?.Report(BuildProgress(
             request,
             probesSent,

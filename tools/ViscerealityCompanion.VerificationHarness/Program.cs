@@ -34,6 +34,7 @@ internal static class Program
 public static class HarnessScenarioRunner
 {
     private static readonly TimeSpan MockHeartbeatInterval = TimeSpan.FromMilliseconds(910);
+    private static readonly float[] ValidationCaptureLslSequence = [0.19f, 0.48f, 0.77f, 0.31f, 0.66f, 0.28f];
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
         WriteIndented = true,
@@ -111,6 +112,9 @@ public static class HarnessScenarioRunner
 
     private static async Task ExecuteScenarioAsync(Window window, string repoRoot, string outputRoot, FloatLslTestOutlet outlet)
     {
+        var useValidationCapture = ReadBoolEnvironmentVariable("VC_USE_VALIDATION_CAPTURE");
+        var skipKioskExit = ReadBoolEnvironmentVariable("VC_SKIP_KIOSK_EXIT");
+
         if (window.DataContext is not MainWindowViewModel mainViewModel)
         {
             throw new InvalidOperationException("Main window did not expose MainWindowViewModel as DataContext.");
@@ -133,8 +137,16 @@ public static class HarnessScenarioRunner
                              ?? throw new InvalidOperationException("Study mode did not create an active study shell.");
 
         await ExecuteCommandAsync(studyViewModel.ProbeUsbCommand, studyViewModel, "Probe USB");
-        await ExecuteCommandAsync(studyViewModel.EnableWifiCommand, studyViewModel, "Enable Wi-Fi ADB");
-        await ExecuteCommandAsync(studyViewModel.ConnectQuestCommand, studyViewModel, "Connect Quest");
+        await ExecuteCommandAsync(
+            studyViewModel.EnableWifiCommand,
+            studyViewModel,
+            "Enable Wi-Fi ADB",
+            TimeSpan.FromSeconds(45));
+        await ExecuteCommandAsync(
+            studyViewModel.ConnectQuestCommand,
+            studyViewModel,
+            "Connect Quest",
+            TimeSpan.FromSeconds(30));
         await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
         await EnsureHeadsetWakeReadyAsync(studyViewModel);
         await EnsureProximityHoldDisabledAsync(studyViewModel);
@@ -215,21 +227,42 @@ public static class HarnessScenarioRunner
             "study.particles.visible",
             "study.particles.render_output_enabled");
 
-        var participantRunResult = await RunParticipantRecordingPhaseAsync(
-            mainViewModel,
-            studyViewModel,
-            window,
-            outputRoot,
-            outlet);
+        ParticipantRunResult? participantRunResult = null;
+        ValidationCaptureHarnessResult? validationCaptureResult = null;
+        if (useValidationCapture)
+        {
+            validationCaptureResult = await RunValidationCapturePhaseAsync(
+                studyViewModel,
+                window,
+                outputRoot,
+                outlet);
+        }
+        else
+        {
+            participantRunResult = await RunParticipantRecordingPhaseAsync(
+                mainViewModel,
+                studyViewModel,
+                window,
+                outputRoot,
+                outlet);
+        }
 
         var preExitRuntimeHealthy = studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning;
         var preExitLslHealthy = studyViewModel.LslLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning;
 
-        var stopVerification = await ValidateKioskExitAsync(
-            studyViewModel,
-            window,
-            outputRoot,
-            participantRunResult.EndedQuestScreenshotPath);
+        var fallbackScreenshotPath = validationCaptureResult?.EndedQuestScreenshotPath
+                                     ?? participantRunResult?.EndedQuestScreenshotPath
+                                     ?? kioskScreenshotPath;
+        var stopVerification = skipKioskExit
+            ? new StopAppVerificationResult(
+                OperationOutcomeKind.Preview,
+                "Skipped kiosk-exit verification for this harness run because the headset is currently being exercised off-face.",
+                fallbackScreenshotPath)
+            : await ValidateKioskExitAsync(
+                studyViewModel,
+                window,
+                outputRoot,
+                fallbackScreenshotPath);
         var stopActionLevel = stopVerification.Level;
         var stopActionDetail = stopVerification.Detail;
         var homeScreenshotPath = stopVerification.HomeScreenshotPath;
@@ -250,22 +283,148 @@ public static class HarnessScenarioRunner
 
         await File.WriteAllTextAsync(
             Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
-            BuildReport(
-                mainViewModel,
-                studyViewModel,
-                participantRunResult,
-                latencyResults,
-                senderRestartResult,
-                recenterResult,
-                particlesOffResult,
-                particlesHidden,
-                particlesOnResult,
-                particlesVisible,
-                stopActionLevel,
-                stopActionDetail,
-                kioskScreenshotPath,
-                homeScreenshotPath,
-                verificationPersistence));
+            useValidationCapture && validationCaptureResult is not null
+                ? BuildValidationCaptureReport(
+                    mainViewModel,
+                    studyViewModel,
+                    validationCaptureResult,
+                    latencyResults,
+                    senderRestartResult,
+                    recenterResult,
+                    particlesOffResult,
+                    particlesHidden,
+                    particlesOnResult,
+                    particlesVisible,
+                    stopActionLevel,
+                    stopActionDetail,
+                    kioskScreenshotPath,
+                    homeScreenshotPath,
+                    verificationPersistence)
+                : BuildReport(
+                    mainViewModel,
+                    studyViewModel,
+                    participantRunResult ?? throw new InvalidOperationException("Participant run result was not captured."),
+                    latencyResults,
+                    senderRestartResult,
+                    recenterResult,
+                    particlesOffResult,
+                    particlesHidden,
+                    particlesOnResult,
+                    particlesVisible,
+                    stopActionLevel,
+                    stopActionDetail,
+                    kioskScreenshotPath,
+                    homeScreenshotPath,
+                    verificationPersistence));
+    }
+
+    private static async Task<ValidationCaptureHarnessResult> RunValidationCapturePhaseAsync(
+        StudyShellViewModel studyViewModel,
+        Window window,
+        string outputRoot,
+        FloatLslTestOutlet outlet)
+    {
+        var participantId = $"validation-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
+        await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.ParticipantIdDraft = participantId);
+        await Task.Delay(TimeSpan.FromMilliseconds(250));
+
+        await EnsureStudyRuntimeReadyForParticipantAsync(studyViewModel);
+
+        var readyQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-validation-ready-proof.png",
+            "sussex-main-window-validation-ready-proof.png");
+
+        using var lslCts = new CancellationTokenSource();
+        var lslPump = PumpValidationCaptureLslAsync(outlet, lslCts.Token);
+
+        try
+        {
+            await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.RunWorkflowValidationCaptureCommand.Execute(null));
+
+            await WaitForConditionAsync(
+                () => studyViewModel.ValidationCaptureRunning,
+                TimeSpan.FromSeconds(20),
+                "Validation capture never entered the running state.");
+
+            await WaitForConditionAsync(
+                () => !studyViewModel.ValidationCaptureRunning,
+                TimeSpan.FromMinutes(3),
+                "Validation capture never returned from the running state.");
+        }
+        finally
+        {
+            lslCts.Cancel();
+            try
+            {
+                await lslPump;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        var endedQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-validation-ended-proof.png",
+            "sussex-main-window-validation-ended-proof.png");
+
+        var completed = studyViewModel.ValidationCaptureCompleted;
+        var localSessionFolderPath = studyViewModel.ValidationCaptureLocalFolderPath;
+        var deviceSessionDirectory = studyViewModel.ValidationCaptureDeviceSessionPath;
+        var devicePullFolderPath = studyViewModel.ValidationCaptureDevicePullFolderPath;
+        var pdfPath = studyViewModel.ValidationCapturePdfPath;
+
+        var localFiles = InspectSessionFiles(
+            localSessionFolderPath,
+            "session_settings.json",
+            "session_events.csv",
+            "signals_long.csv",
+            "breathing_trace.csv",
+            "clock_alignment_roundtrip.csv",
+            "upstream_lsl_monitor.csv");
+
+        var deviceFiles = string.IsNullOrWhiteSpace(devicePullFolderPath)
+            ? []
+            : InspectSessionFiles(
+                devicePullFolderPath,
+                "session_settings.json",
+                "session_events.csv",
+                "signals_long.csv",
+                "breathing_trace.csv",
+                "clock_alignment_samples.csv",
+                "timing_markers.csv",
+                "lsl_samples.csv");
+
+        return new ValidationCaptureHarnessResult(
+            participantId,
+            completed,
+            studyViewModel.ValidationCaptureSummary,
+            studyViewModel.ValidationCaptureDetail,
+            localSessionFolderPath,
+            deviceSessionDirectory,
+            devicePullFolderPath,
+            pdfPath,
+            readyQuestScreenshotPath,
+            endedQuestScreenshotPath,
+            localFiles,
+            deviceFiles,
+            InspectFile(pdfPath));
+    }
+
+    private static async Task PumpValidationCaptureLslAsync(FloatLslTestOutlet outlet, CancellationToken cancellationToken)
+    {
+        var index = 0;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            outlet.PushSample(ValidationCaptureLslSequence[index % ValidationCaptureLslSequence.Length]);
+            index++;
+            await Task.Delay(MockHeartbeatInterval, cancellationToken);
+        }
     }
 
     private static async Task<StopAppVerificationResult> ValidateKioskExitAsync(
@@ -1021,6 +1180,112 @@ public static class HarnessScenarioRunner
         return builder.ToString();
     }
 
+    private static string BuildValidationCaptureReport(
+        MainWindowViewModel mainViewModel,
+        StudyShellViewModel studyViewModel,
+        ValidationCaptureHarnessResult validationCaptureResult,
+        IReadOnlyList<LatencyResult> latencyResults,
+        ObservationResult senderRestartResult,
+        ObservationResult recenterResult,
+        ObservationResult particlesOffResult,
+        ObservationResult particlesHidden,
+        ObservationResult particlesOnResult,
+        ObservationResult particlesVisible,
+        OperationOutcomeKind stopActionLevel,
+        string stopActionDetail,
+        string kioskScreenshotPath,
+        string homeScreenshotPath,
+        VerificationPersistenceResult verificationPersistence)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"Timestamp: {DateTimeOffset.Now:O}");
+        builder.AppendLine($"Mode: {mainViewModel.CurrentModeLabel}");
+        builder.AppendLine($"Mode detail: {mainViewModel.CurrentModeDetail}");
+        builder.AppendLine($"Quest: {studyViewModel.QuestStatusSummary}");
+        builder.AppendLine($"Connection: {studyViewModel.ConnectionSummary}");
+        builder.AppendLine($"Connection transport: {studyViewModel.ConnectionTransportSummary}");
+        builder.AppendLine($"Pinned build: {studyViewModel.PinnedBuildSummary}");
+        builder.AppendLine($"Installed build: {studyViewModel.InstalledApkSummary}");
+        builder.AppendLine($"Device profile: {studyViewModel.DeviceProfileSummary}");
+        builder.AppendLine($"Verified environment: {verificationPersistence.Summary}");
+        builder.AppendLine($"Verified environment detail: {verificationPersistence.Detail}");
+        builder.AppendLine($"Live runtime: {studyViewModel.LiveRuntimeSummary}");
+        builder.AppendLine($"LSL: {studyViewModel.LslSummary}");
+        builder.AppendLine($"LSL detail: {studyViewModel.LslDetail}");
+        builder.AppendLine($"Controller: {studyViewModel.ControllerSummary}");
+        builder.AppendLine($"Coherence: {studyViewModel.CoherenceSummary}");
+        builder.AppendLine($"Coherence route: {studyViewModel.CoherenceRouteSummary}");
+        builder.AppendLine($"Recenter: {studyViewModel.RecenterSummary}");
+        builder.AppendLine($"Particles: {studyViewModel.ParticlesSummary}");
+        builder.AppendLine($"Kiosk exit outcome: {stopActionLevel}");
+        builder.AppendLine($"Kiosk exit detail: {stopActionDetail}");
+        builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
+        builder.AppendLine($"Quest kiosk screenshot: {kioskScreenshotPath}");
+        builder.AppendLine($"Quest final screenshot: {homeScreenshotPath}");
+        builder.AppendLine();
+        builder.AppendLine("Command observations:");
+        builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
+        builder.AppendLine($"- {recenterResult.Label}: {recenterResult.Detail}");
+        builder.AppendLine($"- {particlesOffResult.Label}: {particlesOffResult.Detail}");
+        builder.AppendLine($"- {particlesHidden.Label}: {particlesHidden.Detail}");
+        builder.AppendLine($"- {particlesOnResult.Label}: {particlesOnResult.Detail}");
+        builder.AppendLine($"- {particlesVisible.Label}: {particlesVisible.Detail}");
+        builder.AppendLine();
+        builder.AppendLine("Validation capture:");
+        builder.AppendLine($"- Participant id: {validationCaptureResult.ParticipantId}");
+        builder.AppendLine($"- Completed: {validationCaptureResult.Completed}");
+        builder.AppendLine($"- Summary: {validationCaptureResult.Summary}");
+        builder.AppendLine($"- Detail: {validationCaptureResult.Detail}");
+        builder.AppendLine($"- Local session folder: {validationCaptureResult.LocalSessionFolderPath}");
+        builder.AppendLine($"- Quest session directory: {validationCaptureResult.DeviceSessionDirectory}");
+        builder.AppendLine($"- Pulled Quest folder: {validationCaptureResult.DevicePullFolderPath}");
+        builder.AppendLine($"- Validation PDF: {validationCaptureResult.PdfPath}");
+        builder.AppendLine($"- Quest ready screenshot: {validationCaptureResult.ReadyQuestScreenshotPath}");
+        builder.AppendLine($"- Quest ended screenshot: {validationCaptureResult.EndedQuestScreenshotPath}");
+        builder.AppendLine();
+        builder.AppendLine("Observed LSL loop latency:");
+        foreach (var result in latencyResults)
+        {
+            builder.AppendLine(
+                $"- value {result.Value:0.000}: sent {result.SentAt:HH:mm:ss.fff}, observed {(result.ObservedAt is null ? "timeout" : result.ObservedAt.Value.ToString("HH:mm:ss.fff"))}, latency {(result.LatencyMs is null ? "n/a" : result.LatencyMs.Value.ToString("0.0", CultureInfo.InvariantCulture) + " ms")}, key {(string.IsNullOrWhiteSpace(result.SourceKey) ? "n/a" : result.SourceKey)}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Local validation files:");
+        foreach (var file in validationCaptureResult.LocalFiles)
+        {
+            builder.AppendLine($"- {file.Path} ({(file.Exists ? $"{file.LengthBytes} bytes" : "missing")})");
+            builder.AppendLine(file.Preview);
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Quest validation files:");
+        foreach (var file in validationCaptureResult.DeviceFiles)
+        {
+            builder.AppendLine($"- {file.Path} ({(file.Exists ? $"{file.LengthBytes} bytes" : "missing")})");
+            builder.AppendLine(file.Preview);
+        }
+
+        builder.AppendLine();
+        builder.AppendLine($"Validation PDF artifact: {validationCaptureResult.PdfInspection.Path} ({(validationCaptureResult.PdfInspection.Exists ? $"{validationCaptureResult.PdfInspection.LengthBytes} bytes" : "missing")})");
+
+        builder.AppendLine();
+        builder.AppendLine("Relevant live keys:");
+        foreach (var entry in GetRelevantLiveKeys(studyViewModel))
+        {
+            builder.AppendLine($"- {entry.Key}: {entry.Value}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Operator log:");
+        foreach (var entry in studyViewModel.Logs.Take(16))
+        {
+            builder.AppendLine($"- {entry.Timestamp:O} {entry.Level}: {entry.Message} :: {entry.Detail}");
+        }
+
+        return builder.ToString();
+    }
+
     private static IReadOnlyDictionary<string, string?> CaptureTwinValues(StudyShellViewModel studyViewModel, params string[] keys)
     {
         var snapshot = studyViewModel.ReportedTwinStateSnapshot;
@@ -1410,6 +1675,20 @@ public static class HarnessScenarioRunner
     private sealed record VerificationPersistenceResult(bool Persisted, string Summary, string Detail, StudyVerificationBaseline? Baseline);
     private sealed record FileInspectionResult(string Path, bool Exists, long LengthBytes, string Preview);
     private sealed record SessionMetadataResult(string Path, bool IsAvailable, IReadOnlyDictionary<string, string> Values, string Summary);
+    private sealed record ValidationCaptureHarnessResult(
+        string ParticipantId,
+        bool Completed,
+        string Summary,
+        string Detail,
+        string LocalSessionFolderPath,
+        string DeviceSessionDirectory,
+        string DevicePullFolderPath,
+        string PdfPath,
+        string ReadyQuestScreenshotPath,
+        string EndedQuestScreenshotPath,
+        IReadOnlyList<FileInspectionResult> LocalFiles,
+        IReadOnlyList<FileInspectionResult> DeviceFiles,
+        FileInspectionResult PdfInspection);
     private sealed record ParticipantRunResult(
         string ParticipantId,
         string SessionId,
@@ -1428,6 +1707,10 @@ public static class HarnessScenarioRunner
         SessionMetadataResult DeviceMetadata,
         IReadOnlyList<FileInspectionResult> LocalFiles,
         IReadOnlyList<FileInspectionResult> DeviceFiles);
+
+    private static bool ReadBoolEnvironmentVariable(string variableName)
+        => string.Equals(Environment.GetEnvironmentVariable(variableName), "1", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(Environment.GetEnvironmentVariable(variableName), "true", StringComparison.OrdinalIgnoreCase);
 }
 
 internal sealed class FloatLslTestOutlet : IDisposable

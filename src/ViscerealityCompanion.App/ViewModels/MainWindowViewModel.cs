@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -30,6 +31,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly ITwinModeBridge _twinBridge = TwinModeBridgeFactory.CreateShared();
     private readonly SessionManifestWriter _manifestWriter = new();
     private readonly RuntimeConfigWorkspaceViewModel _runtimeConfig = new();
+    private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
+    private readonly SussexParticleSizeTuningCompiler _sussexParticleSizeTuningCompiler = new();
     private readonly Dictionary<string, string> _apkOverrides = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TwinModeCommand> _twinCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -92,6 +95,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _lastActionLabel = "None";
     private string _lastActionDetail = "No operator action has run yet.";
     private string _latestManifestPath = "No manifest written yet.";
+    private SussexParticleSizeTuningDocument? _sussexParticleSizeTuningDocument;
+    private string _sussexParticleTuningSummary = "Import a Sussex particle-size V1 JSON file to compile it onto the live Sussex runtime baseline.";
+    private string _sussexParticleTuningDetail = "The companion validates the partial file, patches only ParticleSizeEnvelopeLimits.x and .y, stages the full compiled runtime JSON, and then uploads it through the existing hotload path.";
+    private string _sussexParticleTuningSourcePath = "No Sussex particle-size tuning file imported yet.";
+    private string _sussexParticleTuningValuesLabel = "No Sussex particle-size values imported yet.";
+    private string _sussexParticleTuningBaselineSummary = "Live Sussex runtime JSON baseline unavailable.";
+    private string _sussexParticleTuningTemplatePath = "Bundled Sussex particle-size template not found.";
+    private string _sussexParticleTuningCompiledPath = "No compiled Sussex particle-size hotload CSV written yet.";
+    private OperationOutcomeKind _sussexParticleTuningLevel = OperationOutcomeKind.Preview;
     private bool _isQuestConnected;
     private int _batteryPercent;
     private OperationOutcomeKind _lastActionKind = OperationOutcomeKind.Preview;
@@ -177,10 +189,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ExportManifestCommand = new AsyncRelayCommand(ExportManifestAsync);
         ExportRuntimeConfigCommand = new AsyncRelayCommand(ExportRuntimeConfigAsync);
         ResetRuntimeConfigCommand = new AsyncRelayCommand(ResetRuntimeConfigAsync);
+        ImportSussexParticleTuningCommand = new AsyncRelayCommand(ImportSussexParticleTuningAsync);
+        ApplySussexParticleTuningCommand = new AsyncRelayCommand(ApplySussexParticleTuningAsync);
         ApplyTwinPresetCommand = new AsyncRelayCommand(ApplyTwinPresetAsync);
         PublishRuntimeConfigCommand = new AsyncRelayCommand(PublishRuntimeConfigAsync);
         SendTwinCommandCommand = new AsyncRelayCommand(SendTwinCommandAsync);
         RunUtilityCommand = new AsyncRelayCommand(RunUtilityAsync);
+        RefreshSussexParticleTuningState();
     }
 
     public ObservableCollection<QuestAppTarget> Apps { get; } = new();
@@ -339,6 +354,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ExportRuntimeConfigCommand { get; }
 
     public AsyncRelayCommand ResetRuntimeConfigCommand { get; }
+
+    public AsyncRelayCommand ImportSussexParticleTuningCommand { get; }
+
+    public AsyncRelayCommand ApplySussexParticleTuningCommand { get; }
 
     public AsyncRelayCommand ApplyTwinPresetCommand { get; }
 
@@ -747,6 +766,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 RefreshSelectedAppApkPath();
                 RefreshPipelineLabel();
                 RefreshRuntimeContextLabels();
+                RefreshSussexParticleTuningState();
                 OnPropertyChanged(nameof(SelectedAppSummary));
                 OnPropertyChanged(nameof(SelectedAppCapabilitySummary));
                 OnPropertyChanged(nameof(SelectedAppCommunicationSummary));
@@ -943,6 +963,54 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public string RuntimeConfigLiveSummary
         => "Live runtime state is passive. Values arrive on quest_twin_state only. They appear below in Live Runtime Values and in Twin Monitor > Live Twin Monitor, without polling ADB.";
+
+    public OperationOutcomeKind SussexParticleTuningLevel
+    {
+        get => _sussexParticleTuningLevel;
+        private set => SetProperty(ref _sussexParticleTuningLevel, value);
+    }
+
+    public string SussexParticleTuningSummary
+    {
+        get => _sussexParticleTuningSummary;
+        private set => SetProperty(ref _sussexParticleTuningSummary, value);
+    }
+
+    public string SussexParticleTuningDetail
+    {
+        get => _sussexParticleTuningDetail;
+        private set => SetProperty(ref _sussexParticleTuningDetail, value);
+    }
+
+    public string SussexParticleTuningSourcePath
+    {
+        get => _sussexParticleTuningSourcePath;
+        private set => SetProperty(ref _sussexParticleTuningSourcePath, value);
+    }
+
+    public string SussexParticleTuningValuesLabel
+    {
+        get => _sussexParticleTuningValuesLabel;
+        private set => SetProperty(ref _sussexParticleTuningValuesLabel, value);
+    }
+
+    public string SussexParticleTuningBaselineSummary
+    {
+        get => _sussexParticleTuningBaselineSummary;
+        private set => SetProperty(ref _sussexParticleTuningBaselineSummary, value);
+    }
+
+    public string SussexParticleTuningTemplatePath
+    {
+        get => _sussexParticleTuningTemplatePath;
+        private set => SetProperty(ref _sussexParticleTuningTemplatePath, value);
+    }
+
+    public string SussexParticleTuningCompiledPath
+    {
+        get => _sussexParticleTuningCompiledPath;
+        private set => SetProperty(ref _sussexParticleTuningCompiledPath, value);
+    }
 
     public string TwinTrackingCoverageSummary
     {
@@ -1398,6 +1466,64 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RefreshRuntimeConfigProfileSelection()
         => _runtimeConfig.SelectProfileForPackage(SelectedApp?.PackageId);
+
+    private void RefreshSussexParticleTuningState()
+    {
+        SussexParticleTuningTemplatePath = AppAssetLocator.TryResolveSussexParticleSizeTemplatePath()
+            ?? "Bundled Sussex particle-size template not found.";
+        SussexParticleTuningValuesLabel = _sussexParticleSizeTuningDocument is null
+            ? "No Sussex particle-size values imported yet."
+            : $"Imported min {_sussexParticleSizeTuningDocument.ParticleSizeMinimum.Value:0.###} | max {_sussexParticleSizeTuningDocument.ParticleSizeMaximum.Value:0.###} ({_sussexParticleSizeTuningDocument.PackageId}).";
+        SussexParticleTuningBaselineSummary = TryGetLiveSussexRuntimeConfigJson(out _, out var baselineDetail)
+            ? "Live Sussex runtime JSON baseline is available on quest_twin_state."
+            : baselineDetail;
+    }
+
+    private bool TryGetLiveSussexRuntimeConfigJson(out string runtimeConfigJson, out string detail)
+    {
+        runtimeConfigJson = string.Empty;
+
+        if (_sussexParticleSizeTuningDocument is null)
+        {
+            detail = "Import a Sussex particle-size tuning V1 JSON file first.";
+            return false;
+        }
+
+        if (SelectedApp is null)
+        {
+            detail = "Select the Sussex Experiment target app before compiling a particle-size tuning file.";
+            return false;
+        }
+
+        if (!string.Equals(SelectedApp.PackageId, _sussexParticleSizeTuningDocument.PackageId, StringComparison.OrdinalIgnoreCase))
+        {
+            detail = $"Selected app {SelectedApp.PackageId} does not match the tuning file target {_sussexParticleSizeTuningDocument.PackageId}.";
+            return false;
+        }
+
+        if (_twinBridge is not LslTwinModeBridge lslBridge)
+        {
+            detail = _twinBridge.Status.Detail;
+            return false;
+        }
+
+        if (lslBridge.ReportedSettings.TryGetValue("showcase_active_runtime_config_json", out runtimeConfigJson) &&
+            !string.IsNullOrWhiteSpace(runtimeConfigJson))
+        {
+            detail = "Live Sussex runtime JSON baseline is available on quest_twin_state.";
+            return true;
+        }
+
+        if (lslBridge.ReportedSettings.TryGetValue("hotload.showcase_active_runtime_config_json", out runtimeConfigJson) &&
+            !string.IsNullOrWhiteSpace(runtimeConfigJson))
+        {
+            detail = "Live Sussex runtime JSON baseline is available on quest_twin_state.";
+            return true;
+        }
+
+        detail = "Connect the live Sussex runtime and let it publish showcase_active_runtime_config_json on quest_twin_state before applying a particle-size tuning file.";
+        return false;
+    }
 
     private void RefreshSelectedAppApkPath()
     {
@@ -1873,6 +1999,166 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }).ConfigureAwait(false);
     }
 
+    private async Task ImportSussexParticleTuningAsync()
+    {
+        var initialDirectory = Path.GetDirectoryName(AppAssetLocator.TryResolveSussexParticleSizeTemplatePath() ?? string.Empty) ?? string.Empty;
+        var selectedPath = await DispatchAsync(() =>
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "Import Sussex Particle Size Tuning V1 JSON",
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                InitialDirectory = Directory.Exists(initialDirectory) ? initialDirectory : string.Empty
+            };
+
+            return dialog.ShowDialog() == true ? dialog.FileName : string.Empty;
+        }).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(selectedPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(selectedPath).ConfigureAwait(false);
+            var document = _sussexParticleSizeTuningCompiler.Parse(json);
+            await DispatchAsync(() =>
+            {
+                _sussexParticleSizeTuningDocument = document;
+                SussexParticleTuningSourcePath = selectedPath;
+                SussexParticleTuningCompiledPath = "No compiled Sussex particle-size hotload CSV written yet.";
+                SussexParticleTuningLevel = OperationOutcomeKind.Success;
+                SussexParticleTuningSummary = "Imported Sussex particle-size tuning V1 file.";
+                SussexParticleTuningDetail = $"Loaded {Path.GetFileName(selectedPath)}. The companion will compile it onto the live Sussex runtime JSON baseline and upload the full payload through the normal hotload CSV path.";
+                RefreshSussexParticleTuningState();
+                AppendLog(
+                    OperatorLogLevel.Info,
+                    "Sussex particle-size tuning imported.",
+                    $"{Path.GetFileName(selectedPath)} | min {document.ParticleSizeMinimum.Value:0.###} | max {document.ParticleSizeMaximum.Value:0.###}");
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await DispatchAsync(() =>
+            {
+                SussexParticleTuningLevel = OperationOutcomeKind.Failure;
+                SussexParticleTuningSummary = "Sussex particle-size tuning import failed.";
+                SussexParticleTuningDetail = ex.Message;
+                AppendLog(OperatorLogLevel.Failure, "Sussex particle-size tuning import failed.", ex.Message);
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ApplySussexParticleTuningAsync()
+    {
+        if (_sussexParticleSizeTuningDocument is null)
+        {
+            await DispatchAsync(() => AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Sussex particle-size apply blocked.",
+                    "Import a Sussex particle-size tuning V1 JSON file first."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (SelectedApp is null)
+        {
+            await DispatchAsync(() => AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Sussex particle-size apply blocked.",
+                    "Select the Sussex Experiment target app first."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (!string.Equals(SelectedApp.PackageId, _sussexParticleSizeTuningDocument.PackageId, StringComparison.OrdinalIgnoreCase))
+        {
+            await DispatchAsync(() => AppendLog(
+                    OperatorLogLevel.Warning,
+                    "Sussex particle-size apply blocked.",
+                    $"The imported tuning file targets {_sussexParticleSizeTuningDocument.PackageId}, but the current app target is {SelectedApp.PackageId}."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryGetLiveSussexRuntimeConfigJson(out var baselineRuntimeConfigJson, out var baselineDetail))
+        {
+            await DispatchAsync(() =>
+            {
+                SussexParticleTuningLevel = OperationOutcomeKind.Warning;
+                SussexParticleTuningSummary = "Sussex particle-size apply blocked.";
+                SussexParticleTuningDetail = baselineDetail;
+                AppendLog(OperatorLogLevel.Warning, "Sussex particle-size apply blocked.", baselineDetail);
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            var compiled = _sussexParticleSizeTuningCompiler.Compile(_sussexParticleSizeTuningDocument, baselineRuntimeConfigJson);
+            var stagedIntoInspector = await DispatchAsync(() => _runtimeConfig.TrySetValue(compiled.HotloadTargetKey, compiled.PrettyRuntimeConfigJson)).ConfigureAwait(false);
+
+            var version = DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture);
+            var profileId = $"sussex_particle_size_v1_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}";
+            var description = $"Compiled from {Path.GetFileName(SussexParticleTuningSourcePath)}. Only ParticleSizeEnvelopeLimits.x/y were changed.";
+            var runtimeProfile = new RuntimeConfigProfile(
+                profileId,
+                "Sussex Particle Size V1",
+                string.Empty,
+                version,
+                "study",
+                false,
+                description,
+                [SelectedApp.PackageId],
+                [new RuntimeConfigEntry(compiled.HotloadTargetKey, compiled.CompactRuntimeConfigJson)]);
+
+            var csvPath = await _runtimeConfigWriter.WriteAsync(runtimeProfile).ConfigureAwait(false);
+            var hotloadProfile = new HotloadProfile(
+                runtimeProfile.Id,
+                runtimeProfile.Label,
+                csvPath,
+                runtimeProfile.Version,
+                runtimeProfile.Channel,
+                runtimeProfile.StudyLock,
+                runtimeProfile.Description,
+                runtimeProfile.PackageIds);
+
+            var uploadOutcome = await _questService.ApplyHotloadProfileAsync(hotloadProfile, SelectedApp).ConfigureAwait(false);
+            var detail = stagedIntoInspector
+                ? $"{uploadOutcome.Detail} The compiled full runtime JSON was also staged into the Runtime Config inspector under {compiled.HotloadTargetKey}."
+                : $"{uploadOutcome.Detail} The compiled full runtime JSON was uploaded, but the Runtime Config inspector could not be updated locally.";
+            var combinedOutcome = new OperationOutcome(
+                uploadOutcome.Kind,
+                uploadOutcome.Summary,
+                detail,
+                uploadOutcome.Endpoint,
+                uploadOutcome.PackageId,
+                [csvPath]);
+
+            await DispatchAsync(() =>
+            {
+                SussexParticleTuningCompiledPath = csvPath;
+                SussexParticleTuningLevel = combinedOutcome.Kind;
+                SussexParticleTuningSummary = combinedOutcome.Summary;
+                SussexParticleTuningDetail = combinedOutcome.Detail;
+                RefreshSussexParticleTuningState();
+            }).ConfigureAwait(false);
+
+            await ApplyOutcomeAsync("Apply Sussex Particle Size Tuning", combinedOutcome).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await DispatchAsync(() =>
+            {
+                SussexParticleTuningLevel = OperationOutcomeKind.Failure;
+                SussexParticleTuningSummary = "Sussex particle-size apply failed.";
+                SussexParticleTuningDetail = ex.Message;
+                AppendLog(OperatorLogLevel.Failure, "Sussex particle-size apply failed.", ex.Message);
+            }).ConfigureAwait(false);
+        }
+    }
+
     private async Task ApplyTwinPresetAsync()
     {
         if (SelectedApp is null || SelectedHotloadProfile is null)
@@ -1965,6 +2251,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             _liveTwinPublisherPackageId = null;
             LastTwinStateTimestampLabel = "No live app-state timestamp yet.";
             SettingsDelta.Clear();
+            RefreshSussexParticleTuningState();
             OnPropertyChanged(nameof(TwinInspectorScopeSummary));
             OnPropertyChanged(nameof(TwinInspectorMatchLabel));
             OnPropertyChanged(nameof(TwinInspectorMatchPercent));
@@ -2031,6 +2318,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         LastTwinStateTimestampLabel = lslBridge.LastStateReceivedAt is null
             ? "No live LSL app-state timestamp yet."
             : $"Last app-state frame {lslBridge.LastStateReceivedAt.Value.ToLocalTime():HH:mm:ss}.";
+        RefreshSussexParticleTuningState();
         RefreshRuntimeContextLabels();
         RefreshTwinBridgeStatus(deltas);
         NotifyOverviewStateChanged();

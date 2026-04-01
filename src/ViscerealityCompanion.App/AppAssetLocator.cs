@@ -29,6 +29,32 @@ internal static class AppAssetLocator
                 "samples",
                 "study-shells"));
 
+    public static string? TryResolveOscillatorConfigRoot()
+        => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_OSCILLATOR_CONFIG_ROOT"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "oscillator-config")),
+            Path.Combine(AppContext.BaseDirectory, "samples", "oscillator-config"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "ViscerealityCompanion",
+                "samples",
+                "oscillator-config"));
+
+    public static string? TryResolveSussexParticleSizeTemplatePath()
+        => TryResolveExistingFile(
+            Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_PARTICLE_SIZE_TEMPLATE"),
+            Path.Combine(TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-particle-size-v1.template.json"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "AstralKarateDojo",
+                "QuestSessionKit",
+                "LlmTuningProfiles",
+                "sussex-particle-size-v1.template.json"));
+
     private static string ResolveExistingDirectory(params string?[] candidates)
         => TryResolveExistingDirectory(candidates)
             ?? throw new DirectoryNotFoundException("Could not resolve the requested Viscereality asset directory.");
@@ -36,6 +62,12 @@ internal static class AppAssetLocator
     private static string? TryResolveExistingDirectory(params string?[] candidates)
         => candidates
             .Where(candidate => !string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+            .Select(candidate => Path.GetFullPath(candidate!))
+            .FirstOrDefault();
+
+    private static string? TryResolveExistingFile(params string?[] candidates)
+        => candidates
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate))
             .Select(candidate => Path.GetFullPath(candidate!))
             .FirstOrDefault();
 }

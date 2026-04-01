@@ -1893,6 +1893,46 @@
                                                    Margin="0,8,0,0" />
                                     </StackPanel>
                                 </Border>
+                                <Border Style="{StaticResource InsetPanelStyle}" Margin="0,14,0,0"
+                                        Background="{Binding SussexParticleTuningLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                        BorderBrush="{Binding SussexParticleTuningLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                    <StackPanel>
+                                        <TextBlock Text="Sussex particle size tuning (V1)" Style="{StaticResource EyebrowStyle}" />
+                                        <TextBlock Text="{Binding SussexParticleTuningSummary}"
+                                                   FontWeight="Bold"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{Binding SussexParticleTuningLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                        <TextBlock Text="{Binding SussexParticleTuningDetail}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,8,0,0"
+                                                   TextWrapping="Wrap" />
+                                        <WrapPanel Margin="0,10,0,6">
+                                            <Button Content="Import Tuning JSON" Command="{Binding ImportSussexParticleTuningCommand}" />
+                                            <Button Content="Compile + Upload To Sussex" Command="{Binding ApplySussexParticleTuningCommand}" />
+                                        </WrapPanel>
+                                        <TextBlock Text="{Binding SussexParticleTuningValuesLabel}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding SussexParticleTuningBaselineSummary}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding SussexParticleTuningSourcePath}"
+                                                   Style="{StaticResource InspectorKeyStyle}"
+                                                   Margin="0,8,0,0"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding SussexParticleTuningCompiledPath}"
+                                                   Style="{StaticResource InspectorKeyStyle}"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding SussexParticleTuningTemplatePath}"
+                                                   Style="{StaticResource InspectorKeyStyle}"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
                                 <CheckBox Content="Remote-only research control"
                                           Margin="0,14,0,0"
                                           IsChecked="{Binding RemoteOnlyControlEnabled}" />

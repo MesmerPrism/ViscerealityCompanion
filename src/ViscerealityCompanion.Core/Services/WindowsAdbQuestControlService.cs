@@ -8,6 +8,9 @@ namespace ViscerealityCompanion.Core.Services;
 
 public sealed class WindowsAdbQuestControlService : IQuestControlService
 {
+    private static readonly TimeSpan WifiAdbTransportSettleDelay = TimeSpan.FromMilliseconds(1500);
+    private static readonly TimeSpan AdbServerRestartProbeDelay = TimeSpan.FromMilliseconds(500);
+    private const int AdbServerRestartProbeAttempts = 3;
     private const string ProfileBrightnessPercentKey = "viscereality.screen_brightness_percent";
     private const string ProfileMediaVolumeKey = "viscereality.media_volume_music";
     private const string ProfileHeadsetBatteryMinimumKey = "viscereality.minimum_headset_battery_percent";
@@ -147,21 +150,50 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         await ProbeUsbAsync(cancellationToken).ConfigureAwait(false);
         var selector = await EnsureUsbSelectorAsync(cancellationToken).ConfigureAwait(false);
+        var ipAddress = await TryReadQuestWifiIpAddressAsync(selector, cancellationToken).ConfigureAwait(false);
         var tcpip = await RunAdbAsync(["-s", selector, "tcpip", "5555"], cancellationToken).ConfigureAwait(false);
         if (tcpip.ExitCode != 0)
         {
             return Failure("Wi-Fi ADB bootstrap failed.", tcpip.CombinedOutput);
         }
 
-        var ipAddress = await TryReadQuestWifiIpAddressAsync(selector, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(ipAddress))
+        {
+            await Task.Delay(WifiAdbTransportSettleDelay, cancellationToken).ConfigureAwait(false);
+
+            var refreshedUsbSelector = await TryGetUsbSelectorAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(refreshedUsbSelector))
+            {
+                ipAddress = await TryReadQuestWifiIpAddressAsync(refreshedUsbSelector, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         var endpoint = string.IsNullOrWhiteSpace(ipAddress) ? string.Empty : $"{ipAddress}:5555";
 
+        if (string.IsNullOrWhiteSpace(endpoint))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Quest switched to TCP/IP mode on port 5555.",
+                $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail} The headset Wi-Fi IP could not be read automatically, so run Connect Quest with the known IP:port or use Find Wi-Fi Quest before removing the cable.");
+        }
+
+        await Task.Delay(WifiAdbTransportSettleDelay, cancellationToken).ConfigureAwait(false);
+        await RunAdbAsync(["disconnect", endpoint], cancellationToken).ConfigureAwait(false);
+        var connectResult = await ConnectAsync(endpoint, cancellationToken).ConfigureAwait(false);
+        if (connectResult.Kind == OperationOutcomeKind.Success)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                $"Quest switched to TCP/IP mode on port 5555 and connected at {endpoint}.",
+                $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail} {connectResult.Detail}".Trim(),
+                Endpoint: endpoint);
+        }
+
         return new OperationOutcome(
-            OperationOutcomeKind.Success,
-            "Quest switched to TCP/IP mode on port 5555.",
-            string.IsNullOrWhiteSpace(endpoint)
-                ? $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail} If the session remains on USB, reconnect from the companion before removing the cable."
-                : $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail}",
+            OperationOutcomeKind.Warning,
+            $"Quest switched to TCP/IP mode on port 5555, but reconnect to {endpoint} did not complete.",
+            $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail} {connectResult.Detail}".Trim(),
             Endpoint: endpoint);
     }
 
@@ -1786,6 +1818,28 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         return probe.Endpoint!;
     }
 
+    private async Task<string?> TryGetUsbSelectorAsync(CancellationToken cancellationToken)
+    {
+        var devices = await ListDevicesAsync(cancellationToken).ConfigureAwait(false);
+        var selector = devices
+            .FirstOrDefault(device => !device.IsTcp && string.Equals(device.State, "device", StringComparison.OrdinalIgnoreCase))
+            ?.Serial;
+
+        if (!string.IsNullOrWhiteSpace(selector))
+        {
+            lock (_sync)
+            {
+                _lastUsbSelector = selector;
+                if (string.IsNullOrWhiteSpace(_activeSelector) || !LooksLikeTcpSelector(_activeSelector))
+                {
+                    _activeSelector = selector;
+                }
+            }
+        }
+
+        return selector;
+    }
+
     private async Task<string> EnsureSelectorAsync(CancellationToken cancellationToken)
     {
         var selector = await ResolveResponsiveSelectorAsync(cancellationToken).ConfigureAwait(false);
@@ -2130,12 +2184,24 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     {
         var kill = await RunAdbAsync(["kill-server"], cancellationToken).ConfigureAwait(false);
         var start = await RunAdbAsync(["start-server"], cancellationToken).ConfigureAwait(false);
+        var combinedDetail = AdbShellSupport.Collapse($"{kill.CombinedOutput} {start.CombinedOutput}");
         if (start.ExitCode != 0)
         {
-            return (false, $"ADB start-server failed. {AdbShellSupport.Collapse($"{kill.CombinedOutput} {start.CombinedOutput}")}".Trim());
+            for (var attempt = 1; attempt <= AdbServerRestartProbeAttempts; attempt++)
+            {
+                await Task.Delay(AdbServerRestartProbeDelay, cancellationToken).ConfigureAwait(false);
+                var probe = await RunAdbAsync(["devices"], cancellationToken).ConfigureAwait(false);
+                if (probe.ExitCode == 0)
+                {
+                    var probeDetail = AdbShellSupport.Collapse(probe.CombinedOutput);
+                    return (true, $"ADB daemon recovered after an initial start-server error. {combinedDetail} {probeDetail}".Trim());
+                }
+            }
+
+            return (false, $"ADB start-server failed. {combinedDetail}".Trim());
         }
 
-        return (true, AdbShellSupport.Collapse($"{kill.CombinedOutput} {start.CombinedOutput}"));
+        return (true, combinedDetail);
     }
 
     private static string NormalizeEndpoint(string endpoint)
