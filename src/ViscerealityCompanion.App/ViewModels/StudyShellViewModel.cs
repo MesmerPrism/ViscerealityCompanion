@@ -62,13 +62,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         new(3, "Match the Wi-Fi network", "Confirm the headset Wi-Fi name matches this PC. If it does not, change the headset Wi-Fi manually in-headset because remote Wi-Fi switching is not reliable."),
         new(4, "Unplug USB and confirm Wi-Fi-only control", "Remove the USB cable and make sure the companion still reaches the headset over Wi-Fi ADB. Every remaining guided step should run over Wi-Fi ADB, not USB."),
         new(5, "Verify the Sussex APK", "Check whether the approved Sussex Experiment APK is installed. If not, install the bundled study APK before moving on."),
-        new(6, "Enforce the device profile", "Confirm CPU, GPU, brightness, media volume, battery thresholds, and the current software identity before leaving the bench."),
+        new(6, "Review the device profile", "Apply the pinned CPU, GPU, brightness, and media-volume profile, then review the battery and software-identity warnings before leaving the bench. These checks stay visible, but they do not block the Sussex flow."),
         new(7, "Draw the boundary", "Have the experimenter draw a comfortable boundary that covers the participant position, experimenter position, and the full experiment area. This step is manual and not enforced by the app."),
         new(8, "Launch kiosk mode", "Launch the Sussex runtime in kiosk mode. Kiosk means the study app is pinned in front and normal app switching is suppressed until the operator exits."),
         new(9, "Verify LSL reaches the headset", "Confirm the external heartbeat/biofeedback LSL stream is reaching the Sussex runtime and that the resulting live state is visible back in the companion."),
-        new(10, "Test particle commands", "Use the companion controls to turn particles on and then off again. This confirms the Unity command bridge is still reacting."),
+        new(10, "Test particle commands", "Use the companion controls to turn particles on and then off again. This is still recommended for bench confidence, but it does not block the Sussex flow."),
         new(11, "Try controller calibration", "Controller-volume breathing calibration is available here, but the current Sussex APK path is still unstable. Try it if useful, but it is not required before continuing."),
-        new(12, "Run a 20 second validation capture", "Enter a temporary subject id, record a short validation run, let the start and end clock-alignment bursts plus sparse background probes run automatically, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
+        new(12, "Run an optional 20 second validation capture", "Enter a temporary subject id, record a short validation run, let the start and end clock-alignment bursts plus sparse background probes run automatically, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
         new(13, "Reset for the real participant", "Reset calibration, make sure particles are off, and close the guide so the main runtime tab can be used for the real participant later.")
     ];
     private static readonly string[] WorkflowGuideExpectedDeviceRecordingFiles =
@@ -6079,22 +6079,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         WorkflowGuideGateState rightControllerBatteryState,
         WorkflowGuideGateState softwareIdentityState)
     {
-        var ready = deviceProfileState.Ready
+        var checksClear = deviceProfileState.Ready
             && headsetBatteryState.Ready
             && rightControllerBatteryState.Ready
             && softwareIdentityState.Ready;
-        var level = CombineWorkflowGuideLevels(
-            deviceProfileState.Level,
-            headsetBatteryState.Level,
-            rightControllerBatteryState.Level,
-            softwareIdentityState.Level);
         var detail =
             $"{deviceProfileState.Summary} {headsetBatteryState.Summary} {rightControllerBatteryState.Summary} {softwareIdentityState.Summary}";
         return new WorkflowGuideGateState(
-            ready ? OperationOutcomeKind.Success : level,
-            ready ? "Device profile and bench safety checks confirmed." : "Device profile step still has outstanding checks.",
+            checksClear ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+            checksClear ? "Device profile and bench safety checks confirmed." : "Device profile step completed with warnings.",
             detail,
-            ready);
+            true);
     }
 
     private WorkflowGuideGateState BuildKioskWorkflowGuideGateState()
@@ -6123,18 +6118,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private WorkflowGuideGateState BuildParticleWorkflowGuideGateState()
     {
-        var ready = _workflowGuideParticlesOnVerified
+        var verified = _workflowGuideParticlesOnVerified
             && _workflowGuideParticlesOffVerified
             && ParticlesLevel == OperationOutcomeKind.Success;
-        var level = ready
+        var level = verified
             ? OperationOutcomeKind.Success
-            : ParticlesLevel == OperationOutcomeKind.Failure
-                ? OperationOutcomeKind.Failure
-                : OperationOutcomeKind.Warning;
-        var detail = ready
+            : OperationOutcomeKind.Warning;
+        var detail = verified
             ? "Particles were turned on and then off again from the companion, and the runtime reported the expected resulting state."
-            : "Use the WPF buttons below to turn particles on once and then off again. The guide only advances after both commands were exercised in this guide session.";
-        return new WorkflowGuideGateState(level, ready ? "Particle command path verified." : "Particle command path not verified yet.", detail, ready);
+            : "Use the WPF buttons below to turn particles on once and then off again. This is still the recommended bench check even though the guide no longer blocks on it.";
+        return new WorkflowGuideGateState(level, verified ? "Particle command path verified." : "Particle command path is still recommended.", detail, true);
     }
 
     private WorkflowGuideGateState BuildCalibrationWorkflowGuideGateState()
@@ -6159,10 +6152,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private WorkflowGuideGateState BuildValidationCaptureWorkflowGuideGateState()
     {
-        var ready = ValidationCaptureCompleted
+        var completed = ValidationCaptureCompleted
             && !string.IsNullOrWhiteSpace(ValidationCaptureLocalFolderPath)
             && !string.IsNullOrWhiteSpace(ValidationCaptureDevicePullFolderPath);
-        var level = ready
+        var level = completed
             ? OperationOutcomeKind.Success
             : ValidationCaptureRunning
                 ? OperationOutcomeKind.Preview
@@ -6171,7 +6164,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             level,
             ValidationCaptureSummary,
             ValidationCaptureDetail,
-            ready);
+            true);
     }
 
     private IReadOnlyList<WorkflowGuideCheckItem> BuildWorkflowGuideCheckItems(int stepIndex)
@@ -6237,8 +6230,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             9 =>
             [
-                new WorkflowGuideCheckItem("Particle commands", particleCommandSummary, ParticlesDetail, _workflowGuideParticlesOnVerified && _workflowGuideParticlesOffVerified ? ParticlesLevel : OperationOutcomeKind.Warning),
-                new WorkflowGuideCheckItem("Runtime particle state", ParticlesSummary, "The step completes only after particles were turned on and then off again from this guide session.", ParticlesLevel)
+                new WorkflowGuideCheckItem("Particle commands", particleCommandSummary, ParticlesDetail, _workflowGuideParticlesOnVerified && _workflowGuideParticlesOffVerified && ParticlesLevel == OperationOutcomeKind.Success ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("Runtime particle state", ParticlesSummary, "The particle step remains recommended for bench confidence, but it no longer blocks the guide.", ToAdvisoryLevel(ParticlesLevel))
             ],
             10 =>
             [
@@ -6435,7 +6428,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private WorkflowGuideGateState EvaluateDeviceProfileGateState()
         => new(
-            DeviceProfileLevel,
+            ToAdvisoryLevel(DeviceProfileLevel),
             DeviceProfileSummary,
             DeviceProfileDetail,
             DeviceProfileLevel == OperationOutcomeKind.Success);
@@ -6508,11 +6501,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? $"{PinnedBuildDetail} OS/build/profile still match the approved Sussex baseline. Continue with this live session as the approval run for the new APK hash."
             : PinnedBuildDetail;
         return new WorkflowGuideGateState(
-            ready ? OperationOutcomeKind.Success : PinnedBuildLevel == OperationOutcomeKind.Failure ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning,
+            ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
             summary,
             detail,
             ready);
     }
+
+    private static OperationOutcomeKind ToAdvisoryLevel(OperationOutcomeKind level)
+        => level == OperationOutcomeKind.Failure ? OperationOutcomeKind.Warning : level;
 
     private bool IsPinnedBuildReadyForApprovalRun()
     {
@@ -6720,6 +6716,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         var headsetConnected = _headsetStatus?.IsConnected == true;
         var wifiReady = _headsetStatus?.IsWifiAdbTransport == true;
+        var wifiMatchReady = _headsetStatus?.WifiSsidMatchesHost == true;
         var buildReady = PinnedBuildLevel == OperationOutcomeKind.Success;
         var profileReady = DeviceProfileLevel == OperationOutcomeKind.Success;
         var runtimeForeground = IsStudyRuntimeForeground();
@@ -6731,7 +6728,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var canResetCalibration = CanResetBreathingCalibration;
         var canStartExperiment = CanStartExperiment;
         var canEndExperiment = CanEndExperiment;
-        var setupReady = headsetConnected && wifiReady && buildReady && profileReady;
+        var setupReady = headsetConnected && wifiReady && wifiMatchReady && buildReady;
         var participantIdReady = !string.IsNullOrWhiteSpace(ParticipantIdDraft);
         var recordingActive = _activeRecordingSession is not null;
         var experimentActive = IsExperimentActive();
@@ -6739,26 +6736,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var participantScreenshotReady = _lastQuestScreenshotCapturedAtUtc.HasValue;
 
         WorkflowSetupLevel = setupReady
-            ? OperationOutcomeKind.Success
+            ? profileReady
+                ? OperationOutcomeKind.Success
+                : OperationOutcomeKind.Warning
             : !headsetConnected
                 ? OperationOutcomeKind.Warning
-                : PinnedBuildLevel == OperationOutcomeKind.Failure || DeviceProfileLevel == OperationOutcomeKind.Failure
+                : PinnedBuildLevel == OperationOutcomeKind.Failure
                     ? OperationOutcomeKind.Failure
                     : OperationOutcomeKind.Warning;
         WorkflowSetupSummary = setupReady
-            ? "Headset, Sussex build, and device profile are ready."
+            ? profileReady
+                ? "Headset, Sussex build, and device profile are ready."
+                : "Headset and Sussex build are ready; device-profile warnings remain."
             : !headsetConnected
                 ? "Connect the headset before starting the Sussex protocol."
                 : !wifiReady
                     ? "Switch from USB to Wi-Fi ADB before starting the stable Sussex flow."
+                    : !wifiMatchReady
+                        ? "Match the headset Wi-Fi to this PC before starting the stable Sussex flow."
                     : PinnedBuildLevel == OperationOutcomeKind.Failure
                         ? "Pinned Sussex build still needs attention."
-                        : DeviceProfileLevel == OperationOutcomeKind.Failure
-                            ? "Pinned study device profile still needs attention."
-                            : "Headset setup is still incomplete.";
+                        : "Headset setup is still incomplete.";
         WorkflowSetupDetail =
-            $"{ConnectionTransportSummary} {PinnedBuildSummary} {DeviceProfileSummary} {HeadsetBatteryLabel}. {HeadsetSoftwareVersionLabel}. " +
-            "Battery thresholds and brightness/volume policy are visible, but not enforced by the workflow tab yet.";
+            $"{ConnectionTransportSummary} {WifiNetworkMatchSummary} {PinnedBuildSummary} {DeviceProfileSummary} {HeadsetBatteryLabel}. {HeadsetSoftwareVersionLabel}. " +
+            "Brightness, battery, and software-identity checks stay visible as warnings, but the Sussex flow now only blocks on APK readiness, Wi-Fi ADB, Wi-Fi match, and LSL verification.";
 
         WorkflowKioskLevel = !setupReady
             ? OperationOutcomeKind.Preview
@@ -6780,20 +6781,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         WorkflowBenchLevel = !runtimeForeground
             ? OperationOutcomeKind.Preview
-            : ControllerLevel == OperationOutcomeKind.Failure || LslLevel == OperationOutcomeKind.Failure
+            : LslLevel == OperationOutcomeKind.Failure
                 ? OperationOutcomeKind.Failure
-                : hasLiveTwinState && lslHealthy && controllerCalibrated && recenterVerified && particlesVerified
+                : hasLiveTwinState && lslHealthy
                     ? OperationOutcomeKind.Success
                     : OperationOutcomeKind.Warning;
         WorkflowBenchSummary = !runtimeForeground
             ? "Bench verification is waiting for the Sussex runtime."
             : WorkflowBenchLevel == OperationOutcomeKind.Failure
-                ? "Bench verification failed one or more critical checks."
+                ? "Bench verification failed the required LSL check."
                 : WorkflowBenchLevel == OperationOutcomeKind.Success
-                    ? "Bench verification looks healthy."
-                    : "Run particles, recenter, LSL, and controller calibration checks before handoff.";
+                    ? "Bench verification cleared the required LSL check."
+                    : "LSL verification is still pending before participant handoff.";
         WorkflowBenchDetail =
-            $"{LslSummary} {ControllerSummary} Calibration {ControllerCalibrationLabel}. {RecenterSummary} {ParticlesSummary}";
+            $"{LslSummary} {ControllerSummary} Calibration {ControllerCalibrationLabel}. {RecenterSummary} {ParticlesSummary} Recenter, particles, and controller calibration stay visible as bench warnings, but they no longer block the Sussex flow.";
 
         participantStartReady = runtimeForeground
             && WorkflowBenchLevel == OperationOutcomeKind.Success

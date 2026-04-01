@@ -11,4 +11,7 @@
     <ApplicationIcon>..\ViscerealityCompanion.App\Assets\viscereality-companion.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\ViscerealityCompanion.App\Assets\viscereality-wordmark.png" Link="Assets\viscereality-wordmark.png" />
+  </ItemGroup>
 </Project>

@@ -33,7 +33,7 @@
       "debug.oculus.gpuLevel": "5",
       "debug.oculus.foveation.dynamic": "false",
       "debug.oculus.foveation.level": "1",
-      "viscereality.screen_brightness_percent": "35",
+      "viscereality.screen_brightness_percent": "100",
       "viscereality.media_volume_music": "8",
       "viscereality.minimum_headset_battery_percent": "50",
       "viscereality.minimum_right_controller_battery_percent": "35"

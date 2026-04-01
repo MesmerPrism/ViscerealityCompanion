@@ -5,6 +5,10 @@ using System.Windows.Forms;
 
 namespace ViscerealityCompanion.PreviewInstaller;
 
+internal readonly record struct InstallerProgressUpdate(string Status, string Detail, int PercentComplete);
+
+internal readonly record struct InstallerCompletionResult(string AppInstallerPath);
+
 internal static class Program
 {
     private const string AppInstallerDownloadUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller";
@@ -21,7 +25,8 @@ internal static class Program
         try
         {
             EnsureAdministrator();
-            InstallPreviewAsync().GetAwaiter().GetResult();
+            using var installerForm = new InstallerStatusForm(InstallPreviewAsync, ReleasePageUri);
+            Application.Run(installerForm);
             return 0;
         }
         catch (Exception exception)
@@ -31,8 +36,15 @@ internal static class Program
         }
     }
 
-    private static async Task InstallPreviewAsync()
+    private static async Task<InstallerCompletionResult> InstallPreviewAsync(
+        IProgress<InstallerProgressUpdate> progress,
+        CancellationToken cancellationToken)
     {
+        progress.Report(new InstallerProgressUpdate(
+            "Preparing guided setup",
+            "Creating a temporary staging folder for the Sussex-focused research preview installer.",
+            5));
+
         var downloadDirectory = Path.Combine(Path.GetTempPath(), DownloadDirectoryName);
         Directory.CreateDirectory(downloadDirectory);
 
@@ -41,11 +53,36 @@ internal static class Program
 
         using var httpClient = new HttpClient();
 
-        await DownloadFileAsync(httpClient, CertificateDownloadUri, certificatePath);
-        await DownloadFileAsync(httpClient, AppInstallerDownloadUri, appInstallerPath);
+        progress.Report(new InstallerProgressUpdate(
+            "Downloading trust certificate",
+            "Pulling the preview signing certificate from the latest public GitHub release.",
+            25));
+        await DownloadFileAsync(httpClient, CertificateDownloadUri, certificatePath, cancellationToken);
 
+        progress.Report(new InstallerProgressUpdate(
+            "Downloading App Installer metadata",
+            "Fetching the current .appinstaller file that points Windows App Installer at the latest Sussex-focused preview package.",
+            50));
+        await DownloadFileAsync(httpClient, AppInstallerDownloadUri, appInstallerPath, cancellationToken);
+
+        progress.Report(new InstallerProgressUpdate(
+            "Trusting the preview certificate",
+            "Adding the public preview certificate to Trusted People so the MSIX package can be installed cleanly.",
+            70));
         TrustCertificate(certificatePath);
+
+        progress.Report(new InstallerProgressUpdate(
+            "Opening Windows App Installer",
+            "The package metadata is ready. Windows App Installer will open next so you can finish the install or update.",
+            95));
         LaunchAppInstaller(appInstallerPath);
+
+        progress.Report(new InstallerProgressUpdate(
+            "Windows App Installer opened",
+            "Continue the install in the Windows App Installer window. If it did not open, use the retry button below.",
+            100));
+
+        return new InstallerCompletionResult(appInstallerPath);
     }
 
     private static void EnsureAdministrator()
@@ -61,13 +98,13 @@ internal static class Program
         }
     }
 
-    private static async Task DownloadFileAsync(HttpClient httpClient, string sourceUri, string destinationPath)
+    private static async Task DownloadFileAsync(HttpClient httpClient, string sourceUri, string destinationPath, CancellationToken cancellationToken)
     {
-        using var response = await httpClient.GetAsync(sourceUri, HttpCompletionOption.ResponseHeadersRead);
+        using var response = await httpClient.GetAsync(sourceUri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         await using var output = File.Create(destinationPath);
-        await response.Content.CopyToAsync(output);
+        await response.Content.CopyToAsync(output, cancellationToken);
     }
 
     private static void TrustCertificate(string certificatePath)
