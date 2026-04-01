@@ -24,23 +24,27 @@ and immediate access to the bundled Sussex APK inside the app payload.
 The safest public install path is the **certificate + App Installer** route.
 The optional helper EXE is still available, but it is an ordinary Windows
 bootstrapper and can be blocked by Smart App Control on some machines.
+Some Windows machines also disable the `ms-appinstaller:` web-link protocol, so
+the safest path is to download the `.appinstaller` file and open it from disk
+instead of relying on the browser handoff.
 
 <div class="download-start">
   <section class="download-path download-path-primary">
     <h2>Start Here</h2>
-    <p>Use the signed App Installer flow directly. This avoids relying on the optional helper EXE, which Smart App Control may block on some Windows machines.</p>
+    <p>Use the signed App Installer file from disk. This avoids relying on the optional helper EXE, which Smart App Control may block, and it also avoids the optional <code>ms-appinstaller:</code> browser protocol that some Windows machines disable.</p>
     <div class="action-row">
       <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer">Download certificate</a>
-      <a class="button" href="ms-appinstaller:?source=https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">Open App Installer</a>
+      <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">Download App Installer file</a>
       <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases">Open release page</a>
     </div>
     <ol class="step-list">
       <li>Download <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer"><code>ViscerealityCompanion.cer</code></a>.</li>
       <li>Install it into <code>Local Machine</code> → <code>Trusted People</code>.</li>
-      <li>Open <a href="ms-appinstaller:?source=https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">Windows App Installer directly</a> or download <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller"><code>ViscerealityCompanion.appinstaller</code></a> and open it from disk.</li>
+      <li>Download <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller"><code>ViscerealityCompanion.appinstaller</code></a> and open it from disk.</li>
       <li>Install the app, then launch <strong>Viscereality Companion</strong> from the Start menu.</li>
       <li>Inside the app, stay in <code>Sussex University experiment mode</code> and use the sequential guide.</li>
     </ol>
+    <p>If the downloaded <code>.appinstaller</code> file still refuses to open, use the same certificate step and then install the direct <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.msix"><code>.msix</code> package</a> instead.</p>
   </section>
 
   <section class="download-path">
