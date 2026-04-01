@@ -65,6 +65,32 @@ function Find-MSBuild {
     throw 'MSBuild.exe was not found. Install Visual Studio Build Tools with the MSIX/Desktop Bridge workload, or run this in GitHub Actions on windows-latest.'
 }
 
+function Find-WindowsSdkTool {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ToolName
+    )
+
+    $command = Get-Command $ToolName -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $kitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+    if (Test-Path $kitsRoot) {
+        $tool = Get-ChildItem -Path $kitsRoot -Recurse -Filter $ToolName -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+        if ($null -ne $tool) {
+            return $tool.FullName
+        }
+    }
+
+    throw "$ToolName was not found. Install the Windows 10/11 SDK packaging tools."
+}
+
 function Initialize-DotNetSdkResolver {
     $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
     if (-not $dotnetCommand) {
@@ -90,6 +116,124 @@ function Initialize-DotNetSdkResolver {
     $env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR = $dotnetRoot
     $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_DIR = Join-Path $sdkDir.FullName 'Sdks'
     $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER = $sdkDir.Name
+}
+
+function Publish-PackagedAppPayload {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Configuration,
+        [Parameter(Mandatory = $true)]
+        [string]$RuntimeIdentifier,
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPath
+    )
+
+    if (Test-Path $OutputPath) {
+        Remove-Item -Path $OutputPath -Recurse -Force
+    }
+
+    New-Item -ItemType Directory -Force -Path $OutputPath | Out-Null
+
+    $publishArgs = @(
+        'publish',
+        $ProjectPath,
+        '-c', $Configuration,
+        '-r', $RuntimeIdentifier,
+        '-p:PublishSingleFile=true',
+        '-p:SelfContained=true',
+        '-o', $OutputPath
+    )
+
+    Write-Host "Publishing packaged desktop payload to $OutputPath" -ForegroundColor Cyan
+    & dotnet @publishArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish failed for packaged payload with exit code $LASTEXITCODE"
+    }
+
+    $exePath = Join-Path $OutputPath 'ViscerealityCompanion.exe'
+    if (-not (Test-Path $exePath)) {
+        throw "Packaged payload publish did not produce $exePath"
+    }
+}
+
+function Repack-WithPublishedPayload {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BasePackagePath,
+        [Parameter(Mandatory = $true)]
+        [string]$PublishedPayloadPath,
+        [Parameter(Mandatory = $true)]
+        [string]$OutputPackagePath,
+        [Parameter(Mandatory = $true)]
+        [bool]$Unsigned,
+        [string]$PackageCertificatePath,
+        [string]$PackageCertificatePassword,
+        [string]$PackageCertificateTimestampUrl
+    )
+
+    $makeAppxPath = Find-WindowsSdkTool -ToolName 'makeappx.exe'
+    $stageRoot = Join-Path ([System.IO.Path]::GetDirectoryName($OutputPackagePath)) ("_msix-stage-" + [guid]::NewGuid().ToString('N'))
+
+    try {
+        if (Test-Path $stageRoot) {
+            Remove-Item -Path $stageRoot -Recurse -Force
+        }
+
+        New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
+
+        Write-Host "Unpacking MSIX scaffold to $stageRoot" -ForegroundColor Cyan
+        & $makeAppxPath unpack /p $BasePackagePath /d $stageRoot /o | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "makeappx unpack failed with exit code $LASTEXITCODE"
+        }
+
+        $packagedAppPath = Join-Path $stageRoot 'ViscerealityCompanion.App'
+        if (Test-Path $packagedAppPath) {
+            Remove-Item -Path $packagedAppPath -Recurse -Force
+        }
+
+        New-Item -ItemType Directory -Force -Path $packagedAppPath | Out-Null
+        Copy-Item -Path (Join-Path $PublishedPayloadPath '*') -Destination $packagedAppPath -Recurse -Force
+
+        if (Test-Path $OutputPackagePath) {
+            Remove-Item -Path $OutputPackagePath -Force
+        }
+
+        Write-Host "Packing single-file MSIX payload to $OutputPackagePath" -ForegroundColor Cyan
+        & $makeAppxPath pack /d $stageRoot /p $OutputPackagePath /o | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "makeappx pack failed with exit code $LASTEXITCODE"
+        }
+
+        if (-not $Unsigned) {
+            $signToolPath = Find-WindowsSdkTool -ToolName 'signtool.exe'
+            $signArgs = @(
+                'sign',
+                '/fd', 'SHA256',
+                '/f', [System.IO.Path]::GetFullPath($PackageCertificatePath),
+                '/p', $PackageCertificatePassword
+            )
+
+            if (-not [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
+                $signArgs += @('/tr', $PackageCertificateTimestampUrl, '/td', 'SHA256')
+            }
+
+            $signArgs += $OutputPackagePath
+
+            Write-Host "Signing repacked MSIX with $signToolPath" -ForegroundColor Cyan
+            & $signToolPath @signArgs | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+                throw "signtool sign failed with exit code $LASTEXITCODE"
+            }
+        }
+    }
+    finally {
+        if (Test-Path $stageRoot) {
+            Remove-Item -Path $stageRoot -Recurse -Force
+        }
+    }
 }
 
 function Set-ManifestValue {
@@ -132,6 +276,7 @@ $manifestPath = Join-Path $packageProjectDir 'Package.appxmanifest'
 $appInstallerTemplatePath = Join-Path $packageProjectDir 'Package.appinstaller.template'
 $appPackagesRoot = Join-Path $packageProjectDir 'AppPackages'
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
+$publishedPayloadPath = Join-Path $env:TEMP ("ViscerealityCompanion-PackagedPayload-" + [guid]::NewGuid().ToString('N'))
 $syncBundledSussexApkScriptPath = Join-Path $repoRoot 'tools\app\Sync-Bundled-Sussex-Apk.ps1'
 
 if (-not (Test-Path $packageProjectPath)) {
@@ -237,8 +382,22 @@ try {
     }
 
     $packageOutputPath = Join-Path $outputPath $PackageFileName
-    Copy-Item $builtPackage.FullName $packageOutputPath -Force
-    Write-Host "Copied package to $packageOutputPath" -ForegroundColor Green
+    Publish-PackagedAppPayload `
+        -ProjectPath $entryProjectPath `
+        -Configuration $Configuration `
+        -RuntimeIdentifier "win-$Platform" `
+        -OutputPath $publishedPayloadPath
+
+    Repack-WithPublishedPayload `
+        -BasePackagePath $builtPackage.FullName `
+        -PublishedPayloadPath $publishedPayloadPath `
+        -OutputPackagePath $packageOutputPath `
+        -Unsigned ([bool]$Unsigned) `
+        -PackageCertificatePath $PackageCertificatePath `
+        -PackageCertificatePassword $PackageCertificatePassword `
+        -PackageCertificateTimestampUrl $PackageCertificateTimestampUrl
+
+    Write-Host "Wrote single-file package to $packageOutputPath" -ForegroundColor Green
 
     if (-not [string]::IsNullOrWhiteSpace($AppInstallerUri)) {
         $template = Get-Content $appInstallerTemplatePath -Raw
@@ -274,5 +433,9 @@ try {
     }
 }
 finally {
+    if (Test-Path $publishedPayloadPath) {
+        Remove-Item -Path $publishedPayloadPath -Recurse -Force
+    }
+
     [System.IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
 }
