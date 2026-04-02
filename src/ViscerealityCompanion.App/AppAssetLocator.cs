@@ -55,6 +55,11 @@ internal static class AppAssetLocator
                 "LlmTuningProfiles",
                 "sussex-particle-size-v1.template.json"));
 
+    public static string? TryResolveSussexVisualTuningTemplatePath()
+        => TryResolveExistingFile(
+            Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_TUNING_TEMPLATE"),
+            Path.Combine(TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-visual-tuning-v1.template.json"));
+
     private static string ResolveExistingDirectory(params string?[] candidates)
         => TryResolveExistingDirectory(candidates)
             ?? throw new DirectoryNotFoundException("Could not resolve the requested Viscereality asset directory.");

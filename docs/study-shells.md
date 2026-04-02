@@ -176,8 +176,26 @@ The embedded Sussex workspace checks:
 The active Sussex shell is organized into three operator views:
 
 - `Pre-session` for connection, Sussex APK verification, and device-profile setup
+- `Visual Profiles` for named appearance-only Sussex presets that the experimenter can create, compare, save, and apply over the existing hotload-file path
 - `During session` for the live monitoring and command surface
 - `Inspect` for detailed study-runtime settings, focused live values, and recent twin events
+
+The `Visual Profiles` tab is intentionally narrower than the general runtime
+editor. It only exposes the approved appearance controls for the Sussex scene:
+
+- sphere deformation on/off
+- particle-size minimum and maximum
+- depth-wave minimum and maximum
+- transparency minimum and maximum
+- saturation minimum and maximum
+- brightness minimum and maximum
+- orbit-distance minimum and maximum
+
+Each saved profile is stored as one self-describing JSON file under the local
+Companion profile library. The shell compiles that profile into a
+`showcase_active_runtime_config_json` hotload payload and uploads it through the
+existing Sussex ADB file path. The headset never consumes the partial source
+JSON directly.
 
 The workflow tab now also offers `Open Sequential Guide`, a pop-out onboarding
 window that walks the operator through the fixed Sussex protocol step by step:

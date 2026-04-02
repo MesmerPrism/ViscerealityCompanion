@@ -376,25 +376,24 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 "Provide the full path to the CSV or ensure the catalog root is correct.");
         }
 
-        var deviceDir = $"/sdcard/Android/data/{AdbShellSupport.Quote(target.PackageId)}/files/runtime_hotload";
-        var deviceFile = $"{deviceDir}/runtime_overrides.csv";
+        var remotePaths = BuildRuntimeHotloadRemotePaths(target.PackageId);
 
         // Create target directory on device
-        var mkdir = await RunShellAsync(selector, $"mkdir -p {deviceDir}", cancellationToken).ConfigureAwait(false);
+        var mkdir = await RunShellAsync(selector, $"mkdir -p {remotePaths.QuotedDirectory}", cancellationToken).ConfigureAwait(false);
         if (mkdir.ExitCode != 0)
         {
             return Failure($"Failed to create hotload directory on device.", mkdir.CombinedOutput);
         }
 
         // Push CSV
-        var push = await RunAdbAsync(["-s", selector, "push", csvPath, deviceFile], cancellationToken).ConfigureAwait(false);
+        var push = await RunAdbAsync(["-s", selector, "push", csvPath, remotePaths.DeviceFile], cancellationToken).ConfigureAwait(false);
         if (push.ExitCode != 0)
         {
             return Failure($"ADB push failed for {profile.Label}.", push.CombinedOutput);
         }
 
         // Verify file exists on device
-        var verify = await RunShellAsync(selector, $"ls -l {deviceFile}", cancellationToken).ConfigureAwait(false);
+        var verify = await RunShellAsync(selector, $"ls -l {remotePaths.QuotedFile}", cancellationToken).ConfigureAwait(false);
         if (verify.ExitCode != 0 || string.IsNullOrWhiteSpace(verify.StdOut))
         {
             return MergeWakeWarning(
@@ -409,7 +408,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         return MergeWakeWarning(
             Success(
                 $"Pushed hotload profile {profile.Label} to {target.PackageId}.",
-                $"Device path: {deviceFile}. {AdbShellSupport.Collapse(push.CombinedOutput)}",
+                $"Device path: {remotePaths.DeviceFile}. {AdbShellSupport.Collapse(push.CombinedOutput)}",
                 packageId: target.PackageId),
             wakeOutcome);
     }
@@ -2968,7 +2967,26 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var separatorIndex = selector.LastIndexOf(':');
         return separatorIndex > 0 ? selector[..separatorIndex] : string.Empty;
     }
+
+    internal static RuntimeHotloadRemotePaths BuildRuntimeHotloadRemotePaths(string packageId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+
+        var deviceDirectory = $"/sdcard/Android/data/{packageId.Trim()}/files/runtime_hotload";
+        var deviceFile = $"{deviceDirectory}/runtime_overrides.csv";
+        return new RuntimeHotloadRemotePaths(
+            deviceDirectory,
+            deviceFile,
+            AdbShellSupport.Quote(deviceDirectory),
+            AdbShellSupport.Quote(deviceFile));
+    }
 }
+
+internal readonly record struct RuntimeHotloadRemotePaths(
+    string DeviceDirectory,
+    string DeviceFile,
+    string QuotedDirectory,
+    string QuotedFile);
 
 internal readonly record struct QuestScreenBrightnessStatus(
     int? Percent,

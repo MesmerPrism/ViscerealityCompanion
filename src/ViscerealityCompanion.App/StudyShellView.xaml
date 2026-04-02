@@ -54,7 +54,8 @@
         </Style>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto"
+    <ScrollViewer x:Name="RootScrollViewer"
+                  VerticalScrollBarVisibility="Auto"
                   Background="{StaticResource AppBackgroundBrush}"
                   BorderThickness="0">
         <Grid Margin="4,8,4,6"
@@ -1035,6 +1036,274 @@
                             </StackPanel>
                         </Border>
                     </StackPanel>
+                </TabItem>
+
+                <TabItem Header="Visual Profiles"
+                         DataContext="{Binding VisualProfiles}">
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="340" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="1*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <Border Style="{StaticResource StudyPanelStyle}"
+                                    Background="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Visual profile library" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding LibrarySummary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding LibraryDetail}"
+                                               Style="{StaticResource SectionCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding TemplatePathLabel, StringFormat=Template: {0}}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding LibraryRootLabel, StringFormat=Folder: {0}}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0" />
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Content="New From Baseline" Command="{Binding NewFromBaselineCommand}" />
+                                        <Button Content="Duplicate" Command="{Binding DuplicateSelectedCommand}" />
+                                        <Button Content="Rename" Command="{Binding RenameSelectedCommand}" />
+                                        <Button Content="Import" Command="{Binding ImportProfileCommand}" />
+                                        <Button Content="Export" Command="{Binding ExportSelectedCommand}" />
+                                        <Button Content="Open Folder" Command="{Binding OpenFolderCommand}" />
+                                        <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" />
+                                        <Button Content="Apply" Command="{Binding ApplySelectedCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Saved profiles" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Each profile is stored as a self-describing json file in the local library."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <ListBox ItemsSource="{Binding Profiles}"
+                                             SelectedItem="{Binding SelectedProfile}"
+                                             Margin="0,10,0,0"
+                                             MinHeight="260"
+                                             Height="320">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Margin="0,0,0,8">
+                                                    <TextBlock Text="{Binding DisplayLabel}"
+                                                               FontWeight="Bold"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding ModifiedLabel, StringFormat=Updated {0}}"
+                                                               Style="{StaticResource CompactCaptionStyle}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyPanelStyle}"
+                                    Margin="0,12,0,0"
+                                    Background="{Binding ApplyLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding ApplyLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Apply and confirmation" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding ApplySummary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding ApplyLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding ApplyDetail}"
+                                               Style="{StaticResource SectionCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding LastCompiledCsvPath, StringFormat=Last CSV: {0}}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <Grid Grid.Column="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Border Style="{StaticResource StudyPanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Selected profile" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Edit values in the table below. Hover a parameter name for the metadata and tuning guidance bundled in the profile schema."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+
+                                    <Grid Margin="0,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="24" />
+                                            <ColumnDefinition Width="130" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="8" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <TextBlock Grid.Row="0"
+                                                   Grid.Column="0"
+                                                   Text="Profile name"
+                                                   Style="{StaticResource InfoLabelStyle}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBox Grid.Row="0"
+                                                 Grid.Column="1"
+                                                 Grid.ColumnSpan="5"
+                                                 Text="{Binding SelectedProfileName, UpdateSourceTrigger=PropertyChanged}" />
+
+                                        <TextBlock Grid.Row="2"
+                                                   Grid.Column="0"
+                                                   Text="Notes"
+                                                   Style="{StaticResource InfoLabelStyle}"
+                                                   VerticalAlignment="Top" />
+                                        <TextBox Grid.Row="2"
+                                                 Grid.Column="1"
+                                                 AcceptsReturn="True"
+                                                 MinHeight="64"
+                                                 Text="{Binding SelectedProfileNotes, UpdateSourceTrigger=PropertyChanged}"
+                                                 TextWrapping="Wrap"
+                                                 VerticalScrollBarVisibility="Auto" />
+
+                                        <TextBlock Grid.Row="2"
+                                                   Grid.Column="3"
+                                                   Text="Compare"
+                                                   Style="{StaticResource InfoLabelStyle}"
+                                                   VerticalAlignment="Center" />
+                                        <ComboBox Grid.Row="2"
+                                                  Grid.Column="4"
+                                                  ItemsSource="{Binding Profiles}"
+                                                  SelectedItem="{Binding CompareProfile}"
+                                                  DisplayMemberPath="DisplayLabel"
+                                                  VerticalAlignment="Top" />
+                                        <Button Grid.Row="2"
+                                                Grid.Column="5"
+                                                Content="Clear"
+                                                Margin="8,0,0,0"
+                                                Command="{Binding ClearCompareCommand}"
+                                                VerticalAlignment="Top" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2"
+                                    Style="{StaticResource StudyPanelStyle}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+
+                                    <StackPanel Grid.Row="0">
+                                        <TextBlock Text="Visual parameter table" Style="{StaticResource SectionTitleStyle}" />
+                                        <TextBlock Text="The Current column is editable. Numeric rows use direct entry, and the deformation row uses a checkbox. Compare columns stay blank until you choose a second profile."
+                                                   Style="{StaticResource SectionCaptionStyle}" />
+                                    </StackPanel>
+
+                                    <DataGrid ItemsSource="{Binding ComparisonRows}"
+                                               AutoGenerateColumns="False"
+                                               CanUserAddRows="False"
+                                               CanUserDeleteRows="False"
+                                               CanUserResizeRows="False"
+                                               IsReadOnly="False"
+                                               HeadersVisibility="Column"
+                                               Grid.Row="2"
+                                               MinHeight="620"
+                                               GridLinesVisibility="Horizontal"
+                                               PreviewMouseWheel="OnVisualProfilesTablePreviewMouseWheel"
+                                               ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                               ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Group" Binding="{Binding Group}" Width="0.85*" IsReadOnly="True" />
+                                            <DataGridTemplateColumn Header="Parameter" Width="1.8*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Label}"
+                                                                   ToolTip="{Binding ToolTipText}"
+                                                                   TextWrapping="Wrap" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="Current" Width="0.95*" IsReadOnly="False">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Grid>
+                                                            <TextBox Text="{Binding CurrentValueText, UpdateSourceTrigger=LostFocus}"
+                                                                     HorizontalContentAlignment="Right"
+                                                                     ToolTip="{Binding ToolTipText}">
+                                                                <TextBox.Style>
+                                                                    <Style TargetType="TextBox">
+                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsBooleanEditor}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBox.Style>
+                                                            </TextBox>
+                                                            <CheckBox IsChecked="{Binding CurrentBoolValue}"
+                                                                      HorizontalAlignment="Center"
+                                                                      VerticalAlignment="Center"
+                                                                      ToolTip="{Binding ToolTipText}">
+                                                                <CheckBox.Style>
+                                                                    <Style TargetType="CheckBox">
+                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsBooleanEditor}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </CheckBox.Style>
+                                                            </CheckBox>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Header="Baseline" Binding="{Binding Baseline}" Width="0.8*" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Δ Base" Binding="{Binding DeltaFromBaseline}" Width="0.8*" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Compare" Binding="{Binding Compare}" Width="0.8*" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Δ Compare" Binding="{Binding DeltaBetweenProfiles}" Width="0.9*" IsReadOnly="True" />
+                                            <DataGridTextColumn Header="Range" Binding="{Binding Range}" Width="1*" IsReadOnly="True" />
+                                            <DataGridTemplateColumn Header="Status" Width="0.85*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Confirmation}"
+                                                                   Foreground="{Binding ConfirmationLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="Reset" Width="0.7*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Button Content="Reset"
+                                                                Command="{Binding DataContext.ResetFieldCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                                CommandParameter="{Binding Field}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
                 </TabItem>
 
                 <TabItem Header="Inspect">

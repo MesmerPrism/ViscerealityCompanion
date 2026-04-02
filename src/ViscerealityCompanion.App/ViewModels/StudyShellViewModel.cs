@@ -26,7 +26,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int WorkflowTabIndex = 0;
     private const int PreSessionTabIndex = 1;
     private const int DuringSessionTabIndex = 2;
-    private const int InspectTabIndex = 3;
+    private const int VisualProfilesTabIndex = 3;
+    private const int InspectTabIndex = 4;
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
     private const string TestSenderHeartbeatMode = "3";
     private const string TestSenderCoherenceMode = "2";
@@ -101,6 +102,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly IStudyClockAlignmentService _clockAlignmentService = StudyClockAlignmentServiceFactory.CreateDefault();
     private readonly ILslMonitorService _upstreamLslMonitorService = LslMonitorServiceFactory.CreateDefault();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
+    private readonly SussexVisualProfilesWorkspaceViewModel _visualProfiles;
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
     private readonly DispatcherTimer? _deviceSnapshotRefreshTimer;
@@ -362,6 +364,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _studySessionState = StudyShellSessionState.Load();
         _regularAdbSnapshotEnabled = _appSessionState.RegularAdbSnapshotEnabled;
         _questService = QuestControlServiceFactory.CreateDefault(_appSessionState.ActiveEndpoint);
+        _visualProfiles = new SussexVisualProfilesWorkspaceViewModel(study, _questService);
         _endpointDraft = _appSessionState.ActiveEndpoint ?? string.Empty;
         _stagedApkPath = ResolveInitialApkPath();
 
@@ -447,6 +450,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string StudyPartner => _study.Partner;
     public string StudyDescription => _study.Description;
     public string PinnedPackageId => _study.App.PackageId;
+    public SussexVisualProfilesWorkspaceViewModel VisualProfiles => _visualProfiles;
 
     private void RegisterWorkflowGuideCommands()
     {
@@ -1920,6 +1924,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         _initialized = true;
+        await _visualProfiles.InitializeAsync().ConfigureAwait(false);
         EnsureTwinBridgeMonitoringStarted();
         await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
         var autoConnected = await ConnectQuestCoreAsync(warnWhenMissingEndpoint: false).ConfigureAwait(false);
@@ -1967,6 +1972,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         CloseWorkflowGuideWindow();
         CloseClockAlignmentWindow();
         _activeRecordingSession?.Dispose();
+        _visualProfiles.Dispose();
         _clockAlignmentService.Dispose();
         _testLslSignalService.Dispose();
     }
@@ -4754,6 +4760,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (_twinBridge is not LslTwinModeBridge lslBridge)
         {
             _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            _visualProfiles.RefreshReportedTwinState(_reportedTwinState);
             RefreshBenchToolsStatus();
             LiveRuntimeLevel = OperationOutcomeKind.Preview;
             LiveRuntimeSummary = _twinBridge.Status.Summary;
@@ -4776,6 +4783,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _reportedTwinState = lslBridge.ReportedSettings
             .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        _visualProfiles.RefreshReportedTwinState(_reportedTwinState);
 
         var reportedDeviceSessionDir = GetFirstValue("study.recording.device.session_dir");
         if (!string.IsNullOrWhiteSpace(reportedDeviceSessionDir))

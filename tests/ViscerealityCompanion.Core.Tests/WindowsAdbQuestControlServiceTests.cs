@@ -6,6 +6,25 @@ namespace ViscerealityCompanion.Core.Tests;
 public sealed class WindowsAdbQuestControlServiceTests
 {
     [Fact]
+    public void BuildRuntimeHotloadRemotePaths_keeps_adb_push_path_unquoted()
+    {
+        var paths = WindowsAdbQuestControlService.BuildRuntimeHotloadRemotePaths("com.Viscereality.SussexExperiment");
+
+        Assert.Equal(
+            "/sdcard/Android/data/com.Viscereality.SussexExperiment/files/runtime_hotload",
+            paths.DeviceDirectory);
+        Assert.Equal(
+            "/sdcard/Android/data/com.Viscereality.SussexExperiment/files/runtime_hotload/runtime_overrides.csv",
+            paths.DeviceFile);
+        Assert.Equal(
+            "'/sdcard/Android/data/com.Viscereality.SussexExperiment/files/runtime_hotload'",
+            paths.QuotedDirectory);
+        Assert.Equal(
+            "'/sdcard/Android/data/com.Viscereality.SussexExperiment/files/runtime_hotload/runtime_overrides.csv'",
+            paths.QuotedFile);
+    }
+
+    [Fact]
     public void ParseQuestWifiStatus_extracts_ssid_and_ip()
     {
         var output = """
