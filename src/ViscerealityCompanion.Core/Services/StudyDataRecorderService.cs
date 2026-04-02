@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.Core.Services;
@@ -221,7 +222,8 @@ public sealed record StudyDataRecordingStartRequest(
     string RuntimeHotloadProfileVersion,
     string RuntimeHotloadProfileChannel,
     string WindowsMachineName,
-    string QuestSelector);
+    string QuestSelector,
+    string SessionConditionsJson);
 
 public sealed class StudyDataRecordingSession : IDisposable
 {
@@ -255,6 +257,7 @@ public sealed class StudyDataRecordingSession : IDisposable
     private readonly StreamWriter _breathingWriter;
     private readonly StreamWriter _clockAlignmentWriter;
     private readonly StreamWriter _upstreamLslMonitorWriter;
+    private readonly string _sessionConditionsJson;
     private readonly Dictionary<string, string> _lastSignalValues = new(StringComparer.OrdinalIgnoreCase);
     private const int UpstreamLslMonitorSettingsPersistInterval = 25;
 
@@ -279,6 +282,8 @@ public sealed class StudyDataRecordingSession : IDisposable
         ClockAlignmentCsvPath = Path.Combine(SessionFolderPath, "clock_alignment_roundtrip.csv");
         UpstreamLslMonitorCsvPath = Path.Combine(SessionFolderPath, "upstream_lsl_monitor.csv");
         SettingsJsonPath = Path.Combine(SessionFolderPath, "session_settings.json");
+        SessionSnapshotJsonPath = Path.Combine(SessionFolderPath, "session_snapshot.json");
+        _sessionConditionsJson = request.SessionConditionsJson ?? string.Empty;
 
         _eventsWriter = CreateWriter(EventsCsvPath, encoding);
         _signalsWriter = CreateWriter(SignalsCsvPath, encoding);
@@ -369,6 +374,8 @@ public sealed class StudyDataRecordingSession : IDisposable
     public string UpstreamLslMonitorCsvPath { get; }
 
     public string SettingsJsonPath { get; }
+
+    public string SessionSnapshotJsonPath { get; }
 
     public void RecordEvent(
         string eventName,
@@ -629,6 +636,39 @@ public sealed class StudyDataRecordingSession : IDisposable
     {
         var json = JsonSerializer.Serialize(_settings, _jsonOptions);
         File.WriteAllText(SettingsJsonPath, json);
+        WriteSessionSnapshotDocument();
+    }
+
+    private void WriteSessionSnapshotDocument()
+    {
+        JsonNode? conditions = null;
+        string? parseError = null;
+        if (!string.IsNullOrWhiteSpace(_sessionConditionsJson))
+        {
+            try
+            {
+                conditions = JsonNode.Parse(_sessionConditionsJson);
+            }
+            catch (JsonException ex)
+            {
+                parseError = ex.Message;
+            }
+        }
+
+        var snapshot = new JsonObject
+        {
+            ["SchemaVersion"] = "sussex-session-snapshot-v1",
+            ["UpdatedAtUtc"] = DateTimeOffset.UtcNow.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            ["Settings"] = JsonSerializer.SerializeToNode(_settings, _jsonOptions),
+            ["Conditions"] = conditions ?? new JsonObject()
+        };
+
+        if (!string.IsNullOrWhiteSpace(parseError))
+        {
+            snapshot["ConditionsParseError"] = parseError;
+        }
+
+        File.WriteAllText(SessionSnapshotJsonPath, snapshot.ToJsonString(_jsonOptions));
     }
 
     private void DisposeWriters()

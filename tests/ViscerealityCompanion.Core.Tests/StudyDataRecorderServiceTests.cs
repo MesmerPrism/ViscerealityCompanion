@@ -185,6 +185,20 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Equal(session.UpstreamLslMonitorCsvPath, rootElement.GetProperty("UpstreamLslMonitorFile").GetString());
             Assert.Equal(1, rootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
             Assert.Equal("2026-03-29T12:42:56+00:00", rootElement.GetProperty("SessionEndedAtUtc").GetString());
+
+            using var sessionSnapshotDocument = JsonDocument.Parse(File.ReadAllText(session.SessionSnapshotJsonPath));
+            var snapshotRoot = sessionSnapshotDocument.RootElement;
+            Assert.Equal("sussex-session-snapshot-v1", snapshotRoot.GetProperty("SchemaVersion").GetString());
+            Assert.Equal("P007", snapshotRoot.GetProperty("Settings").GetProperty("ParticipantId").GetString());
+            Assert.Equal(
+                "sussex-session-conditions-v1",
+                snapshotRoot.GetProperty("Conditions").GetProperty("SchemaVersion").GetString());
+            Assert.Equal(
+                "participant-locked",
+                snapshotRoot.GetProperty("Conditions").GetProperty("Runtime").GetProperty("Mode").GetString());
+            Assert.Equal(
+                "0.11",
+                snapshotRoot.GetProperty("Conditions").GetProperty("ReportedTwinState").GetProperty("Values").GetProperty("study.pose.headset.local_pos_x").GetString());
         }
         finally
         {
@@ -290,7 +304,20 @@ public sealed class StudyDataRecorderServiceTests
             "2026.03.29",
             "public",
             "study-rig",
-            "Quest-Selector-01");
+            "Quest-Selector-01",
+            """
+            {
+              "SchemaVersion": "sussex-session-conditions-v1",
+              "Runtime": {
+                "Mode": "participant-locked"
+              },
+              "ReportedTwinState": {
+                "Values": {
+                  "study.pose.headset.local_pos_x": "0.11"
+                }
+              }
+            }
+            """);
 
     private static string CreateTempRoot()
     {

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
@@ -120,6 +121,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private HeadsetAppStatus? _headsetStatus;
     private InstalledAppStatus? _installedAppStatus;
     private DeviceProfileStatus? _deviceProfileStatus;
+    private string _lastInstalledAppStatusStagedApkPath = string.Empty;
     private QuestProximityStatus? _liveProximityStatus;
     private string? _liveProximitySelector;
     private DateTimeOffset? _lastProximityRefreshAtUtc;
@@ -358,6 +360,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private StudyValueSection? _selectedLiveSection;
     private DateTimeOffset? _lastQuestScreenshotCapturedAtUtc;
     private string _questVisualConfirmationPendingReason = string.Empty;
+    private const string AutomaticInstalledBuildHashingDetail =
+        "Installed-build hashing stays on the manual refresh path so regular ADB snapshots do not keep pulling the APK over Wi-Fi.";
 
     public StudyShellViewModel(StudyShellDefinition study)
     {
@@ -3954,7 +3958,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task<bool> RefreshDeviceSnapshotBundleAsync(bool forceProximity, bool includeHostWifiStatus = true)
+    private async Task<bool> RefreshDeviceSnapshotBundleAsync(
+        bool forceProximity,
+        bool includeHostWifiStatus = true,
+        bool forceInstalledAppStatusRefresh = true)
     {
         var entered = await DispatchAsync(() =>
         {
@@ -3975,7 +3982,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         try
         {
             await RefreshHeadsetStatusAsync(includeHostWifiStatus).ConfigureAwait(false);
-            await RefreshInstalledAppStatusAsync().ConfigureAwait(false);
+            if (ShouldRefreshInstalledAppStatusForSnapshot(
+                    forceRefresh: forceInstalledAppStatusRefresh,
+                    currentStatus: _installedAppStatus,
+                    currentStagedApkPath: _stagedApkPath,
+                    lastQueriedStagedApkPath: _lastInstalledAppStatusStagedApkPath))
+            {
+                await RefreshInstalledAppStatusAsync().ConfigureAwait(false);
+            }
             await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
             await RefreshProximityStatusAsync(force: forceProximity).ConfigureAwait(false);
             await DispatchAsync(() =>
@@ -4006,7 +4020,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? OperationOutcomeKind.Warning
             : OperationOutcomeKind.Success;
         HeadsetSnapshotModeSummary = RegularAdbSnapshotEnabled
-            ? "Regular ADB readouts are on. Useful for debugging, but they add headset-query overhead during a live run."
+            ? $"Regular ADB readouts are on. Useful for debugging, but they add headset-query overhead during a live run. {AutomaticInstalledBuildHashingDetail}"
             : "Regular ADB readouts are off. Use Refresh Snapshot when you want a fresh device state.";
         DeviceSnapshotTimestampLabel = _lastDeviceSnapshotAtUtc.HasValue
             ? $"Last headset snapshot {_lastDeviceSnapshotAtUtc.Value.ToLocalTime():HH:mm:ss}."
@@ -4035,16 +4049,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void OnDeviceSnapshotRefreshTimerTick(object? sender, EventArgs e)
     {
-        _ = RefreshDeviceSnapshotBundleAsync(forceProximity: true, includeHostWifiStatus: false);
+        _ = RefreshDeviceSnapshotBundleAsync(
+            forceProximity: true,
+            includeHostWifiStatus: false,
+            forceInstalledAppStatusRefresh: false);
     }
 
     private async Task RefreshInstalledAppStatusAsync()
     {
+        var normalizedStagedApkPath = await DispatchAsync(() => NormalizeInstalledAppStatusStagedApkPath(StagedApkPath)).ConfigureAwait(false);
         var target = CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false));
         _installedAppStatus = await _questService.QueryInstalledAppAsync(target).ConfigureAwait(false);
 
         await DispatchAsync(() =>
         {
+            _lastInstalledAppStatusStagedApkPath = normalizedStagedApkPath;
             var snapshotSuffix = _headsetStatus?.IsConnected == true
                 ? BuildSnapshotInlineSuffix(_lastDeviceSnapshotAtUtc)
                 : string.Empty;
@@ -4085,6 +4104,40 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     : _installedAppStatus.Detail;
             }
         }).ConfigureAwait(false);
+    }
+
+    internal static bool ShouldRefreshInstalledAppStatusForSnapshot(
+        bool forceRefresh,
+        InstalledAppStatus? currentStatus,
+        string? currentStagedApkPath,
+        string? lastQueriedStagedApkPath)
+    {
+        if (forceRefresh || currentStatus is null)
+        {
+            return true;
+        }
+
+        var normalizedCurrentPath = NormalizeInstalledAppStatusStagedApkPath(currentStagedApkPath);
+        var normalizedLastPath = NormalizeInstalledAppStatusStagedApkPath(lastQueriedStagedApkPath);
+        return !string.Equals(normalizedCurrentPath, normalizedLastPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string NormalizeInstalledAppStatusStagedApkPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = path.Trim();
+        try
+        {
+            return Path.GetFullPath(trimmed);
+        }
+        catch
+        {
+            return trimmed;
+        }
     }
 
     private async Task RefreshDeviceProfileStatusAsync()
@@ -5024,6 +5077,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var environmentHash = VerificationBaseline?.EnvironmentHash ?? string.Empty;
         var datasetId = BuildDatasetId(_study.Id, participantId, sessionId);
         var datasetHash = BuildDatasetHash(_study.Id, participantId, sessionId, startedAtUtc);
+        var sessionConditionsJson = BuildSessionConditionsJson(startedAtUtc);
         var settingsHash = BuildSettingsHash(
             _study.Id,
             _study.App.PackageId,
@@ -5071,8 +5125,108 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             runtimeHotloadProfileVersion,
             runtimeHotloadProfileChannel,
             Environment.MachineName,
-            ResolveHeadsetActionSelector());
+            ResolveHeadsetActionSelector(),
+            sessionConditionsJson);
     }
+
+    private string BuildSessionConditionsJson(DateTimeOffset capturedAtUtc)
+    {
+        var twinStateSnapshot = new Dictionary<string, string>(_reportedTwinState, StringComparer.OrdinalIgnoreCase);
+        var snapshot = new
+        {
+            SchemaVersion = "sussex-session-conditions-v1",
+            CapturedAtUtc = capturedAtUtc,
+            Study = new
+            {
+                _study.Id,
+                _study.Label,
+                _study.Description,
+                App = new
+                {
+                    _study.App.Label,
+                    _study.App.PackageId,
+                    _study.App.Sha256,
+                    _study.App.VersionName,
+                    _study.App.LaunchComponent,
+                    _study.App.ApkPath
+                },
+                DeviceProfile = new
+                {
+                    _study.DeviceProfile.Id,
+                    _study.DeviceProfile.Label,
+                    Properties = new Dictionary<string, string>(_study.DeviceProfile.Properties, StringComparer.OrdinalIgnoreCase)
+                },
+                Monitoring = new
+                {
+                    _study.Monitoring.ExpectedLslStreamName,
+                    _study.Monitoring.ExpectedLslStreamType,
+                    _study.Monitoring.RecenterDistanceThresholdUnits
+                }
+            },
+            Runtime = new
+            {
+                StagedApkPath,
+                InstalledAppStatus = _installedAppStatus,
+                HeadsetStatus = _headsetStatus,
+                DeviceProfileStatus = _deviceProfileStatus
+            },
+            ConditionHighlights = BuildSessionConditionHighlights(),
+            ReportedTwinState = new
+            {
+                KeyCount = twinStateSnapshot.Count,
+                Values = twinStateSnapshot
+            },
+            VisualTuning = _visualProfiles.CaptureSessionSnapshot(),
+            ControllerBreathingTuning = _controllerBreathingProfiles.CaptureSessionSnapshot()
+        };
+
+        return JsonSerializer.Serialize(snapshot, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+    }
+
+    private IReadOnlyDictionary<string, string?> BuildSessionConditionHighlights()
+    {
+        var highlights = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        AddSessionConditionHighlight(highlights, "study.session.state_label");
+        AddSessionConditionHighlight(highlights, "study.session.run_index");
+        AddSessionConditionHighlight(highlights, "study.session.dataset_id");
+        AddSessionConditionHighlight(highlights, "study.session.dataset_hash");
+        AddSessionConditionHighlight(highlights, "study.session.settings_hash");
+        AddSessionConditionHighlight(highlights, "study.breathing.value01");
+        AddSessionConditionHighlight(highlights, "study.coherence.value01");
+        AddSessionConditionHighlight(highlights, "study.radius.sphere.progress01");
+        AddSessionConditionHighlight(highlights, "study.radius.sphere.raw");
+        AddSessionConditionHighlight(highlights, "tracker.breathing.controller.active");
+        AddSessionConditionHighlight(highlights, "tracker.breathing.controller.calibrated");
+        AddSessionConditionHighlight(highlights, "tracker.breathing.controller.state");
+        AddSessionConditionHighlight(highlights, "study.pose.headset.local_pos_x");
+        AddSessionConditionHighlight(highlights, "study.pose.headset.local_pos_y");
+        AddSessionConditionHighlight(highlights, "study.pose.headset.local_pos_z");
+        AddSessionConditionHighlight(highlights, "study.pose.headset.local_rot_x");
+        AddSessionConditionHighlight(highlights, "study.pose.headset.local_rot_y");
+        AddSessionConditionHighlight(highlights, "study.pose.headset.local_rot_z");
+        AddSessionConditionHighlight(highlights, "study.pose.headset.local_rot_w");
+        AddSessionConditionHighlight(highlights, "study.pose.controller.local_pos_x");
+        AddSessionConditionHighlight(highlights, "study.pose.controller.local_pos_y");
+        AddSessionConditionHighlight(highlights, "study.pose.controller.local_pos_z");
+        AddSessionConditionHighlight(highlights, "study.pose.controller.local_rot_x");
+        AddSessionConditionHighlight(highlights, "study.pose.controller.local_rot_y");
+        AddSessionConditionHighlight(highlights, "study.pose.controller.local_rot_z");
+        AddSessionConditionHighlight(highlights, "study.pose.controller.local_rot_w");
+        AddSessionConditionHighlight(highlights, "study.particles.visible");
+        AddSessionConditionHighlight(highlights, "study.recenter.distance_units");
+        AddSessionConditionHighlight(highlights, "hotload.hotload_profile_id");
+        AddSessionConditionHighlight(highlights, "hotload.hotload_profile_version");
+        AddSessionConditionHighlight(highlights, "config.runtime_json_hash");
+        return highlights;
+    }
+
+    private void AddSessionConditionHighlight(
+        IDictionary<string, string?> highlights,
+        string key)
+        => highlights[key] = GetFirstValue(key);
 
     private async Task<OperationOutcome> PublishParticipantSessionMetadataAsync(StudyDataRecordingSession recordingSession)
     {

@@ -282,6 +282,44 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         RefreshComparisonState();
     }
 
+    public SussexVisualSessionSnapshot CaptureSessionSnapshot()
+    {
+        var currentProfile = CreateCurrentProfileRecord();
+        var selectedMatchesLastApplied = currentProfile is not null &&
+                                         _lastApplyRecord is not null &&
+                                         string.Equals(currentProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase);
+        var reportedValues = _compiler is null
+            ? new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, double?>(
+                _compiler.ExtractRuntimeValues(_reportedRuntimeConfigJson ?? string.Empty),
+                StringComparer.OrdinalIgnoreCase);
+
+        var hasUnappliedEdits = false;
+        if (_compiler is not null && _lastApplyRecord is not null && selectedMatchesLastApplied)
+        {
+            var fields = Groups.SelectMany(group => group.Fields).ToArray();
+            var confirmationRows = _compiler
+                .EvaluateConfirmation(_lastApplyRecord, _reportedRuntimeConfigJson)
+                .Rows
+                .ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
+            var computation = SussexVisualRowConfirmationResolver.Compute(fields, _lastApplyRecord, confirmationRows);
+            hasUnappliedEdits = computation.ChangedSinceApplyCount > 0;
+        }
+
+        return new SussexVisualSessionSnapshot(
+            IsAvailable,
+            ApplyLevel,
+            ApplySummary,
+            ApplyDetail,
+            currentProfile,
+            ResolveEffectiveProfileRecord(currentProfile),
+            _startupState,
+            _lastApplyRecord,
+            reportedValues,
+            selectedMatchesLastApplied,
+            hasUnappliedEdits);
+    }
+
     public void Dispose()
     {
         if (_persistTimer is not null)
@@ -405,6 +443,65 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     {
         SchedulePersist();
         RefreshComparisonState(syncCurrentValueText: true);
+    }
+
+    private SussexVisualProfileRecord? CreateCurrentProfileRecord()
+    {
+        if (SelectedProfile is null)
+        {
+            return null;
+        }
+
+        if (_compiler is null)
+        {
+            return SelectedProfile.ToRecord();
+        }
+
+        var document = _compiler.CreateDocument(
+            string.IsNullOrWhiteSpace(SelectedProfileName) ? SelectedProfile.Document.Profile.Name : SelectedProfileName.Trim(),
+            string.IsNullOrWhiteSpace(SelectedProfileNotes) ? null : SelectedProfileNotes.Trim(),
+            Groups.SelectMany(group => group.Fields)
+                .ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase));
+        return SelectedProfile.ToRecord() with { Document = document };
+    }
+
+    private SussexVisualProfileRecord? ResolveEffectiveProfileRecord(SussexVisualProfileRecord? currentProfile)
+    {
+        if (_lastApplyRecord is null || _compiler is null)
+        {
+            return null;
+        }
+
+        if (currentProfile is not null &&
+            string.Equals(currentProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase))
+        {
+            return currentProfile with
+            {
+                FileHash = _lastApplyRecord.FileHash,
+                ModifiedAtUtc = _lastApplyRecord.AppliedAtUtc,
+                Document = _compiler.CreateDocument(
+                    _lastApplyRecord.ProfileName,
+                    currentProfile.Document.Profile.Notes,
+                    _lastApplyRecord.RequestedValues)
+            };
+        }
+
+        var storedProfile = Profiles.FirstOrDefault(profile =>
+            string.Equals(profile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase));
+        if (storedProfile is not null)
+        {
+            return storedProfile.ToRecord();
+        }
+
+        return new SussexVisualProfileRecord(
+            _lastApplyRecord.ProfileId,
+            string.Empty,
+            _lastApplyRecord.FileHash,
+            _lastApplyRecord.AppliedAtUtc,
+            _compiler.CreateDocument(
+                _lastApplyRecord.ProfileName,
+                null,
+                _lastApplyRecord.RequestedValues));
     }
 
     private void SchedulePersist()

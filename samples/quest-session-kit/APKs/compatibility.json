@@ -1,7 +1,7 @@
 ﻿{
     "apps":  [
                  {
-                     "sha256":  "8DCDE523BDD997D8CE3357206B53613C3319B9CFA70B2132E9969A73FCEF9F9E",
+                     "sha256":  "B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0",
                      "status":  "compatible",
                      "label":  "Sussex experiment build",
                      "notes":  "Bundled Sussex Experiment runtime. Matches the approved Sussex study shell hash.",
@@ -13,13 +13,13 @@
                                   "sussex"
                               ],
                      "verification":  {
-                                          "apkSha256":  "8DCDE523BDD997D8CE3357206B53613C3319B9CFA70B2132E9969A73FCEF9F9E",
+                                          "apkSha256":  "B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0",
                                           "softwareVersion":  "14",
                                           "buildId":  "2921110053000610",
                                           "displayId":  "UP1A.231005.007.A1",
                                           "deviceProfileId":  "sussex-study-profile",
                                           "environmentHash":  "8C9698A3077099301DF6A9CDF431A2B183C435C05FAC1B0B046109E6A475EECC",
-                                          "verifiedAtUtc":  "2026-04-02T13:43:25.4562337+00:00",
+                                          "verifiedAtUtc":  "2026-04-02T17:14:16.6986450+00:00",
                                           "verifiedBy":  "tools/ViscerealityCompanion.VerificationHarness"
                                       }
                  }

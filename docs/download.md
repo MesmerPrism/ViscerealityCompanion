@@ -94,12 +94,13 @@ If you know exactly which file you want, use these direct links:
 Sussex operators should not need a separate APK download if they are using the
 packaged preview install.
 
-The current Sussex preview also includes the updated sequential guide flow and
-the new controller-breathing profile tab. The latest live Sussex validation
-pass on `2026-04-02` confirmed validation-capture PDF generation, inline
-clock-alignment review, controller-breathing hotload apply and restore
-readback, and the current approved Sussex APK hash
-`8DCDE523BDD997D8CE3357206B53613C3319B9CFA70B2132E9969A73FCEF9F9E`. That pass
+The current Sussex preview also includes the updated sequential guide flow, the
+controller-breathing profile tab, participant locked mode, and Windows-plus-
+Quest session snapshots. The latest live Sussex validation pass on `2026-04-02`
+confirmed controller-breathing hotload apply and restore readback, participant
+start/end in locked mode, Quest `session_snapshot.json` capture, and the
+current approved Sussex APK hash
+`B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0`. That pass
 was run with the headset off-face, so kiosk exit was intentionally skipped
 instead of being re-verified in the same run.
 

@@ -67,8 +67,8 @@ researcher-facing operator surface, not like the broader multi-study app.
 It currently pins:
 
 - package id: `com.Viscereality.SussexExperiment`
-- version: `0.1.0`
-- SHA256: `8DCDE523BDD997D8CE3357206B53613C3319B9CFA70B2132E9969A73FCEF9F9E`
+- version: `0.1.1`
+- SHA256: `B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0`
 - bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
@@ -264,11 +264,10 @@ That harness:
 The latest live Sussex validation pass on `2026-04-02`:
 
 - confirmed controller-breathing profile apply and restore readback through the embedded Sussex shell
-- updated the approved Sussex APK hash in the pinned public shell metadata
-- confirmed matching Windows and Quest session metadata for the participant run
-- kept one known non-blocking caveat: sparse background clock-alignment probes
-  still start, but they do not yet receive Quest echoes during the short
-  harness run
+- confirmed participant start/end in `participant_locked` mode on the rebuilt `0.1.1` Sussex APK
+- confirmed matching Windows and Quest session metadata for the participant run, including Windows `session_snapshot.json` and Quest `session_snapshot.json`
+- updated the approved Sussex APK hash in the pinned public shell metadata to `B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0`
+- confirmed the reduced Quest locked-mode file set (`session_events.csv`, `signals_long.csv`, `breathing_trace.csv`, `clock_alignment_samples.csv`, `timing_markers.csv`, `session_settings.json`, `session_snapshot.json`) while broad legacy files such as `lsl_samples.csv` stayed intentionally absent
 
 That `2026-04-02` pass was run off-face, so kiosk exit was intentionally
 skipped instead of being re-verified in the same run.

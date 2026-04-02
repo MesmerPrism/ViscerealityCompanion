@@ -46,7 +46,8 @@ public sealed class ValidationCaptureRegressionTests
                 "1",
                 "channel",
                 Environment.MachineName,
-                "selector"));
+                "selector",
+                "{\"SchemaVersion\":\"sussex-session-conditions-v1\"}"));
 
             var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
             SetPrivateField(viewModel, "_upstreamLslMonitorService", new BlockingStartupMonitorService());

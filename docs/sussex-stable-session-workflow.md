@@ -245,6 +245,7 @@ evolving CSV. The row shape should stay stable across signals.
 %LOCALAPPDATA%\ViscerealityCompanion\study-data\sussex-university\
   participant-0007\
     20260329T141530Z\
+      session_snapshot.json
       session_settings.json
       session_events.csv
       signals_long.csv
@@ -330,6 +331,49 @@ Recommended columns:
 
 This is the immutable per-run truth source for what settings were supposed to
 be active, even if they are identical across participants.
+
+### `session_snapshot.json`
+
+This is the richer machine-readable session-condition snapshot for QC and
+forensic review. It should bundle:
+
+- the full `session_settings.json` payload
+- the companion-side view of the pinned headset/app/device-profile state
+- the live Sussex twin-state snapshot captured when the run starts
+- the effective visual-profile state
+- the effective controller-breathing profile state
+
+The goal is that a later reviewer can open a single JSON file in the Windows
+session folder and reconstruct the exact session conditions without needing the
+headset online.
+
+The pulled Quest session should now mirror the same idea on-device:
+
+- Quest `session_settings.json` remains the compact file/index for row counts,
+  file paths, app identity, and recording metadata.
+- Quest `session_snapshot.json` is the richer runtime-side snapshot and should
+  include the active study snapshot entries, current runtime config summary,
+  active capture/payload profile, and the resolved hotload bindings that define
+  the APK-side experiment conditions.
+
+### Participant Locked Mode
+
+Participant locked mode is the Sussex runtime mode used during an actual
+participant run after tuning is complete.
+
+It should reduce live and Quest-side overhead by disabling the broad legacy
+Quest CSV matrix and the verbose twin-state diagnostics that are useful during
+tuning, while preserving:
+
+- the Windows-side `signals_long.csv` and `breathing_trace.csv` recorder output
+- the Quest-side `signals_long.csv` and `breathing_trace.csv`
+- the Quest-side `session_events.csv`, `session_settings.json`, and
+  `session_snapshot.json`
+- the study snapshot keys needed for breathing, coherence, sphere radius, LSL
+  timing/counters, session state, and headset/controller pose
+
+That means participant locked mode is a live-telemetry reduction, not a data
+retention reduction.
 
 ## Suggested Implementation Order
 

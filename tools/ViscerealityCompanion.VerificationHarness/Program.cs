@@ -667,7 +667,7 @@ public static class HarnessScenarioRunner
 
         await WaitForSessionFilesAsync(
             localSessionFolderPath,
-            ["session_events.csv", "signals_long.csv", "breathing_trace.csv", "clock_alignment_roundtrip.csv", "upstream_lsl_monitor.csv", "session_settings.json"],
+            ["session_events.csv", "signals_long.csv", "breathing_trace.csv", "clock_alignment_roundtrip.csv", "upstream_lsl_monitor.csv", "session_settings.json", "session_snapshot.json"],
             TimeSpan.FromSeconds(10));
 
         var runningQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
@@ -704,6 +704,7 @@ public static class HarnessScenarioRunner
 
         await WaitForConditionAsync(
             () => File.Exists(Path.Combine(localSessionFolderPath, "session_settings.json"))
+                  && File.Exists(Path.Combine(localSessionFolderPath, "session_snapshot.json"))
                   && File.Exists(Path.Combine(localSessionFolderPath, "session_events.csv"))
                   && ContainsTextWithSharedRead(Path.Combine(localSessionFolderPath, "session_events.csv"), "recording.stopped"),
             TimeSpan.FromSeconds(10),
@@ -718,6 +719,7 @@ public static class HarnessScenarioRunner
 
         var localFiles = InspectSessionFiles(
             localSessionFolderPath,
+            "session_snapshot.json",
             "session_settings.json",
             "session_events.csv",
             "signals_long.csv",
@@ -737,13 +739,20 @@ public static class HarnessScenarioRunner
             deviceSelector,
             deviceSessionDirectory,
             devicePullDirectory,
-            "session_settings.json",
-            "session_events.csv",
-            "signals_long.csv",
-            "breathing_trace.csv",
-            "clock_alignment_samples.csv",
-            "timing_markers.csv",
-            "lsl_samples.csv");
+            requiredFileNames:
+            [
+                "session_settings.json",
+                "session_snapshot.json",
+                "session_events.csv",
+                "signals_long.csv",
+                "breathing_trace.csv",
+                "clock_alignment_samples.csv",
+                "timing_markers.csv"
+            ],
+            optionalFileNames:
+            [
+                "lsl_samples.csv"
+            ]);
         var deviceMetadata = ReadSessionMetadata(Path.Combine(devicePullDirectory, "session_settings.json"));
 
         return new ParticipantRunResult(
@@ -866,7 +875,8 @@ public static class HarnessScenarioRunner
         string deviceSelector,
         string deviceSessionDirectory,
         string outputDirectory,
-        params string[] fileNames)
+        IReadOnlyList<string> requiredFileNames,
+        IReadOnlyList<string>? optionalFileNames = null)
     {
         var hzdb = HzdbServiceFactory.CreateDefault();
         if (!hzdb.IsAvailable)
@@ -882,18 +892,38 @@ public static class HarnessScenarioRunner
             throw new InvalidOperationException($"Could not list Quest session directory {deviceSessionDirectory}: {listingOutcome.Detail}");
         }
 
-        var inspections = new List<FileInspectionResult>(fileNames.Length + 1)
+        var listedFileNames = ParseListedFileNames(listingOutcome.Detail);
+        var optionalLookup = new HashSet<string>(optionalFileNames ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var requestedFileNames = requiredFileNames
+            .Concat(optionalFileNames ?? Array.Empty<string>())
+            .ToArray();
+
+        var inspections = new List<FileInspectionResult>(requestedFileNames.Length + 1)
         {
             new(deviceSessionDirectory, true, 0, listingOutcome.Detail)
         };
 
-        foreach (var fileName in fileNames)
+        foreach (var fileName in requestedFileNames)
         {
+            var isOptional = optionalLookup.Contains(fileName);
             var remotePath = $"{deviceSessionDirectory.TrimEnd('/', '\\')}/{fileName}";
             var localPath = Path.Combine(outputDirectory, fileName);
+
+            if (isOptional && !listedFileNames.Contains(fileName))
+            {
+                inspections.Add(new FileInspectionResult(localPath, false, 0, "missing (optional in participant-locked mode)"));
+                continue;
+            }
+
             var pullOutcome = await hzdb.PullFileAsync(deviceSelector, remotePath, localPath);
             if (pullOutcome.Kind == OperationOutcomeKind.Failure)
             {
+                if (isOptional)
+                {
+                    inspections.Add(new FileInspectionResult(localPath, false, 0, "missing (optional in participant-locked mode)"));
+                    continue;
+                }
+
                 throw new InvalidOperationException($"Could not pull Quest session file {remotePath}: {pullOutcome.Detail}");
             }
 
@@ -960,9 +990,14 @@ public static class HarnessScenarioRunner
             ["SessionStartedAtUtc"] = ReadJsonString(root, "SessionStartedAtUtc", "sessionStartedAtUtc"),
             ["PackageId"] = ReadJsonString(root, "PackageId", "packageId"),
             ["ApkSha256"] = ReadJsonString(root, "ApkSha256", "apkSha256"),
+            ["AppVersion"] = ReadJsonString(root, "AppVersion", "appVersion"),
             ["WindowsMachineName"] = ReadJsonString(root, "WindowsMachineName", "windowsMachineName"),
             ["DeviceProfileId"] = ReadJsonString(root, "DeviceProfileId", "deviceProfileId"),
-            ["SessionFolderPath"] = ReadJsonString(root, "SessionFolderPath", "sessionFolderPath")
+            ["SessionFolderPath"] = ReadJsonString(root, "SessionFolderPath", "sessionFolderPath"),
+            ["SessionSnapshotFile"] = ReadJsonString(root, "SessionSnapshotFile", "sessionSnapshotFile"),
+            ["CaptureProfile"] = ReadJsonString(root, "CaptureProfile", "captureProfile"),
+            ["TwinPayloadProfile"] = ReadJsonString(root, "TwinPayloadProfile", "twinPayloadProfile"),
+            ["ParticipantLockedModeActive"] = ReadJsonString(root, "ParticipantLockedModeActive", "participantLockedModeActive")
         };
 
         var summary = string.Join(
@@ -973,7 +1008,11 @@ public static class HarnessScenarioRunner
                 $"session={values["SessionId"]}",
                 $"datasetId={values["DatasetId"]}",
                 $"datasetHash={values["DatasetHash"]}",
-                $"settingsHash={values["SettingsHash"]}"
+                $"settingsHash={values["SettingsHash"]}",
+                $"appVersion={values["AppVersion"]}",
+                $"captureProfile={values["CaptureProfile"]}",
+                $"payload={values["TwinPayloadProfile"]}",
+                $"locked={values["ParticipantLockedModeActive"]}"
             });
 
         return new SessionMetadataResult(settingsPath, true, values, summary);
@@ -985,11 +1024,44 @@ public static class HarnessScenarioRunner
         {
             if (root.TryGetPropertyValue(key, out var node) && node is not null)
             {
-                return node.GetValue<string?>() ?? string.Empty;
+                return ReadJsonScalar(node);
             }
         }
 
         return string.Empty;
+    }
+
+    private static string ReadJsonScalar(JsonNode node)
+    {
+        if (node is JsonValue value)
+        {
+            if (value.TryGetValue<string>(out var stringValue))
+            {
+                return stringValue ?? string.Empty;
+            }
+
+            if (value.TryGetValue<bool>(out var boolValue))
+            {
+                return boolValue ? "true" : "false";
+            }
+
+            if (value.TryGetValue<long>(out var longValue))
+            {
+                return longValue.ToString(CultureInfo.InvariantCulture);
+            }
+
+            if (value.TryGetValue<double>(out var doubleValue))
+            {
+                return doubleValue.ToString("0.########", CultureInfo.InvariantCulture);
+            }
+
+            if (value.TryGetValue<decimal>(out var decimalValue))
+            {
+                return decimalValue.ToString(CultureInfo.InvariantCulture);
+            }
+        }
+
+        return node.ToJsonString();
     }
 
     private static string ResolveHzdbSelector(MainWindowViewModel mainViewModel, StudyShellViewModel studyViewModel)
@@ -1106,6 +1178,10 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"- Local settings metadata: {participantRunResult.LocalMetadata.Summary}");
         builder.AppendLine($"- Quest settings metadata: {participantRunResult.DeviceMetadata.Summary}");
         builder.AppendLine($"- Metadata match: {BuildMetadataMatchSummary(participantRunResult.LocalMetadata, participantRunResult.DeviceMetadata)}");
+        if (participantRunResult.DeviceMetadata.Values.TryGetValue("SessionSnapshotFile", out var sessionSnapshotFile))
+        {
+            builder.AppendLine($"- Quest session snapshot file: {sessionSnapshotFile}");
+        }
         builder.AppendLine();
         builder.AppendLine("Observed LSL loop latency:");
 
@@ -1827,6 +1903,27 @@ public static class HarnessScenarioRunner
         });
 
         return string.Join(", ", checks);
+    }
+
+    private static HashSet<string> ParseListedFileNames(string listingDetail)
+    {
+        var fileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(listingDetail))
+        {
+            return fileNames;
+        }
+
+        foreach (var line in listingDetail.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var normalized = line.Replace('\\', '/');
+            var fileName = Path.GetFileName(normalized);
+            if (!string.IsNullOrWhiteSpace(fileName))
+            {
+                fileNames.Add(fileName);
+            }
+        }
+
+        return fileNames;
     }
 
     private static IReadOnlyList<KeyValuePair<string, string>> GetRelevantLiveKeys(StudyShellViewModel studyViewModel)
