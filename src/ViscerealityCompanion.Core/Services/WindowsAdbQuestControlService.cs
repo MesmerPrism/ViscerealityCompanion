@@ -703,8 +703,39 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         try
         {
             var installOutput = await RunShellAsync(selector, $"pm path {AdbShellSupport.Quote(target.PackageId)}", cancellationToken).ConfigureAwait(false);
+            var packageDump = await RunShellAsync(selector, $"dumpsys package {AdbShellSupport.Quote(target.PackageId)}", cancellationToken).ConfigureAwait(false);
+            var versionName = ParseDumpsysValue(packageDump.StdOut, "versionName");
+            var versionCode = ParseVersionCode(packageDump.StdOut);
+            var packageDumpSuggestsInstalled = PackageDumpSuggestsInstalled(packageDump.StdOut, target.PackageId);
             if (installOutput.ExitCode != 0)
             {
+                if (packageDumpSuggestsInstalled)
+                {
+                    var fallbackDetailParts = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(versionName))
+                    {
+                        fallbackDetailParts.Add($"versionName={versionName}");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(versionCode))
+                    {
+                        fallbackDetailParts.Add($"versionCode={versionCode}");
+                    }
+
+                    fallbackDetailParts.Add("Package path unavailable from pm path.");
+                    fallbackDetailParts.Add(AdbShellSupport.Collapse(installOutput.CombinedOutput));
+
+                    return new InstalledAppStatus(
+                        target.PackageId,
+                        IsInstalled: true,
+                        VersionName: versionName,
+                        VersionCode: versionCode,
+                        InstalledSha256: string.Empty,
+                        InstalledPath: string.Empty,
+                        Summary: $"{target.Label} is installed on the headset.",
+                        Detail: string.Join("; ", fallbackDetailParts.Where(part => !string.IsNullOrWhiteSpace(part))));
+                }
+
                 return new InstalledAppStatus(
                     target.PackageId,
                     IsInstalled: false,
@@ -718,6 +749,33 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
             if (!installOutput.StdOut.Contains("package:", StringComparison.OrdinalIgnoreCase))
             {
+                if (packageDumpSuggestsInstalled)
+                {
+                    var fallbackDetailParts = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(versionName))
+                    {
+                        fallbackDetailParts.Add($"versionName={versionName}");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(versionCode))
+                    {
+                        fallbackDetailParts.Add($"versionCode={versionCode}");
+                    }
+
+                    fallbackDetailParts.Add("Package path was not reported by pm path.");
+                    fallbackDetailParts.Add(AdbShellSupport.Collapse(installOutput.CombinedOutput));
+
+                    return new InstalledAppStatus(
+                        target.PackageId,
+                        IsInstalled: true,
+                        VersionName: versionName,
+                        VersionCode: versionCode,
+                        InstalledSha256: string.Empty,
+                        InstalledPath: string.Empty,
+                        Summary: $"{target.Label} is installed on the headset.",
+                        Detail: string.Join("; ", fallbackDetailParts.Where(part => !string.IsNullOrWhiteSpace(part))));
+                }
+
                 return new InstalledAppStatus(
                     target.PackageId,
                     IsInstalled: false,
@@ -735,9 +793,6 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 .FirstOrDefault(line => !string.IsNullOrWhiteSpace(line))
                 ?? string.Empty;
 
-            var packageDump = await RunShellAsync(selector, $"dumpsys package {AdbShellSupport.Quote(target.PackageId)}", cancellationToken).ConfigureAwait(false);
-            var versionName = ParseDumpsysValue(packageDump.StdOut, "versionName");
-            var versionCode = ParseVersionCode(packageDump.StdOut);
             var installedSha256 = string.Empty;
             var detail = new List<string>();
 
@@ -850,16 +905,26 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 checks.Add(await QueryDeviceProfilePropertyStatusAsync(selector, pair.Key, pair.Value, cancellationToken).ConfigureAwait(false));
             }
 
-            var isActive = checks.Count > 0 && checks.All(check => check.Matches);
+            var activationChecks = checks.Where(check => check.BlocksActivation).ToArray();
+            var advisoryChecks = checks.Where(check => !check.BlocksActivation).ToArray();
+            var isActive = activationChecks.Length == 0
+                ? checks.Count > 0 && checks.All(check => check.Matches)
+                : activationChecks.All(check => check.Matches);
             var matchedCount = checks.Count(check => check.Matches);
+            var matchedActivationCount = activationChecks.Count(check => check.Matches);
+            var advisoryMismatchCount = advisoryChecks.Count(check => !check.Matches);
             return new DeviceProfileStatus(
                 profile.Id,
                 profile.Label,
                 isActive,
                 isActive
-                    ? $"{profile.Label} is active on the headset."
+                    ? advisoryMismatchCount > 0
+                        ? $"{profile.Label} is active on the headset with advisory warnings."
+                        : $"{profile.Label} is active on the headset."
                     : $"{profile.Label} is not fully active on the headset.",
-                $"Matched {matchedCount}/{checks.Count} pinned device properties.",
+                isActive && advisoryMismatchCount > 0
+                    ? $"Matched {matchedActivationCount}/{Math.Max(activationChecks.Length, 1)} required pinned device properties. {advisoryMismatchCount}/{advisoryChecks.Length} advisory check(s) still need attention."
+                    : $"Matched {matchedCount}/{checks.Count} pinned device properties.",
                 checks);
         }
         catch (Exception ex)
@@ -1265,7 +1330,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 key,
                 expectedValue,
                 batteryLevel.HasValue ? $"{batteryLevel.Value}%" : string.Empty,
-                expectedMinimum.HasValue && batteryLevel.HasValue && batteryLevel.Value >= expectedMinimum.Value);
+                expectedMinimum.HasValue && batteryLevel.HasValue && batteryLevel.Value >= expectedMinimum.Value,
+                BlocksActivation: false);
         }
 
         if (string.Equals(key, ProfileRightControllerBatteryMinimumKey, StringComparison.OrdinalIgnoreCase))
@@ -1290,7 +1356,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 reported,
                 expectedMinimum.HasValue &&
                 rightController?.BatteryLevel is int batteryLevel &&
-                batteryLevel >= expectedMinimum.Value);
+                batteryLevel >= expectedMinimum.Value,
+                BlocksActivation: false);
         }
 
         var reportedValue = await TryReadShellValueAsync(
@@ -2572,6 +2639,12 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var spaceIndex = raw.IndexOf(' ');
         return spaceIndex > 0 ? raw[..spaceIndex].Trim() : raw.Trim();
     }
+
+    private static bool PackageDumpSuggestsInstalled(string dumpsysOutput, string packageId)
+        => !string.IsNullOrWhiteSpace(dumpsysOutput) &&
+           (dumpsysOutput.Contains($"Package [{packageId}]", StringComparison.OrdinalIgnoreCase) ||
+            dumpsysOutput.Contains($"Package {packageId}", StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrWhiteSpace(ParseDumpsysValue(dumpsysOutput, "versionName")));
 
     private static string SanitizeFileToken(string value)
     {

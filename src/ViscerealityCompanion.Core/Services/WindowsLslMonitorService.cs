@@ -510,7 +510,7 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
 
             try
             {
-                values[index] = Marshal.PtrToStringAnsi(sampleBuffer[index], (int)lengths[index]) ?? string.Empty;
+                values[index] = ReadLslString(sampleBuffer[index], lengths[index]);
             }
             finally
             {
@@ -524,6 +524,18 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
             values[session.SelectedChannelIndex],
             values,
             LslChannelFormat.String);
+    }
+
+    private static string ReadLslString(IntPtr pointer, uint length)
+    {
+        if (pointer == IntPtr.Zero || length == 0)
+        {
+            return string.Empty;
+        }
+
+        var raw = Marshal.PtrToStringAnsi(pointer, checked((int)length)) ?? string.Empty;
+        var nulIndex = raw.IndexOf('\0');
+        return nulIndex >= 0 ? raw[..nulIndex] : raw;
     }
 
     [Flags]

@@ -61,7 +61,8 @@ public sealed record DevicePropertyStatus(
     string Key,
     string ExpectedValue,
     string ReportedValue,
-    bool Matches);
+    bool Matches,
+    bool BlocksActivation = true);
 
 public sealed record DeviceProfileStatus(
     string ProfileId,

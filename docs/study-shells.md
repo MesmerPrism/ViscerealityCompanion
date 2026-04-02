@@ -68,11 +68,12 @@ It currently pins:
 
 - package id: `com.Viscereality.SussexExperiment`
 - version: `0.1.0`
-- SHA256: `A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9`
+- SHA256: `8DCDE523BDD997D8CE3357206B53613C3319B9CFA70B2132E9969A73FCEF9F9E`
 - bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
+- profile workspaces: `Visual Profiles` and `Controller Breathing`
 - runtime launch mode: `launchInKioskMode=true`
 
 For the committed Sussex shell, the runtime toggle is intentionally a kiosk
@@ -260,14 +261,17 @@ That harness:
 - captures GUI and Quest screenshots for kiosk-launch and kiosk-exit review
 - writes a text report alongside those screenshots
 
-The latest on-head harness approval pass on `2026-03-31`:
+The latest live Sussex validation pass on `2026-04-02`:
 
-- verified kiosk exit back to `com.oculus.vrshell`
-- updated the approved Sussex verification baseline to the current APK hash
+- confirmed controller-breathing profile apply and restore readback through the embedded Sussex shell
+- updated the approved Sussex APK hash in the pinned public shell metadata
 - confirmed matching Windows and Quest session metadata for the participant run
 - kept one known non-blocking caveat: sparse background clock-alignment probes
   still start, but they do not yet receive Quest echoes during the short
   harness run
+
+That `2026-04-02` pass was run off-face, so kiosk exit was intentionally
+skipped instead of being re-verified in the same run.
 
 Treat those screenshots as evidence to inspect, not as an automatic proof that
 Meta Home was visibly restored. On the current HorizonOS build, kiosk exit can

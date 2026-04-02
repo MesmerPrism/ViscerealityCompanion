@@ -1373,6 +1373,295 @@
                     </Grid>
                 </TabItem>
 
+                <TabItem Header="Controller Breathing"
+                         DataContext="{Binding ControllerBreathingProfiles}">
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="340" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="1*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <Border Style="{StaticResource StudyPanelStyle}"
+                                    Background="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Controller-breathing profile library" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding LibrarySummary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding LibraryDetail}"
+                                               Style="{StaticResource SectionCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding TemplatePathLabel, StringFormat=Template: {0}}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding LibraryRootLabel, StringFormat=Folder: {0}}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0" />
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Content="New From Baseline" Command="{Binding NewFromBaselineCommand}" />
+                                        <Button Content="Duplicate" Command="{Binding DuplicateSelectedCommand}" />
+                                        <Button Content="Rename" Command="{Binding RenameSelectedCommand}" />
+                                        <Button Content="Import" Command="{Binding ImportProfileCommand}" />
+                                        <Button Content="Export" Command="{Binding ExportSelectedCommand}" />
+                                        <Button Content="Open Folder" Command="{Binding OpenFolderCommand}" />
+                                        <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" />
+                                        <Button Content="Apply" Command="{Binding ApplySelectedCommand}" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Saved profiles" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Each profile is stored as a self-describing json file in the local library."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <ListBox ItemsSource="{Binding Profiles}"
+                                             SelectedItem="{Binding SelectedProfile}"
+                                             Margin="0,10,0,0"
+                                             MinHeight="260"
+                                             Height="320">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Margin="0,0,0,8">
+                                                    <TextBlock Text="{Binding DisplayLabel}"
+                                                               FontWeight="Bold"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding ModifiedLabel, StringFormat=Updated {0}}"
+                                                               Style="{StaticResource CompactCaptionStyle}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyPanelStyle}"
+                                    Margin="0,12,0,0"
+                                    Background="{Binding ApplyLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding ApplyLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Apply and confirmation" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding ApplySummary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding ApplyLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding ApplyDetail}"
+                                               Style="{StaticResource SectionCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding LastCompiledCsvPath, StringFormat=Last CSV: {0}}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <Grid Grid.Column="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <Border Style="{StaticResource StudyPanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Selected profile" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Edit values in the table below. Hover a parameter name for the metadata and tuning guidance bundled in the profile schema. Applying a profile resets controller-breathing calibration in the Sussex runtime."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+
+                                    <Border Style="{StaticResource StudyInsetPanelStyle}"
+                                            Margin="0,4,0,0"
+                                            Background="{StaticResource SurfaceTintBrush}"
+                                            BorderBrush="{StaticResource LineBrush}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="APK start default" Style="{StaticResource InfoLabelStyle}" />
+                                                <TextBlock Text="{Binding StartupProfileSummary}"
+                                                           FontSize="15"
+                                                           FontWeight="Bold"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding StartupProfileDetail}"
+                                                           Style="{StaticResource CompactCaptionStyle}"
+                                                           Margin="0,6,0,0" />
+                                            </StackPanel>
+
+                                            <WrapPanel Grid.Column="2"
+                                                       VerticalAlignment="Top">
+                                                <Button Content="{Binding StartupProfileActionLabel}"
+                                                        Command="{Binding SetStartupProfileCommand}" />
+                                                <Button Content="Use Bundled Baseline"
+                                                        Command="{Binding UseBundledStartupCommand}" />
+                                            </WrapPanel>
+                                        </Grid>
+                                    </Border>
+
+                                    <Grid Margin="0,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="8" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <TextBlock Grid.Row="0"
+                                                   Grid.Column="0"
+                                                   Text="Profile name"
+                                                   Style="{StaticResource InfoLabelStyle}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBox Grid.Row="0"
+                                                 Grid.Column="1"
+                                                 Grid.ColumnSpan="5"
+                                                 Text="{Binding SelectedProfileName, UpdateSourceTrigger=PropertyChanged}" />
+
+                                        <TextBlock Grid.Row="2"
+                                                   Grid.Column="0"
+                                                   Text="Notes"
+                                                   Style="{StaticResource InfoLabelStyle}"
+                                                   VerticalAlignment="Top" />
+                                        <TextBox Grid.Row="2"
+                                                 Grid.Column="1"
+                                                 AcceptsReturn="True"
+                                                 MinHeight="64"
+                                                 Text="{Binding SelectedProfileNotes, UpdateSourceTrigger=PropertyChanged}"
+                                                 TextWrapping="Wrap"
+                                                 VerticalScrollBarVisibility="Auto" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2"
+                                    Style="{StaticResource StudyPanelStyle}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="10" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+
+                                    <StackPanel Grid.Row="0">
+                                        <TextBlock Text="Controller-breathing parameter table" Style="{StaticResource SectionTitleStyle}" />
+                                        <TextBlock Text="The table always compares the selected profile against the APK start default shown above. Reset returns a row to the bundled Sussex baseline. Recalibrate on the headset after every apply."
+                                                   Style="{StaticResource SectionCaptionStyle}" />
+                                    </StackPanel>
+
+                                    <DataGrid ItemsSource="{Binding ComparisonRows}"
+                                               AutoGenerateColumns="False"
+                                               CanUserAddRows="False"
+                                               CanUserDeleteRows="False"
+                                               CanUserResizeRows="False"
+                                               IsReadOnly="False"
+                                               HeadersVisibility="Column"
+                                               Grid.Row="2"
+                                               MinHeight="620"
+                                               GridLinesVisibility="Horizontal"
+                                               PreviewMouseWheel="OnVisualProfilesTablePreviewMouseWheel"
+                                               ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                               ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                               CellStyle="{StaticResource VisualProfilesDataGridCellStyle}">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Group" Binding="{Binding Group}" Width="0.85*" IsReadOnly="True" />
+                                            <DataGridTemplateColumn Header="Parameter" Width="1.8*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Label}"
+                                                                   ToolTip="{Binding ToolTipText}"
+                                                                   TextWrapping="Wrap" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Header="Range"
+                                                                Binding="{Binding Range}"
+                                                                Width="0.95*"
+                                                                IsReadOnly="True"
+                                                                ElementStyle="{StaticResource VisualProfilesCenteredTextStyle}" />
+                                            <DataGridTemplateColumn Header="Current" Width="0.88*" IsReadOnly="False">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Grid>
+                                                            <TextBox Text="{Binding CurrentValueText, UpdateSourceTrigger=LostFocus}"
+                                                                     ToolTip="{Binding ToolTipText}">
+                                                                <TextBox.Style>
+                                                                    <Style TargetType="TextBox" BasedOn="{StaticResource VisualProfilesEditorTextBoxStyle}">
+                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsBooleanEditor}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBox.Style>
+                                                            </TextBox>
+                                                            <CheckBox IsChecked="{Binding CurrentBoolValue}"
+                                                                      HorizontalAlignment="Center"
+                                                                      VerticalAlignment="Center"
+                                                                      ToolTip="{Binding ToolTipText}">
+                                                                <CheckBox.Style>
+                                                                    <Style TargetType="CheckBox">
+                                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsBooleanEditor}" Value="True">
+                                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </CheckBox.Style>
+                                                            </CheckBox>
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Header="APK Start"
+                                                                Binding="{Binding Startup}"
+                                                                Width="0.9*"
+                                                                IsReadOnly="True"
+                                                                ElementStyle="{StaticResource VisualProfilesCenteredTextStyle}" />
+                                            <DataGridTextColumn Header="Δ Start"
+                                                                Binding="{Binding DeltaFromStartup}"
+                                                                Width="0.9*"
+                                                                IsReadOnly="True"
+                                                                ElementStyle="{StaticResource VisualProfilesCenteredTextStyle}" />
+                                            <DataGridTemplateColumn Header="Status" Width="0.85*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Confirmation}"
+                                                                   Foreground="{Binding ConfirmationLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                                   Style="{StaticResource VisualProfilesCenteredTextStyle}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="Reset" Width="0.7*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Button Content="Reset"
+                                                                Command="{Binding DataContext.ResetFieldCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                                CommandParameter="{Binding Field}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </TabItem>
+
                 <TabItem Header="Inspect">
                     <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>

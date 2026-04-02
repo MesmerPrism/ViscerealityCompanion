@@ -27,7 +27,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int PreSessionTabIndex = 1;
     private const int DuringSessionTabIndex = 2;
     private const int VisualProfilesTabIndex = 3;
-    private const int InspectTabIndex = 4;
+    private const int ControllerBreathingProfilesTabIndex = 4;
+    private const int InspectTabIndex = 5;
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
     private const string TestSenderHeartbeatMode = "3";
     private const string TestSenderCoherenceMode = "2";
@@ -103,6 +104,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly ILslMonitorService _upstreamLslMonitorService = LslMonitorServiceFactory.CreateDefault();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
     private readonly SussexVisualProfilesWorkspaceViewModel _visualProfiles;
+    private readonly SussexControllerBreathingProfilesWorkspaceViewModel _controllerBreathingProfiles;
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
     private readonly DispatcherTimer? _deviceSnapshotRefreshTimer;
@@ -365,6 +367,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _regularAdbSnapshotEnabled = _appSessionState.RegularAdbSnapshotEnabled;
         _questService = QuestControlServiceFactory.CreateDefault(_appSessionState.ActiveEndpoint);
         _visualProfiles = new SussexVisualProfilesWorkspaceViewModel(study, _questService);
+        _controllerBreathingProfiles = new SussexControllerBreathingProfilesWorkspaceViewModel(study, _questService);
         _endpointDraft = _appSessionState.ActiveEndpoint ?? string.Empty;
         _stagedApkPath = ResolveInitialApkPath();
 
@@ -451,6 +454,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string StudyDescription => _study.Description;
     public string PinnedPackageId => _study.App.PackageId;
     public SussexVisualProfilesWorkspaceViewModel VisualProfiles => _visualProfiles;
+    public SussexControllerBreathingProfilesWorkspaceViewModel ControllerBreathingProfiles => _controllerBreathingProfiles;
 
     private void RegisterWorkflowGuideCommands()
     {
@@ -703,7 +707,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _localApkHash, value);
     }
 
-    public string InstalledApkHash => _installedAppStatus?.InstalledSha256 ?? string.Empty;
+    public string InstalledApkHash
+        => !string.IsNullOrWhiteSpace(_installedAppStatus?.InstalledSha256)
+            ? _installedAppStatus!.InstalledSha256
+            : GetReportedRuntimeApkHash();
 
     public string HeadsetSoftwareRelease => _headsetStatus?.SoftwareReleaseOrCodename ?? string.Empty;
 
@@ -1861,6 +1868,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public bool TryGetObservedLslValue(out double value, out string sourceKey)
     {
+        if (TryGetConfiguredUnitIntervalValue(
+                ["study.lsl.latest_default_value", "study.lsl.latest_ch0_value"],
+                out value,
+                out sourceKey))
+        {
+            return true;
+        }
+
         if (TryGetConfiguredUnitIntervalValue(_study.Monitoring.LslValueKeys, out value, out sourceKey))
         {
             return true;
@@ -1925,6 +1940,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         _initialized = true;
         await _visualProfiles.InitializeAsync().ConfigureAwait(false);
+        await _controllerBreathingProfiles.InitializeAsync().ConfigureAwait(false);
         EnsureTwinBridgeMonitoringStarted();
         await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
         var autoConnected = await ConnectQuestCoreAsync(warnWhenMissingEndpoint: false).ConfigureAwait(false);
@@ -1973,6 +1989,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         CloseClockAlignmentWindow();
         _activeRecordingSession?.Dispose();
         _visualProfiles.Dispose();
+        _controllerBreathingProfiles.Dispose();
         _clockAlignmentService.Dispose();
         _testLslSignalService.Dispose();
     }
@@ -2121,6 +2138,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 }
 
                 await _visualProfiles.ApplyStartupProfileOnLaunchAsync().ConfigureAwait(false);
+                await _controllerBreathingProfiles.ApplyStartupProfileOnLaunchAsync().ConfigureAwait(false);
                 await DispatchAsync(() => SelectedPhaseTabIndex = DuringSessionTabIndex).ConfigureAwait(false);
             }
 
@@ -4030,6 +4048,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             var snapshotSuffix = _headsetStatus?.IsConnected == true
                 ? BuildSnapshotInlineSuffix(_lastDeviceSnapshotAtUtc)
                 : string.Empty;
+            var runtimeHashFallback = GetReportedRuntimeApkHash();
+            var effectiveInstalledHash = !string.IsNullOrWhiteSpace(_installedAppStatus?.InstalledSha256)
+                ? _installedAppStatus!.InstalledSha256
+                : runtimeHashFallback;
 
             if (_installedAppStatus is null)
             {
@@ -4037,17 +4059,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 InstalledApkSummary = "Installed build has not been checked yet.";
                 InstalledApkDetail = "Refresh the study status after connecting to the headset.";
             }
+            else if (!_installedAppStatus.IsInstalled && !string.IsNullOrWhiteSpace(runtimeHashFallback))
+            {
+                InstalledApkLevel = HashMatches(runtimeHashFallback, _study.App.Sha256)
+                    ? OperationOutcomeKind.Success
+                    : OperationOutcomeKind.Warning;
+                InstalledApkSummary = $"{_study.App.Label} runtime hash reported by the headset.{snapshotSuffix}";
+                InstalledApkDetail =
+                    $"ADB install-path query did not return a clean result, but quest_twin_state reported study.session.apk_sha256={runtimeHashFallback}. " +
+                    $"{_installedAppStatus.Summary} {_installedAppStatus.Detail}".Trim();
+            }
             else
             {
                 InstalledApkLevel = !_installedAppStatus.IsInstalled
                     ? OperationOutcomeKind.Warning
-                    : string.IsNullOrWhiteSpace(_installedAppStatus.InstalledSha256)
+                    : string.IsNullOrWhiteSpace(effectiveInstalledHash)
                         ? OperationOutcomeKind.Warning
-                        : HashMatches(_installedAppStatus.InstalledSha256, _study.App.Sha256)
+                        : HashMatches(effectiveInstalledHash, _study.App.Sha256)
                             ? OperationOutcomeKind.Success
                             : OperationOutcomeKind.Warning;
                 InstalledApkSummary = _installedAppStatus.Summary + snapshotSuffix;
-                InstalledApkDetail = _installedAppStatus.Detail;
+                InstalledApkDetail = string.IsNullOrWhiteSpace(_installedAppStatus.InstalledSha256) &&
+                                     !string.IsNullOrWhiteSpace(runtimeHashFallback)
+                    ? $"{_installedAppStatus.Detail} Runtime hash fallback: {runtimeHashFallback}."
+                    : _installedAppStatus.Detail;
             }
         }).ConfigureAwait(false);
     }
@@ -4147,14 +4182,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void UpdatePinnedBuildStatus()
     {
         var baseline = _study.App.VerificationBaseline;
-        var installedHash = _installedAppStatus?.InstalledSha256 ?? string.Empty;
+        var installedHash = InstalledApkHash;
         var installedMatchesPinnedHash = HashMatches(installedHash, _study.App.Sha256);
         var hasInstalledHash = !string.IsNullOrWhiteSpace(installedHash);
+        var hasInstalledEvidence = _installedAppStatus?.IsInstalled == true || hasInstalledHash;
         var hasConnectedHeadset = _headsetStatus?.IsConnected == true;
         var hasSoftwareIdentity =
             !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareReleaseOrCodename) &&
             !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareBuildId);
         var deviceProfileActive = _deviceProfileStatus?.IsActive == true;
+        var reportedRuntimeEnvironmentHash = GetReportedRuntimeEnvironmentHash();
+        var hasReportedRuntimeEnvironmentHash = !string.IsNullOrWhiteSpace(reportedRuntimeEnvironmentHash);
+        var reportedRuntimeDeviceProfileId = GetReportedRuntimeDeviceProfileId();
 
         if (baseline is not null)
         {
@@ -4166,9 +4205,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             var deviceProfileIdMatchesBaseline =
                 string.IsNullOrWhiteSpace(baseline.DeviceProfileId) ||
                 string.Equals(baseline.DeviceProfileId, _study.DeviceProfile.Id, StringComparison.OrdinalIgnoreCase);
+            var runtimeDeviceProfileIdMatchesBaseline =
+                string.IsNullOrWhiteSpace(reportedRuntimeDeviceProfileId) ||
+                string.IsNullOrWhiteSpace(baseline.DeviceProfileId) ||
+                string.Equals(reportedRuntimeDeviceProfileId, baseline.DeviceProfileId, StringComparison.OrdinalIgnoreCase);
             var fingerprintMatches =
                 hasConnectedHeadset &&
-                _installedAppStatus?.IsInstalled == true &&
+                hasInstalledEvidence &&
                 installedMatchesPinnedHash &&
                 hasSoftwareIdentity &&
                 deviceProfileIdMatchesBaseline &&
@@ -4180,6 +4223,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     _headsetStatus.SoftwareBuildId,
                     _study.DeviceProfile.Id,
                     _headsetStatus.SoftwareDisplayId);
+            var runtimeEnvironmentMatchesBaseline =
+                hasConnectedHeadset &&
+                hasInstalledEvidence &&
+                installedMatchesPinnedHash &&
+                hasReportedRuntimeEnvironmentHash &&
+                runtimeDeviceProfileIdMatchesBaseline &&
+                string.Equals(reportedRuntimeEnvironmentHash, baseline.EnvironmentHash, StringComparison.OrdinalIgnoreCase);
 
             if (!baselineMatchesPinnedHash)
             {
@@ -4201,7 +4251,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 PinnedBuildLevel = OperationOutcomeKind.Failure;
                 PinnedBuildSummary = "Headset settings do not match the latest verified Sussex build.";
             }
-            else if (fingerprintMatches)
+            else if (fingerprintMatches || runtimeEnvironmentMatchesBaseline)
             {
                 PinnedBuildLevel = OperationOutcomeKind.Success;
                 PinnedBuildSummary = "Headset matches the latest verified Sussex build.";
@@ -4212,7 +4262,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 PinnedBuildSummary = "Latest verified Sussex build recorded. Refresh the headset snapshot to compare it fully.";
             }
         }
-        else if (_installedAppStatus?.IsInstalled == true)
+        else if (hasInstalledEvidence)
         {
             if (installedMatchesPinnedHash)
             {
@@ -4762,6 +4812,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             _visualProfiles.RefreshReportedTwinState(_reportedTwinState);
+            _controllerBreathingProfiles.RefreshReportedTwinState(_reportedTwinState);
             RefreshBenchToolsStatus();
             LiveRuntimeLevel = OperationOutcomeKind.Preview;
             LiveRuntimeSummary = _twinBridge.Status.Summary;
@@ -4785,6 +4836,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
         _visualProfiles.RefreshReportedTwinState(_reportedTwinState);
+        _controllerBreathingProfiles.RefreshReportedTwinState(_reportedTwinState);
 
         var reportedDeviceSessionDir = GetFirstValue("study.recording.device.session_dir");
         if (!string.IsNullOrWhiteSpace(reportedDeviceSessionDir))
@@ -4815,6 +4867,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdatePerformanceCard();
         UpdateRecenterCard();
         UpdateParticlesCard();
+        UpdatePinnedBuildStatus();
         RefreshFocusRows();
         TryRecordLiveTwinState(lslBridge.LastStateReceivedAt ?? DateTimeOffset.UtcNow);
         UpdateWorkflowStatus();
@@ -8845,6 +8898,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         sourceKey = string.Empty;
         return false;
     }
+
+    private string GetReportedRuntimeApkHash()
+        => GetFirstValue("study.session.apk_sha256") ?? string.Empty;
+
+    private string GetReportedRuntimeEnvironmentHash()
+        => GetFirstValue("study.session.environment_hash") ?? string.Empty;
+
+    private string GetReportedRuntimeDeviceProfileId()
+        => GetFirstValue("study.session.device_profile_id") ?? string.Empty;
 
     private bool TryGetSignalMirrorValue(string signalName, out double value, out string sourceKey)
     {

@@ -53,8 +53,11 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-live.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-kiosk-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-home-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-tab.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-applied.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-home-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-controller-breathing-applied.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-ready-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-running-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-ended-proof.png"));
@@ -155,12 +158,19 @@ public static class HarnessScenarioRunner
         await Task.Delay(TimeSpan.FromSeconds(1.5));
         await studyViewModel.ApplyPinnedDeviceProfileAsync();
         await Task.Delay(TimeSpan.FromSeconds(1.5));
+        var twinStateTimestampBeforeLaunch = studyViewModel.LastTwinStateTimestampLabel;
         await studyViewModel.LaunchStudyAppAsync();
 
         await WaitForConditionAsync(
-            () => studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning,
-            TimeSpan.FromSeconds(30),
-            "Quest twin state never became visible.");
+            () =>
+                studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning &&
+                studyViewModel.QuestStatusSummary.Contains("active", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(studyViewModel.LastTwinStateTimestampLabel, twinStateTimestampBeforeLaunch, StringComparison.Ordinal) &&
+                !studyViewModel.LastTwinStateTimestampLabel.Contains("(stale)", StringComparison.OrdinalIgnoreCase),
+            TimeSpan.FromSeconds(45),
+            "Quest runtime never reached a fresh post-launch twin-state frame.");
+
+        await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
 
         await WarmUpLslAsync(outlet, studyViewModel);
         await Task.Delay(TimeSpan.FromSeconds(4));
@@ -173,59 +183,44 @@ public static class HarnessScenarioRunner
         var latencyResults = await MeasureLslRoundTripAsync(outlet, studyViewModel);
         var senderRestartResult = await VerifyLslSenderRestartRecoveryAsync(outlet, studyViewModel);
 
-        var recenterBaseline = CaptureTwinValues(
-            studyViewModel,
-            "study.recenter.last_command_sequence",
-            "study.recenter.last_command_at_utc",
-            "study.recenter.last_anchor_recorded_at_utc");
+        var recenterSummaryBefore = studyViewModel.RecenterSummary;
+        var recenterDetailBefore = studyViewModel.RecenterDetail;
         await studyViewModel.RecenterAsync();
-        var recenterResult = await WaitForTwinValueChangeAsync(
-            studyViewModel,
-            recenterBaseline,
-            TimeSpan.FromSeconds(8),
-            "Recenter confirmation");
+        var recenterResult = await WaitForObservationAsync(
+            "Recenter confirmation",
+            TimeSpan.FromSeconds(12),
+            () => EvaluateRecenterObservation(
+                studyViewModel,
+                recenterSummaryBefore,
+                recenterDetailBefore));
 
-        var particlesOffBaseline = CaptureTwinValues(
-            studyViewModel,
-            "study.particles.last_command_sequence",
-            "study.particles.last_command_at_utc",
-            "study.particles.requested_visible",
-            "study.particles.visible",
-            "study.particles.render_output_enabled");
+        var particlesSummaryBefore = studyViewModel.ParticlesSummary;
+        var particlesDetailBefore = studyViewModel.ParticlesDetail;
         await studyViewModel.ParticlesOffAsync();
-        var particlesOffResult = await WaitForTwinValueChangeAsync(
-            studyViewModel,
-            particlesOffBaseline,
-            TimeSpan.FromSeconds(8),
-            "Particles Off confirmation");
-        var particlesHidden = await WaitForTwinBoolAsync(
-            studyViewModel,
-            "Particles hidden",
-            false,
-            TimeSpan.FromSeconds(6),
-            "study.particles.visible",
-            "study.particles.render_output_enabled");
+        var particlesOffResult = await WaitForObservationAsync(
+            "Particles Off confirmation",
+            TimeSpan.FromSeconds(12),
+            () => EvaluateParticleVisibilityObservation(
+                studyViewModel,
+                particlesSummaryBefore,
+                particlesDetailBefore,
+                expectedVisible: false));
 
-        var particlesOnBaseline = CaptureTwinValues(
-            studyViewModel,
-            "study.particles.last_command_sequence",
-            "study.particles.last_command_at_utc",
-            "study.particles.requested_visible",
-            "study.particles.visible",
-            "study.particles.render_output_enabled");
+        particlesSummaryBefore = studyViewModel.ParticlesSummary;
+        particlesDetailBefore = studyViewModel.ParticlesDetail;
         await studyViewModel.ParticlesOnAsync();
-        var particlesOnResult = await WaitForTwinValueChangeAsync(
+        var particlesOnResult = await WaitForObservationAsync(
+            "Particles On confirmation",
+            TimeSpan.FromSeconds(12),
+            () => EvaluateParticleVisibilityObservation(
+                studyViewModel,
+                particlesSummaryBefore,
+                particlesDetailBefore,
+                expectedVisible: true));
+        var controllerBreathingProfileResult = await RunControllerBreathingProfilePhaseAsync(
             studyViewModel,
-            particlesOnBaseline,
-            TimeSpan.FromSeconds(8),
-            "Particles On confirmation");
-        var particlesVisible = await WaitForTwinBoolAsync(
-            studyViewModel,
-            "Particles visible",
-            true,
-            TimeSpan.FromSeconds(6),
-            "study.particles.visible",
-            "study.particles.render_output_enabled");
+            window,
+            outputRoot);
 
         ParticipantRunResult? participantRunResult = null;
         ValidationCaptureHarnessResult? validationCaptureResult = null;
@@ -273,9 +268,7 @@ public static class HarnessScenarioRunner
             senderRestartResult,
             recenterResult,
             particlesOffResult,
-            particlesHidden,
             particlesOnResult,
-            particlesVisible,
             preExitRuntimeHealthy,
             preExitLslHealthy,
             stopActionLevel,
@@ -289,12 +282,11 @@ public static class HarnessScenarioRunner
                     studyViewModel,
                     validationCaptureResult,
                     latencyResults,
+                    controllerBreathingProfileResult,
                     senderRestartResult,
                     recenterResult,
                     particlesOffResult,
-                    particlesHidden,
                     particlesOnResult,
-                    particlesVisible,
                     stopActionLevel,
                     stopActionDetail,
                     kioskScreenshotPath,
@@ -305,12 +297,11 @@ public static class HarnessScenarioRunner
                     studyViewModel,
                     participantRunResult ?? throw new InvalidOperationException("Participant run result was not captured."),
                     latencyResults,
+                    controllerBreathingProfileResult,
                     senderRestartResult,
                     recenterResult,
                     particlesOffResult,
-                    particlesHidden,
                     particlesOnResult,
-                    particlesVisible,
                     stopActionLevel,
                     stopActionDetail,
                     kioskScreenshotPath,
@@ -516,7 +507,7 @@ public static class HarnessScenarioRunner
             HrvBiofeedbackStreamContract.StreamType,
             "viscereality.sussex.harness.restart");
 
-        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(25);
         while (DateTimeOffset.UtcNow < deadline)
         {
             outlet.PushSample(expectedValue);
@@ -1050,12 +1041,11 @@ public static class HarnessScenarioRunner
         StudyShellViewModel studyViewModel,
         ParticipantRunResult participantRunResult,
         IReadOnlyList<LatencyResult> latencyResults,
+        ObservationResult controllerBreathingProfileResult,
         ObservationResult senderRestartResult,
         ObservationResult recenterResult,
         ObservationResult particlesOffResult,
-        ObservationResult particlesHidden,
         ObservationResult particlesOnResult,
-        ObservationResult particlesVisible,
         OperationOutcomeKind stopActionLevel,
         string stopActionDetail,
         string kioskScreenshotPath,
@@ -1093,12 +1083,11 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Quest final screenshot: {homeScreenshotPath}");
         builder.AppendLine();
         builder.AppendLine("Command observations:");
+        builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
         builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
         builder.AppendLine($"- {recenterResult.Label}: {recenterResult.Detail}");
         builder.AppendLine($"- {particlesOffResult.Label}: {particlesOffResult.Detail}");
-        builder.AppendLine($"- {particlesHidden.Label}: {particlesHidden.Detail}");
         builder.AppendLine($"- {particlesOnResult.Label}: {particlesOnResult.Detail}");
-        builder.AppendLine($"- {particlesVisible.Label}: {particlesVisible.Detail}");
         builder.AppendLine($"- {participantRunResult.LslFlowResult.Label}: {participantRunResult.LslFlowResult.Detail}");
         builder.AppendLine();
         builder.AppendLine("Participant run:");
@@ -1185,12 +1174,11 @@ public static class HarnessScenarioRunner
         StudyShellViewModel studyViewModel,
         ValidationCaptureHarnessResult validationCaptureResult,
         IReadOnlyList<LatencyResult> latencyResults,
+        ObservationResult controllerBreathingProfileResult,
         ObservationResult senderRestartResult,
         ObservationResult recenterResult,
         ObservationResult particlesOffResult,
-        ObservationResult particlesHidden,
         ObservationResult particlesOnResult,
-        ObservationResult particlesVisible,
         OperationOutcomeKind stopActionLevel,
         string stopActionDetail,
         string kioskScreenshotPath,
@@ -1224,12 +1212,11 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Quest final screenshot: {homeScreenshotPath}");
         builder.AppendLine();
         builder.AppendLine("Command observations:");
+        builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
         builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
         builder.AppendLine($"- {recenterResult.Label}: {recenterResult.Detail}");
         builder.AppendLine($"- {particlesOffResult.Label}: {particlesOffResult.Detail}");
-        builder.AppendLine($"- {particlesHidden.Label}: {particlesHidden.Detail}");
         builder.AppendLine($"- {particlesOnResult.Label}: {particlesOnResult.Detail}");
-        builder.AppendLine($"- {particlesVisible.Label}: {particlesVisible.Detail}");
         builder.AppendLine();
         builder.AppendLine("Validation capture:");
         builder.AppendLine($"- Participant id: {validationCaptureResult.ParticipantId}");
@@ -1286,72 +1273,69 @@ public static class HarnessScenarioRunner
         return builder.ToString();
     }
 
-    private static IReadOnlyDictionary<string, string?> CaptureTwinValues(StudyShellViewModel studyViewModel, params string[] keys)
-    {
-        var snapshot = studyViewModel.ReportedTwinStateSnapshot;
-        return keys.ToDictionary(
-            key => key,
-            key => snapshot.TryGetValue(key, out var value) ? value : null,
-            StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static async Task<ObservationResult> WaitForTwinValueChangeAsync(
-        StudyShellViewModel studyViewModel,
-        IReadOnlyDictionary<string, string?> baseline,
-        TimeSpan timeout,
-        string label)
-    {
-        var deadline = DateTimeOffset.UtcNow + timeout;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            var snapshot = studyViewModel.ReportedTwinStateSnapshot;
-            foreach (var entry in baseline)
-            {
-                snapshot.TryGetValue(entry.Key, out var currentValue);
-                if (!string.Equals(currentValue, entry.Value, StringComparison.Ordinal))
-                {
-                    return new ObservationResult(
-                        label,
-                        true,
-                        $"changed {entry.Key} from `{entry.Value ?? "n/a"}` to `{currentValue ?? "n/a"}`");
-                }
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(120));
-        }
-
-        return new ObservationResult(label, false, "timed out waiting for the relevant twin-state keys to change");
-    }
-
-    private static async Task<ObservationResult> WaitForTwinBoolAsync(
-        StudyShellViewModel studyViewModel,
+    private static async Task<ObservationResult> WaitForObservationAsync(
         string label,
-        bool expectedValue,
         TimeSpan timeout,
-        params string[] keys)
+        Func<(bool Success, string Detail)> evaluator)
     {
         var deadline = DateTimeOffset.UtcNow + timeout;
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var snapshot = studyViewModel.ReportedTwinStateSnapshot;
-            foreach (var key in keys)
+            var observation = evaluator();
+            if (observation.Success)
             {
-                if (!snapshot.TryGetValue(key, out var rawValue))
-                {
-                    continue;
-                }
-
-                var parsedValue = ParseBool(rawValue);
-                if (parsedValue == expectedValue)
-                {
-                    return new ObservationResult(label, true, $"{key} reported `{rawValue}`");
-                }
+                return new ObservationResult(label, true, observation.Detail);
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(120));
         }
 
-        return new ObservationResult(label, false, $"timed out waiting for `{expectedValue}` on {string.Join(", ", keys)}");
+        var finalObservation = evaluator();
+        return new ObservationResult(label, false, finalObservation.Detail);
+    }
+
+    private static (bool Success, string Detail) EvaluateRecenterObservation(
+        StudyShellViewModel studyViewModel,
+        string previousSummary,
+        string previousDetail)
+    {
+        var changed = !string.Equals(studyViewModel.RecenterSummary, previousSummary, StringComparison.Ordinal) ||
+                      !string.Equals(studyViewModel.RecenterDetail, previousDetail, StringComparison.Ordinal);
+        var settled = !studyViewModel.RecenterSummary.Contains("Waiting", StringComparison.OrdinalIgnoreCase);
+        var succeeded = changed &&
+                        settled &&
+                        studyViewModel.RecenterLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning;
+        var detail = $"{studyViewModel.RecenterSummary} {studyViewModel.RecenterDetail}".Trim();
+        return (succeeded, string.IsNullOrWhiteSpace(detail) ? "timed out waiting for recenter feedback" : detail);
+    }
+
+    private static (bool Success, string Detail) EvaluateParticleVisibilityObservation(
+        StudyShellViewModel studyViewModel,
+        string previousSummary,
+        string previousDetail,
+        bool expectedVisible)
+    {
+        var changed = !string.Equals(studyViewModel.ParticlesSummary, previousSummary, StringComparison.Ordinal) ||
+                      !string.Equals(studyViewModel.ParticlesDetail, previousDetail, StringComparison.Ordinal);
+        var settled = !studyViewModel.ParticlesSummary.Contains("Waiting", StringComparison.OrdinalIgnoreCase);
+        bool? actualVisible = null;
+        var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+        if (snapshot.TryGetValue("study.particles.visible", out var visibleRaw))
+        {
+            actualVisible = ParseBool(visibleRaw);
+        }
+
+        if (!actualVisible.HasValue && snapshot.TryGetValue("study.particles.render_output_enabled", out var renderRaw))
+        {
+            actualVisible = ParseBool(renderRaw);
+        }
+
+        var succeeded = changed &&
+                        settled &&
+                        actualVisible == expectedVisible &&
+                        studyViewModel.ParticlesLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning;
+        var detail = $"{studyViewModel.ParticlesSummary} {studyViewModel.ParticlesDetail}".Trim();
+        return (succeeded, string.IsNullOrWhiteSpace(detail) ? "timed out waiting for particle-visibility feedback" : detail);
     }
 
     private static async Task ExecuteCommandAsync(
@@ -1373,6 +1357,227 @@ public static class HarnessScenarioRunner
                       || string.Equals(studyViewModel.LastActionLabel, expectedActionLabel, StringComparison.Ordinal)),
             timeout ?? TimeSpan.FromSeconds(20),
             $"GUI command '{expectedActionLabel ?? "anonymous"}' did not complete.");
+    }
+
+    private static async Task ExecuteStandaloneCommandAsync(
+        AsyncRelayCommand command,
+        string label,
+        TimeSpan? timeout = null)
+    {
+        if (!command.CanExecute(null))
+        {
+            throw new InvalidOperationException($"Command '{label}' was not available for the harness.");
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() => command.Execute(null));
+        await WaitForConditionAsync(
+            () => command.CanExecute(null),
+            timeout ?? TimeSpan.FromSeconds(20),
+            $"GUI command '{label}' did not complete.");
+    }
+
+    private static async Task<ObservationResult> RunControllerBreathingProfilePhaseAsync(
+        StudyShellViewModel studyViewModel,
+        Window window,
+        string outputRoot)
+    {
+        var workspace = studyViewModel.ControllerBreathingProfiles;
+        if (!workspace.IsAvailable)
+        {
+            throw new InvalidOperationException("Controller-breathing workspace is not available in the Sussex shell.");
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.SelectedPhaseTabIndex = 4);
+        await Task.Delay(TimeSpan.FromMilliseconds(450));
+        CaptureWindow(window, Path.Combine(outputRoot, "sussex-main-window-controller-breathing-tab.png"));
+
+        var initialProfileCount = await Application.Current.Dispatcher.InvokeAsync(() => workspace.Profiles.Count);
+        await ExecuteStandaloneCommandAsync(
+            workspace.NewFromBaselineCommand,
+            "Create controller-breathing baseline profile");
+
+        await WaitForConditionAsync(
+            () => Application.Current.Dispatcher.Invoke(() => workspace.Profiles.Count == initialProfileCount + 1 && workspace.SelectedProfile is not null),
+            TimeSpan.FromSeconds(10),
+            "Controller-breathing baseline profile was not created.");
+
+        var baselineProfileId = await Application.Current.Dispatcher.InvokeAsync(() => workspace.SelectedProfile?.Id)
+            ?? throw new InvalidOperationException("Controller-breathing baseline profile did not become selected.");
+
+        var postBaselineCount = await Application.Current.Dispatcher.InvokeAsync(() => workspace.Profiles.Count);
+        await ExecuteStandaloneCommandAsync(
+            workspace.DuplicateSelectedCommand,
+            "Duplicate controller-breathing profile");
+
+        await WaitForConditionAsync(
+            () => Application.Current.Dispatcher.Invoke(() =>
+                workspace.Profiles.Count == postBaselineCount + 1
+                && workspace.SelectedProfile is not null
+                && !string.Equals(workspace.SelectedProfile.Id, baselineProfileId, StringComparison.OrdinalIgnoreCase)),
+            TimeSpan.FromSeconds(10),
+            "Controller-breathing duplicate profile was not created.");
+
+        var appliedProfileId = await Application.Current.Dispatcher.InvokeAsync(() => workspace.SelectedProfile?.Id)
+            ?? throw new InvalidOperationException("Controller-breathing applied profile did not become selected.");
+
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            var fields = workspace.Groups
+                .SelectMany(group => group.Fields)
+                .ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
+            fields["use_principal_axis_calibration"].Value = 0d;
+            fields["median_window"].Value = 7d;
+            fields["ema_alpha"].Value = 0.33d;
+        });
+
+        await Task.Delay(TimeSpan.FromMilliseconds(650));
+        await ExecuteStandaloneCommandAsync(
+            workspace.ApplySelectedCommand,
+            "Apply controller-breathing profile",
+            TimeSpan.FromSeconds(45));
+
+        var appliedQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-controller-breathing-applied.png",
+            "sussex-main-window-controller-breathing-applied.png");
+
+        var applyReadbackConfirmed = true;
+        var applyReadbackDetail = "confirmed hotload readback";
+        try
+        {
+            await WaitForControllerBreathingHotloadValuesAsync(
+                studyViewModel,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["study_controller_breathing_use_principal_axis_calibration"] = "false",
+                    ["study_controller_breathing_median_window"] = "7",
+                    ["study_controller_breathing_ema_alpha"] = "0.33"
+                },
+                TimeSpan.FromSeconds(20));
+        }
+        catch (TimeoutException ex)
+        {
+            applyReadbackConfirmed = false;
+            applyReadbackDetail = ex.Message;
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            workspace.SelectedProfile = workspace.Profiles.FirstOrDefault(profile =>
+                string.Equals(profile.Id, baselineProfileId, StringComparison.OrdinalIgnoreCase));
+        });
+
+        await WaitForConditionAsync(
+            () => Application.Current.Dispatcher.Invoke(() =>
+                workspace.SelectedProfile is not null &&
+                string.Equals(workspace.SelectedProfile.Id, baselineProfileId, StringComparison.OrdinalIgnoreCase)),
+            TimeSpan.FromSeconds(10),
+            "Controller-breathing baseline profile could not be re-selected for restore.");
+
+        await ExecuteStandaloneCommandAsync(
+            workspace.ApplySelectedCommand,
+            "Restore controller-breathing baseline",
+            TimeSpan.FromSeconds(45));
+
+        var restoreReadbackConfirmed = true;
+        var restoreReadbackDetail = "confirmed baseline readback";
+        try
+        {
+            await WaitForControllerBreathingHotloadValuesAsync(
+                studyViewModel,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["study_controller_breathing_use_principal_axis_calibration"] = "true",
+                    ["study_controller_breathing_median_window"] = "5",
+                    ["study_controller_breathing_ema_alpha"] = "0.18"
+                },
+                TimeSpan.FromSeconds(20));
+        }
+        catch (TimeoutException ex)
+        {
+            restoreReadbackConfirmed = false;
+            restoreReadbackDetail = ex.Message;
+        }
+
+        var applySummary = await Application.Current.Dispatcher.InvokeAsync(() => workspace.ApplySummary);
+        return new ObservationResult(
+            "Controller-breathing profile apply",
+            applyReadbackConfirmed && restoreReadbackConfirmed,
+            $"Created temporary baseline/apply profiles ({baselineProfileId}, {appliedProfileId}), applied bool/int/float controller-tuning values, captured {appliedQuestScreenshotPath}, then restored baseline. Apply readback: {applyReadbackDetail}. Restore readback: {restoreReadbackDetail}. Summary: {applySummary}");
+    }
+
+    private static async Task WaitForControllerBreathingHotloadValuesAsync(
+        StudyShellViewModel studyViewModel,
+        IReadOnlyDictionary<string, string> expectedValues,
+        TimeSpan timeout)
+    {
+        await WaitForConditionAsync(
+            () =>
+            {
+                var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+                foreach (var expected in expectedValues)
+                {
+                    if (!TryGetTwinValue(snapshot, expected.Key, out var actualValue))
+                    {
+                        return false;
+                    }
+
+                    if (!TwinValueMatches(actualValue, expected.Value))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+            timeout,
+            $"Controller-breathing hotload confirmation did not reach the expected values: {string.Join(", ", expectedValues.Select(pair => pair.Key + '=' + pair.Value))}");
+    }
+
+    private static bool TryGetTwinValue(
+        IReadOnlyDictionary<string, string> snapshot,
+        string runtimeKey,
+        out string value)
+    {
+        if (snapshot.TryGetValue(runtimeKey, out var directValue) && !string.IsNullOrWhiteSpace(directValue))
+        {
+            value = directValue;
+            return true;
+        }
+
+        var prefixedKey = "hotload." + runtimeKey;
+        if (snapshot.TryGetValue(prefixedKey, out var prefixedValue) && !string.IsNullOrWhiteSpace(prefixedValue))
+        {
+            value = prefixedValue;
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
+    private static bool TwinValueMatches(string actualValue, string expectedValue)
+    {
+        if (string.Equals(actualValue, expectedValue, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (ParseBool(actualValue) is bool actualBool &&
+            ParseBool(expectedValue) is bool expectedBool)
+        {
+            return actualBool == expectedBool;
+        }
+
+        if (double.TryParse(actualValue, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var actualNumber) &&
+            double.TryParse(expectedValue, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var expectedNumber))
+        {
+            return Math.Abs(actualNumber - expectedNumber) <= 0.000001d;
+        }
+
+        return false;
     }
 
     private static async Task EnsureProximityHoldDisabledAsync(StudyShellViewModel studyViewModel)
@@ -1487,9 +1692,7 @@ public static class HarnessScenarioRunner
         ObservationResult senderRestartResult,
         ObservationResult recenterResult,
         ObservationResult particlesOffResult,
-        ObservationResult particlesHidden,
         ObservationResult particlesOnResult,
-        ObservationResult particlesVisible,
         bool preExitRuntimeHealthy,
         bool preExitLslHealthy,
         OperationOutcomeKind stopActionLevel,
@@ -1500,9 +1703,7 @@ public static class HarnessScenarioRunner
                 senderRestartResult,
                 recenterResult,
                 particlesOffResult,
-                particlesHidden,
                 particlesOnResult,
-                particlesVisible,
                 preExitRuntimeHealthy,
                 preExitLslHealthy,
                 stopActionLevel))
@@ -1547,9 +1748,7 @@ public static class HarnessScenarioRunner
         ObservationResult senderRestartResult,
         ObservationResult recenterResult,
         ObservationResult particlesOffResult,
-        ObservationResult particlesHidden,
         ObservationResult particlesOnResult,
-        ObservationResult particlesVisible,
         bool preExitRuntimeHealthy,
         bool preExitLslHealthy,
         OperationOutcomeKind stopActionLevel)
@@ -1563,9 +1762,7 @@ public static class HarnessScenarioRunner
            && senderRestartResult.Success
            && recenterResult.Success
            && particlesOffResult.Success
-           && particlesHidden.Success
-           && particlesOnResult.Success
-           && particlesVisible.Success;
+           && particlesOnResult.Success;
 
     private static async Task UpdateStudyShellVerificationAsync(string path, StudyVerificationBaseline baseline)
     {

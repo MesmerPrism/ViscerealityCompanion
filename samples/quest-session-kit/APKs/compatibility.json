@@ -1,27 +1,27 @@
-{
-  "apps": [
-    {
-      "sha256": "A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9",
-      "status": "compatible",
-      "label": "Sussex experiment build",
-      "notes": "Bundled Sussex Experiment runtime. Matches the approved Sussex study shell hash.",
-      "tags": [
-        "viscereality",
-        "runtime",
-        "lsl",
-        "twin",
-        "sussex"
-      ],
-      "verification": {
-        "apkSha256": "A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9",
-        "softwareVersion": "14",
-        "buildId": "2921110053000610",
-        "displayId": "UP1A.231005.007.A1",
-        "deviceProfileId": "sussex-study-profile",
-        "environmentHash": "8C9698A3077099301DF6A9CDF431A2B183C435C05FAC1B0B046109E6A475EECC",
-        "verifiedAtUtc": "2026-03-31T10:35:58.0719404\u002B00:00",
-        "verifiedBy": "tools/ViscerealityCompanion.VerificationHarness"
-      }
-    }
-  ]
+﻿{
+    "apps":  [
+                 {
+                     "sha256":  "8DCDE523BDD997D8CE3357206B53613C3319B9CFA70B2132E9969A73FCEF9F9E",
+                     "status":  "compatible",
+                     "label":  "Sussex experiment build",
+                     "notes":  "Bundled Sussex Experiment runtime. Matches the approved Sussex study shell hash.",
+                     "tags":  [
+                                  "viscereality",
+                                  "runtime",
+                                  "lsl",
+                                  "twin",
+                                  "sussex"
+                              ],
+                     "verification":  {
+                                          "apkSha256":  "8DCDE523BDD997D8CE3357206B53613C3319B9CFA70B2132E9969A73FCEF9F9E",
+                                          "softwareVersion":  "14",
+                                          "buildId":  "2921110053000610",
+                                          "displayId":  "UP1A.231005.007.A1",
+                                          "deviceProfileId":  "sussex-study-profile",
+                                          "environmentHash":  "8C9698A3077099301DF6A9CDF431A2B183C435C05FAC1B0B046109E6A475EECC",
+                                          "verifiedAtUtc":  "2026-04-02T13:43:25.4562337+00:00",
+                                          "verifiedBy":  "tools/ViscerealityCompanion.VerificationHarness"
+                                      }
+                 }
+             ]
 }

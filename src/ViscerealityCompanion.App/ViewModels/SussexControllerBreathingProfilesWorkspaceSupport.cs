@@ -4,33 +4,33 @@ using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.App.ViewModels;
 
-internal sealed record SussexVisualProfileSnapshot(
-    SussexVisualProfileListItemViewModel Profile,
+internal sealed record SussexControllerBreathingProfileSnapshot(
+    SussexControllerBreathingProfileListItemViewModel Profile,
     string ProfileName,
     string? ProfileNotes,
     IReadOnlyDictionary<string, double> ControlValues);
 
-public readonly record struct SussexVisualRowConfirmationState(
+public readonly record struct SussexControllerBreathingRowConfirmationState(
     string Label,
     OperationOutcomeKind Level);
 
-internal sealed record SussexVisualRowConfirmationComputationResult(
-    IReadOnlyDictionary<string, SussexVisualRowConfirmationState> States,
+internal sealed record SussexControllerBreathingRowConfirmationComputationResult(
+    IReadOnlyDictionary<string, SussexControllerBreathingRowConfirmationState> States,
     int ChangedSinceApplyCount,
     int UnchangedSinceApplyCount);
 
-internal static class SussexVisualRowConfirmationResolver
+internal static class SussexControllerBreathingRowConfirmationResolver
 {
-    public static SussexVisualRowConfirmationComputationResult Compute(
-        IEnumerable<SussexVisualProfileFieldViewModel> fields,
-        SussexVisualProfileApplyRecord applyRecord,
-        IReadOnlyDictionary<string, SussexVisualConfirmationRow> confirmationRows)
+    public static SussexControllerBreathingRowConfirmationComputationResult Compute(
+        IEnumerable<SussexControllerBreathingProfileFieldViewModel> fields,
+        SussexControllerBreathingProfileApplyRecord applyRecord,
+        IReadOnlyDictionary<string, SussexControllerBreathingConfirmationRow> confirmationRows)
     {
         ArgumentNullException.ThrowIfNull(fields);
         ArgumentNullException.ThrowIfNull(applyRecord);
         ArgumentNullException.ThrowIfNull(confirmationRows);
 
-        var states = new Dictionary<string, SussexVisualRowConfirmationState>(StringComparer.OrdinalIgnoreCase);
+        var states = new Dictionary<string, SussexControllerBreathingRowConfirmationState>(StringComparer.OrdinalIgnoreCase);
         var changedSinceApplyCount = 0;
         var unchangedSinceApplyCount = 0;
 
@@ -51,44 +51,56 @@ internal static class SussexVisualRowConfirmationResolver
             }
         }
 
-        return new SussexVisualRowConfirmationComputationResult(states, changedSinceApplyCount, unchangedSinceApplyCount);
+        return new SussexControllerBreathingRowConfirmationComputationResult(states, changedSinceApplyCount, unchangedSinceApplyCount);
     }
 
-    public static SussexVisualRowConfirmationState BuildConfirmationState(SussexVisualConfirmationRow confirmationRow)
+    public static SussexControllerBreathingRowConfirmationState BuildConfirmationState(
+        SussexControllerBreathingConfirmationRow confirmationRow)
         => new(
             confirmationRow.State switch
             {
-                SussexVisualConfirmationState.Confirmed => "Confirmed",
-                SussexVisualConfirmationState.Mismatch => "Mismatch",
+                SussexControllerBreathingConfirmationState.Confirmed => "Confirmed",
+                SussexControllerBreathingConfirmationState.Mismatch => "Mismatch",
                 _ => "Waiting"
             },
             confirmationRow.State switch
             {
-                SussexVisualConfirmationState.Confirmed => OperationOutcomeKind.Success,
-                SussexVisualConfirmationState.Mismatch => OperationOutcomeKind.Warning,
+                SussexControllerBreathingConfirmationState.Confirmed => OperationOutcomeKind.Success,
+                SussexControllerBreathingConfirmationState.Mismatch => OperationOutcomeKind.Warning,
                 _ => OperationOutcomeKind.Warning
             });
 
-    public static SussexVisualRowConfirmationState DefaultConfirmationState
+    public static SussexControllerBreathingRowConfirmationState DefaultConfirmationState
         => new("Not applied", OperationOutcomeKind.Preview);
 
-    public static SussexVisualRowConfirmationState EditedConfirmationState
+    public static SussexControllerBreathingRowConfirmationState EditedConfirmationState
         => new("Edited", OperationOutcomeKind.Warning);
 
     private static bool ValuesMatch(
-        SussexVisualProfileFieldViewModel field,
+        SussexControllerBreathingProfileFieldViewModel field,
         double currentValue,
         double requestedValue)
-        => field.IsBoolean
-            ? (currentValue >= 0.5d) == (requestedValue >= 0.5d)
-            : Math.Abs(currentValue - requestedValue) <= 0.000001d;
+    {
+        if (field.IsBoolean)
+        {
+            return (currentValue >= 0.5d) == (requestedValue >= 0.5d);
+        }
+
+        if (field.IsInteger)
+        {
+            return Math.Round(currentValue, MidpointRounding.AwayFromZero) ==
+                   Math.Round(requestedValue, MidpointRounding.AwayFromZero);
+        }
+
+        return Math.Abs(currentValue - requestedValue) <= 0.000001d;
+    }
 }
 
-public sealed class SussexVisualProfileListItemViewModel : ObservableObject
+public sealed class SussexControllerBreathingProfileListItemViewModel : ObservableObject
 {
-    private SussexVisualProfileRecord _record;
+    private SussexControllerBreathingProfileRecord _record;
 
-    public SussexVisualProfileListItemViewModel(SussexVisualProfileRecord record)
+    public SussexControllerBreathingProfileListItemViewModel(SussexControllerBreathingProfileRecord record)
     {
         _record = record;
     }
@@ -96,11 +108,11 @@ public sealed class SussexVisualProfileListItemViewModel : ObservableObject
     public string Id => _record.Id;
     public string FilePath => _record.FilePath;
     public string FileHash => _record.FileHash;
-    public SussexVisualTuningDocument Document => _record.Document;
+    public SussexControllerBreathingTuningDocument Document => _record.Document;
     public string ModifiedLabel => _record.ModifiedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     public string DisplayLabel => _record.Document.Profile.Name;
 
-    public void Apply(SussexVisualProfileRecord record)
+    public void Apply(SussexControllerBreathingProfileRecord record)
     {
         _record = record;
         OnPropertyChanged(nameof(Id));
@@ -111,34 +123,35 @@ public sealed class SussexVisualProfileListItemViewModel : ObservableObject
         OnPropertyChanged(nameof(DisplayLabel));
     }
 
-    public SussexVisualProfileRecord ToRecord() => _record;
+    public SussexControllerBreathingProfileRecord ToRecord() => _record;
 
     public override string ToString() => DisplayLabel;
 }
 
-public sealed class SussexVisualProfileGroupViewModel
+public sealed class SussexControllerBreathingProfileGroupViewModel
 {
-    public SussexVisualProfileGroupViewModel(string title)
+    public SussexControllerBreathingProfileGroupViewModel(string title)
     {
         Title = title;
     }
 
     public string Title { get; }
-    public ObservableCollection<SussexVisualProfileFieldViewModel> Fields { get; } = new();
+    public ObservableCollection<SussexControllerBreathingProfileFieldViewModel> Fields { get; } = new();
 }
 
-public sealed class SussexVisualProfileFieldViewModel : ObservableObject
+public sealed class SussexControllerBreathingProfileFieldViewModel : ObservableObject
 {
     private readonly Action _onChanged;
     private double _value;
     private string _confirmationLabel = "Not applied";
     private OperationOutcomeKind _confirmationLevel = OperationOutcomeKind.Preview;
 
-    public SussexVisualProfileFieldViewModel(
-        SussexVisualTuningControl control,
+    public SussexControllerBreathingProfileFieldViewModel(
+        SussexControllerBreathingTuningControl control,
         Action onChanged)
     {
         Id = control.Id;
+        Group = control.Group;
         Label = control.Label;
         Type = control.Type;
         ToolTipText = BuildToolTip(control);
@@ -151,9 +164,11 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
     }
 
     public string Id { get; }
+    public string Group { get; }
     public string Label { get; }
     public string Type { get; }
     public bool IsBoolean => string.Equals(Type, "bool", StringComparison.OrdinalIgnoreCase);
+    public bool IsInteger => string.Equals(Type, "int", StringComparison.OrdinalIgnoreCase);
     public string ToolTipText { get; }
     public double Minimum { get; }
     public double Maximum { get; }
@@ -181,10 +196,7 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
 
     public void SetValue(double value, bool notify)
     {
-        var normalized = IsBoolean
-            ? value >= 0.5d ? 1d : 0d
-            : Math.Clamp(value, Minimum, Maximum);
-
+        var normalized = NormalizeValue(value);
         if (SetProperty(ref _value, normalized, nameof(Value)) && notify)
         {
             _onChanged();
@@ -200,10 +212,38 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
         ConfirmationLevel = level;
     }
 
-    private string FormatDisplayValue(double value)
-        => IsBoolean ? FormatBooleanValue(value) : value.ToString("0.###", CultureInfo.InvariantCulture);
+    public double NormalizeValue(double value)
+    {
+        if (IsBoolean)
+        {
+            return value >= 0.5d ? 1d : 0d;
+        }
 
-    private static string BuildToolTip(SussexVisualTuningControl control)
+        if (IsInteger)
+        {
+            var rounded = Math.Round(value, MidpointRounding.AwayFromZero);
+            return Math.Clamp(rounded, Minimum, Maximum);
+        }
+
+        return Math.Clamp(value, Minimum, Maximum);
+    }
+
+    private string FormatDisplayValue(double value)
+    {
+        if (IsBoolean)
+        {
+            return FormatBooleanValue(value);
+        }
+
+        if (IsInteger)
+        {
+            return Math.Round(value, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
+        }
+
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    private static string BuildToolTip(SussexControllerBreathingTuningControl control)
     {
         var tradeoffs = string.Join(Environment.NewLine, control.Info.Tradeoffs.Select(tradeoff => "- " + tradeoff));
         if (string.Equals(control.Type, "bool", StringComparison.OrdinalIgnoreCase))
@@ -216,11 +256,12 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
                    $"{Environment.NewLine}{Environment.NewLine}{tradeoffs}";
         }
 
+        var numericFormat = string.Equals(control.Type, "int", StringComparison.OrdinalIgnoreCase) ? "0" : "0.###";
         return $"{control.Info.Effect}{Environment.NewLine}{Environment.NewLine}" +
                $"Increase: {control.Info.IncreaseLooksLike}{Environment.NewLine}" +
                $"Decrease: {control.Info.DecreaseLooksLike}{Environment.NewLine}{Environment.NewLine}" +
-               $"Baseline: {control.BaselineValue.ToString("0.###", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
-               $"Range: {control.SafeMinimum.ToString("0.###", CultureInfo.InvariantCulture)} .. {control.SafeMaximum.ToString("0.###", CultureInfo.InvariantCulture)}{Environment.NewLine}{Environment.NewLine}" +
+               $"Baseline: {control.BaselineValue.ToString(numericFormat, CultureInfo.InvariantCulture)}{Environment.NewLine}" +
+               $"Range: {control.SafeMinimum.ToString(numericFormat, CultureInfo.InvariantCulture)} .. {control.SafeMaximum.ToString(numericFormat, CultureInfo.InvariantCulture)}{Environment.NewLine}{Environment.NewLine}" +
                $"{tradeoffs}";
     }
 
@@ -228,9 +269,9 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
         => value >= 0.5d ? "On" : "Off";
 }
 
-public sealed class SussexVisualComparisonRowViewModel : ObservableObject
+public sealed class SussexControllerBreathingComparisonRowViewModel : ObservableObject
 {
-    private readonly SussexVisualProfileFieldViewModel _field;
+    private readonly SussexControllerBreathingProfileFieldViewModel _field;
     private string _currentValueText;
     private string _baseline;
     private string _compare;
@@ -240,14 +281,13 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
     private string _confirmation;
     private OperationOutcomeKind _confirmationLevel;
 
-    public SussexVisualComparisonRowViewModel(
-        string groupTitle,
-        SussexVisualProfileFieldViewModel field,
-        SussexVisualComparisonRow comparison,
-        SussexVisualRowConfirmationState confirmation)
+    public SussexControllerBreathingComparisonRowViewModel(
+        SussexControllerBreathingProfileFieldViewModel field,
+        SussexControllerBreathingComparisonRow comparison,
+        SussexControllerBreathingRowConfirmationState confirmation)
     {
         _field = field;
-        Group = groupTitle;
+        Group = comparison.Group;
         Label = comparison.Label;
         ToolTipText = field.ToolTipText;
         _currentValueText = FormatEditableValue(field.Value);
@@ -261,7 +301,7 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
         Apply(comparison, confirmation, syncCurrentValueText: true);
     }
 
-    public SussexVisualProfileFieldViewModel Field => _field;
+    public SussexControllerBreathingProfileFieldViewModel Field => _field;
     public string Group { get; }
     public string Label { get; }
     public string ToolTipText { get; }
@@ -344,7 +384,7 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
                 return;
             }
 
-            if (TryParseEditableValue(value, out var parsed))
+            if (TryParseEditableValue(value, _field.IsInteger, out var parsed))
             {
                 _field.SetValue(parsed, notify: true);
             }
@@ -381,8 +421,8 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
     }
 
     public void Apply(
-        SussexVisualComparisonRow comparison,
-        SussexVisualRowConfirmationState confirmation,
+        SussexControllerBreathingComparisonRow comparison,
+        SussexControllerBreathingRowConfirmationState confirmation,
         bool syncCurrentValueText)
     {
         Baseline = FormatValue(comparison.BaselineValue);
@@ -410,23 +450,71 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
     }
 
     private string FormatValue(double value)
-        => _field.IsBoolean
-            ? FormatBooleanValue(value)
-            : value.ToString("0.###", CultureInfo.InvariantCulture);
+    {
+        if (_field.IsBoolean)
+        {
+            return FormatBooleanValue(value);
+        }
+
+        if (_field.IsInteger)
+        {
+            return Math.Round(value, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
+        }
+
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
 
     private string FormatEditableValue(double value)
-        => _field.IsBoolean
-            ? FormatBooleanValue(value)
-            : value.ToString("0.###", CultureInfo.CurrentCulture);
+    {
+        if (_field.IsBoolean)
+        {
+            return FormatBooleanValue(value);
+        }
+
+        if (_field.IsInteger)
+        {
+            return Math.Round(value, MidpointRounding.AwayFromZero).ToString(CultureInfo.CurrentCulture);
+        }
+
+        return value.ToString("0.###", CultureInfo.CurrentCulture);
+    }
 
     private string FormatDelta(double selected, double reference)
-        => _field.IsBoolean
-            ? NearlyEqual(selected, reference) ? "Same" : "Changed"
-            : (selected - reference).ToString("+0.###;-0.###;0", CultureInfo.InvariantCulture);
+    {
+        if (_field.IsBoolean)
+        {
+            return NearlyEqual(selected, reference) ? "Same" : "Changed";
+        }
 
-    private static bool TryParseEditableValue(string text, out double value)
-        => double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out value) ||
-           double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
+        if (_field.IsInteger)
+        {
+            var delta = (int)Math.Round(selected - reference, MidpointRounding.AwayFromZero);
+            return delta.ToString("+0;-0;0", CultureInfo.InvariantCulture);
+        }
+
+        return (selected - reference).ToString("+0.###;-0.###;0", CultureInfo.InvariantCulture);
+    }
+
+    private static bool TryParseEditableValue(string text, bool integer, out double value)
+    {
+        if (integer)
+        {
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var currentCultureInt))
+            {
+                value = currentCultureInt;
+                return true;
+            }
+
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var invariantInt))
+            {
+                value = invariantInt;
+                return true;
+            }
+        }
+
+        return double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out value) ||
+               double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
+    }
 
     private static bool NearlyEqual(double left, double right)
         => Math.Abs(left - right) <= 0.000001d;

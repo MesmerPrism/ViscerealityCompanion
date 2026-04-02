@@ -94,12 +94,14 @@ If you know exactly which file you want, use these direct links:
 Sussex operators should not need a separate APK download if they are using the
 packaged preview install.
 
-The current Sussex preview also includes the updated sequential guide flow that
-was live-checked on-head on `2026-03-31`, including the validation-capture PDF
-preview that is generated directly from the short sample run, the inline
-clock-alignment view inside the 20 second validation step, the verified
-kiosk-exit return to Meta Home, and the current approved Sussex APK hash
-`A97BF5467DA61E869690950FE41416CF1F393FA923E6943362A5E5AD1B364CC9`.
+The current Sussex preview also includes the updated sequential guide flow and
+the new controller-breathing profile tab. The latest live Sussex validation
+pass on `2026-04-02` confirmed validation-capture PDF generation, inline
+clock-alignment review, controller-breathing hotload apply and restore
+readback, and the current approved Sussex APK hash
+`8DCDE523BDD997D8CE3357206B53613C3319B9CFA70B2132E9969A73FCEF9F9E`. That pass
+was run with the headset off-face, so kiosk exit was intentionally skipped
+instead of being re-verified in the same run.
 
 ## Before You Start
 
