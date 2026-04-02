@@ -1,0 +1,772 @@
+{
+  "schemaVersion": "sussex-controller-breathing-tuning/v1",
+  "documentKind": "sussex_controller_breathing_tuning",
+  "study": {
+    "packageId": "com.Viscereality.SussexExperiment",
+    "baselineHotloadProfileId": "viscereality_lsltwin_scene",
+    "notes": [
+      "This file exposes the approved controller-volume breathing approximation variables already wired into the Sussex APK.",
+      "The companion should compile this JSON into runtime_overrides.csv and upload it through the normal Sussex hotload path.",
+      "Applying these controls resets controller-breathing calibration in the runtime. Recalibrate before a participant run."
+    ]
+  },
+  "intent": "Tune the existing Sussex controller-volume breathing approximation without changing controller routing, active hand selection, or scene topology.",
+  "llmEditingRules": {
+    "editOnlyPaths": [
+      "profile.name",
+      "profile.notes",
+      "controls.*.value"
+    ],
+    "doNotEditPaths": [
+      "schemaVersion",
+      "documentKind",
+      "study",
+      "lockedBaselineAssumptions",
+      "controls.*.id",
+      "controls.*.group",
+      "controls.*.label",
+      "controls.*.type",
+      "controls.*.safeRange",
+      "controls.*.runtimeMapping",
+      "compilerHints"
+    ]
+  },
+  "profile": {
+    "name": "Sussex Controller Breathing Profile",
+    "notes": ""
+  },
+  "lockedBaselineAssumptions": {
+    "publishedSignalPrefix": "xr_controller",
+    "activeController": "right",
+    "requireTrackedPose": true,
+    "requireControllerConnected": true,
+    "allowLegacyTransformFallback": true,
+    "autoBeginCalibrationOnEnable": true,
+    "resetCalibrationOnEnable": true
+  },
+  "controls": {
+    "use_principal_axis_calibration": {
+      "id": "use_principal_axis_calibration",
+      "group": "Calibration Mode",
+      "label": "Use Principal-Axis Calibration",
+      "editable": true,
+      "value": true,
+      "baselineValue": true,
+      "type": "bool",
+      "units": "enabled",
+      "safeRange": { "minimum": 0, "maximum": 1 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_use_principal_axis_calibration" },
+      "info": {
+        "effect": "Switches between principal-axis solve and live-axis warmup calibration.",
+        "increaseLooksLike": "Enabled keeps the learned axis tied to dominant motion.",
+        "decreaseLooksLike": "Disabled uses the live controller axis after warmup.",
+        "tradeoffs": [
+          "Enabled is usually more robust.",
+          "Disabled can simplify recovery if the solved axis is unstable."
+        ]
+      }
+    },
+    "axis_warmup_seconds": {
+      "id": "axis_warmup_seconds",
+      "group": "Calibration Mode",
+      "label": "Axis Warmup Seconds",
+      "editable": true,
+      "value": 1.0,
+      "baselineValue": 1.0,
+      "type": "float",
+      "units": "seconds",
+      "safeRange": { "minimum": 0.1, "maximum": 5.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_axis_warmup_seconds" },
+      "info": {
+        "effect": "Sets how long live-axis warmup runs before learning.",
+        "increaseLooksLike": "Warmup spends longer stabilizing the axis.",
+        "decreaseLooksLike": "Learning begins sooner.",
+        "tradeoffs": [
+          "Higher values can steady the axis.",
+          "Lower values shorten setup."
+        ]
+      }
+    },
+    "axis_warmup_frames": {
+      "id": "axis_warmup_frames",
+      "group": "Calibration Mode",
+      "label": "Axis Warmup Frames",
+      "editable": true,
+      "value": 10,
+      "baselineValue": 10,
+      "type": "int",
+      "units": "frames",
+      "safeRange": { "minimum": 0, "maximum": 120 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_axis_warmup_frames" },
+      "info": {
+        "effect": "Sets the warmup frame count before learning starts.",
+        "increaseLooksLike": "Warmup needs more valid frames.",
+        "decreaseLooksLike": "Warmup finishes sooner.",
+        "tradeoffs": [
+          "Higher values stabilize the axis.",
+          "Lower values reduce setup time."
+        ]
+      }
+    },
+    "learn_window_seconds": {
+      "id": "learn_window_seconds",
+      "group": "Calibration Mode",
+      "label": "Learn Window Seconds",
+      "editable": true,
+      "value": 8.0,
+      "baselineValue": 8.0,
+      "type": "float",
+      "units": "seconds",
+      "safeRange": { "minimum": 2.0, "maximum": 300.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_learn_window_seconds" },
+      "info": {
+        "effect": "Sets the learning time budget during calibration.",
+        "increaseLooksLike": "Calibration has longer to gather motion.",
+        "decreaseLooksLike": "Calibration times out sooner.",
+        "tradeoffs": [
+          "Higher values are more forgiving.",
+          "Lower values fail faster when motion is poor."
+        ]
+      }
+    },
+    "learn_accepted_frames": {
+      "id": "learn_accepted_frames",
+      "group": "Calibration Mode",
+      "label": "Learn Accepted Frames",
+      "editable": true,
+      "value": 120,
+      "baselineValue": 120,
+      "type": "int",
+      "units": "frames",
+      "safeRange": { "minimum": 24, "maximum": 480 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_learn_accepted_frames" },
+      "info": {
+        "effect": "Sets how many accepted frames are needed before solving bounds.",
+        "increaseLooksLike": "Calibration demands a longer clean motion sample.",
+        "decreaseLooksLike": "Calibration can finish with fewer samples.",
+        "tradeoffs": [
+          "Higher values improve confidence.",
+          "Lower values reduce setup effort."
+        ]
+      }
+    },
+    "calibration_watchdog_seconds": {
+      "id": "calibration_watchdog_seconds",
+      "group": "Calibration Mode",
+      "label": "Calibration Watchdog Seconds",
+      "editable": true,
+      "value": 30.0,
+      "baselineValue": 30.0,
+      "type": "float",
+      "units": "seconds",
+      "safeRange": { "minimum": 1.0, "maximum": 120.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_calibration_watchdog_seconds" },
+      "info": {
+        "effect": "Sets the total timeout before calibration gives up.",
+        "increaseLooksLike": "Calibration waits longer before timing out.",
+        "decreaseLooksLike": "Calibration fails faster.",
+        "tradeoffs": [
+          "Higher values forgive slow starts.",
+          "Lower values surface failures sooner."
+        ]
+      }
+    },
+    "invert_for_left_hand": {
+      "id": "invert_for_left_hand",
+      "group": "Calibration Mode",
+      "label": "Invert For Left Hand",
+      "editable": true,
+      "value": true,
+      "baselineValue": true,
+      "type": "bool",
+      "units": "enabled",
+      "safeRange": { "minimum": 0, "maximum": 1 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_invert_for_left_hand" },
+      "info": {
+        "effect": "Flips classifier polarity for left-hand runs.",
+        "increaseLooksLike": "Enabled preserves the current left-hand inversion baseline.",
+        "decreaseLooksLike": "Disabled keeps the same polarity for both hands.",
+        "tradeoffs": [
+          "Keep this enabled unless left-hand labeling is clearly reversed.",
+          "Disabling it can invert left-hand inhale and exhale interpretation."
+        ]
+      }
+    },
+    "inhale_threshold": {
+      "id": "inhale_threshold",
+      "group": "Axis Classifier",
+      "label": "Inhale Threshold",
+      "editable": true,
+      "value": 0.001,
+      "baselineValue": 0.001,
+      "type": "float",
+      "units": "axis_delta",
+      "safeRange": { "minimum": 0.0, "maximum": 0.02 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_inhale_threshold" },
+      "info": {
+        "effect": "Sets the positive threshold for inhale classification.",
+        "increaseLooksLike": "Stronger motion is needed before inhale triggers.",
+        "decreaseLooksLike": "Smaller positive motion can trigger inhale.",
+        "tradeoffs": [
+          "Higher values reject small jitters.",
+          "Lower values feel more sensitive."
+        ]
+      }
+    },
+    "exhale_threshold": {
+      "id": "exhale_threshold",
+      "group": "Axis Classifier",
+      "label": "Exhale Threshold",
+      "editable": true,
+      "value": -0.00057,
+      "baselineValue": -0.00057,
+      "type": "float",
+      "units": "axis_delta",
+      "safeRange": { "minimum": -0.02, "maximum": -0.000001 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_exhale_threshold" },
+      "info": {
+        "effect": "Sets the negative threshold for exhale classification.",
+        "increaseLooksLike": "Moving it toward zero makes exhale easier to trigger.",
+        "decreaseLooksLike": "More negative values need stronger reverse motion.",
+        "tradeoffs": [
+          "Values too close to zero can react to jitter.",
+          "Values too negative can delay exhale."
+        ]
+      }
+    },
+    "rotation_guard": {
+      "id": "rotation_guard",
+      "group": "Axis Classifier",
+      "label": "Rotation Guard",
+      "editable": true,
+      "value": 0.5,
+      "baselineValue": 0.5,
+      "type": "float",
+      "units": "degrees",
+      "safeRange": { "minimum": 0.0, "maximum": 5.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_rotation_guard" },
+      "info": {
+        "effect": "Rejects classifier updates when wrist rotation is too large.",
+        "increaseLooksLike": "More rotation is tolerated.",
+        "decreaseLooksLike": "Rotation noise is guarded more strictly.",
+        "tradeoffs": [
+          "Higher values allow freer wrist motion.",
+          "Lower values protect against rotation spikes."
+        ]
+      }
+    },
+    "moving_average_guard": {
+      "id": "moving_average_guard",
+      "group": "Axis Classifier",
+      "label": "Moving Average Guard",
+      "editable": true,
+      "value": 0.025,
+      "baselineValue": 0.025,
+      "type": "float",
+      "units": "normalized",
+      "safeRange": { "minimum": 0.0, "maximum": 0.2 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_moving_average_guard" },
+      "info": {
+        "effect": "Guards classification when moving-average drift is too large.",
+        "increaseLooksLike": "Slow drift is tolerated more easily.",
+        "decreaseLooksLike": "Drift is guarded more strictly.",
+        "tradeoffs": [
+          "Higher values reduce false guards on posture drift.",
+          "Lower values keep the classifier tighter."
+        ]
+      }
+    },
+    "short_window": {
+      "id": "short_window",
+      "group": "Axis Classifier",
+      "label": "Short Window",
+      "editable": true,
+      "value": 24,
+      "baselineValue": 24,
+      "type": "int",
+      "units": "samples",
+      "safeRange": { "minimum": 8, "maximum": 64 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_short_window" },
+      "info": {
+        "effect": "Sets the short classifier smoothing window.",
+        "increaseLooksLike": "Short-term changes are smoothed more heavily.",
+        "decreaseLooksLike": "The classifier reacts more quickly.",
+        "tradeoffs": [
+          "Higher values reduce jitter.",
+          "Lower values improve responsiveness."
+        ]
+      }
+    },
+    "long_window": {
+      "id": "long_window",
+      "group": "Axis Classifier",
+      "label": "Long Window",
+      "editable": true,
+      "value": 180,
+      "baselineValue": 180,
+      "type": "int",
+      "units": "samples",
+      "safeRange": { "minimum": 30, "maximum": 360 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_long_window" },
+      "info": {
+        "effect": "Sets the long classifier smoothing window.",
+        "increaseLooksLike": "Long-term context changes more slowly.",
+        "decreaseLooksLike": "Long-term context adapts more quickly.",
+        "tradeoffs": [
+          "Higher values stabilize the long reference.",
+          "Lower values respond faster to change."
+        ]
+      }
+    },
+    "min_accepted_delta": {
+      "id": "min_accepted_delta",
+      "group": "Bounds",
+      "label": "Minimum Accepted Delta",
+      "editable": true,
+      "value": 0.001,
+      "baselineValue": 0.001,
+      "type": "float",
+      "units": "meters",
+      "safeRange": { "minimum": 0.0, "maximum": 0.02 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_min_accepted_delta" },
+      "info": {
+        "effect": "Sets the smallest motion change that still counts as a new accepted sample.",
+        "increaseLooksLike": "Calibration ignores smaller changes and waits for larger motion.",
+        "decreaseLooksLike": "Calibration accepts smaller changes as meaningful motion.",
+        "tradeoffs": [
+          "Higher values reject micro-jitter more aggressively.",
+          "Lower values can accept more noise."
+        ]
+      }
+    },
+    "min_acceptable_travel": {
+      "id": "min_acceptable_travel",
+      "group": "Bounds",
+      "label": "Minimum Acceptable Travel",
+      "editable": true,
+      "value": 0.03,
+      "baselineValue": 0.03,
+      "type": "float",
+      "units": "meters",
+      "safeRange": { "minimum": 0.005, "maximum": 0.2 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_min_acceptable_travel" },
+      "info": {
+        "effect": "Sets the travel span calibration must observe before it accepts bounds.",
+        "increaseLooksLike": "Calibration demands a larger motion excursion.",
+        "decreaseLooksLike": "Calibration can accept shorter motion ranges.",
+        "tradeoffs": [
+          "Higher values avoid tiny low-quality calibrations.",
+          "Lower values can help very small-motion users."
+        ]
+      }
+    },
+    "adaptive_bounds_enabled": {
+      "id": "adaptive_bounds_enabled",
+      "group": "Bounds",
+      "label": "Adaptive Bounds Enabled",
+      "editable": true,
+      "value": true,
+      "baselineValue": true,
+      "type": "bool",
+      "units": "enabled",
+      "safeRange": { "minimum": 0, "maximum": 1 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_adaptive_bounds_enabled" },
+      "info": {
+        "effect": "Turns adaptive bound updates on or off after calibration.",
+        "increaseLooksLike": "Enabled lets the runtime keep adapting bounds over time.",
+        "decreaseLooksLike": "Disabled freezes the calibrated bounds.",
+        "tradeoffs": [
+          "Adaptive bounds can track slow drift.",
+          "Disabling adaptation keeps the mapping stable."
+        ]
+      }
+    },
+    "soft_margin_normalized": {
+      "id": "soft_margin_normalized",
+      "group": "Bounds",
+      "label": "Soft Margin Normalized",
+      "editable": true,
+      "value": 0.05,
+      "baselineValue": 0.05,
+      "type": "float",
+      "units": "normalized",
+      "safeRange": { "minimum": 0.0, "maximum": 0.2 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_soft_margin_normalized" },
+      "info": {
+        "effect": "Shrinks raw bounds inward before the final mapping is applied.",
+        "increaseLooksLike": "The usable range becomes more conservative near the edges.",
+        "decreaseLooksLike": "More of the raw observed span is preserved.",
+        "tradeoffs": [
+          "Higher margins reduce edge surprises.",
+          "Lower margins use more of the observed span."
+        ]
+      }
+    },
+    "edge_ease": {
+      "id": "edge_ease",
+      "group": "Bounds",
+      "label": "Edge Ease",
+      "editable": true,
+      "value": 0.05,
+      "baselineValue": 0.05,
+      "type": "float",
+      "units": "normalized",
+      "safeRange": { "minimum": 0.0, "maximum": 0.2 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_edge_ease" },
+      "info": {
+        "effect": "Applies extra easing near the solved bounds.",
+        "increaseLooksLike": "The extremes soften more before hitting the final limits.",
+        "decreaseLooksLike": "The mapping stays more direct near the extremes.",
+        "tradeoffs": [
+          "Higher values feel less abrupt at the edges.",
+          "Lower values preserve more raw range."
+        ]
+      }
+    },
+    "bounds_adapt_lerp": {
+      "id": "bounds_adapt_lerp",
+      "group": "Bounds",
+      "label": "Bounds Adapt Lerp",
+      "editable": true,
+      "value": 0.5,
+      "baselineValue": 0.5,
+      "type": "float",
+      "units": "normalized",
+      "safeRange": { "minimum": 0.0, "maximum": 1.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_bounds_adapt_lerp" },
+      "info": {
+        "effect": "Controls how aggressively adaptive bounds move toward new solved values.",
+        "increaseLooksLike": "Bounds move more quickly when adaptation fires.",
+        "decreaseLooksLike": "Bounds change more gradually.",
+        "tradeoffs": [
+          "Higher values react faster to drift.",
+          "Lower values are smoother but slower."
+        ]
+      }
+    },
+    "min_adaptive_span_normalized": {
+      "id": "min_adaptive_span_normalized",
+      "group": "Bounds",
+      "label": "Minimum Adaptive Span",
+      "editable": true,
+      "value": 0.75,
+      "baselineValue": 0.75,
+      "type": "float",
+      "units": "normalized",
+      "safeRange": { "minimum": 0.0, "maximum": 1.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_min_adaptive_span_normalized" },
+      "info": {
+        "effect": "Prevents adaptive bounds from collapsing below a fraction of the original span.",
+        "increaseLooksLike": "Adaptive bounds preserve more of the initial span.",
+        "decreaseLooksLike": "Adaptive bounds can shrink more aggressively.",
+        "tradeoffs": [
+          "Higher values keep the mapping broad.",
+          "Lower values let the mapping tighten."
+        ]
+      }
+    },
+    "lower_quantile": {
+      "id": "lower_quantile",
+      "group": "Bounds",
+      "label": "Lower Quantile",
+      "editable": true,
+      "value": 0.05,
+      "baselineValue": 0.05,
+      "type": "float",
+      "units": "quantile",
+      "safeRange": { "minimum": 0.0, "maximum": 0.2 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_lower_quantile" },
+      "info": {
+        "effect": "Sets the lower quantile used when solving bounds.",
+        "increaseLooksLike": "The lower bound ignores more low-end outliers.",
+        "decreaseLooksLike": "More of the low-end span is preserved.",
+        "tradeoffs": [
+          "Higher values reject more low-end outliers.",
+          "Lower values keep more observed range."
+        ]
+      }
+    },
+    "upper_quantile": {
+      "id": "upper_quantile",
+      "group": "Bounds",
+      "label": "Upper Quantile",
+      "editable": true,
+      "value": 0.95,
+      "baselineValue": 0.95,
+      "type": "float",
+      "units": "quantile",
+      "safeRange": { "minimum": 0.8, "maximum": 1.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_upper_quantile" },
+      "info": {
+        "effect": "Sets the upper quantile used when solving bounds.",
+        "increaseLooksLike": "More high-end motion is preserved before it counts as outlier.",
+        "decreaseLooksLike": "The upper bound rejects more high-end extremes.",
+        "tradeoffs": [
+          "Higher values preserve more of the top end.",
+          "Lower values make the upper bound more conservative."
+        ]
+      }
+    },
+    "adapt_window_seconds": {
+      "id": "adapt_window_seconds",
+      "group": "Adaptive Window",
+      "label": "Adapt Window Seconds",
+      "editable": true,
+      "value": 30.0,
+      "baselineValue": 30.0,
+      "type": "float",
+      "units": "seconds",
+      "safeRange": { "minimum": 5.0, "maximum": 120.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_adapt_window_seconds" },
+      "info": {
+        "effect": "Sets the time window used for adaptive bound samples.",
+        "increaseLooksLike": "Adaptation looks at a longer recent history.",
+        "decreaseLooksLike": "Adaptation reacts to a shorter history.",
+        "tradeoffs": [
+          "Higher values smooth longer-term behavior.",
+          "Lower values react more quickly."
+        ]
+      }
+    },
+    "adapt_window_frames": {
+      "id": "adapt_window_frames",
+      "group": "Adaptive Window",
+      "label": "Adapt Window Frames",
+      "editable": true,
+      "value": 200,
+      "baselineValue": 200,
+      "type": "int",
+      "units": "frames",
+      "safeRange": { "minimum": 24, "maximum": 1200 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_adapt_window_frames" },
+      "info": {
+        "effect": "Sets the maximum accepted-sample count kept for adaptive bounds.",
+        "increaseLooksLike": "Adaptation uses a larger accepted-sample buffer.",
+        "decreaseLooksLike": "Adaptation keeps a smaller recent buffer.",
+        "tradeoffs": [
+          "Higher values stabilize the adaptive solve.",
+          "Lower values make it more reactive."
+        ]
+      }
+    },
+    "adapt_recalc_interval": {
+      "id": "adapt_recalc_interval",
+      "group": "Adaptive Window",
+      "label": "Adapt Recalc Interval",
+      "editable": true,
+      "value": 0.25,
+      "baselineValue": 0.25,
+      "type": "float",
+      "units": "seconds",
+      "safeRange": { "minimum": 0.05, "maximum": 2.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_adapt_recalc_interval" },
+      "info": {
+        "effect": "Sets the minimum time between adaptive-bound recalculations.",
+        "increaseLooksLike": "Adaptive updates happen less often.",
+        "decreaseLooksLike": "Adaptive updates can happen more often.",
+        "tradeoffs": [
+          "Higher values reduce churn.",
+          "Lower values make the mapping more responsive."
+        ]
+      }
+    },
+    "adapt_recalc_frames": {
+      "id": "adapt_recalc_frames",
+      "group": "Adaptive Window",
+      "label": "Adapt Recalc Frames",
+      "editable": true,
+      "value": 5,
+      "baselineValue": 5,
+      "type": "int",
+      "units": "frames",
+      "safeRange": { "minimum": 1, "maximum": 240 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_adapt_recalc_frames" },
+      "info": {
+        "effect": "Sets how many fresh adaptive samples are needed before recalculation can happen.",
+        "increaseLooksLike": "Adaptation waits for more new samples.",
+        "decreaseLooksLike": "Bounds can update after fewer fresh samples.",
+        "tradeoffs": [
+          "Higher values reduce jitter in bound updates.",
+          "Lower values react faster."
+        ]
+      }
+    },
+    "min_valid_ratio": {
+      "id": "min_valid_ratio",
+      "group": "Adaptive Window",
+      "label": "Minimum Valid Ratio",
+      "editable": true,
+      "value": 0.6,
+      "baselineValue": 0.6,
+      "type": "float",
+      "units": "ratio",
+      "safeRange": { "minimum": 0.0, "maximum": 1.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_min_valid_ratio" },
+      "info": {
+        "effect": "Sets the minimum clean-frame ratio calibration requires before it accepts a solve.",
+        "increaseLooksLike": "Calibration becomes stricter about bad or missing frames.",
+        "decreaseLooksLike": "Calibration tolerates noisier input.",
+        "tradeoffs": [
+          "Higher values protect quality.",
+          "Lower values can help in messy tracking."
+        ]
+      }
+    },
+    "analysis_rate_hz": {
+      "id": "analysis_rate_hz",
+      "group": "Smoothing",
+      "label": "Analysis Rate",
+      "editable": true,
+      "value": 10.0,
+      "baselineValue": 10.0,
+      "type": "float",
+      "units": "hz",
+      "safeRange": { "minimum": 1.0, "maximum": 60.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_analysis_rate_hz" },
+      "info": {
+        "effect": "Controls how often the approximation emits analysis frames.",
+        "increaseLooksLike": "The runtime samples controller motion more often.",
+        "decreaseLooksLike": "The approximation updates on a slower cadence.",
+        "tradeoffs": [
+          "Higher rates can improve responsiveness.",
+          "Lower rates reduce sensitivity to micro-motions."
+        ]
+      }
+    },
+    "max_deg_per_frame": {
+      "id": "max_deg_per_frame",
+      "group": "Smoothing",
+      "label": "Max Degrees Per Frame",
+      "editable": true,
+      "value": 2.0,
+      "baselineValue": 2.0,
+      "type": "float",
+      "units": "degrees",
+      "safeRange": { "minimum": 0.0, "maximum": 15.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_max_deg_per_frame" },
+      "info": {
+        "effect": "Rejects frames whose rotation jump is too large.",
+        "increaseLooksLike": "Larger rotation jumps are still accepted.",
+        "decreaseLooksLike": "The runtime is stricter about rotation spikes.",
+        "tradeoffs": [
+          "Higher values allow freer wrist motion.",
+          "Lower values protect against rotation spikes."
+        ]
+      }
+    },
+    "max_jump_per_frame": {
+      "id": "max_jump_per_frame",
+      "group": "Smoothing",
+      "label": "Max Position Jump Per Frame",
+      "editable": true,
+      "value": 0.008,
+      "baselineValue": 0.008,
+      "type": "float",
+      "units": "meters",
+      "safeRange": { "minimum": 0.0, "maximum": 0.03 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_max_jump_per_frame" },
+      "info": {
+        "effect": "Rejects frames whose position jump is too large.",
+        "increaseLooksLike": "Larger position jumps are still accepted.",
+        "decreaseLooksLike": "The runtime is stricter about translation spikes.",
+        "tradeoffs": [
+          "Higher values are more tolerant of abrupt motion.",
+          "Lower values protect against outlier jumps."
+        ]
+      }
+    },
+    "ema_alpha": {
+      "id": "ema_alpha",
+      "group": "Smoothing",
+      "label": "EMA Alpha",
+      "editable": true,
+      "value": 0.18,
+      "baselineValue": 0.18,
+      "type": "float",
+      "units": "normalized",
+      "safeRange": { "minimum": 0.02, "maximum": 1.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_ema_alpha" },
+      "info": {
+        "effect": "Controls the exponential moving-average blend for the projection signal.",
+        "increaseLooksLike": "The smoothed signal follows new motion more quickly.",
+        "decreaseLooksLike": "The smoothed signal becomes steadier and slower.",
+        "tradeoffs": [
+          "Higher values improve responsiveness.",
+          "Lower values suppress jitter more strongly."
+        ]
+      }
+    },
+    "median_window": {
+      "id": "median_window",
+      "group": "Smoothing",
+      "label": "Median Window",
+      "editable": true,
+      "value": 5,
+      "baselineValue": 5,
+      "type": "int",
+      "units": "samples",
+      "safeRange": { "minimum": 1, "maximum": 9 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_median_window" },
+      "info": {
+        "effect": "Sets the median filter window used before the EMA stage.",
+        "increaseLooksLike": "More neighboring samples are considered before the EMA.",
+        "decreaseLooksLike": "The filter uses a smaller neighborhood.",
+        "tradeoffs": [
+          "Higher values reject isolated spikes better.",
+          "Lower values feel more immediate."
+        ]
+      }
+    },
+    "mid_deadband_normalized": {
+      "id": "mid_deadband_normalized",
+      "group": "Smoothing",
+      "label": "Mid Deadband",
+      "editable": true,
+      "value": 0.0,
+      "baselineValue": 0.0,
+      "type": "float",
+      "units": "normalized",
+      "safeRange": { "minimum": 0.0, "maximum": 0.4 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_mid_deadband_normalized" },
+      "info": {
+        "effect": "Flattens a zone around the center of the normalized volume mapping.",
+        "increaseLooksLike": "More of the middle range is held near the midpoint.",
+        "decreaseLooksLike": "The mapping stays continuous through the midpoint.",
+        "tradeoffs": [
+          "Higher values can steady the midpoint.",
+          "Lower values preserve continuous variation."
+        ]
+      }
+    },
+    "progress_gamma": {
+      "id": "progress_gamma",
+      "group": "Smoothing",
+      "label": "Progress Gamma",
+      "editable": true,
+      "value": 1.0,
+      "baselineValue": 1.0,
+      "type": "float",
+      "units": "gamma",
+      "safeRange": { "minimum": 0.25, "maximum": 4.0 },
+      "runtimeMapping": { "hotloadKey": "study_controller_breathing_progress_gamma" },
+      "info": {
+        "effect": "Shapes the final normalized volume curve after bounds and deadband.",
+        "increaseLooksLike": "Higher portions of the range are emphasized more strongly.",
+        "decreaseLooksLike": "The mapping gives more weight to lower portions of the range.",
+        "tradeoffs": [
+          "Higher gamma can delay visible rise until later in the motion.",
+          "Lower gamma can make early motion feel stronger."
+        ]
+      }
+    }
+  },
+  "crossFieldValidation": [
+    "controls.lower_quantile.value must be less than or equal to controls.upper_quantile.value",
+    "controls.short_window.value must be less than or equal to controls.long_window.value"
+  ],
+  "compilerHints": {
+    "mergeStrategy": "flat_runtime_hotload_keys",
+    "outputContract": "Compile this self-describing file into runtime_overrides.csv through the companion and upload it through the normal Sussex hotload path.",
+    "recalibrationNote": "Applying this profile resets controller-breathing calibration in the Sussex runtime."
+  }
+}
