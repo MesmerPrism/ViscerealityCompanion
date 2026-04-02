@@ -2120,6 +2120,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     await RefreshHeadsetStatusAsync().ConfigureAwait(false);
                 }
 
+                await _visualProfiles.ApplyStartupProfileOnLaunchAsync().ConfigureAwait(false);
                 await DispatchAsync(() => SelectedPhaseTabIndex = DuringSessionTabIndex).ConfigureAwait(false);
             }
 

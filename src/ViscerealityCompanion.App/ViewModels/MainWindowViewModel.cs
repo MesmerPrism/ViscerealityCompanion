@@ -53,6 +53,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private StudyShellLaunchOptions _studyShellLaunchOptions = new(string.Empty, false);
     private bool _startupStudyAutoOpened;
     private StudyShellViewModel? _activeStudyShell;
+    private bool _isStudyBannerExpanded = true;
     private string _endpointDraft = string.Empty;
     private string _browserUrlDraft = "https://www.aliusresearch.org/viscereality.html";
     private string _connectionSummary = "No Quest endpoint action has run yet.";
@@ -171,6 +172,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RefreshCatalogCommand = new AsyncRelayCommand(RefreshCatalogAsync);
         OpenStudyShellCommand = new AsyncRelayCommand(OpenStudyShellAsync);
         ExitStudyModeCommand = new AsyncRelayCommand(ExitStudyModeAsync);
+        ToggleStudyBannerCommand = new AsyncRelayCommand(ToggleStudyBannerAsync);
         ProbeUsbCommand = new AsyncRelayCommand(ProbeUsbAsync);
         DiscoverWifiCommand = new AsyncRelayCommand(DiscoverWifiAsync);
         EnableWifiCommand = new AsyncRelayCommand(EnableWifiAsync);
@@ -254,6 +256,23 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public bool ShowStudyModeAction => ActiveStudyShell is null && FeaturedStudyShell is not null && !HasLockedStartupStudy;
 
+    public bool IsStudyBannerExpanded
+    {
+        get => _isStudyBannerExpanded;
+        set
+        {
+            if (SetProperty(ref _isStudyBannerExpanded, value))
+            {
+                OnPropertyChanged(nameof(ShowExpandedStudyBanner));
+                OnPropertyChanged(nameof(StudyBannerToggleLabel));
+            }
+        }
+    }
+
+    public bool ShowExpandedStudyBanner => HasActiveStudyShell && IsStudyBannerExpanded;
+
+    public string StudyBannerToggleLabel => IsStudyBannerExpanded ? "Collapse Banner" : "Expand Banner";
+
     public string FeaturedStudyShellLabel
         => FeaturedStudyShell?.Label ?? "No study mode is available yet.";
 
@@ -318,6 +337,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand OpenStudyShellCommand { get; }
 
     public AsyncRelayCommand ExitStudyModeCommand { get; }
+
+    public AsyncRelayCommand ToggleStudyBannerCommand { get; }
 
     public AsyncRelayCommand ProbeUsbCommand { get; }
 
@@ -1416,6 +1437,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             AppendLog(OperatorLogLevel.Info, "Study mode cleared.", $"{previousStudyShell.StudyLabel} is no longer pinned in the main operator window.");
             previousStudyShell.Dispose();
         });
+    }
+
+    private Task ToggleStudyBannerAsync()
+    {
+        IsStudyBannerExpanded = !IsStudyBannerExpanded;
+        return Task.CompletedTask;
     }
 
     private void PinStudyShellSelection(StudyShellDefinition study)
@@ -2791,6 +2818,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(PrimaryWorkflowTabLabel));
         OnPropertyChanged(nameof(CurrentModeLabel));
         OnPropertyChanged(nameof(CurrentModeDetail));
+        OnPropertyChanged(nameof(ShowExpandedStudyBanner));
+        OnPropertyChanged(nameof(StudyBannerToggleLabel));
         OnPropertyChanged(nameof(HeaderModeSummary));
         OnPropertyChanged(nameof(TargetSelectionHeadline));
         OnPropertyChanged(nameof(TargetSelectionDetail));

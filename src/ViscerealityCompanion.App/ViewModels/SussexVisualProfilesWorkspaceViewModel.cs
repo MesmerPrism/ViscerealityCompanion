@@ -20,6 +20,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     private readonly SussexVisualTuningCompiler? _compiler;
     private readonly SussexVisualProfileStore? _profileStore;
     private readonly SussexVisualProfileApplyStateStore? _applyStateStore;
+    private readonly SussexVisualProfileStartupStateStore? _startupStateStore;
     private readonly DispatcherTimer? _persistTimer;
 
     private bool _initialized;
@@ -40,6 +41,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     private string _lastCompiledCsvPath = "No Sussex visual hotload CSV written yet.";
     private string _templatePathLabel = "Bundled Sussex visual tuning template not found.";
     private string _libraryRootLabel = string.Empty;
+    private SussexVisualProfileStartupState? _startupState;
 
     public SussexVisualProfilesWorkspaceViewModel(
         StudyShellDefinition study,
@@ -57,7 +59,9 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 _compiler = new SussexVisualTuningCompiler(templateJson);
                 _profileStore = new SussexVisualProfileStore(_compiler);
                 _applyStateStore = new SussexVisualProfileApplyStateStore(_study.Id);
+                _startupStateStore = new SussexVisualProfileStartupStateStore(_study.Id);
                 _lastApplyRecord = _applyStateStore.Load();
+                _startupState = _startupStateStore.Load();
                 _templatePathLabel = templatePath;
                 _libraryRootLabel = _profileStore.RootPath;
                 BuildEditorGroups();
@@ -94,7 +98,8 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         RenameSelectedCommand = new AsyncRelayCommand(RenameSelectedAsync, () => SelectedProfile is not null && !string.IsNullOrWhiteSpace(SelectedProfileName) && IsAvailable);
         ImportProfileCommand = new AsyncRelayCommand(ImportProfileAsync, () => IsAvailable);
         ExportSelectedCommand = new AsyncRelayCommand(ExportSelectedAsync, () => SelectedProfile is not null && IsAvailable);
-        ClearCompareCommand = new AsyncRelayCommand(ClearCompareAsync, () => CompareProfile is not null);
+        SetStartupProfileCommand = new AsyncRelayCommand(SetStartupProfileAsync, () => SelectedProfile is not null && !IsSelectedProfileStartupDefault && IsAvailable);
+        UseBundledStartupCommand = new AsyncRelayCommand(UseBundledStartupAsync, () => HasPinnedStartupProfile && IsAvailable);
         OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync, () => IsAvailable && !string.IsNullOrWhiteSpace(LibraryRootLabel));
         DeleteSelectedCommand = new AsyncRelayCommand(DeleteSelectedAsync, () => SelectedProfile is not null && IsAvailable);
         ApplySelectedCommand = new AsyncRelayCommand(ApplySelectedAsync, () => SelectedProfile is not null && IsAvailable);
@@ -175,6 +180,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             if (SetProperty(ref _selectedProfile, value))
             {
                 LoadSelectedProfileIntoEditor(value);
+                NotifyStartupStateChanged();
                 RaiseCommandStates();
             }
         }
@@ -187,7 +193,6 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         {
             if (SetProperty(ref _compareProfile, value))
             {
-                ClearCompareCommand.RaiseCanExecuteChanged();
                 RefreshComparisonState();
             }
         }
@@ -219,12 +224,33 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         }
     }
 
+    public bool HasPinnedStartupProfile => _startupState is not null;
+
+    public bool IsSelectedProfileStartupDefault
+        => SelectedProfile is not null &&
+           _startupState is not null &&
+           string.Equals(SelectedProfile.Id, _startupState.ProfileId, StringComparison.OrdinalIgnoreCase);
+
+    public string StartupProfileSummary
+        => _startupState is null
+            ? "APK start default: bundled Sussex baseline."
+            : $"APK start default: {_startupState.ProfileName}.";
+
+    public string StartupProfileDetail
+        => _startupState is null
+            ? "Sussex launches on the bundled baseline visual state. Select a saved profile and use the startup button below to make it the default for future launches from this shell."
+            : $"This shell will auto-apply {_startupState.ProfileName} when you launch the Sussex APK here. Select another saved profile and use the startup button below to replace it, or switch back to the bundled baseline.";
+
+    public string StartupProfileActionLabel
+        => IsSelectedProfileStartupDefault ? "Startup Default Selected" : "Use Selected At APK Start";
+
     public AsyncRelayCommand NewFromBaselineCommand { get; }
     public AsyncRelayCommand DuplicateSelectedCommand { get; }
     public AsyncRelayCommand RenameSelectedCommand { get; }
     public AsyncRelayCommand ImportProfileCommand { get; }
     public AsyncRelayCommand ExportSelectedCommand { get; }
-    public AsyncRelayCommand ClearCompareCommand { get; }
+    public AsyncRelayCommand SetStartupProfileCommand { get; }
+    public AsyncRelayCommand UseBundledStartupCommand { get; }
     public AsyncRelayCommand OpenFolderCommand { get; }
     public AsyncRelayCommand DeleteSelectedCommand { get; }
     public AsyncRelayCommand ApplySelectedCommand { get; }
@@ -304,10 +330,12 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             if (Profiles.Count == 0)
             {
                 SelectedProfile = null;
-                CompareProfile = null;
+                _startupState = null;
+                _startupStateStore?.Save(null);
                 LibrarySummary = "No Sussex visual profiles saved yet.";
                 LibraryDetail = $"Use New From Baseline to create the first profile in {LibraryRootLabel}.";
                 LibraryLevel = OperationOutcomeKind.Preview;
+                NotifyStartupStateChanged();
                 return;
             }
 
@@ -315,15 +343,17 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                                  string.Equals(profile.Id, selectProfileId, StringComparison.OrdinalIgnoreCase))
                              ?? Profiles[0];
 
-            if (CompareProfile is not null)
+            if (_startupState is not null &&
+                Profiles.Any(profile => string.Equals(profile.Id, _startupState.ProfileId, StringComparison.OrdinalIgnoreCase)) is false)
             {
-                CompareProfile = Profiles.FirstOrDefault(profile =>
-                    string.Equals(profile.Id, CompareProfile.Id, StringComparison.OrdinalIgnoreCase));
+                _startupState = null;
+                _startupStateStore?.Save(null);
             }
 
             LibrarySummary = $"Loaded {Profiles.Count.ToString(CultureInfo.InvariantCulture)} Sussex visual profile(s).";
-            LibraryDetail = $"Profiles live in {LibraryRootLabel}. The selected profile can be applied over the existing Sussex hotload file path.";
+            LibraryDetail = $"Profiles live in {LibraryRootLabel}. The selected profile can be applied over the existing Sussex hotload file path, and the startup default is shown on the right.";
             LibraryLevel = OperationOutcomeKind.Success;
+            NotifyStartupStateChanged();
         });
     }
 
@@ -467,7 +497,19 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
             await DispatchAsync(() =>
             {
+                var wasStartupProfile = _startupState is not null &&
+                                        string.Equals(_startupState.ProfileId, snapshot.Profile.Id, StringComparison.OrdinalIgnoreCase);
                 snapshot.Profile.Apply(saved);
+                if (wasStartupProfile)
+                {
+                    _startupState = new SussexVisualProfileStartupState(
+                        saved.Id,
+                        saved.Document.Profile.Name,
+                        DateTimeOffset.UtcNow);
+                    _startupStateStore?.Save(_startupState);
+                    NotifyStartupStateChanged();
+                }
+
                 if (ReferenceEquals(SelectedProfile, snapshot.Profile))
                 {
                     RefreshComparisonState();
@@ -604,10 +646,64 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         return Task.CompletedTask;
     }
 
-    private Task ClearCompareAsync()
+    private Task SetStartupProfileAsync()
     {
-        CompareProfile = null;
+        if (SelectedProfile is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _startupState = new SussexVisualProfileStartupState(
+            SelectedProfile.Id,
+            SelectedProfile.Document.Profile.Name,
+            DateTimeOffset.UtcNow);
+        _startupStateStore?.Save(_startupState);
+        NotifyStartupStateChanged();
+        RefreshComparisonState();
         return Task.CompletedTask;
+    }
+
+    private Task UseBundledStartupAsync()
+    {
+        _startupState = null;
+        _startupStateStore?.Save(null);
+        NotifyStartupStateChanged();
+        RefreshComparisonState();
+        return Task.CompletedTask;
+    }
+
+    public async Task ApplyStartupProfileOnLaunchAsync()
+    {
+        SussexVisualProfileRecord? startupRecord = null;
+        var startupIsSelected = false;
+        await DispatchAsync(() => startupIsSelected = IsSelectedProfileStartupDefault).ConfigureAwait(false);
+        if (startupIsSelected)
+        {
+            startupRecord = await PersistCurrentProfileAsync().ConfigureAwait(false);
+        }
+
+        SussexVisualProfileListItemViewModel? startupProfile = null;
+        await DispatchAsync(() =>
+        {
+            startupProfile = ResolvePinnedStartupProfile();
+        }).ConfigureAwait(false);
+
+        startupRecord ??= startupProfile?.ToRecord();
+        if (startupRecord is null)
+        {
+            await DispatchAsync(() =>
+            {
+                ApplySummary = "APK launch is using the bundled Sussex baseline visual state.";
+                ApplyDetail = "No saved startup profile is pinned, so Sussex keeps the bundled baseline until you apply another profile.";
+                ApplyLevel = OperationOutcomeKind.Preview;
+                RefreshComparisonState();
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        await ApplyProfileRecordAsync(
+            startupRecord,
+            "Apply Startup Visual Profile").ConfigureAwait(false);
     }
 
     private async Task DeleteSelectedAsync()
@@ -634,6 +730,14 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             _applyStateStore?.Save(null);
         }
 
+        if (_startupState is not null &&
+            string.Equals(_startupState.ProfileId, deletedId, StringComparison.OrdinalIgnoreCase))
+        {
+            _startupState = null;
+            _startupStateStore?.Save(null);
+            NotifyStartupStateChanged();
+        }
+
         await _profileStore.DeleteAsync(SelectedProfile.FilePath);
         await ReloadProfilesAsync();
     }
@@ -645,14 +749,26 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             return;
         }
 
+        var saved = await PersistCurrentProfileAsync();
+        if (saved is null)
+        {
+            return;
+        }
+
+        await ApplyProfileRecordAsync(saved, "Apply Visual Profile").ConfigureAwait(false);
+    }
+
+    private async Task ApplyProfileRecordAsync(
+        SussexVisualProfileRecord saved,
+        string actionLabel)
+    {
+        if (_compiler is null)
+        {
+            return;
+        }
+
         try
         {
-            var saved = await PersistCurrentProfileAsync();
-            if (saved is null)
-            {
-                return;
-            }
-
             var compiled = _compiler.Compile(saved.Document);
             var previousReportedValues = _compiler.ExtractRuntimeValues(_reportedRuntimeConfigJson ?? string.Empty);
             var runtimeProfile = new RuntimeConfigProfile(
@@ -666,7 +782,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 [saved.Document.PackageId],
                 [new RuntimeConfigEntry(compiled.HotloadTargetKey, compiled.CompactRuntimeConfigJson)]);
 
-            var csvPath = await _runtimeConfigWriter.WriteAsync(runtimeProfile);
+            var csvPath = await _runtimeConfigWriter.WriteAsync(runtimeProfile).ConfigureAwait(false);
             LastCompiledCsvPath = csvPath;
 
             var hotloadProfile = new HotloadProfile(
@@ -689,10 +805,10 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 _study.Description,
                 []);
 
-            var headsetStatus = await _questService.QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false);
+            var headsetStatus = await _questService.QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false).ConfigureAwait(false);
             if (!headsetStatus.IsConnected)
             {
-                ApplySummary = headsetStatus.Summary;
+                ApplySummary = $"{actionLabel} blocked.";
                 ApplyDetail = $"{headsetStatus.Detail} The CSV was compiled locally at {csvPath}, but it was not uploaded.";
                 ApplyLevel = OperationOutcomeKind.Failure;
                 RefreshComparisonState();
@@ -708,17 +824,17 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
                 if (wakeOutcome.Kind == OperationOutcomeKind.Failure)
                 {
-                    ApplySummary = "Sussex visual profile apply blocked by headset wake failure.";
+                    ApplySummary = $"{actionLabel} blocked by headset wake failure.";
                     ApplyDetail = BuildWakeFailureDetail(wakeOutcome, csvPath);
                     ApplyLevel = OperationOutcomeKind.Failure;
                     RefreshComparisonState();
                     return;
                 }
 
-                headsetStatus = await _questService.QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false);
+                headsetStatus = await _questService.QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false).ConfigureAwait(false);
                 if (headsetStatus.IsAwake != true || headsetStatus.IsInWakeLimbo)
                 {
-                    ApplySummary = "Sussex visual profile apply is waiting for an awake headset.";
+                    ApplySummary = $"{actionLabel} is waiting for an awake headset.";
                     ApplyDetail = BuildHeadsetNotReadyDetail(headsetStatus, wakeOutcome, csvPath);
                     ApplyLevel = OperationOutcomeKind.Warning;
                     RefreshComparisonState();
@@ -726,7 +842,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 }
             }
 
-            var outcome = await _questService.ApplyHotloadProfileAsync(hotloadProfile, target);
+            var outcome = await _questService.ApplyHotloadProfileAsync(hotloadProfile, target).ConfigureAwait(false);
             if (outcome.Kind != OperationOutcomeKind.Failure)
             {
                 _lastApplyRecord = new SussexVisualProfileApplyRecord(
@@ -747,7 +863,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         }
         catch (Exception ex)
         {
-            ApplySummary = "Sussex visual profile apply failed.";
+            ApplySummary = $"{actionLabel} failed.";
             ApplyDetail = BuildApplyExceptionDetail(ex);
             ApplyLevel = OperationOutcomeKind.Failure;
             RefreshComparisonState();
@@ -777,11 +893,11 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             SelectedProfileNotes,
             Groups.SelectMany(group => group.Fields)
                 .ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase));
+        var startupComparisonDocument = ResolveStartupComparisonDocument();
         var fieldsById = Groups
             .SelectMany(group => group.Fields)
             .ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
-        var compareDocument = CompareProfile?.Document;
-        var rows = _compiler.BuildComparisonRows(selectedDocument, compareDocument);
+        var rows = _compiler.BuildComparisonRows(selectedDocument, startupComparisonDocument);
         var selectedMatchesLastApply = _lastApplyRecord is not null &&
             string.Equals(SelectedProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(SelectedProfile.FileHash, _lastApplyRecord.FileHash, StringComparison.OrdinalIgnoreCase);
@@ -936,8 +1052,36 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         DuplicateSelectedCommand.RaiseCanExecuteChanged();
         RenameSelectedCommand.RaiseCanExecuteChanged();
         ExportSelectedCommand.RaiseCanExecuteChanged();
+        SetStartupProfileCommand.RaiseCanExecuteChanged();
+        UseBundledStartupCommand.RaiseCanExecuteChanged();
         DeleteSelectedCommand.RaiseCanExecuteChanged();
         ApplySelectedCommand.RaiseCanExecuteChanged();
+    }
+
+    private SussexVisualProfileListItemViewModel? ResolvePinnedStartupProfile()
+        => _startupState is null
+            ? null
+            : Profiles.FirstOrDefault(profile =>
+                string.Equals(profile.Id, _startupState.ProfileId, StringComparison.OrdinalIgnoreCase));
+
+    private SussexVisualTuningDocument ResolveStartupComparisonDocument()
+    {
+        if (_compiler is null)
+        {
+            throw new InvalidOperationException("Sussex visual tuning compiler is not available.");
+        }
+
+        return ResolvePinnedStartupProfile()?.Document ?? _compiler.TemplateDocument;
+    }
+
+    private void NotifyStartupStateChanged()
+    {
+        OnPropertyChanged(nameof(HasPinnedStartupProfile));
+        OnPropertyChanged(nameof(IsSelectedProfileStartupDefault));
+        OnPropertyChanged(nameof(StartupProfileSummary));
+        OnPropertyChanged(nameof(StartupProfileDetail));
+        OnPropertyChanged(nameof(StartupProfileActionLabel));
+        RaiseCommandStates();
     }
 
     private static string ResolveGroupTitle(string controlId)

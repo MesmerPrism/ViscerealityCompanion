@@ -176,7 +176,7 @@ The embedded Sussex workspace checks:
 The active Sussex shell is organized into three operator views:
 
 - `Pre-session` for connection, Sussex APK verification, and device-profile setup
-- `Visual Profiles` for named appearance-only Sussex presets that the experimenter can create, compare, save, and apply over the existing hotload-file path
+- `Visual Profiles` for named appearance-only Sussex presets that the experimenter can create, save, pin as the APK-start default, and apply over the existing hotload-file path
 - `During session` for the live monitoring and command surface
 - `Inspect` for detailed study-runtime settings, focused live values, and recent twin events
 
@@ -196,6 +196,16 @@ Companion profile library. The shell compiles that profile into a
 `showcase_active_runtime_config_json` hotload payload and uploads it through the
 existing Sussex ADB file path. The headset never consumes the partial source
 JSON directly.
+
+The selected profile can also be promoted to the `APK start default` directly
+from this tab. That pinned startup profile is the one the shell auto-applies
+when it launches the Sussex APK from the companion. If no saved profile is
+pinned, the shell stays on the bundled Sussex baseline.
+
+The parameter table now always compares the selected profile against that
+current APK-start default. The editable `Current` column stays centered beside
+the parameter range, and row reset still returns a single value to the bundled
+Sussex baseline.
 
 The workflow tab now also offers `Open Sequential Guide`, a pop-out onboarding
 window that walks the operator through the fixed Sussex protocol step by step:

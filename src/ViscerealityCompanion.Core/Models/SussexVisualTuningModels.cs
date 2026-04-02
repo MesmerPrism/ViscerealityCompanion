@@ -54,6 +54,11 @@ public sealed record SussexVisualProfileRecord(
     DateTimeOffset ModifiedAtUtc,
     SussexVisualTuningDocument Document);
 
+public sealed record SussexVisualProfileStartupState(
+    string ProfileId,
+    string ProfileName,
+    DateTimeOffset UpdatedAtUtc);
+
 public sealed record SussexVisualProfileApplyRecord(
     string ProfileId,
     string ProfileName,

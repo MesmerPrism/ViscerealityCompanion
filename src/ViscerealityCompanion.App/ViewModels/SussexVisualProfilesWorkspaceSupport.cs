@@ -206,6 +206,12 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
         private set => SetProperty(ref _compare, value);
     }
 
+    public string Startup
+    {
+        get => Compare;
+        private set => Compare = value;
+    }
+
     public string DeltaFromBaseline
     {
         get => _deltaFromBaseline;
@@ -216,6 +222,12 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
     {
         get => _deltaBetweenProfiles;
         private set => SetProperty(ref _deltaBetweenProfiles, value);
+    }
+
+    public string DeltaFromStartup
+    {
+        get => DeltaBetweenProfiles;
+        private set => DeltaBetweenProfiles = value;
     }
 
     public string Range
@@ -300,9 +312,9 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
         bool syncCurrentValueText)
     {
         Baseline = FormatValue(comparison.BaselineValue);
-        Compare = comparison.CompareValue is null ? string.Empty : FormatValue(comparison.CompareValue.Value);
+        Startup = comparison.CompareValue is null ? string.Empty : FormatValue(comparison.CompareValue.Value);
         DeltaFromBaseline = FormatDelta(comparison.SelectedValue, comparison.BaselineValue);
-        DeltaBetweenProfiles = comparison.CompareValue is null ? string.Empty : FormatDelta(comparison.SelectedValue, comparison.CompareValue.Value);
+        DeltaFromStartup = comparison.CompareValue is null ? string.Empty : FormatDelta(comparison.SelectedValue, comparison.CompareValue.Value);
         Range = _field.IsBoolean
             ? "Off / On"
             : $"{FormatValue(_field.Minimum)} .. {FormatValue(_field.Maximum)}";

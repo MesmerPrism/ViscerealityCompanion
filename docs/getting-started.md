@@ -44,6 +44,18 @@ That path publishes a single-file `win-x64` app into
 `ViscerealityCompanion.exe` copies, refreshes the canonical Desktop/Start Menu
 launcher, and launches the verified build.
 
+If you want a separate launcher for the repo-local development build, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Local-Desktop-Launcher.ps1
+```
+
+That creates a clearly labeled `Viscereality Companion (Local Dev)` shortcut on
+Desktop and Start Menu. It launches the app through `dotnet run` so you can
+test local changes before publishing a single-file build. The published
+shortcut keeps the plain Companion icon, while the local-dev shortcut adds a
+small badge so you can tell them apart at a glance.
+
 The app runs against the committed sample session-kit catalogs under
 `samples/quest-session-kit/` and the public runtime-config profiles under
 `samples/oscillator-config/`.
