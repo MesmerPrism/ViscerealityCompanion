@@ -31,10 +31,15 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     private bool _commandOutletOpened;
     private bool _configOutletOpened;
     private DateTimeOffset? _lastStateReceivedAt;
+    private DateTimeOffset? _lastCommittedSnapshotReceivedAt;
     private string? _pendingStructuredRevision;
     private string? _pendingStructuredHash;
     private string? _lastCommittedSnapshotHash;
     private string? _lastCommittedSnapshotRevision;
+    private string? _lastResolvedStateSourceId;
+    private string? _expectedStateSourceId;
+    private string? _expectedStateSourceIdPrefix = TwinLslSourceId.QuestSourcePrefix;
+    private bool _structuredSnapshotObserved;
     private int _lastCommittedSnapshotEntryCount;
     private int _publishedCommandCount;
     private int _lastPublishedCommandSequence;
@@ -84,6 +89,20 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
                 }
 
                 detailParts.Add($"Monitoring {DefaultStateStreamName} / {DefaultStateStreamType}.");
+
+                if (!string.IsNullOrWhiteSpace(_expectedStateSourceId))
+                {
+                    detailParts.Add($"Expected quest source_id: {_expectedStateSourceId}.");
+                }
+                else if (!string.IsNullOrWhiteSpace(_expectedStateSourceIdPrefix))
+                {
+                    detailParts.Add($"Expected quest source_id prefix: {_expectedStateSourceIdPrefix}.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(_lastResolvedStateSourceId))
+                {
+                    detailParts.Add($"Resolved quest source_id: {_lastResolvedStateSourceId}.");
+                }
 
                 if (!string.IsNullOrWhiteSpace(_lastCommittedSnapshotRevision))
                 {
@@ -205,6 +224,39 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         }
     }
 
+    public DateTimeOffset? LastCommittedSnapshotReceivedAt
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                return _lastCommittedSnapshotReceivedAt;
+            }
+        }
+    }
+
+    public string? ExpectedStateSourceId
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                return _expectedStateSourceId;
+            }
+        }
+    }
+
+    public string? LastResolvedStateSourceId
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                return _lastResolvedStateSourceId;
+            }
+        }
+    }
+
     public IReadOnlyList<TwinSettingsDelta> ComputeSettingsDelta()
     {
         lock (_settingsSync)
@@ -229,6 +281,27 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
             return deltas;
         }
+    }
+
+    public void ConfigureExpectedQuestStateSource(string? packageId)
+    {
+        ConfigureStateSourceFilter(
+            string.IsNullOrWhiteSpace(packageId)
+                ? null
+                : TwinLslSourceId.BuildQuestStateSourceId(packageId, DefaultStateStreamName, DefaultStateStreamType),
+            TwinLslSourceId.QuestSourcePrefix);
+    }
+
+    public void ConfigureStateSourceFilter(string? exactSourceId, string? sourceIdPrefix = null)
+    {
+        lock (_settingsSync)
+        {
+            _expectedStateSourceId = string.IsNullOrWhiteSpace(exactSourceId) ? null : exactSourceId.Trim();
+            _expectedStateSourceIdPrefix = string.IsNullOrWhiteSpace(sourceIdPrefix) ? null : sourceIdPrefix.Trim();
+        }
+
+        RestartStateMonitor();
+        StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public OperationOutcome Open()
@@ -362,6 +435,21 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         }
     }
 
+    private void RestartStateMonitor()
+    {
+        var previous = Interlocked.Exchange(ref _monitorCts, null);
+        if (previous is not null)
+        {
+            previous.Cancel();
+            previous.Dispose();
+        }
+
+        if (_commandOutletOpened || _configOutletOpened)
+        {
+            StartStateMonitor();
+        }
+    }
+
     private void StartStateMonitor()
     {
         if (_monitorCts is not null)
@@ -369,17 +457,28 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             return;
         }
 
-        _monitorCts = new CancellationTokenSource();
+        var monitorCts = new CancellationTokenSource();
+        _monitorCts = monitorCts;
+        string? exactSourceId;
+        string? sourceIdPrefix;
+        lock (_settingsSync)
+        {
+            exactSourceId = _expectedStateSourceId;
+            sourceIdPrefix = _expectedStateSourceIdPrefix;
+        }
+
         var subscription = new LslMonitorSubscription(
             DefaultStateStreamName,
             DefaultStateStreamType,
-            0);
+            0,
+            exactSourceId,
+            sourceIdPrefix);
 
         _ = Task.Run(async () =>
         {
             try
             {
-                await foreach (var reading in _stateMonitor.MonitorAsync(subscription, _monitorCts.Token))
+                await foreach (var reading in _stateMonitor.MonitorAsync(subscription, monitorCts.Token))
                 {
                     if (reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase))
                     {
@@ -482,6 +581,10 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         lock (_settingsSync)
         {
             _lastStateReceivedAt = reading.Timestamp;
+            if (!string.IsNullOrWhiteSpace(reading.ResolvedSourceId))
+            {
+                _lastResolvedStateSourceId = reading.ResolvedSourceId.Trim();
+            }
 
             foreach (var payload in payloads)
             {
@@ -508,10 +611,15 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         lock (_settingsSync)
         {
             _lastStateReceivedAt = reading.Timestamp;
+            if (!string.IsNullOrWhiteSpace(reading.ResolvedSourceId))
+            {
+                _lastResolvedStateSourceId = reading.ResolvedSourceId.Trim();
+            }
 
             var revision = values[1]?.Trim() ?? string.Empty;
             var key = values[2]?.Trim() ?? string.Empty;
             var value = values[3] ?? string.Empty;
+            _structuredSnapshotObserved = true;
 
             switch (operation.ToLowerInvariant())
             {
@@ -530,9 +638,12 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
                             return StructuredFrameResult.ParsedNoChange;
                         }
 
-                        _reportedSettings[key] = value;
-                        AddStateEventLocked(new TwinStateEvent(reading.Timestamp, "state", string.Join(" | ", values), $"rev={revision} {key} = {value}"));
-                        return StructuredFrameResult.ParsedStateChanged;
+                        AddStateEventLocked(new TwinStateEvent(
+                            reading.Timestamp,
+                            "ignored",
+                            string.Join(" | ", values),
+                            $"Ignored out-of-revision structured state update rev={revision} key={key}."));
+                        return StructuredFrameResult.ParsedNoChange;
                     }
 
                     return StructuredFrameResult.ParsedNoChange;
@@ -544,6 +655,11 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
                         _pendingStructuredSnapshot.Clear();
                         _pendingStructuredRevision = null;
                         _pendingStructuredHash = null;
+                        AddStateEventLocked(new TwinStateEvent(
+                            reading.Timestamp,
+                            "ignored",
+                            string.Join(" | ", values),
+                            $"Ignored structured end for unexpected rev={revision}."));
                         return StructuredFrameResult.ParsedNoChange;
                     }
 
@@ -566,6 +682,7 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
                     _lastCommittedSnapshotHash = _pendingStructuredHash;
                     _lastCommittedSnapshotRevision = revision;
+                    _lastCommittedSnapshotReceivedAt = reading.Timestamp;
                     _lastCommittedSnapshotEntryCount = _pendingStructuredSnapshot.Count;
                     AddStateEventLocked(new TwinStateEvent(reading.Timestamp, "frame", string.Join(" | ", values), $"Snapshot end rev={revision} entries={key} hash={value}"));
                     _pendingStructuredSnapshot.Clear();
@@ -615,6 +732,12 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
         if (TryParseKeyValue(candidate, out var key, out var value))
         {
+            if (_structuredSnapshotObserved || !string.IsNullOrWhiteSpace(_pendingStructuredRevision))
+            {
+                AddStateEventLocked(new TwinStateEvent(timestamp, "ignored", normalized, $"Ignored loose state payload after structured snapshot activation: {key} = {value}"));
+                return;
+            }
+
             _reportedSettings[key] = value;
             AddStateEventLocked(new TwinStateEvent(timestamp, category, normalized, $"{key} = {value}"));
             return;

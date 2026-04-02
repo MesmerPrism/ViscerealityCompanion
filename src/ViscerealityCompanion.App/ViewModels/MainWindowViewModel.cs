@@ -782,6 +782,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _selectedApp, value))
             {
+                ConfigureTwinStateSourceForSelectedApp();
                 RefreshAvailableHotloadProfiles();
                 RefreshRuntimeConfigProfileSelection();
                 RefreshSelectedAppApkPath();
@@ -1467,6 +1468,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             GpuLevelText = gpuLevel;
         }
+    }
+
+    private void ConfigureTwinStateSourceForSelectedApp()
+    {
+        if (_twinBridge is not LslTwinModeBridge lslBridge)
+        {
+            return;
+        }
+
+        lslBridge.ConfigureExpectedQuestStateSource(SelectedApp?.PackageId);
     }
 
     private void RefreshAvailableHotloadProfiles()

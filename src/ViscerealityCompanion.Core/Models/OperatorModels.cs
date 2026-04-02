@@ -121,7 +121,13 @@ public enum QuestUtilityAction
     Reboot
 }
 
-public sealed record LslMonitorSubscription(string StreamName, string StreamType, int ChannelIndex);
+public sealed record LslMonitorSubscription(
+    string StreamName,
+    string StreamType,
+    int ChannelIndex,
+    string? ExactSourceId = null,
+    string? SourceIdPrefix = null,
+    bool PreferNewestMatch = true);
 
 public enum LslChannelFormat
 {
@@ -140,7 +146,8 @@ public sealed record LslMonitorReading(
     IReadOnlyList<string>? SampleValues = null,
     LslChannelFormat ChannelFormat = LslChannelFormat.Unknown,
     double? SampleTimestampSeconds = null,
-    double? ObservedLocalClockSeconds = null);
+    double? ObservedLocalClockSeconds = null,
+    string? ResolvedSourceId = null);
 
 public sealed record TwinModeCommand(string ActionId, string DisplayName)
 {

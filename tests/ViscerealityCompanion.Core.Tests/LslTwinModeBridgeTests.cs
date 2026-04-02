@@ -92,8 +92,16 @@ public class LslTwinModeBridgeTests
     public async Task ComputeSettingsDelta_compares_requested_and_reported()
     {
         using var bridge = CreateBridge(out _, out _, out var stateMonitor, out _);
+        var timestamp = DateTimeOffset.UtcNow;
         stateMonitor.EnqueueReading(new LslMonitorReading(
-            "Streaming", "set alpha=0.7", 0f, 30f, DateTimeOffset.UtcNow));
+            "Streaming", string.Empty, null, 30f, timestamp,
+            SampleValues: ["begin", "11", string.Empty, "hash-11"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 30f, timestamp,
+            SampleValues: ["set", "11", "alpha", "0.7"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 30f, timestamp,
+            SampleValues: ["end", "11", "1", "hash-11"]));
 
         bridge.Open();
 
@@ -165,6 +173,79 @@ public class LslTwinModeBridgeTests
         Assert.Equal("7", bridge.LastCommittedSnapshotRevision);
         Assert.Equal(4, bridge.LastCommittedSnapshotEntryCount);
         Assert.Contains("Headset last executed Particles On seq 3", bridge.Status.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Out_of_revision_structured_set_is_ignored()
+    {
+        using var bridge = CreateBridge(out _, out _, out var stateMonitor, out _);
+        var timestamp = DateTimeOffset.UtcNow;
+
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["begin", "7", string.Empty, "hash-7"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["set", "8", "alpha", "0.9"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["set", "7", "beta", "1.0"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["end", "7", "1", "hash-7"]));
+
+        bridge.Open();
+        await Task.Delay(200);
+
+        Assert.False(bridge.ReportedSettings.ContainsKey("alpha"));
+        Assert.Equal("1.0", bridge.ReportedSettings["beta"]);
+        Assert.Contains(
+            bridge.StateEvents,
+            stateEvent => stateEvent.Category == "ignored" &&
+                          stateEvent.Detail.Contains("out-of-revision", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Loose_payload_does_not_mutate_reported_settings_after_structured_snapshot()
+    {
+        using var bridge = CreateBridge(out _, out _, out var stateMonitor, out _);
+        var timestamp = DateTimeOffset.UtcNow;
+
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["begin", "3", string.Empty, "hash-3"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["set", "3", "alpha", "0.5"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", string.Empty, null, 20f, timestamp,
+            SampleValues: ["end", "3", "1", "hash-3"]));
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming", "set alpha=0.9", 0f, 20f, timestamp));
+
+        bridge.Open();
+        await Task.Delay(200);
+
+        Assert.Equal("0.5", bridge.ReportedSettings["alpha"]);
+        Assert.Contains(
+            bridge.StateEvents,
+            stateEvent => stateEvent.Category == "ignored" &&
+                          stateEvent.Detail.Contains("loose state payload", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ConfigureExpectedQuestStateSource_applies_package_bound_source_filter()
+    {
+        using var bridge = CreateBridge(out _, out _, out var stateMonitor, out _);
+
+        bridge.ConfigureExpectedQuestStateSource("com.Viscereality.SussexExperiment");
+        bridge.Open();
+        await Task.Delay(50);
+
+        Assert.Equal(
+            "viscereality.quest.com-viscereality-sussexexperiment.quest-twin-state.quest-twin-state",
+            stateMonitor.LastSubscription?.ExactSourceId);
+        Assert.Equal("viscereality.quest.", stateMonitor.LastSubscription?.SourceIdPrefix);
     }
 
     [Fact]
@@ -250,6 +331,7 @@ public class LslTwinModeBridgeTests
     private sealed class FakeMonitorService : ILslMonitorService
     {
         private readonly Queue<LslMonitorReading> _readings = new();
+        public LslMonitorSubscription? LastSubscription { get; private set; }
 
         public LslRuntimeState RuntimeState { get; } = new(true, "Fake liblsl runtime for core tests.");
 
@@ -259,6 +341,7 @@ public class LslTwinModeBridgeTests
             LslMonitorSubscription subscription,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
+            LastSubscription = subscription;
             while (_readings.TryDequeue(out var reading))
             {
                 yield return reading;

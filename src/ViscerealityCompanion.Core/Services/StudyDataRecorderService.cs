@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -252,6 +254,8 @@ public sealed class StudyDataRecordingSession : IDisposable
 
     private readonly object _sync = new();
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly Encoding _fileEncoding;
+    private readonly AsyncFileQueue _ioQueue;
     private readonly StreamWriter _eventsWriter;
     private readonly StreamWriter _signalsWriter;
     private readonly StreamWriter _breathingWriter;
@@ -284,6 +288,8 @@ public sealed class StudyDataRecordingSession : IDisposable
         SettingsJsonPath = Path.Combine(SessionFolderPath, "session_settings.json");
         SessionSnapshotJsonPath = Path.Combine(SessionFolderPath, "session_snapshot.json");
         _sessionConditionsJson = request.SessionConditionsJson ?? string.Empty;
+        _fileEncoding = encoding;
+        _ioQueue = new AsyncFileQueue();
 
         _eventsWriter = CreateWriter(EventsCsvPath, encoding);
         _signalsWriter = CreateWriter(SignalsCsvPath, encoding);
@@ -291,11 +297,11 @@ public sealed class StudyDataRecordingSession : IDisposable
         _clockAlignmentWriter = CreateWriter(ClockAlignmentCsvPath, encoding);
         _upstreamLslMonitorWriter = CreateWriter(UpstreamLslMonitorCsvPath, encoding);
 
-        WriteLine(_eventsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,event_name,event_detail,command_action_id,result");
-        WriteLine(_signalsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,lsl_timestamp_seconds,source,signal_group,signal_name,value_numeric,value_text,unit,sequence,quest_selector");
-        WriteLine(_breathingWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,breath_volume01,sphere_radius_progress01,sphere_radius_raw,controller_calibrated");
-        WriteLine(_clockAlignmentWriter, "participant_id,session_id,dataset_id,window_kind,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
-        WriteLine(_upstreamLslMonitorWriter, "participant_id,session_id,dataset_id,recorded_at_utc,observed_local_clock_seconds,stream_sample_timestamp_seconds,stream_name,stream_type,channel_index,channel_format,value_numeric,value_text,sequence,status,detail");
+        QueueWriteLine(_eventsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,event_name,event_detail,command_action_id,result");
+        QueueWriteLine(_signalsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,lsl_timestamp_seconds,source,signal_group,signal_name,value_numeric,value_text,unit,sequence,quest_selector");
+        QueueWriteLine(_breathingWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,breath_volume01,sphere_radius_progress01,sphere_radius_raw,controller_calibrated");
+        QueueWriteLine(_clockAlignmentWriter, "participant_id,session_id,dataset_id,window_kind,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
+        QueueWriteLine(_upstreamLslMonitorWriter, "participant_id,session_id,dataset_id,recorded_at_utc,observed_local_clock_seconds,stream_sample_timestamp_seconds,stream_name,stream_type,channel_index,channel_format,value_numeric,value_text,sequence,status,detail");
 
         _settings = new StudyDataRecordingSettingsDocument(
             request.StudyId,
@@ -389,7 +395,7 @@ public sealed class StudyDataRecordingSession : IDisposable
             ThrowIfDisposed();
 
             var timestamp = recordedAtUtc ?? DateTimeOffset.UtcNow;
-            WriteLine(
+            QueueWriteLine(
                 _eventsWriter,
                 string.Join(
                     ",",
@@ -440,7 +446,7 @@ public sealed class StudyDataRecordingSession : IDisposable
 
                 _lastSignalValues[spec.Name] = rawValue;
                 var (numericValue, textValue) = SplitValue(rawValue);
-                WriteLine(
+                QueueWriteLine(
                     _signalsWriter,
                     string.Join(
                         ",",
@@ -480,7 +486,7 @@ public sealed class StudyDataRecordingSession : IDisposable
             }
 
             _lastBreathingSignature = signature;
-            WriteLine(
+            QueueWriteLine(
                 _breathingWriter,
                 string.Join(
                     ",",
@@ -508,7 +514,7 @@ public sealed class StudyDataRecordingSession : IDisposable
         lock (_sync)
         {
             ThrowIfDisposed();
-            File.Copy(sourcePath, Path.Combine(SessionFolderPath, targetFileName), overwrite: true);
+            _ioQueue.Enqueue(() => File.Copy(sourcePath, Path.Combine(SessionFolderPath, targetFileName), overwrite: true));
         }
     }
 
@@ -517,7 +523,7 @@ public sealed class StudyDataRecordingSession : IDisposable
         lock (_sync)
         {
             ThrowIfDisposed();
-            WriteLine(
+            QueueWriteLine(
                 _clockAlignmentWriter,
                 string.Join(
                     ",",
@@ -576,7 +582,7 @@ public sealed class StudyDataRecordingSession : IDisposable
         lock (_sync)
         {
             ThrowIfDisposed();
-            WriteLine(
+            QueueWriteLine(
                 _upstreamLslMonitorWriter,
                 string.Join(
                     ",",
@@ -634,12 +640,14 @@ public sealed class StudyDataRecordingSession : IDisposable
 
     private void WriteSettingsDocument()
     {
-        var json = JsonSerializer.Serialize(_settings, _jsonOptions);
-        File.WriteAllText(SettingsJsonPath, json);
-        WriteSessionSnapshotDocument();
+        var settingsJson = JsonSerializer.Serialize(_settings, _jsonOptions);
+        var snapshotJson = BuildSessionSnapshotDocumentJson();
+        _ioQueue.Enqueue(() => File.WriteAllText(SettingsJsonPath, settingsJson, _fileEncoding));
+        _ioQueue.Enqueue(() => File.WriteAllText(SessionSnapshotJsonPath, snapshotJson, _fileEncoding));
+        _ioQueue.Drain();
     }
 
-    private void WriteSessionSnapshotDocument()
+    private string BuildSessionSnapshotDocumentJson()
     {
         JsonNode? conditions = null;
         string? parseError = null;
@@ -668,16 +676,23 @@ public sealed class StudyDataRecordingSession : IDisposable
             snapshot["ConditionsParseError"] = parseError;
         }
 
-        File.WriteAllText(SessionSnapshotJsonPath, snapshot.ToJsonString(_jsonOptions));
+        return snapshot.ToJsonString(_jsonOptions);
     }
 
     private void DisposeWriters()
     {
+        try
+        {
+            _ioQueue.Dispose();
+        }
+        finally
+        {
             _eventsWriter.Dispose();
             _signalsWriter.Dispose();
             _breathingWriter.Dispose();
             _clockAlignmentWriter.Dispose();
             _upstreamLslMonitorWriter.Dispose();
+        }
     }
 
     private void ThrowIfDisposed()
@@ -698,6 +713,9 @@ public sealed class StudyDataRecordingSession : IDisposable
         };
         return writer;
     }
+
+    private void QueueWriteLine(StreamWriter writer, string line)
+        => _ioQueue.Enqueue(() => WriteLine(writer, line));
 
     private static void WriteLine(StreamWriter writer, string line)
         => writer.WriteLine(line);
@@ -792,6 +810,108 @@ public sealed class StudyDataRecordingSession : IDisposable
         int ClockAlignmentBackgroundSampleCount,
         string UpstreamLslMonitorFile,
         int UpstreamLslMonitorSampleCount);
+
+    private sealed class AsyncFileQueue : IDisposable
+    {
+        private readonly BlockingCollection<QueueOperation> _operations = new(new ConcurrentQueue<QueueOperation>(), 4096);
+        private readonly Thread _workerThread;
+        private ExceptionDispatchInfo? _fault;
+        private bool _disposed;
+
+        public AsyncFileQueue()
+        {
+            _workerThread = new Thread(WorkerLoop)
+            {
+                IsBackground = true,
+                Name = "StudyDataRecorderAsyncFileQueue"
+            };
+            _workerThread.Start();
+        }
+
+        public void Enqueue(Action action)
+        {
+            ArgumentNullException.ThrowIfNull(action);
+            ThrowIfFaulted();
+            ThrowIfDisposed();
+
+            if (!_operations.TryAdd(new QueueOperation(action, null), millisecondsTimeout: 250))
+            {
+                throw new IOException("The Windows study recorder queue is saturated. The recorder will be faulted instead of silently dropping data.");
+            }
+        }
+
+        public void Drain()
+        {
+            ThrowIfFaulted();
+            ThrowIfDisposed();
+
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!_operations.TryAdd(new QueueOperation(null, completion), millisecondsTimeout: 250))
+            {
+                throw new IOException("The Windows study recorder queue could not drain because the IO queue is saturated.");
+            }
+
+            completion.Task.GetAwaiter().GetResult();
+            ThrowIfFaulted();
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            try
+            {
+                Drain();
+            }
+            catch
+            {
+            }
+
+            _disposed = true;
+            _operations.CompleteAdding();
+            _workerThread.Join(millisecondsTimeout: 3000);
+            _operations.Dispose();
+        }
+
+        private void WorkerLoop()
+        {
+            try
+            {
+                foreach (var operation in _operations.GetConsumingEnumerable())
+                {
+                    if (operation.Action is not null)
+                    {
+                        operation.Action();
+                    }
+
+                        operation.Completion?.SetResult(true);
+                }
+            }
+            catch (Exception exception)
+            {
+                _fault = ExceptionDispatchInfo.Capture(exception);
+                while (_operations.TryTake(out var operation))
+                {
+                    operation.Completion?.SetException(exception);
+                }
+            }
+        }
+
+        private void ThrowIfFaulted()
+        {
+            _fault?.Throw();
+        }
+
+        private void ThrowIfDisposed()
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+        }
+
+        private readonly record struct QueueOperation(Action? Action, TaskCompletionSource<bool>? Completion);
+    }
 }
 
 public sealed record StudyUpstreamLslObservation(

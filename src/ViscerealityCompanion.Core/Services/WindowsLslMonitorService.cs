@@ -53,7 +53,7 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
         yield return BuildReading(
             subscription,
             "Resolving LSL stream...",
-            $"Searching for `{subscription.StreamName}` / `{subscription.StreamType}` over the Windows liblsl runtime.");
+            BuildResolveDetail(subscription));
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -86,7 +86,7 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
                 yield return BuildReading(
                     subscription,
                     "LSL stream not found.",
-                    $"No visible stream matched `{subscription.StreamName}` / `{subscription.StreamType}`. The monitor will keep retrying.");
+                    $"No visible stream matched {BuildStreamLabel(subscription)}{BuildSourceFilterDetail(subscription)}. The monitor will keep retrying.");
                 await Task.Delay(_retryDelay, cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -94,7 +94,7 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
             yield return BuildReading(
                 subscription,
                 "LSL stream connected.",
-                $"Connected to `{session.ResolvedName}` / `{session.ResolvedType}` with {session.ChannelCount} channel(s).",
+                BuildConnectedDetail(session),
                 sampleRateHz: session.SampleRateHz);
 
             var sessionOpenedAtMs = _nowMilliseconds();
@@ -194,7 +194,7 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
                     yield return BuildReading(
                         subscription,
                         "Resolving LSL stream...",
-                        $"The previous inlet was idle, so the app is searching the network again for `{subscription.StreamName}` / `{subscription.StreamType}`.");
+                        $"The previous inlet was idle, so the app is searching the network again for {BuildStreamLabel(subscription)}{BuildSourceFilterDetail(subscription)}.");
                     await Task.Delay(_retryDelay, cancellationToken).ConfigureAwait(false);
                     openNewSession = true;
                     break;
@@ -238,7 +238,8 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
             sample.SampleValues,
             sample.ChannelFormat,
             sample.TimestampSeconds,
-            _bridge.GetLocalClockSeconds());
+            _bridge.GetLocalClockSeconds(),
+            sample.ResolvedSourceId);
 
     private static LslMonitorReading BuildReading(
         LslMonitorSubscription subscription,
@@ -255,6 +256,38 @@ public sealed class WindowsLslMonitorService : ILslMonitorService
             value?.ToString(CultureInfo.InvariantCulture),
             value is null ? Array.Empty<string>() : [value.Value.ToString(CultureInfo.InvariantCulture)],
             value is null ? LslChannelFormat.Unknown : LslChannelFormat.Float32);
+
+    private static string BuildResolveDetail(LslMonitorSubscription subscription)
+        => $"Searching for {BuildStreamLabel(subscription)}{BuildSourceFilterDetail(subscription)} over the Windows liblsl runtime.";
+
+    private static string BuildConnectedDetail(LslMonitorSession session)
+    {
+        var detail = $"Connected to `{session.ResolvedName}` / `{session.ResolvedType}` with {session.ChannelCount} channel(s).";
+        if (!string.IsNullOrWhiteSpace(session.ResolvedSourceId))
+        {
+            detail += $" source_id=`{session.ResolvedSourceId}`.";
+        }
+
+        return detail;
+    }
+
+    private static string BuildStreamLabel(LslMonitorSubscription subscription)
+        => $"`{subscription.StreamName}` / `{subscription.StreamType}`";
+
+    private static string BuildSourceFilterDetail(LslMonitorSubscription subscription)
+    {
+        if (!string.IsNullOrWhiteSpace(subscription.ExactSourceId))
+        {
+            return $" with exact source_id `{subscription.ExactSourceId}`";
+        }
+
+        if (!string.IsNullOrWhiteSpace(subscription.SourceIdPrefix))
+        {
+            return $" with source_id prefix `{subscription.SourceIdPrefix}`";
+        }
+
+        return string.Empty;
+    }
 }
 
 internal interface ILslMonitorBridge
@@ -314,13 +347,32 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
         }
 
         var selectedInfo = nint.Zero;
+        var selectedCreatedAt = double.NegativeInfinity;
         for (var index = 0; index < resolveCount; index++)
         {
             var candidate = resolvedInfos[index];
-            if (candidate != IntPtr.Zero && MatchesRequestedStream(candidate, streamName, streamType))
+            if (candidate == IntPtr.Zero ||
+                !MatchesRequestedStream(
+                    candidate,
+                    streamName,
+                    streamType,
+                    subscription.ExactSourceId,
+                    subscription.SourceIdPrefix))
+            {
+                continue;
+            }
+
+            if (!subscription.PreferNewestMatch)
             {
                 selectedInfo = candidate;
                 break;
+            }
+
+            var candidateCreatedAt = NativeMethods.GetCreatedAt(candidate);
+            if (selectedInfo == IntPtr.Zero || candidateCreatedAt > selectedCreatedAt)
+            {
+                selectedInfo = candidate;
+                selectedCreatedAt = candidateCreatedAt;
             }
         }
 
@@ -369,11 +421,26 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
 
         var resolvedName = NativeMethods.GetName(selectedInfo);
         var resolvedType = NativeMethods.GetTypeName(selectedInfo);
+        var resolvedSourceId = NativeMethods.GetSourceId(selectedInfo);
         var sampleRateHz = (float)NativeMethods.GetNominalSampleRate(selectedInfo);
         var channelFormat = MapChannelFormat(NativeMethods.GetChannelFormat(selectedInfo));
+        if (double.IsNegativeInfinity(selectedCreatedAt))
+        {
+            selectedCreatedAt = NativeMethods.GetCreatedAt(selectedInfo);
+        }
+
         DestroyResolvedInfos(resolvedInfos);
 
-        return new LslMonitorSession(inlet, resolvedName, resolvedType, channelCount, subscription.ChannelIndex, sampleRateHz, channelFormat);
+        return new LslMonitorSession(
+            inlet,
+            resolvedName,
+            resolvedType,
+            resolvedSourceId,
+            selectedCreatedAt,
+            channelCount,
+            subscription.ChannelIndex,
+            sampleRateHz,
+            channelFormat);
     }
 
     public LslMonitorSample? PullSample(LslMonitorSession session)
@@ -410,13 +477,24 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
             ? NativeMethods.ResolveByProperty(resolvedInfos, (uint)resolvedInfos.Length, "name", streamName, 1, 1d)
             : NativeMethods.ResolveByProperty(resolvedInfos, (uint)resolvedInfos.Length, "type", streamType, 1, 1d);
 
-    private static bool MatchesRequestedStream(nint streamInfo, string requestedName, string requestedType)
+    private static bool MatchesRequestedStream(
+        nint streamInfo,
+        string requestedName,
+        string requestedType,
+        string? exactSourceId,
+        string? sourceIdPrefix)
     {
         var candidateName = NativeMethods.GetName(streamInfo);
         var candidateType = NativeMethods.GetTypeName(streamInfo);
+        var candidateSourceId = NativeMethods.GetSourceId(streamInfo);
         var nameMatches = string.IsNullOrWhiteSpace(requestedName) || string.Equals(candidateName, requestedName, StringComparison.Ordinal);
         var typeMatches = string.IsNullOrWhiteSpace(requestedType) || string.Equals(candidateType, requestedType, StringComparison.Ordinal);
-        return nameMatches && typeMatches;
+        var exactSourceMatches = string.IsNullOrWhiteSpace(exactSourceId) ||
+            string.Equals(candidateSourceId, exactSourceId, StringComparison.Ordinal);
+        var prefixSourceMatches = string.IsNullOrWhiteSpace(sourceIdPrefix) ||
+            (!string.IsNullOrWhiteSpace(candidateSourceId) &&
+             candidateSourceId.StartsWith(sourceIdPrefix, StringComparison.Ordinal));
+        return nameMatches && typeMatches && exactSourceMatches && prefixSourceMatches;
     }
 
     private static void DestroyResolvedInfos(IEnumerable<IntPtr> streamInfos)
@@ -480,7 +558,8 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
             sampleBuffer[session.SelectedChannelIndex],
             values[session.SelectedChannelIndex],
             values,
-            LslChannelFormat.Float32);
+            LslChannelFormat.Float32,
+            session.ResolvedSourceId);
     }
 
     private static LslMonitorSample? PullStringSample(LslMonitorSession session)
@@ -523,7 +602,8 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
             null,
             values[session.SelectedChannelIndex],
             values,
-            LslChannelFormat.String);
+            LslChannelFormat.String,
+            session.ResolvedSourceId);
     }
 
     private static string ReadLslString(IntPtr pointer, uint length)
@@ -613,6 +693,12 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
         [DllImport("lsl", EntryPoint = "lsl_get_type", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr lsl_get_type(nint streamInfo);
 
+        [DllImport("lsl", EntryPoint = "lsl_get_source_id", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr lsl_get_source_id(nint streamInfo);
+
+        [DllImport("lsl", EntryPoint = "lsl_get_created_at", CallingConvention = CallingConvention.Cdecl)]
+        private static extern double lsl_get_created_at(nint streamInfo);
+
         [DllImport("lsl", EntryPoint = "lsl_get_channel_count", CallingConvention = CallingConvention.Cdecl)]
         private static extern int lsl_get_channel_count(nint streamInfo);
 
@@ -666,6 +752,10 @@ internal sealed class LslNativeMonitorBridge : ILslMonitorBridge
         internal static string GetName(nint streamInfo) => PtrToString(lsl_get_name(streamInfo));
 
         internal static string GetTypeName(nint streamInfo) => PtrToString(lsl_get_type(streamInfo));
+
+        internal static string GetSourceId(nint streamInfo) => PtrToString(lsl_get_source_id(streamInfo));
+
+        internal static double GetCreatedAt(nint streamInfo) => lsl_get_created_at(streamInfo);
 
         internal static int GetChannelCount(nint streamInfo) => lsl_get_channel_count(streamInfo);
 

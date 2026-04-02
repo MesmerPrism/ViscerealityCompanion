@@ -67,8 +67,8 @@ researcher-facing operator surface, not like the broader multi-study app.
 It currently pins:
 
 - package id: `com.Viscereality.SussexExperiment`
-- version: `0.1.1`
-- SHA256: `B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0`
+- version: `0.1.2`
+- SHA256: `AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69`
 - bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
@@ -261,7 +261,7 @@ That harness:
 - captures GUI and Quest screenshots for kiosk-launch and kiosk-exit review
 - writes a text report alongside those screenshots
 
-The latest live Sussex validation pass on `2026-04-02`:
+The latest completed live Sussex validation pass on `2026-04-02`:
 
 - confirmed controller-breathing profile apply and restore readback through the embedded Sussex shell
 - confirmed participant start/end in `participant_locked` mode on the rebuilt `0.1.1` Sussex APK
@@ -271,6 +271,13 @@ The latest live Sussex validation pass on `2026-04-02`:
 
 That `2026-04-02` pass was run off-face, so kiosk exit was intentionally
 skipped instead of being re-verified in the same run.
+
+The currently bundled public Sussex APK has since been rebuilt to `0.1.2`
+(`AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69`) with the
+LSL source-id hardening, revision-strict twin handling, transactional Quest
+recorder start, recorder-health reporting, and the async Windows recorder path.
+That newer `0.1.2` bundle is packaged and ready, but it does not yet claim a
+fresh live verification baseline until the next manual headset pass completes.
 
 Treat those screenshots as evidence to inspect, not as an automatic proof that
 Meta Home was visibly restored. On the current HorizonOS build, kiosk exit can

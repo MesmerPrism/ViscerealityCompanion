@@ -8,21 +8,11 @@
                 "packageId":  "com.Viscereality.SussexExperiment",
                 "apkPath":  "../quest-session-kit/APKs/SussexExperiment.apk",
                 "launchComponent":  "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
-                "sha256":  "B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0",
-                "versionName":  "0.1.1",
+                "sha256":  "AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69",
+                "versionName":  "0.1.2",
                 "notes":  "The Sussex shell ships with a bundled Sussex Experiment APK. The operator shell keeps checking the bundled APK hash and the installed headset hash against the approved Sussex study build.",
                 "allowManualSelection":  false,
-                "launchInKioskMode":  true,
-                "verification":  {
-                                     "apkSha256":  "B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0",
-                                     "softwareVersion":  "14",
-                                     "buildId":  "2921110053000610",
-                                     "displayId":  "UP1A.231005.007.A1",
-                                     "deviceProfileId":  "sussex-study-profile",
-                                     "environmentHash":  "8C9698A3077099301DF6A9CDF431A2B183C435C05FAC1B0B046109E6A475EECC",
-                                     "verifiedAtUtc":  "2026-04-02T17:14:16.6986450+00:00",
-                                     "verifiedBy":  "tools/ViscerealityCompanion.VerificationHarness"
-                                 }
+                "launchInKioskMode":  true
             },
     "deviceProfile":  {
                           "id":  "sussex-study-profile",

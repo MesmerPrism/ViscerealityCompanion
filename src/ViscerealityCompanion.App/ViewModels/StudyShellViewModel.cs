@@ -406,6 +406,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
+            lslBridge.ConfigureExpectedQuestStateSource(_study.App.PackageId);
             lslBridge.StateChanged += OnTwinBridgeStateChanged;
         }
 
@@ -2747,7 +2748,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _study.Controls.StartExperimentActionId,
             "pending");
 
+        var startConfirmationGate = await DispatchAsync(CaptureTwinSnapshotGate).ConfigureAwait(false);
         var outcome = await SendStudyTwinCommandCoreAsync(_study.Controls.StartExperimentActionId, "Start Experiment").ConfigureAwait(false);
+        var startCommandIssuedAtUtc = DateTimeOffset.UtcNow;
         recordingSession.RecordEvent(
             "experiment.start_command",
             BuildRecorderEventDetail(outcome),
@@ -2776,7 +2779,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var deviceConfirmationOutcome = await ConfirmDeviceRecordingSessionAsync(recordingSession).ConfigureAwait(false);
+        var deviceConfirmationOutcome = await ConfirmDeviceRecordingSessionAsync(
+                recordingSession,
+                startConfirmationGate,
+                startCommandIssuedAtUtc)
+            .ConfigureAwait(false);
         recordingSession.RecordEvent(
             "recording.device_confirmation",
             BuildRecorderEventDetail(deviceConfirmationOutcome),
@@ -2860,7 +2867,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     endClockAlignmentOutcome.Kind.ToString());
             }
 
+            var stopConfirmationGate = await DispatchAsync(CaptureTwinSnapshotGate).ConfigureAwait(false);
             var endOutcome = await SendStudyTwinCommandCoreAsync(_study.Controls.EndExperimentActionId, "End Experiment").ConfigureAwait(false);
+            var endCommandIssuedAtUtc = DateTimeOffset.UtcNow;
             outcomes.Add(("End Experiment", endOutcome));
             activeSession?.RecordEvent(
                 "experiment.end_command",
@@ -2874,7 +2883,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             }
             else
             {
-                var deviceStopOutcome = await ConfirmDeviceRecordingStoppedAsync(activeSession).ConfigureAwait(false);
+                var deviceStopOutcome = await ConfirmDeviceRecordingStoppedAsync(
+                        activeSession,
+                        stopConfirmationGate,
+                        endCommandIssuedAtUtc)
+                    .ConfigureAwait(false);
                 outcomes.Add(("Quest Recorder Stop", deviceStopOutcome));
                 activeSession.RecordEvent(
                     "recording.device_stop_confirmation",
@@ -5259,25 +5272,85 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return await _twinBridge.PublishRuntimeConfigAsync(profile, target).ConfigureAwait(false);
     }
 
-    private async Task<OperationOutcome> ConfirmDeviceRecordingSessionAsync(StudyDataRecordingSession recordingSession)
+    private TwinSnapshotGate CaptureTwinSnapshotGate()
     {
-        for (var attempt = 0; attempt < 16; attempt++)
+        if (_twinBridge is not LslTwinModeBridge lslBridge)
+        {
+            return new TwinSnapshotGate(null, null);
+        }
+
+        return new TwinSnapshotGate(
+            lslBridge.LastCommittedSnapshotRevision,
+            lslBridge.LastCommittedSnapshotReceivedAt);
+    }
+
+    private static bool HasFreshCommittedTwinSnapshot(
+        TwinSnapshotGate gate,
+        DateTimeOffset commandIssuedAtUtc,
+        string? currentRevision,
+        DateTimeOffset? currentCommittedAtUtc)
+    {
+        if (currentCommittedAtUtc is null)
+        {
+            return false;
+        }
+
+        if (gate.CommittedAtUtc is null)
+        {
+            return currentCommittedAtUtc.Value >= commandIssuedAtUtc;
+        }
+
+        return currentCommittedAtUtc.Value > gate.CommittedAtUtc.Value ||
+               !string.Equals(currentRevision, gate.Revision, StringComparison.Ordinal);
+    }
+
+    private async Task<OperationOutcome> ConfirmDeviceRecordingSessionAsync(
+        StudyDataRecordingSession recordingSession,
+        TwinSnapshotGate snapshotGate,
+        DateTimeOffset commandIssuedAtUtc)
+    {
+        var timeoutAtUtc = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(6);
+        while (DateTimeOffset.UtcNow < timeoutAtUtc)
         {
             var confirmation = await DispatchAsync(() =>
             {
+                var currentRevision = (_twinBridge as LslTwinModeBridge)?.LastCommittedSnapshotRevision;
+                var currentCommittedAtUtc = (_twinBridge as LslTwinModeBridge)?.LastCommittedSnapshotReceivedAt;
                 var sessionId = GetFirstValue("study.session.id");
                 var datasetHash = GetFirstValue("study.session.dataset_hash");
                 var deviceRecordingActive = ParseBool(GetFirstValue("study.recording.device.active")) == true;
                 var deviceSessionDir = GetFirstValue("study.recording.device.session_dir");
+                var recorderFaultActive = ParseBool(GetFirstValue("study.recording.device.fault_active")) == true;
+                var recorderFaultDetail = GetFirstValue("study.recording.device.fault_detail");
+                var hasFreshSnapshot = HasFreshCommittedTwinSnapshot(
+                    snapshotGate,
+                    commandIssuedAtUtc,
+                    currentRevision,
+                    currentCommittedAtUtc);
 
                 return (
+                    HasFreshSnapshot: hasFreshSnapshot,
                     Matches: deviceRecordingActive &&
                              string.Equals(sessionId, recordingSession.SessionId, StringComparison.Ordinal) &&
                              string.Equals(datasetHash, recordingSession.DatasetHash, StringComparison.OrdinalIgnoreCase),
-                    DeviceSessionDir: deviceSessionDir);
+                    DeviceSessionDir: deviceSessionDir,
+                    RecorderFaultActive: recorderFaultActive,
+                    RecorderFaultDetail: recorderFaultDetail,
+                    CurrentRevision: currentRevision);
             }).ConfigureAwait(false);
 
-            if (confirmation.Matches)
+            if (confirmation.RecorderFaultActive)
+            {
+                var detail = string.IsNullOrWhiteSpace(confirmation.RecorderFaultDetail)
+                    ? "Quest reported an explicit device-side recorder fault while starting the participant session."
+                    : $"Quest reported an explicit device-side recorder fault while starting the participant session: {confirmation.RecorderFaultDetail}";
+                return new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Quest-side participant recorder failed to start.",
+                    detail);
+            }
+
+            if (confirmation.HasFreshSnapshot && confirmation.Matches)
             {
                 if (!string.IsNullOrWhiteSpace(confirmation.DeviceSessionDir))
                 {
@@ -5299,7 +5372,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return new OperationOutcome(
             OperationOutcomeKind.Warning,
             "Participant run started, but Quest recorder confirmation is still missing.",
-            "The Start Experiment command succeeded, but the live twin state did not confirm the expected session id/hash plus device-side recording activity within the timeout window.");
+            "The Start Experiment command succeeded, but no fresh committed quest_twin_state snapshot confirmed the expected session id/hash plus device-side recording activity within 6 seconds.");
     }
 
     private void StartUpstreamLslMonitor(StudyDataRecordingSession recordingSession)
@@ -5737,27 +5810,43 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return result.Outcome;
     }
 
-    private async Task<OperationOutcome> ConfirmDeviceRecordingStoppedAsync(StudyDataRecordingSession recordingSession)
+    private async Task<OperationOutcome> ConfirmDeviceRecordingStoppedAsync(
+        StudyDataRecordingSession recordingSession,
+        TwinSnapshotGate snapshotGate,
+        DateTimeOffset commandIssuedAtUtc)
     {
-        for (var attempt = 0; attempt < 20; attempt++)
+        var timeoutAtUtc = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(6);
+        while (DateTimeOffset.UtcNow < timeoutAtUtc)
         {
             var confirmation = await DispatchAsync(() =>
             {
+                var currentRevision = (_twinBridge as LslTwinModeBridge)?.LastCommittedSnapshotRevision;
+                var currentCommittedAtUtc = (_twinBridge as LslTwinModeBridge)?.LastCommittedSnapshotReceivedAt;
                 var sessionId = GetFirstValue("study.session.id");
                 var datasetHash = GetFirstValue("study.session.dataset_hash");
                 var deviceRecordingActive = ParseBool(GetFirstValue("study.recording.device.active")) == true;
                 var experimentActive = ParseBool(GetFirstValue("study.session.experiment_active")) == true;
                 var deviceSessionDir = GetFirstValue("study.recording.device.session_dir");
+                var recorderFaultActive = ParseBool(GetFirstValue("study.recording.device.fault_active")) == true;
+                var recorderFaultDetail = GetFirstValue("study.recording.device.fault_detail");
                 var matchesSession =
                     string.IsNullOrWhiteSpace(sessionId) ||
                     string.Equals(sessionId, recordingSession.SessionId, StringComparison.Ordinal);
                 var matchesHash =
                     string.IsNullOrWhiteSpace(datasetHash) ||
                     string.Equals(datasetHash, recordingSession.DatasetHash, StringComparison.OrdinalIgnoreCase);
+                var hasFreshSnapshot = HasFreshCommittedTwinSnapshot(
+                    snapshotGate,
+                    commandIssuedAtUtc,
+                    currentRevision,
+                    currentCommittedAtUtc);
 
                 return (
+                    HasFreshSnapshot: hasFreshSnapshot,
                     Confirmed: !deviceRecordingActive && !experimentActive && matchesSession && matchesHash,
-                    DeviceSessionDir: deviceSessionDir);
+                    DeviceSessionDir: deviceSessionDir,
+                    RecorderFaultActive: recorderFaultActive,
+                    RecorderFaultDetail: recorderFaultDetail);
             }).ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(confirmation.DeviceSessionDir))
@@ -5765,7 +5854,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 await DispatchAsync(() => _latestDeviceRecordingSessionDir = confirmation.DeviceSessionDir).ConfigureAwait(false);
             }
 
-            if (confirmation.Confirmed)
+            if (confirmation.RecorderFaultActive)
+            {
+                var detail = string.IsNullOrWhiteSpace(confirmation.RecorderFaultDetail)
+                    ? "Quest reported an explicit device-side recorder fault while stopping the participant session."
+                    : $"Quest reported an explicit device-side recorder fault while stopping the participant session: {confirmation.RecorderFaultDetail}";
+                return new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Quest-side participant recorder stop failed.",
+                    detail);
+            }
+
+            if (confirmation.HasFreshSnapshot && confirmation.Confirmed)
             {
                 var detail = string.IsNullOrWhiteSpace(confirmation.DeviceSessionDir)
                     ? "Quest reports the participant recorder inactive and the experiment session ended."
@@ -5782,8 +5882,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return new OperationOutcome(
             OperationOutcomeKind.Warning,
             "End Experiment was sent, but Quest recorder stop confirmation is still missing.",
-            "The command completed, but the live twin state did not confirm the expected stopped recorder state within the timeout window.");
+            "The command completed, but no fresh committed quest_twin_state snapshot confirmed the expected stopped recorder state within 6 seconds.");
     }
+
+    private readonly record struct TwinSnapshotGate(string? Revision, DateTimeOffset? CommittedAtUtc);
 
     private void ResetClockAlignmentStateForRun(StudyClockAlignmentWindowKind windowKind, TimeSpan duration)
     {

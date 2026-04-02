@@ -59,7 +59,7 @@ public sealed class WindowsLslOutletService : ILslOutletService
             _streamName,
             _streamType,
             channelCount,
-            BuildSourceId(_streamName, _streamType));
+            TwinLslSourceId.BuildCompanionSourceId(_streamName, _streamType, Environment.MachineName));
         if (_streamInfo == IntPtr.Zero)
         {
             return new OperationOutcome(
@@ -179,56 +179,6 @@ public sealed class WindowsLslOutletService : ILslOutletService
 
         var bytes = System.Text.Encoding.UTF8.GetBytes(builder.ToString());
         return Convert.ToHexString(sha256.ComputeHash(bytes)).ToLowerInvariant();
-    }
-
-    private static string BuildSourceId(string streamName, string streamType)
-    {
-        var nameToken = SanitizeSourceToken(streamName);
-        var typeToken = SanitizeSourceToken(streamType);
-        if (string.IsNullOrWhiteSpace(nameToken))
-        {
-            nameToken = "stream";
-        }
-
-        if (string.IsNullOrWhiteSpace(typeToken))
-        {
-            typeToken = "lsl";
-        }
-
-        return $"viscereality.companion.{nameToken}.{typeToken}";
-    }
-
-    private static string SanitizeSourceToken(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        Span<char> buffer = stackalloc char[value.Length];
-        var count = 0;
-        var lastWasSeparator = false;
-
-        foreach (var character in value.Trim().ToLowerInvariant())
-        {
-            if (char.IsLetterOrDigit(character))
-            {
-                buffer[count++] = character;
-                lastWasSeparator = false;
-                continue;
-            }
-
-            if (lastWasSeparator)
-            {
-                continue;
-            }
-
-            buffer[count++] = '-';
-            lastWasSeparator = true;
-        }
-
-        var token = new string(buffer[..count]).Trim('-');
-        return token;
     }
 
     public void Dispose()

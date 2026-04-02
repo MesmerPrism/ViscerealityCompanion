@@ -41,6 +41,8 @@ public sealed record LslMonitorSession(
     nint Handle,
     string ResolvedName,
     string ResolvedType,
+    string ResolvedSourceId,
+    double CreatedAtSeconds,
     int ChannelCount,
     int SelectedChannelIndex,
     float SampleRateHz,
@@ -51,4 +53,5 @@ public sealed record LslMonitorSample(
     float? NumericValue,
     string? TextValue,
     IReadOnlyList<string> SampleValues,
-    LslChannelFormat ChannelFormat);
+    LslChannelFormat ChannelFormat,
+    string? ResolvedSourceId = null);
