@@ -2,11 +2,109 @@ using ViscerealityCompanion.App;
 using ViscerealityCompanion.App.ViewModels;
 using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
+using System.Globalization;
 
 namespace ViscerealityCompanion.Integration.Tests;
 
 public sealed class SussexProfileRowConfirmationResolverTests
 {
+    [Fact]
+    public async Task Visual_startup_save_updates_saved_launch_override_row_immediately()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex visual tuning template.");
+        var compiler = new SussexVisualTuningCompiler(File.ReadAllText(templatePath));
+        var store = new SussexVisualProfileStore(compiler);
+        var control = compiler.TemplateDocument.Controls.First(c => string.Equals(c.Id, "particle_size_max", StringComparison.OrdinalIgnoreCase));
+        var updatedValue = GetAlternateVisualValue(control);
+        var profileName = $"ZZZ Startup Visual {Guid.NewGuid():N}";
+        var studyId = $"startup-visual-test-{Guid.NewGuid():N}";
+
+        SussexVisualProfileRecord? record = null;
+        try
+        {
+            record = await store.CreateFromTemplateAsync(profileName);
+            using var workspace = new SussexVisualProfilesWorkspaceViewModel(
+                CreateStudy(studyId),
+                new PreviewQuestControlService());
+
+            await workspace.InitializeAsync();
+            workspace.SelectedProfile = workspace.Profiles.First(profile => string.Equals(profile.Id, record.Id, StringComparison.OrdinalIgnoreCase));
+
+            var row = workspace.ComparisonRows.First(candidate => string.Equals(candidate.Field.Id, control.Id, StringComparison.OrdinalIgnoreCase));
+            row.CurrentValueText = updatedValue.ToString("0.###", CultureInfo.CurrentCulture);
+
+            workspace.SetStartupProfileCommand.Execute(null);
+            await WaitForConditionAsync(
+                () => row.Startup == updatedValue.ToString("0.###", CultureInfo.InvariantCulture),
+                TimeSpan.FromSeconds(5));
+
+            var startupState = new SussexVisualProfileStartupStateStore(studyId).Load();
+            Assert.NotNull(startupState);
+            Assert.NotNull(startupState!.ControlValues);
+            Assert.Equal(updatedValue, startupState.ControlValues![control.Id], 6);
+            Assert.Equal(updatedValue.ToString("0.###", CultureInfo.InvariantCulture), row.Startup);
+        }
+        finally
+        {
+            if (record is not null && File.Exists(record.FilePath))
+            {
+                File.Delete(record.FilePath);
+            }
+
+            DeleteStudySessionArtifacts(studyId, "sussex-visual-startup", "sussex-visual-apply");
+        }
+    }
+
+    [Fact]
+    public async Task Controller_startup_save_updates_saved_launch_override_row_immediately()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexControllerBreathingTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex controller-breathing tuning template.");
+        var compiler = new SussexControllerBreathingTuningCompiler(File.ReadAllText(templatePath));
+        var store = new SussexControllerBreathingProfileStore(compiler);
+        var control = compiler.TemplateDocument.Controls.First(c => string.Equals(c.Id, "median_window", StringComparison.OrdinalIgnoreCase));
+        var updatedValue = GetAlternateControllerValue(control);
+        var profileName = $"ZZZ Startup Controller {Guid.NewGuid():N}";
+        var studyId = $"startup-controller-test-{Guid.NewGuid():N}";
+
+        SussexControllerBreathingProfileRecord? record = null;
+        try
+        {
+            record = await store.CreateFromTemplateAsync(profileName);
+            using var workspace = new SussexControllerBreathingProfilesWorkspaceViewModel(
+                CreateStudy(studyId),
+                new PreviewQuestControlService());
+
+            await workspace.InitializeAsync();
+            workspace.SelectedProfile = workspace.Profiles.First(profile => string.Equals(profile.Id, record.Id, StringComparison.OrdinalIgnoreCase));
+
+            var row = workspace.ComparisonRows.First(candidate => string.Equals(candidate.Field.Id, control.Id, StringComparison.OrdinalIgnoreCase));
+            row.CurrentValueText = updatedValue.ToString("0", CultureInfo.CurrentCulture);
+
+            workspace.SetStartupProfileCommand.Execute(null);
+            await WaitForConditionAsync(
+                () => row.Startup == updatedValue.ToString("0", CultureInfo.InvariantCulture) &&
+                      workspace.IsSelectedProfileStartupDefault,
+                TimeSpan.FromSeconds(5));
+
+            var startupState = new SussexControllerBreathingProfileStartupStateStore(studyId).Load();
+            Assert.NotNull(startupState);
+            Assert.NotNull(startupState!.ControlValues);
+            Assert.Equal(updatedValue, startupState.ControlValues![control.Id], 6);
+            Assert.Equal(updatedValue.ToString("0", CultureInfo.InvariantCulture), row.Startup);
+        }
+        finally
+        {
+            if (record is not null && File.Exists(record.FilePath))
+            {
+                File.Delete(record.FilePath);
+            }
+
+            DeleteStudySessionArtifacts(studyId, "sussex-controller-breathing-startup", "sussex-controller-breathing-apply");
+        }
+    }
+
     [Fact]
     public void Visual_resolver_only_marks_reset_row_as_edited()
     {
@@ -105,6 +203,152 @@ public sealed class SussexProfileRowConfirmationResolverTests
         Assert.Equal(OperationOutcomeKind.Warning, result.States[unchangedWaitingField.Id].Level);
     }
 
+    [Fact]
+    public void Visual_startup_snapshot_resolver_prefers_saved_snapshot_values()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex visual tuning template.");
+        var compiler = new SussexVisualTuningCompiler(File.ReadAllText(templatePath));
+        var startupState = new SussexVisualProfileStartupState(
+            "visual-profile",
+            "Saved Startup",
+            DateTimeOffset.UtcNow,
+            null,
+            BuildModifiedVisualValues(compiler.TemplateDocument));
+
+        var resolved = SussexVisualStartupSnapshotResolver.ResolveDocument(
+            compiler,
+            startupState,
+            compiler.TemplateDocument);
+
+        var modifiedControl = compiler.TemplateDocument.Controls.First();
+        Assert.Equal(
+            startupState.ControlValues![modifiedControl.Id],
+            resolved.ControlValues[modifiedControl.Id],
+            6);
+    }
+
+    [Fact]
+    public void Visual_startup_snapshot_match_requires_current_values_to_match_saved_snapshot()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex visual tuning template.");
+        var compiler = new SussexVisualTuningCompiler(File.ReadAllText(templatePath));
+        var modified = compiler.CreateDocument(
+            "Selected",
+            null,
+            BuildModifiedVisualValues(compiler.TemplateDocument));
+        var startupState = new SussexVisualProfileStartupState(
+            "visual-profile",
+            "Saved Startup",
+            DateTimeOffset.UtcNow,
+            null,
+            new Dictionary<string, double>(compiler.TemplateDocument.ControlValues, StringComparer.OrdinalIgnoreCase));
+
+        var matches = SussexVisualStartupSnapshotResolver.MatchesCurrentSelection(
+            compiler,
+            startupState,
+            "visual-profile",
+            compiler.TemplateDocument,
+            compiler.TemplateDocument);
+        var mismatches = SussexVisualStartupSnapshotResolver.MatchesCurrentSelection(
+            compiler,
+            startupState,
+            "visual-profile",
+            modified,
+            compiler.TemplateDocument);
+
+        Assert.True(matches);
+        Assert.False(mismatches);
+    }
+
+    [Fact]
+    public void Controller_breathing_startup_snapshot_resolver_prefers_saved_snapshot_values()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexControllerBreathingTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex controller-breathing tuning template.");
+        var compiler = new SussexControllerBreathingTuningCompiler(File.ReadAllText(templatePath));
+        var startupState = new SussexControllerBreathingProfileStartupState(
+            "controller-profile",
+            "Saved Startup",
+            DateTimeOffset.UtcNow,
+            null,
+            BuildModifiedControllerValues(compiler.TemplateDocument));
+
+        var resolved = SussexControllerBreathingStartupSnapshotResolver.ResolveDocument(
+            compiler,
+            startupState,
+            compiler.TemplateDocument);
+
+        var modifiedControl = compiler.TemplateDocument.Controls.First();
+        Assert.Equal(
+            startupState.ControlValues![modifiedControl.Id],
+            resolved.ControlValues[modifiedControl.Id],
+            6);
+    }
+
+    [Fact]
+    public void Controller_breathing_startup_snapshot_match_requires_current_values_to_match_saved_snapshot()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexControllerBreathingTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex controller-breathing tuning template.");
+        var compiler = new SussexControllerBreathingTuningCompiler(File.ReadAllText(templatePath));
+        var modified = compiler.CreateDocument(
+            "Selected",
+            null,
+            BuildModifiedControllerValues(compiler.TemplateDocument));
+        var startupState = new SussexControllerBreathingProfileStartupState(
+            "controller-profile",
+            "Saved Startup",
+            DateTimeOffset.UtcNow,
+            null,
+            new Dictionary<string, double>(compiler.TemplateDocument.ControlValues, StringComparer.OrdinalIgnoreCase));
+
+        var matches = SussexControllerBreathingStartupSnapshotResolver.MatchesCurrentSelection(
+            compiler,
+            startupState,
+            "controller-profile",
+            compiler.TemplateDocument,
+            compiler.TemplateDocument);
+        var mismatches = SussexControllerBreathingStartupSnapshotResolver.MatchesCurrentSelection(
+            compiler,
+            startupState,
+            "controller-profile",
+            modified,
+            compiler.TemplateDocument);
+
+        Assert.True(matches);
+        Assert.False(mismatches);
+    }
+
+    [Fact]
+    public void Visual_current_document_resolver_returns_error_for_invalid_pair_without_throwing()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex visual tuning template.");
+        var compiler = new SussexVisualTuningCompiler(File.ReadAllText(templatePath));
+        var fields = compiler.TemplateDocument.Controls
+            .Select(control => new SussexVisualProfileFieldViewModel(control, static () => { }))
+            .ToArray();
+
+        var minimumField = fields.First(field => string.Equals(field.Id, "particle_size_min", StringComparison.OrdinalIgnoreCase));
+        var maximumField = fields.First(field => string.Equals(field.Id, "particle_size_max", StringComparison.OrdinalIgnoreCase));
+        minimumField.SetValue(0.2d, notify: false);
+        maximumField.SetValue(0.1d, notify: false);
+
+        var ok = SussexVisualCurrentDocumentResolver.TryCreate(
+            compiler,
+            "Invalid",
+            string.Empty,
+            fields,
+            out var document,
+            out var error);
+
+        Assert.False(ok);
+        Assert.Null(document);
+        Assert.Contains("particle_size_min.value", error, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static double GetAlternateVisualValue(SussexVisualTuningControl control)
     {
         if (string.Equals(control.Type, "bool", StringComparison.OrdinalIgnoreCase))
@@ -171,5 +415,110 @@ public sealed class SussexProfileRowConfirmationResolverTests
         return Math.Abs(control.BaselineValue - control.Value) > 0.000001d
             ? control.BaselineValue
             : control.SafeMinimum;
+    }
+
+    private static IReadOnlyDictionary<string, double> BuildModifiedVisualValues(SussexVisualTuningDocument document)
+    {
+        var values = new Dictionary<string, double>(document.ControlValues, StringComparer.OrdinalIgnoreCase);
+        var control = document.Controls.First();
+        values[control.Id] = GetAlternateVisualValue(control);
+        return values;
+    }
+
+    private static IReadOnlyDictionary<string, double> BuildModifiedControllerValues(
+        SussexControllerBreathingTuningDocument document)
+    {
+        var values = new Dictionary<string, double>(document.ControlValues, StringComparer.OrdinalIgnoreCase);
+        var control = document.Controls.First();
+        values[control.Id] = GetAlternateControllerValue(control);
+        return values;
+    }
+
+    private static StudyShellDefinition CreateStudy(string studyId)
+        => new(
+            studyId,
+            "Sussex Test",
+            "Sussex",
+            "Test study shell definition.",
+            new StudyPinnedApp(
+                "Sussex",
+                "com.Viscereality.SussexExperiment",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                "preview",
+                string.Empty,
+                AllowManualSelection: true,
+                LaunchInKioskMode: false),
+            new StudyPinnedDeviceProfile(
+                "sussex-test-device-profile",
+                "Sussex Test Device Profile",
+                string.Empty,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
+            new StudyMonitoringProfile(
+                ExpectedBreathingLabel: string.Empty,
+                ExpectedHeartbeatLabel: string.Empty,
+                ExpectedCoherenceLabel: string.Empty,
+                ExpectedLslStreamName: string.Empty,
+                ExpectedLslStreamType: string.Empty,
+                RecenterDistanceThresholdUnits: 0d,
+                LslConnectivityKeys: [],
+                LslStreamNameKeys: [],
+                LslStreamTypeKeys: [],
+                LslValueKeys: [],
+                ControllerValueKeys: [],
+                ControllerStateKeys: [],
+                ControllerTrackingKeys: [],
+                HeartbeatValueKeys: [],
+                HeartbeatStateKeys: [],
+                CoherenceValueKeys: [],
+                CoherenceStateKeys: [],
+                PerformanceFpsKeys: [],
+                PerformanceFrameTimeKeys: [],
+                PerformanceTargetFpsKeys: [],
+                PerformanceRefreshRateKeys: [],
+                RecenterDistanceKeys: [],
+                ParticleVisibilityKeys: []),
+            new StudyControlProfile(
+                "recenter",
+                "particles_on",
+                "particles_off"));
+
+    private static async Task WaitForConditionAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        Assert.True(condition(), "Timed out waiting for the expected workspace state.");
+    }
+
+    private static void DeleteStudySessionArtifacts(string studyId, params string[] prefixes)
+    {
+        var sessionRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "ViscerealityCompanion",
+            "session");
+        var token = studyId
+            .Trim()
+            .Select(character => char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : '-')
+            .ToArray();
+        var sanitizedStudyId = new string(token).Trim('-');
+
+        foreach (var prefix in prefixes)
+        {
+            var path = Path.Combine(sessionRoot, $"{prefix}-{sanitizedStudyId}.json");
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
     }
 }

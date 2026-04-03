@@ -57,7 +57,9 @@ public sealed record SussexVisualProfileRecord(
 public sealed record SussexVisualProfileStartupState(
     string ProfileId,
     string ProfileName,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? ProfileNotes = null,
+    IReadOnlyDictionary<string, double>? ControlValues = null);
 
 public sealed record SussexVisualProfileApplyRecord(
     string ProfileId,

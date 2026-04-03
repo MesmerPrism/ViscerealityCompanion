@@ -140,7 +140,9 @@
                 </Grid>
             </Border>
 
-            <TabControl Grid.Row="2" SelectedIndex="{Binding SelectedPhaseTabIndex}">
+            <TabControl x:Name="StudyPhaseTabs"
+                        Grid.Row="2"
+                        SelectedIndex="{Binding SelectedPhaseTabIndex}">
                 <TabItem Header="Workflow">
                     <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
@@ -1084,7 +1086,8 @@
                     </StackPanel>
                 </TabItem>
 
-                <TabItem Header="Visual Profiles"
+                <TabItem x:Name="VisualProfilesTab"
+                         Header="Visual Profiles"
                          DataContext="{Binding VisualProfiles}">
                     <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
@@ -1122,8 +1125,10 @@
                                         <Button Content="Export" Command="{Binding ExportSelectedCommand}" />
                                         <Button Content="Open Folder" Command="{Binding OpenFolderCommand}" />
                                         <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" />
-                                        <Button Content="Apply" Command="{Binding ApplySelectedCommand}" />
                                     </WrapPanel>
+                                    <TextBlock Margin="0,8,0,0"
+                                               Text="Session apply and next-launch save actions live with the table below so they always commit the edited cell first."
+                                               Style="{StaticResource CompactCaptionStyle}" />
                                 </StackPanel>
                             </Border>
 
@@ -1199,7 +1204,7 @@
                                             </Grid.ColumnDefinitions>
 
                                             <StackPanel Grid.Column="0">
-                                                <TextBlock Text="APK start default" Style="{StaticResource InfoLabelStyle}" />
+                                                <TextBlock Text="Next launch override" Style="{StaticResource InfoLabelStyle}" />
                                                 <TextBlock Text="{Binding StartupProfileSummary}"
                                                            FontSize="15"
                                                            FontWeight="Bold"
@@ -1208,14 +1213,6 @@
                                                            Style="{StaticResource CompactCaptionStyle}"
                                                            Margin="0,6,0,0" />
                                             </StackPanel>
-
-                                            <WrapPanel Grid.Column="2"
-                                                       VerticalAlignment="Top">
-                                                <Button Content="{Binding StartupProfileActionLabel}"
-                                                        Command="{Binding SetStartupProfileCommand}" />
-                                                <Button Content="Use Bundled Baseline"
-                                                        Command="{Binding UseBundledStartupCommand}" />
-                                            </WrapPanel>
                                         </Grid>
                                     </Border>
 
@@ -1267,11 +1264,70 @@
 
                                     <StackPanel Grid.Row="0">
                                         <TextBlock Text="Visual parameter table" Style="{StaticResource SectionTitleStyle}" />
-                                        <TextBlock Text="The table always compares the selected profile against the APK start default shown above. Reset returns a row to the bundled Sussex baseline."
+                                        <TextBlock Text="The table compares the current editor values against the saved launch override shown above. Sussex may briefly start on the bundled baseline before that override lands. Reset returns a row to the bundled Sussex baseline."
                                                    Style="{StaticResource SectionCaptionStyle}" />
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="1*" />
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="1*" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border Grid.Column="0"
+                                                    Padding="12"
+                                                    BorderBrush="{StaticResource LineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Background="#11000000">
+                                                <StackPanel>
+                                                    <TextBlock Text="Current session"
+                                                               Style="{StaticResource InfoLabelStyle}" />
+                                                    <TextBlock Margin="0,4,0,8"
+                                                               Text="Upload the edited values to the headset now. This does not change the next Sussex launch."
+                                                               Style="{StaticResource SectionCaptionStyle}" />
+                                                    <Button x:Name="VisualApplyCurrentSessionButton"
+                                                            Content="Apply To Current Session"
+                                                            Click="OnVisualApplyCurrentSessionClick"
+                                                            MinWidth="220"
+                                                            FontWeight="Bold"
+                                                            AutomationProperties.AutomationId="VisualApplyCurrentSessionButton" />
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Grid.Column="2"
+                                                    Padding="12"
+                                                    BorderBrush="{StaticResource LineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Background="#11000000">
+                                                <StackPanel>
+                                                    <TextBlock Text="Next Sussex launch"
+                                                               Style="{StaticResource InfoLabelStyle}" />
+                                                    <TextBlock Margin="0,4,0,8"
+                                                               Text="Save the current editor values as the pinned launch override used the next time Sussex launches from this shell."
+                                                               Style="{StaticResource SectionCaptionStyle}" />
+                                                    <WrapPanel>
+                                                        <Button x:Name="VisualSaveStartupSnapshotButton"
+                                                                Content="{Binding StartupProfileActionLabel}"
+                                                                Click="OnVisualSaveStartupSnapshotClick"
+                                                                MinWidth="260"
+                                                                MinHeight="40"
+                                                                FontWeight="Bold"
+                                                                AutomationProperties.AutomationId="VisualSaveStartupSnapshotButton" />
+                                                        <Button x:Name="VisualUseBundledStartupButton"
+                                                                Content="Use Bundled Baseline"
+                                                                Command="{Binding UseBundledStartupCommand}"
+                                                                MinWidth="220"
+                                                                MinHeight="40"
+                                                                AutomationProperties.AutomationId="VisualUseBundledStartupButton" />
+                                                    </WrapPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
                                     </StackPanel>
 
-                                    <DataGrid ItemsSource="{Binding ComparisonRows}"
+                                    <DataGrid x:Name="VisualProfilesTable"
+                                               ItemsSource="{Binding ComparisonRows}"
                                                AutoGenerateColumns="False"
                                                CanUserAddRows="False"
                                                CanUserDeleteRows="False"
@@ -1306,7 +1362,9 @@
                                                     <DataTemplate>
                                                         <Grid>
                                                             <TextBox Text="{Binding CurrentValueText, UpdateSourceTrigger=LostFocus}"
-                                                                     ToolTip="{Binding ToolTipText}">
+                                                                     ToolTip="{Binding ToolTipText}"
+                                                                     AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=visual-current-{0}}"
+                                                                     AutomationProperties.Name="{Binding Label, StringFormat=Current value for {0}}">
                                                                 <TextBox.Style>
                                                                     <Style TargetType="TextBox" BasedOn="{StaticResource VisualProfilesEditorTextBoxStyle}">
                                                                         <Setter Property="Visibility" Value="Visible" />
@@ -1321,7 +1379,9 @@
                                                             <CheckBox IsChecked="{Binding CurrentBoolValue}"
                                                                       HorizontalAlignment="Center"
                                                                       VerticalAlignment="Center"
-                                                                      ToolTip="{Binding ToolTipText}">
+                                                                      ToolTip="{Binding ToolTipText}"
+                                                                      AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=visual-current-{0}}"
+                                                                      AutomationProperties.Name="{Binding Label, StringFormat=Current value for {0}}">
                                                                 <CheckBox.Style>
                                                                     <Style TargetType="CheckBox">
                                                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -1337,12 +1397,17 @@
                                                     </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
                                         </DataGridTemplateColumn>
-                                            <DataGridTextColumn Header="APK Start"
-                                                                Binding="{Binding Startup}"
-                                                                Width="0.9*"
-                                                                IsReadOnly="True"
-                                                                ElementStyle="{StaticResource VisualProfilesCenteredTextStyle}" />
-                                            <DataGridTextColumn Header="Δ Start"
+                                            <DataGridTemplateColumn Header="Saved Launch Override" Width="0.9*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Startup}"
+                                                                   AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=visual-startup-{0}}"
+                                                                   AutomationProperties.Name="{Binding Startup}"
+                                                                   Style="{StaticResource VisualProfilesCenteredTextStyle}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Header="Δ Launch Override"
                                                                 Binding="{Binding DeltaFromStartup}"
                                                                 Width="0.9*"
                                                                 IsReadOnly="True"
@@ -1373,7 +1438,8 @@
                     </Grid>
                 </TabItem>
 
-                <TabItem Header="Controller Breathing"
+                <TabItem x:Name="ControllerBreathingTab"
+                         Header="Controller Breathing"
                          DataContext="{Binding ControllerBreathingProfiles}">
                     <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
@@ -1411,8 +1477,10 @@
                                         <Button Content="Export" Command="{Binding ExportSelectedCommand}" />
                                         <Button Content="Open Folder" Command="{Binding OpenFolderCommand}" />
                                         <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" />
-                                        <Button Content="Apply" Command="{Binding ApplySelectedCommand}" />
                                     </WrapPanel>
+                                    <TextBlock Margin="0,8,0,0"
+                                               Text="Session apply and next-launch save actions live with the table below so they always commit the edited cell first."
+                                               Style="{StaticResource CompactCaptionStyle}" />
                                 </StackPanel>
                             </Border>
 
@@ -1488,7 +1556,7 @@
                                             </Grid.ColumnDefinitions>
 
                                             <StackPanel Grid.Column="0">
-                                                <TextBlock Text="APK start default" Style="{StaticResource InfoLabelStyle}" />
+                                                <TextBlock Text="Next launch override" Style="{StaticResource InfoLabelStyle}" />
                                                 <TextBlock Text="{Binding StartupProfileSummary}"
                                                            FontSize="15"
                                                            FontWeight="Bold"
@@ -1497,14 +1565,6 @@
                                                            Style="{StaticResource CompactCaptionStyle}"
                                                            Margin="0,6,0,0" />
                                             </StackPanel>
-
-                                            <WrapPanel Grid.Column="2"
-                                                       VerticalAlignment="Top">
-                                                <Button Content="{Binding StartupProfileActionLabel}"
-                                                        Command="{Binding SetStartupProfileCommand}" />
-                                                <Button Content="Use Bundled Baseline"
-                                                        Command="{Binding UseBundledStartupCommand}" />
-                                            </WrapPanel>
                                         </Grid>
                                     </Border>
 
@@ -1556,11 +1616,70 @@
 
                                     <StackPanel Grid.Row="0">
                                         <TextBlock Text="Controller-breathing parameter table" Style="{StaticResource SectionTitleStyle}" />
-                                        <TextBlock Text="The table always compares the selected profile against the APK start default shown above. Reset returns a row to the bundled Sussex baseline. Recalibrate on the headset after every apply."
+                                        <TextBlock Text="The table compares the current editor values against the saved launch override shown above. Sussex may briefly start on the bundled baseline before that override lands. Reset returns a row to the bundled Sussex baseline. Recalibrate on the headset after every apply."
                                                    Style="{StaticResource SectionCaptionStyle}" />
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="1*" />
+                                                <ColumnDefinition Width="12" />
+                                                <ColumnDefinition Width="1*" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border Grid.Column="0"
+                                                    Padding="12"
+                                                    BorderBrush="{StaticResource LineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Background="#11000000">
+                                                <StackPanel>
+                                                    <TextBlock Text="Current session"
+                                                               Style="{StaticResource InfoLabelStyle}" />
+                                                    <TextBlock Margin="0,4,0,8"
+                                                               Text="Upload the edited breathing-tuning values to the headset now. This does not change the next Sussex launch."
+                                                               Style="{StaticResource SectionCaptionStyle}" />
+                                                    <Button x:Name="ControllerApplyCurrentSessionButton"
+                                                            Content="Apply To Current Session"
+                                                            Click="OnControllerApplyCurrentSessionClick"
+                                                            MinWidth="220"
+                                                            FontWeight="Bold"
+                                                            AutomationProperties.AutomationId="ControllerApplyCurrentSessionButton" />
+                                                </StackPanel>
+                                            </Border>
+
+                                            <Border Grid.Column="2"
+                                                    Padding="12"
+                                                    BorderBrush="{StaticResource LineBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8"
+                                                    Background="#11000000">
+                                                <StackPanel>
+                                                    <TextBlock Text="Next Sussex launch"
+                                                               Style="{StaticResource InfoLabelStyle}" />
+                                                    <TextBlock Margin="0,4,0,8"
+                                                               Text="Save the current breathing-tuning values as the pinned launch override used the next time Sussex launches from this shell."
+                                                               Style="{StaticResource SectionCaptionStyle}" />
+                                                    <WrapPanel>
+                                                        <Button x:Name="ControllerSaveStartupSnapshotButton"
+                                                                Content="{Binding StartupProfileActionLabel}"
+                                                                Click="OnControllerSaveStartupSnapshotClick"
+                                                                MinWidth="260"
+                                                                MinHeight="40"
+                                                                FontWeight="Bold"
+                                                                AutomationProperties.AutomationId="ControllerSaveStartupSnapshotButton" />
+                                                        <Button x:Name="ControllerUseBundledStartupButton"
+                                                                Content="Use Bundled Baseline"
+                                                                Command="{Binding UseBundledStartupCommand}"
+                                                                MinWidth="220"
+                                                                MinHeight="40"
+                                                                AutomationProperties.AutomationId="ControllerUseBundledStartupButton" />
+                                                    </WrapPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
                                     </StackPanel>
 
-                                    <DataGrid ItemsSource="{Binding ComparisonRows}"
+                                    <DataGrid x:Name="ControllerProfilesTable"
+                                               ItemsSource="{Binding ComparisonRows}"
                                                AutoGenerateColumns="False"
                                                CanUserAddRows="False"
                                                CanUserDeleteRows="False"
@@ -1595,7 +1714,9 @@
                                                     <DataTemplate>
                                                         <Grid>
                                                             <TextBox Text="{Binding CurrentValueText, UpdateSourceTrigger=LostFocus}"
-                                                                     ToolTip="{Binding ToolTipText}">
+                                                                     ToolTip="{Binding ToolTipText}"
+                                                                     AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=controller-current-{0}}"
+                                                                     AutomationProperties.Name="{Binding Label, StringFormat=Current value for {0}}">
                                                                 <TextBox.Style>
                                                                     <Style TargetType="TextBox" BasedOn="{StaticResource VisualProfilesEditorTextBoxStyle}">
                                                                         <Setter Property="Visibility" Value="Visible" />
@@ -1610,7 +1731,9 @@
                                                             <CheckBox IsChecked="{Binding CurrentBoolValue}"
                                                                       HorizontalAlignment="Center"
                                                                       VerticalAlignment="Center"
-                                                                      ToolTip="{Binding ToolTipText}">
+                                                                      ToolTip="{Binding ToolTipText}"
+                                                                      AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=controller-current-{0}}"
+                                                                      AutomationProperties.Name="{Binding Label, StringFormat=Current value for {0}}">
                                                                 <CheckBox.Style>
                                                                     <Style TargetType="CheckBox">
                                                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -1626,12 +1749,17 @@
                                                     </DataTemplate>
                                                 </DataGridTemplateColumn.CellTemplate>
                                             </DataGridTemplateColumn>
-                                            <DataGridTextColumn Header="APK Start"
-                                                                Binding="{Binding Startup}"
-                                                                Width="0.9*"
-                                                                IsReadOnly="True"
-                                                                ElementStyle="{StaticResource VisualProfilesCenteredTextStyle}" />
-                                            <DataGridTextColumn Header="Δ Start"
+                                            <DataGridTemplateColumn Header="Saved Launch Override" Width="0.9*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Startup}"
+                                                                   AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=controller-startup-{0}}"
+                                                                   AutomationProperties.Name="{Binding Startup}"
+                                                                   Style="{StaticResource VisualProfilesCenteredTextStyle}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTextColumn Header="Δ Launch Override"
                                                                 Binding="{Binding DeltaFromStartup}"
                                                                 Width="0.9*"
                                                                 IsReadOnly="True"

@@ -473,12 +473,13 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             0,
             exactSourceId,
             sourceIdPrefix);
+        var cancellationToken = monitorCts.Token;
 
         _ = Task.Run(async () =>
         {
             try
             {
-                await foreach (var reading in _stateMonitor.MonitorAsync(subscription, monitorCts.Token))
+                await foreach (var reading in _stateMonitor.MonitorAsync(subscription, cancellationToken))
                 {
                     if (reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase))
                     {
@@ -487,6 +488,9 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
                 }
             }
             catch (OperationCanceledException)
+            {
+            }
+            catch (ObjectDisposedException)
             {
             }
         });

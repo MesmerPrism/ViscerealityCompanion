@@ -60,7 +60,9 @@ public sealed record SussexControllerBreathingProfileRecord(
 public sealed record SussexControllerBreathingProfileStartupState(
     string ProfileId,
     string ProfileName,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? ProfileNotes = null,
+    IReadOnlyDictionary<string, double>? ControlValues = null);
 
 public sealed record SussexControllerBreathingProfileApplyRecord(
     string ProfileId,

@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using ViscerealityCompanion.Core.Models;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App.ViewModels;
 
@@ -93,6 +95,119 @@ internal static class SussexControllerBreathingRowConfirmationResolver
         }
 
         return Math.Abs(currentValue - requestedValue) <= 0.000001d;
+    }
+}
+
+internal static class SussexControllerBreathingStartupSnapshotResolver
+{
+    public static SussexControllerBreathingTuningDocument ResolveDocument(
+        SussexControllerBreathingTuningCompiler compiler,
+        SussexControllerBreathingProfileStartupState? startupState,
+        SussexControllerBreathingTuningDocument? legacyPinnedDocument)
+    {
+        ArgumentNullException.ThrowIfNull(compiler);
+
+        if (startupState?.ControlValues is { Count: > 0 } snapshotValues)
+        {
+            try
+            {
+                return compiler.CreateDocument(
+                    startupState.ProfileName,
+                    startupState.ProfileNotes,
+                    snapshotValues);
+            }
+            catch (InvalidDataException)
+            {
+                // Fall through to the legacy/profile-backed path when an older or corrupt snapshot is on disk.
+            }
+        }
+
+        return legacyPinnedDocument ?? compiler.TemplateDocument;
+    }
+
+    public static bool MatchesCurrentSelection(
+        SussexControllerBreathingTuningCompiler compiler,
+        SussexControllerBreathingProfileStartupState? startupState,
+        string? selectedProfileId,
+        SussexControllerBreathingTuningDocument currentSelectedDocument,
+        SussexControllerBreathingTuningDocument? legacyPinnedDocument)
+    {
+        ArgumentNullException.ThrowIfNull(compiler);
+        ArgumentNullException.ThrowIfNull(currentSelectedDocument);
+
+        if (startupState is null ||
+            string.IsNullOrWhiteSpace(selectedProfileId) ||
+            !string.Equals(selectedProfileId, startupState.ProfileId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var startupDocument = ResolveDocument(compiler, startupState, legacyPinnedDocument);
+        foreach (var control in compiler.TemplateDocument.Controls)
+        {
+            if (!currentSelectedDocument.ControlValues.TryGetValue(control.Id, out var currentValue))
+            {
+                return false;
+            }
+
+            if (!startupDocument.ControlValues.TryGetValue(control.Id, out var startupValue))
+            {
+                return false;
+            }
+
+            if (string.Equals(control.Type, "bool", StringComparison.OrdinalIgnoreCase))
+            {
+                if ((currentValue >= 0.5d) != (startupValue >= 0.5d))
+                {
+                    return false;
+                }
+            }
+            else if (string.Equals(control.Type, "int", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Math.Round(currentValue, MidpointRounding.AwayFromZero) !=
+                    Math.Round(startupValue, MidpointRounding.AwayFromZero))
+                {
+                    return false;
+                }
+            }
+            else if (Math.Abs(currentValue - startupValue) > 0.000001d)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
+
+internal static class SussexControllerBreathingCurrentDocumentResolver
+{
+    public static bool TryCreate(
+        SussexControllerBreathingTuningCompiler compiler,
+        string profileName,
+        string profileNotes,
+        IEnumerable<SussexControllerBreathingProfileFieldViewModel> fields,
+        out SussexControllerBreathingTuningDocument? document,
+        out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(compiler);
+        ArgumentNullException.ThrowIfNull(fields);
+
+        try
+        {
+            document = compiler.CreateDocument(
+                profileName,
+                profileNotes,
+                fields.ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase));
+            error = null;
+            return true;
+        }
+        catch (InvalidDataException ex)
+        {
+            document = null;
+            error = ex.Message;
+            return false;
+        }
     }
 }
 
@@ -317,7 +432,13 @@ public sealed class SussexControllerBreathingComparisonRowViewModel : Observable
     public string Compare
     {
         get => _compare;
-        private set => SetProperty(ref _compare, value);
+        private set
+        {
+            if (SetProperty(ref _compare, value))
+            {
+                OnPropertyChanged(nameof(Startup));
+            }
+        }
     }
 
     public string Startup
@@ -335,7 +456,13 @@ public sealed class SussexControllerBreathingComparisonRowViewModel : Observable
     public string DeltaBetweenProfiles
     {
         get => _deltaBetweenProfiles;
-        private set => SetProperty(ref _deltaBetweenProfiles, value);
+        private set
+        {
+            if (SetProperty(ref _deltaBetweenProfiles, value))
+            {
+                OnPropertyChanged(nameof(DeltaFromStartup));
+            }
+        }
     }
 
     public string DeltaFromStartup

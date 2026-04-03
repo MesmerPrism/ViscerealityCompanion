@@ -96,8 +96,10 @@ packaged preview install.
 
 The current Sussex preview also includes the updated sequential guide flow, the
 controller-breathing profile tab, participant locked mode, Windows-plus-Quest
-session snapshots, and the LSL/runtime hardening changes from the latest April
-2026 update. The bundled Sussex APK in this package is now `0.1.2` with SHA256
+session snapshots, the LSL/runtime hardening changes, and the profile-table
+hotfix that cleanly separates `Apply To Current Session` from `Save Current
+Values For Next Launch` while keeping the saved launch-override column in sync.
+The bundled Sussex APK in this package is now `0.1.2` with SHA256
 `AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69`. The
 previous full off-face Sussex validation pass on `2026-04-02` still covers the
 older `0.1.1` build; this rebuilt `0.1.2` bundle is the one intended for the

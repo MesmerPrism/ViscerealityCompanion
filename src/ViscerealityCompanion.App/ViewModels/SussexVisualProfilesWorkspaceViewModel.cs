@@ -227,22 +227,29 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     public bool HasPinnedStartupProfile => _startupState is not null;
 
     public bool IsSelectedProfileStartupDefault
-        => SelectedProfile is not null &&
-           _startupState is not null &&
-           string.Equals(SelectedProfile.Id, _startupState.ProfileId, StringComparison.OrdinalIgnoreCase);
+        => TryCreateCurrentDocument(out var selectedDocument, out _) &&
+           SelectedProfile is not null &&
+           SussexVisualStartupSnapshotResolver.MatchesCurrentSelection(
+               _compiler!,
+               _startupState,
+               SelectedProfile.Id,
+               selectedDocument!,
+               ResolvePinnedStartupProfile()?.Document);
 
     public string StartupProfileSummary
         => _startupState is null
-            ? "APK start default: bundled Sussex baseline."
-            : $"APK start default: {_startupState.ProfileName}.";
+            ? "Next-launch override: bundled Sussex baseline."
+            : $"Next-launch override: {_startupState.ProfileName}.";
 
     public string StartupProfileDetail
         => _startupState is null
-            ? "Sussex launches on the bundled baseline visual state. Select a saved profile and use the startup button below to make it the default for future launches from this shell."
-            : $"This shell will auto-apply {_startupState.ProfileName} when you launch the Sussex APK here. Select another saved profile and use the startup button below to replace it, or switch back to the bundled baseline.";
+            ? "Sussex launches on the bundled baseline visual state. Use the startup button to save the current editor values for future Sussex launches from this shell. The override may land a few seconds after Sussex starts. Applying values during the current session does not change that launch override."
+            : $"This shell will auto-apply the saved launch override '{_startupState.ProfileName}' when you launch the Sussex APK here. The runtime may briefly show the bundled baseline before the override lands. Applying values during the current session does not change that launch override; use the startup button below to replace it, or switch back to the bundled baseline.";
 
     public string StartupProfileActionLabel
-        => IsSelectedProfileStartupDefault ? "Startup Default Selected" : "Use Selected At APK Start";
+        => IsSelectedProfileStartupDefault
+            ? "Current Values Saved For Next Launch"
+            : "Save Current Values For Next Launch";
 
     public AsyncRelayCommand NewFromBaselineCommand { get; }
     public AsyncRelayCommand DuplicateSelectedCommand { get; }
@@ -389,7 +396,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             }
 
             LibrarySummary = $"Loaded {Profiles.Count.ToString(CultureInfo.InvariantCulture)} Sussex visual profile(s).";
-            LibraryDetail = $"Profiles live in {LibraryRootLabel}. The selected profile can be applied over the existing Sussex hotload file path, and the startup default is shown on the right.";
+            LibraryDetail = $"Profiles live in {LibraryRootLabel}. The selected profile can be applied over the existing Sussex hotload file path, and the saved next-launch override is shown on the right.";
             LibraryLevel = OperationOutcomeKind.Success;
             NotifyStartupStateChanged();
         });
@@ -443,6 +450,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     {
         SchedulePersist();
         RefreshComparisonState(syncCurrentValueText: true);
+        NotifyStartupStateChanged();
     }
 
     private SussexVisualProfileRecord? CreateCurrentProfileRecord()
@@ -457,11 +465,11 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             return SelectedProfile.ToRecord();
         }
 
-        var document = _compiler.CreateDocument(
-            string.IsNullOrWhiteSpace(SelectedProfileName) ? SelectedProfile.Document.Profile.Name : SelectedProfileName.Trim(),
-            string.IsNullOrWhiteSpace(SelectedProfileNotes) ? null : SelectedProfileNotes.Trim(),
-            Groups.SelectMany(group => group.Fields)
-                .ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase));
+        if (!TryCreateCurrentDocument(out var document, out _))
+        {
+            return null;
+        }
+
         return SelectedProfile.ToRecord() with { Document = document };
     }
 
@@ -544,9 +552,9 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         await PersistCurrentProfileAsync();
     }
 
-    private async Task<SussexVisualProfileRecord?> PersistCurrentProfileAsync()
+    private async Task<SussexVisualProfileRecord?> PersistCurrentProfileAsync(bool forceCurrentSnapshot = false)
     {
-        if (!_persistPending)
+        if (!forceCurrentSnapshot && !_persistPending)
         {
             return SelectedProfile?.ToRecord();
         }
@@ -594,18 +602,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
             await DispatchAsync(() =>
             {
-                var wasStartupProfile = _startupState is not null &&
-                                        string.Equals(_startupState.ProfileId, snapshot.Profile.Id, StringComparison.OrdinalIgnoreCase);
                 snapshot.Profile.Apply(saved);
-                if (wasStartupProfile)
-                {
-                    _startupState = new SussexVisualProfileStartupState(
-                        saved.Id,
-                        saved.Document.Profile.Name,
-                        DateTimeOffset.UtcNow);
-                    _startupStateStore?.Save(_startupState);
-                    NotifyStartupStateChanged();
-                }
 
                 if (ReferenceEquals(SelectedProfile, snapshot.Profile))
                 {
@@ -645,7 +642,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             return;
         }
 
-        var source = await PersistCurrentProfileAsync();
+        var source = await PersistCurrentProfileAsync(forceCurrentSnapshot: true);
         if (source is null)
         {
             return;
@@ -661,7 +658,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
     private async Task RenameSelectedAsync()
     {
-        await PersistCurrentProfileAsync();
+        await PersistCurrentProfileAsync(forceCurrentSnapshot: true);
     }
 
     private async Task ImportProfileAsync()
@@ -704,7 +701,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             return;
         }
 
-        var saved = await PersistCurrentProfileAsync();
+        var saved = await PersistCurrentProfileAsync(forceCurrentSnapshot: true);
         if (saved is null)
         {
             return;
@@ -743,21 +740,32 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         return Task.CompletedTask;
     }
 
-    private Task SetStartupProfileAsync()
+    private async Task SetStartupProfileAsync()
     {
         if (SelectedProfile is null)
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        _startupState = new SussexVisualProfileStartupState(
-            SelectedProfile.Id,
-            SelectedProfile.Document.Profile.Name,
-            DateTimeOffset.UtcNow);
-        _startupStateStore?.Save(_startupState);
-        NotifyStartupStateChanged();
-        RefreshComparisonState();
-        return Task.CompletedTask;
+        var saved = await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false);
+        if (saved is null)
+        {
+            return;
+        }
+
+        var startupState = new SussexVisualProfileStartupState(
+            saved.Id,
+            saved.Document.Profile.Name,
+            DateTimeOffset.UtcNow,
+            saved.Document.Profile.Notes,
+            new Dictionary<string, double>(saved.Document.ControlValues, StringComparer.OrdinalIgnoreCase));
+        _startupStateStore?.Save(startupState);
+        await DispatchAsync(() =>
+        {
+            _startupState = startupState;
+            NotifyStartupStateChanged();
+            RefreshComparisonState();
+        }).ConfigureAwait(false);
     }
 
     private Task UseBundledStartupAsync()
@@ -772,20 +780,11 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     public async Task ApplyStartupProfileOnLaunchAsync()
     {
         SussexVisualProfileRecord? startupRecord = null;
-        var startupIsSelected = false;
-        await DispatchAsync(() => startupIsSelected = IsSelectedProfileStartupDefault).ConfigureAwait(false);
-        if (startupIsSelected)
-        {
-            startupRecord = await PersistCurrentProfileAsync().ConfigureAwait(false);
-        }
-
-        SussexVisualProfileListItemViewModel? startupProfile = null;
         await DispatchAsync(() =>
         {
-            startupProfile = ResolvePinnedStartupProfile();
+            startupRecord = CreateStartupProfileRecord();
         }).ConfigureAwait(false);
 
-        startupRecord ??= startupProfile?.ToRecord();
         if (startupRecord is null)
         {
             await DispatchAsync(() =>
@@ -846,7 +845,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             return;
         }
 
-        var saved = await PersistCurrentProfileAsync();
+        var saved = await PersistCurrentProfileAsync(forceCurrentSnapshot: true);
         if (saved is null)
         {
             return;
@@ -979,107 +978,137 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
     private void RefreshComparisonState(bool syncCurrentValueText = false)
     {
-        if (_compiler is null || SelectedProfile is null)
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
         {
-            ComparisonRows.Clear();
+            dispatcher.Invoke(() => RefreshComparisonState(syncCurrentValueText));
             return;
         }
 
-        var selectedDocument = _compiler.CreateDocument(
-            SelectedProfileName,
-            SelectedProfileNotes,
-            Groups.SelectMany(group => group.Fields)
-                .ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase));
-        var startupComparisonDocument = ResolveStartupComparisonDocument();
-        var fieldsById = Groups
-            .SelectMany(group => group.Fields)
-            .ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
-        var rows = _compiler.BuildComparisonRows(selectedDocument, startupComparisonDocument);
-        var selectedMatchesLastApplyProfile = _lastApplyRecord is not null &&
-            string.Equals(SelectedProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase);
-
-        IReadOnlyDictionary<string, SussexVisualConfirmationRow>? confirmationRows = null;
-        var rowConfirmationStates = new Dictionary<string, SussexVisualRowConfirmationState>(StringComparer.OrdinalIgnoreCase);
-        var changedSinceApplyCount = 0;
-        var unchangedSinceApplyCount = 0;
-        if (selectedMatchesLastApplyProfile)
+        try
         {
-            var confirmation = _compiler.EvaluateConfirmation(_lastApplyRecord!, _reportedRuntimeConfigJson);
-            confirmationRows = confirmation.Rows.ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
-            var computation = SussexVisualRowConfirmationResolver.Compute(fieldsById.Values, _lastApplyRecord!, confirmationRows);
-            rowConfirmationStates = new Dictionary<string, SussexVisualRowConfirmationState>(computation.States, StringComparer.OrdinalIgnoreCase);
-            changedSinceApplyCount = computation.ChangedSinceApplyCount;
-            unchangedSinceApplyCount = computation.UnchangedSinceApplyCount;
-
-            if (changedSinceApplyCount > 0)
+            if (_compiler is null || SelectedProfile is null)
             {
-                ApplySummary = changedSinceApplyCount == 1
-                    ? "1 visual value changed since the last apply."
-                    : $"{changedSinceApplyCount.ToString(CultureInfo.InvariantCulture)} visual values changed since the last apply.";
-                ApplyDetail = unchangedSinceApplyCount > 0
-                    ? $"Apply again to request the edited values. The other {unchangedSinceApplyCount.ToString(CultureInfo.InvariantCulture)} row(s) still show the last headset confirmation for {_lastApplyRecord!.ProfileName}."
-                    : "Apply again to request the edited values and refresh headset confirmation.";
+                ComparisonRows.Clear();
+                return;
+            }
+
+            if (!TryCreateCurrentDocument(out var selectedDocument, out var editorError))
+            {
+                ComparisonRows.Clear();
+                ApplySummary = "Current visual values are invalid.";
+                ApplyDetail = $"{editorError} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
                 ApplyLevel = OperationOutcomeKind.Warning;
+                foreach (var field in Groups.SelectMany(group => group.Fields))
+                {
+                    field.SetConfirmation("Edited", OperationOutcomeKind.Warning);
+                }
+
+                return;
+            }
+
+            var startupComparisonDocument = ResolveStartupComparisonDocument();
+            var fieldsById = Groups
+                .SelectMany(group => group.Fields)
+                .ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
+            var rows = _compiler.BuildComparisonRows(selectedDocument!, startupComparisonDocument);
+            var selectedMatchesLastApplyProfile = _lastApplyRecord is not null &&
+                string.Equals(SelectedProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase);
+
+            IReadOnlyDictionary<string, SussexVisualConfirmationRow>? confirmationRows = null;
+            var rowConfirmationStates = new Dictionary<string, SussexVisualRowConfirmationState>(StringComparer.OrdinalIgnoreCase);
+            var changedSinceApplyCount = 0;
+            var unchangedSinceApplyCount = 0;
+            if (selectedMatchesLastApplyProfile)
+            {
+                var confirmation = _compiler.EvaluateConfirmation(_lastApplyRecord!, _reportedRuntimeConfigJson);
+                confirmationRows = confirmation.Rows.ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
+                var computation = SussexVisualRowConfirmationResolver.Compute(fieldsById.Values, _lastApplyRecord!, confirmationRows);
+                rowConfirmationStates = new Dictionary<string, SussexVisualRowConfirmationState>(computation.States, StringComparer.OrdinalIgnoreCase);
+                changedSinceApplyCount = computation.ChangedSinceApplyCount;
+                unchangedSinceApplyCount = computation.UnchangedSinceApplyCount;
+
+                if (changedSinceApplyCount > 0)
+                {
+                    ApplySummary = changedSinceApplyCount == 1
+                        ? "1 visual value changed since the last apply."
+                        : $"{changedSinceApplyCount.ToString(CultureInfo.InvariantCulture)} visual values changed since the last apply.";
+                    ApplyDetail = unchangedSinceApplyCount > 0
+                        ? $"Apply again to request the edited values. The other {unchangedSinceApplyCount.ToString(CultureInfo.InvariantCulture)} row(s) still show the last headset confirmation for {_lastApplyRecord!.ProfileName}."
+                        : "Apply again to request the edited values and refresh headset confirmation.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                }
+                else
+                {
+                    ApplySummary = confirmation.Summary;
+                    ApplyDetail = confirmation.WaitingCount > 0
+                        ? $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}. Upload succeeded; waiting for a fresh quest_twin_state report to mirror showcase_active_runtime_config_json."
+                        : $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}.";
+                    ApplyLevel = confirmation.MismatchCount > 0
+                        ? OperationOutcomeKind.Warning
+                        : confirmation.WaitingCount > 0
+                            ? OperationOutcomeKind.Warning
+                            : OperationOutcomeKind.Success;
+                }
+            }
+            else if (_lastApplyRecord is not null)
+            {
+                ApplySummary = $"Last applied profile: {_lastApplyRecord.ProfileName}.";
+                ApplyDetail = "Select that profile to inspect per-field confirmation, or apply the current profile.";
+                ApplyLevel = OperationOutcomeKind.Success;
             }
             else
             {
-                ApplySummary = confirmation.Summary;
-                ApplyDetail = confirmation.WaitingCount > 0
-                    ? $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}. Upload succeeded; waiting for a fresh quest_twin_state report to mirror showcase_active_runtime_config_json."
-                    : $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}.";
-                ApplyLevel = confirmation.MismatchCount > 0
-                    ? OperationOutcomeKind.Warning
-                    : confirmation.WaitingCount > 0
-                        ? OperationOutcomeKind.Warning
-                        : OperationOutcomeKind.Success;
+                ApplySummary = "No Sussex visual profile has been applied yet.";
+                ApplyDetail = "Apply the current profile to start headset confirmation tracking.";
+                ApplyLevel = OperationOutcomeKind.Preview;
+            }
+
+            if (ComparisonRows.Count != rows.Count ||
+                ComparisonRows.Select(row => row.Field.Id).SequenceEqual(rows.Select(row => row.Id), StringComparer.OrdinalIgnoreCase) is false)
+            {
+                ComparisonRows.Clear();
+                foreach (var row in rows)
+                {
+                    if (!fieldsById.TryGetValue(row.Id, out var field))
+                    {
+                        continue;
+                    }
+
+                    ComparisonRows.Add(new SussexVisualComparisonRowViewModel(
+                        ResolveGroupTitle(row.Id),
+                        field,
+                        row,
+                        ResolveRowConfirmationState(rowConfirmationStates, row.Id)));
+                }
+            }
+            else
+            {
+                for (var i = 0; i < rows.Count; i++)
+                {
+                    ComparisonRows[i].Apply(
+                        rows[i],
+                        ResolveRowConfirmationState(rowConfirmationStates, rows[i].Id),
+                        syncCurrentValueText);
+                }
+            }
+
+            foreach (var field in Groups.SelectMany(group => group.Fields))
+            {
+                var state = ResolveRowConfirmationState(rowConfirmationStates, field.Id);
+                field.SetConfirmation(state.Label, state.Level);
             }
         }
-        else if (_lastApplyRecord is not null)
-        {
-            ApplySummary = $"Last applied profile: {_lastApplyRecord.ProfileName}.";
-            ApplyDetail = "Select that profile to inspect per-field confirmation, or apply the current profile.";
-            ApplyLevel = OperationOutcomeKind.Success;
-        }
-        else
-        {
-            ApplySummary = "No Sussex visual profile has been applied yet.";
-            ApplyDetail = "Apply the current profile to start headset confirmation tracking.";
-            ApplyLevel = OperationOutcomeKind.Preview;
-        }
-
-        if (ComparisonRows.Count != rows.Count ||
-            ComparisonRows.Select(row => row.Field.Id).SequenceEqual(rows.Select(row => row.Id), StringComparer.OrdinalIgnoreCase) is false)
+        catch (Exception ex) when (ex is InvalidDataException or FormatException or InvalidOperationException)
         {
             ComparisonRows.Clear();
-            foreach (var row in rows)
+            ApplySummary = "Current visual values could not be compared safely.";
+            ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next Sussex launch.";
+            ApplyLevel = OperationOutcomeKind.Warning;
+            foreach (var field in Groups.SelectMany(group => group.Fields))
             {
-                if (!fieldsById.TryGetValue(row.Id, out var field))
-                {
-                    continue;
-                }
-
-                ComparisonRows.Add(new SussexVisualComparisonRowViewModel(
-                    ResolveGroupTitle(row.Id),
-                    field,
-                    row,
-                    ResolveRowConfirmationState(rowConfirmationStates, row.Id)));
+                field.SetConfirmation("Edited", OperationOutcomeKind.Warning);
             }
-        }
-        else
-        {
-            for (var i = 0; i < rows.Count; i++)
-            {
-                ComparisonRows[i].Apply(
-                    rows[i],
-                    ResolveRowConfirmationState(rowConfirmationStates, rows[i].Id),
-                    syncCurrentValueText);
-            }
-        }
-
-        foreach (var field in Groups.SelectMany(group => group.Fields))
-        {
-            var state = ResolveRowConfirmationState(rowConfirmationStates, field.Id);
-            field.SetConfirmation(state.Label, state.Level);
         }
     }
 
@@ -1161,7 +1190,56 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             throw new InvalidOperationException("Sussex visual tuning compiler is not available.");
         }
 
-        return ResolvePinnedStartupProfile()?.Document ?? _compiler.TemplateDocument;
+        return SussexVisualStartupSnapshotResolver.ResolveDocument(
+            _compiler,
+            _startupState,
+            ResolvePinnedStartupProfile()?.Document);
+    }
+
+    private SussexVisualProfileRecord? CreateStartupProfileRecord()
+    {
+        if (_compiler is null || _startupState is null)
+        {
+            return ResolvePinnedStartupProfile()?.ToRecord();
+        }
+
+        SussexVisualTuningDocument startupDocument;
+        try
+        {
+            startupDocument = ResolveStartupComparisonDocument();
+        }
+        catch (InvalidDataException)
+        {
+            return ResolvePinnedStartupProfile()?.ToRecord();
+        }
+
+        var payload = _compiler.Serialize(startupDocument);
+        return new SussexVisualProfileRecord(
+            _startupState.ProfileId,
+            string.Empty,
+            ComputeTextHash(payload),
+            _startupState.UpdatedAtUtc,
+            startupDocument);
+    }
+
+    private bool TryCreateCurrentDocument(
+        out SussexVisualTuningDocument? document,
+        out string? error)
+    {
+        if (_compiler is null || SelectedProfile is null)
+        {
+            document = null;
+            error = null;
+            return false;
+        }
+
+        return SussexVisualCurrentDocumentResolver.TryCreate(
+            _compiler,
+            SelectedProfileName,
+            SelectedProfileNotes,
+            Groups.SelectMany(group => group.Fields),
+            out document,
+            out error);
     }
 
     private void NotifyStartupStateChanged()
