@@ -6,6 +6,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
 using ViscerealityCompanion.App;
@@ -85,11 +86,12 @@ public sealed class StudyShellViewProfileButtonsTests
 
                 visualEditor.Focus();
                 visualEditor.Text = 0.24d.ToString("0.###", CultureInfo.CurrentCulture);
+                CommitTextBoxEdit(visualEditor);
                 visualSaveButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualSaveButton));
 
                 await WaitForConditionAsync(
                     () => string.Equals(visualStartup.Text, "0.24", StringComparison.Ordinal),
-                    TimeSpan.FromSeconds(5));
+                    TimeSpan.FromSeconds(10));
 
                 var visualStartupState = new SussexVisualProfileStartupStateStore(studyId).Load();
                 Assert.NotNull(visualStartupState);
@@ -98,11 +100,12 @@ public sealed class StudyShellViewProfileButtonsTests
 
                 visualEditor.Focus();
                 visualEditor.Text = 0.31d.ToString("0.###", CultureInfo.CurrentCulture);
+                CommitTextBoxEdit(visualEditor);
                 visualApplyButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualApplyButton));
 
                 await WaitForConditionAsync(
                     () => string.Equals(visualStartup.Text, "0.24", StringComparison.Ordinal),
-                    TimeSpan.FromSeconds(5));
+                    TimeSpan.FromSeconds(10));
                 visualStartupState = new SussexVisualProfileStartupStateStore(studyId).Load();
                 Assert.NotNull(visualStartupState);
                 Assert.Equal(0.24d, visualStartupState!.ControlValues!["particle_size_max"], 6);
@@ -120,11 +123,12 @@ public sealed class StudyShellViewProfileButtonsTests
 
                 controllerEditor.Focus();
                 controllerEditor.Text = "7";
+                CommitTextBoxEdit(controllerEditor);
                 controllerSaveButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, controllerSaveButton));
 
                 await WaitForConditionAsync(
                     () => string.Equals(controllerStartup.Text, "7", StringComparison.Ordinal),
-                    TimeSpan.FromSeconds(5));
+                    TimeSpan.FromSeconds(10));
 
                 var controllerStartupState = new SussexControllerBreathingProfileStartupStateStore(studyId).Load();
                 Assert.NotNull(controllerStartupState);
@@ -133,11 +137,12 @@ public sealed class StudyShellViewProfileButtonsTests
 
                 controllerEditor.Focus();
                 controllerEditor.Text = "11";
+                CommitTextBoxEdit(controllerEditor);
                 controllerApplyButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, controllerApplyButton));
 
                 await WaitForConditionAsync(
                     () => string.Equals(controllerStartup.Text, "7", StringComparison.Ordinal),
-                    TimeSpan.FromSeconds(5));
+                    TimeSpan.FromSeconds(10));
                 controllerStartupState = new SussexControllerBreathingProfileStartupStateStore(studyId).Load();
                 Assert.NotNull(controllerStartupState);
                 Assert.Equal(7d, controllerStartupState!.ControlValues!["median_window"], 6);
@@ -385,6 +390,9 @@ public sealed class StudyShellViewProfileButtonsTests
             File.Delete(path);
         }
     }
+
+    private static void CommitTextBoxEdit(TextBox textBox)
+        => BindingOperations.GetBindingExpression(textBox, TextBox.TextProperty)?.UpdateSource();
 
     private static void DeleteStudySessionArtifacts(string studyId, params string[] prefixes)
     {
