@@ -92,6 +92,7 @@ public sealed class StudyShellCatalogLoader
                     CloneList(dto.Monitoring?.ControllerValueKeys),
                     CloneList(dto.Monitoring?.ControllerStateKeys),
                     CloneList(dto.Monitoring?.ControllerTrackingKeys),
+                    CloneList(dto.Monitoring?.AutomaticBreathingValueKeys),
                     CloneList(dto.Monitoring?.HeartbeatValueKeys),
                     CloneList(dto.Monitoring?.HeartbeatStateKeys),
                     CloneList(dto.Monitoring?.CoherenceValueKeys),
@@ -109,7 +110,11 @@ public sealed class StudyShellCatalogLoader
                     dto.Controls?.StartBreathingCalibrationActionId ?? string.Empty,
                     dto.Controls?.ResetBreathingCalibrationActionId ?? string.Empty,
                     dto.Controls?.StartExperimentActionId ?? string.Empty,
-                    dto.Controls?.EndExperimentActionId ?? string.Empty)));
+                    dto.Controls?.EndExperimentActionId ?? string.Empty,
+                    dto.Controls?.SetBreathingModeControllerVolumeActionId ?? string.Empty,
+                    dto.Controls?.SetBreathingModeAutomaticCycleActionId ?? string.Empty,
+                    dto.Controls?.StartAutomaticBreathingActionId ?? string.Empty,
+                    dto.Controls?.PauseAutomaticBreathingActionId ?? string.Empty)));
         }
 
         return new StudyShellCatalog(
@@ -303,6 +308,9 @@ public sealed class StudyShellCatalogLoader
         [JsonPropertyName("controllerTrackingKeys")]
         public string[]? ControllerTrackingKeys { get; init; }
 
+        [JsonPropertyName("automaticBreathingValueKeys")]
+        public string[]? AutomaticBreathingValueKeys { get; init; }
+
         [JsonPropertyName("heartbeatValueKeys")]
         public string[]? HeartbeatValueKeys { get; init; }
 
@@ -356,5 +364,17 @@ public sealed class StudyShellCatalogLoader
 
         [JsonPropertyName("endExperimentActionId")]
         public string? EndExperimentActionId { get; init; }
+
+        [JsonPropertyName("setBreathingModeControllerVolumeActionId")]
+        public string? SetBreathingModeControllerVolumeActionId { get; init; }
+
+        [JsonPropertyName("setBreathingModeAutomaticCycleActionId")]
+        public string? SetBreathingModeAutomaticCycleActionId { get; init; }
+
+        [JsonPropertyName("startAutomaticBreathingActionId")]
+        public string? StartAutomaticBreathingActionId { get; init; }
+
+        [JsonPropertyName("pauseAutomaticBreathingActionId")]
+        public string? PauseAutomaticBreathingActionId { get; init; }
     }
 }

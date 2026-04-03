@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -140,6 +142,53 @@ public sealed class StudyShellViewProfileButtonsTests
                 Assert.NotNull(controllerStartupState);
                 Assert.Equal(7d, controllerStartupState!.ControlValues!["median_window"], 6);
 
+                tabs.SelectedIndex = 3;
+                view.UpdateLayout();
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+
+                var visualTable = (DataGrid)view.FindName("VisualProfilesTable")!;
+                var visualGroup = FindDescendantByAutomationId<TextBlock>(view, "visual-group-sphere_deformation_enabled")
+                    ?? throw new InvalidOperationException("Could not resolve the visual group text.");
+                var visualLabel = FindDescendantByAutomationId<TextBlock>(view, "visual-label-sphere_deformation_enabled")
+                    ?? throw new InvalidOperationException("Could not resolve the visual label text.");
+                var visualStartupLabel = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-sphere_deformation_enabled")
+                    ?? throw new InvalidOperationException("Could not resolve the visual startup text.");
+                var visualToggle = FindDescendantByAutomationId<CheckBox>(view, "visual-current-sphere_deformation_enabled")
+                    ?? throw new InvalidOperationException("Could not resolve the visual boolean checkbox.");
+                var savedLaunchHeader = FindColumnHeader(visualTable, "Saved Launch Override")
+                    ?? throw new InvalidOperationException("Could not resolve the Saved Launch Override header.");
+
+                Assert.Equal(HorizontalAlignment.Center, savedLaunchHeader.HorizontalContentAlignment);
+                Assert.Equal(TextAlignment.Center, visualGroup.TextAlignment);
+                Assert.Equal(HorizontalAlignment.Stretch, visualGroup.HorizontalAlignment);
+                Assert.Equal(TextAlignment.Center, visualLabel.TextAlignment);
+                Assert.Equal(HorizontalAlignment.Stretch, visualLabel.HorizontalAlignment);
+                Assert.Equal(TextAlignment.Center, visualStartupLabel.TextAlignment);
+
+                var togglePeer = new CheckBoxAutomationPeer(visualToggle);
+                var toggleProvider = (IToggleProvider?)togglePeer.GetPattern(PatternInterface.Toggle)
+                    ?? throw new InvalidOperationException("Could not resolve the checkbox toggle provider.");
+                toggleProvider.Toggle();
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+
+                visualWorkspace.RefreshReportedTwinState(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+                await WaitForConditionAsync(
+                    () =>
+                    {
+                        var row = visualWorkspace.ComparisonRows.FirstOrDefault(row =>
+                            string.Equals(row.Field.Id, "sphere_deformation_enabled", StringComparison.OrdinalIgnoreCase));
+                        return row is not null &&
+                               row.CurrentBoolValue is false &&
+                               visualToggle.IsChecked is false;
+                    },
+                    TimeSpan.FromSeconds(5));
+
+                await WaitForConditionAsync(
+                    () => visualWorkspace.SelectedProfile?.Document.ControlValues.TryGetValue("sphere_deformation_enabled", out var persistedValue) == true &&
+                          persistedValue < 0.5d,
+                    TimeSpan.FromSeconds(5));
+
                 window.Close();
             });
         }
@@ -203,6 +252,7 @@ public sealed class StudyShellViewProfileButtonsTests
                 ControllerValueKeys: [],
                 ControllerStateKeys: [],
                 ControllerTrackingKeys: [],
+                AutomaticBreathingValueKeys: [],
                 HeartbeatValueKeys: [],
                 HeartbeatStateKeys: [],
                 CoherenceValueKeys: [],
@@ -245,6 +295,12 @@ public sealed class StudyShellViewProfileButtonsTests
                     }
                     finally
                     {
+                        if (Application.Current is Application currentApplication &&
+                            currentApplication.Dispatcher == Dispatcher.CurrentDispatcher)
+                        {
+                            currentApplication.Shutdown();
+                        }
+
                         Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
                     }
                 }, TaskScheduler.FromCurrentSynchronizationContext());
@@ -298,6 +354,28 @@ public sealed class StudyShellViewProfileButtonsTests
         }
 
         return null;
+    }
+
+    private static DataGridColumnHeader? FindColumnHeader(DataGrid grid, string headerText)
+        => FindDescendants<DataGridColumnHeader>(grid)
+            .FirstOrDefault(header => string.Equals(header.Content?.ToString(), headerText, StringComparison.Ordinal));
+
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        if (root is T typedRoot)
+        {
+            yield return typedRoot;
+        }
+
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childCount; index++)
+        {
+            foreach (var descendant in FindDescendants<T>(VisualTreeHelper.GetChild(root, index)))
+            {
+                yield return descendant;
+            }
+        }
     }
 
     private static void DeleteFileIfPresent(string? path)

@@ -80,6 +80,7 @@ public sealed record StudyMonitoringProfile(
     IReadOnlyList<string> ControllerValueKeys,
     IReadOnlyList<string> ControllerStateKeys,
     IReadOnlyList<string> ControllerTrackingKeys,
+    IReadOnlyList<string> AutomaticBreathingValueKeys,
     IReadOnlyList<string> HeartbeatValueKeys,
     IReadOnlyList<string> HeartbeatStateKeys,
     IReadOnlyList<string> CoherenceValueKeys,
@@ -98,4 +99,8 @@ public sealed record StudyControlProfile(
     string StartBreathingCalibrationActionId = "",
     string ResetBreathingCalibrationActionId = "",
     string StartExperimentActionId = "",
-    string EndExperimentActionId = "");
+    string EndExperimentActionId = "",
+    string SetBreathingModeControllerVolumeActionId = "",
+    string SetBreathingModeAutomaticCycleActionId = "",
+    string StartAutomaticBreathingActionId = "",
+    string PauseAutomaticBreathingActionId = "");

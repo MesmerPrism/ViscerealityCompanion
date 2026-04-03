@@ -26,7 +26,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
     private const int WorkflowTabIndex = 0;
     private const int PreSessionTabIndex = 1;
-    private const int DuringSessionTabIndex = 2;
     private const int VisualProfilesTabIndex = 3;
     private const int ControllerBreathingProfilesTabIndex = 4;
     private const int InspectTabIndex = 5;
@@ -228,6 +227,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _lastConnectionActionLabel = string.Empty;
     private string _lastConnectionDetail = string.Empty;
     private OperationOutcomeKind _lastConnectionLevel = OperationOutcomeKind.Preview;
+    private string _breathingStatusTitle = "Controller Breathing";
+    private double _breathingDriverValuePercent;
+    private string _breathingDriverValueText = "Current controller volume n/a";
     private double _controllerValuePercent;
     private string _controllerValueLabel = "n/a";
     private double _controllerCalibrationPercent;
@@ -353,6 +355,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private StudyTwinCommandRequest? _lastStudyTwinCommandRequest;
     private StudyTwinCommandRequest? _lastRecenterCommandRequest;
     private StudyTwinCommandRequest? _lastParticlesCommandRequest;
+    private AutomaticBreathingRequest? _lastAutomaticBreathingRequest;
     private int _workflowGuideLastRenderedStepIndex = -1;
     private DateTimeOffset? _workflowGuideParticleStepStartedAtUtc;
     private string? _testSenderRestoreHeartbeatMode;
@@ -431,6 +434,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ToggleTestLslSenderCommand = new AsyncRelayCommand(ToggleTestLslSenderAsync);
         StartBreathingCalibrationCommand = new AsyncRelayCommand(StartBreathingCalibrationAsync);
         ResetBreathingCalibrationCommand = new AsyncRelayCommand(ResetBreathingCalibrationAsync);
+        ToggleAutomaticBreathingModeCommand = new AsyncRelayCommand(ToggleAutomaticBreathingModeAsync);
+        ToggleAutomaticBreathingRunCommand = new AsyncRelayCommand(ToggleAutomaticBreathingRunAsync);
         StartExperimentCommand = new AsyncRelayCommand(StartExperimentAsync);
         EndExperimentCommand = new AsyncRelayCommand(EndExperimentAsync);
         RecenterCommand = new AsyncRelayCommand(RecenterAsync);
@@ -1667,6 +1672,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _lastActionLevel, value);
     }
 
+    public string BreathingStatusTitle
+    {
+        get => _breathingStatusTitle;
+        private set => SetProperty(ref _breathingStatusTitle, value);
+    }
+
+    public double BreathingDriverValuePercent
+    {
+        get => _breathingDriverValuePercent;
+        private set => SetProperty(ref _breathingDriverValuePercent, value);
+    }
+
+    public string BreathingDriverValueText
+    {
+        get => _breathingDriverValueText;
+        private set => SetProperty(ref _breathingDriverValueText, value);
+    }
+
     public double ControllerValuePercent
     {
         get => _controllerValuePercent;
@@ -1798,6 +1821,70 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public bool CanResetBreathingCalibration
         => !string.IsNullOrWhiteSpace(_study.Controls.ResetBreathingCalibrationActionId);
 
+    public bool CanToggleAutomaticBreathingMode
+        => !string.IsNullOrWhiteSpace(_study.Controls.SetBreathingModeControllerVolumeActionId)
+            && !string.IsNullOrWhiteSpace(_study.Controls.SetBreathingModeAutomaticCycleActionId);
+
+    public bool CanToggleAutomaticBreathingRun
+        => !string.IsNullOrWhiteSpace(_study.Controls.SetBreathingModeAutomaticCycleActionId)
+            && !string.IsNullOrWhiteSpace(_study.Controls.StartAutomaticBreathingActionId)
+            && !string.IsNullOrWhiteSpace(_study.Controls.PauseAutomaticBreathingActionId);
+
+    public string AutomaticBreathingSummary
+    {
+        get
+        {
+            var telemetry = CaptureAutomaticBreathingTelemetry();
+            if (IsAutomaticBreathingPending(telemetry))
+            {
+                return $"{_lastAutomaticBreathingRequest!.RequestedLabel} sent from companion. Waiting for headset confirmation.";
+            }
+
+            return telemetry.AutomaticRoute && telemetry.AutomaticRunning == true
+                ? "Automatic breathing driver confirmed."
+                : telemetry.AutomaticRoute && telemetry.AutomaticRunning == false
+                    ? "Automatic breathing selected but paused."
+                    : telemetry.ControllerVolumeRoute
+                    ? "Controller volume driver confirmed."
+                    : telemetry.HasAnyTelemetry
+                        ? "Breathing driver partially confirmed."
+                        : "Automatic breathing state not confirmed yet.";
+        }
+    }
+
+    public string AutomaticBreathingDetail
+    {
+        get
+        {
+            var telemetry = CaptureAutomaticBreathingTelemetry();
+            var twinStateDetail = BuildAutomaticBreathingTwinStateDetail(telemetry);
+            if (IsAutomaticBreathingPending(telemetry))
+            {
+                return $"{_lastAutomaticBreathingRequest!.RequestedLabel} was sent at {_lastAutomaticBreathingRequest.RequestedAtUtc:HH:mm:ss}. {twinStateDetail} Waiting for the requested breathing-driver state to appear in the live headset frame.".Trim();
+            }
+
+            return telemetry.AutomaticRoute && telemetry.AutomaticRunning == true
+                ? $"{twinStateDetail} Automatic breathing is currently driving the sphere. Controller calibration stays visible for bench reference only and is not required in this mode.".Trim()
+                : telemetry.AutomaticRoute && telemetry.AutomaticRunning == false
+                    ? $"{twinStateDetail} Automatic breathing is selected, but the cycle is paused. Controller calibration is still optional until you switch back to controller volume.".Trim()
+                    : telemetry.ControllerVolumeRoute
+                        ? $"{twinStateDetail} Controller-volume breathing is currently driving the sphere. Controller calibration warnings only matter in this mode.".Trim()
+                    : telemetry.HasAnyTelemetry
+                        ? $"{twinStateDetail} The shell cannot classify this as the Sussex controller-volume baseline or the standalone automatic cycle yet.".Trim()
+                        : "Live twin-state has not confirmed whether Sussex is currently in controller-volume or automatic breathing mode.";
+        }
+    }
+
+    public string AutomaticBreathingModeActionLabel
+        => IsAutomaticBreathingActiveFromTwinState()
+            ? "Use Controller Volume Driver"
+            : "Use Automatic Driver";
+
+    public string AutomaticBreathingRunActionLabel
+        => IsAutomaticBreathingActiveFromTwinState() && IsAutomaticBreathingRunningFromTwinState()
+            ? "Pause Automatic"
+            : "Start Automatic";
+
     public bool CanStartExperiment
         => !string.IsNullOrWhiteSpace(_study.Controls.StartExperimentActionId);
 
@@ -1921,6 +2008,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ToggleTestLslSenderCommand { get; }
     public AsyncRelayCommand StartBreathingCalibrationCommand { get; }
     public AsyncRelayCommand ResetBreathingCalibrationCommand { get; }
+    public AsyncRelayCommand ToggleAutomaticBreathingModeCommand { get; }
+    public AsyncRelayCommand ToggleAutomaticBreathingRunCommand { get; }
     public AsyncRelayCommand StartExperimentCommand { get; }
     public AsyncRelayCommand EndExperimentCommand { get; }
     public AsyncRelayCommand RecenterCommand { get; }
@@ -1954,10 +2043,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await RefreshStatusAsync().ConfigureAwait(false);
         }
 
-        if (ShouldDefaultToDuringSession())
-        {
-            await DispatchAsync(() => SelectedPhaseTabIndex = DuringSessionTabIndex).ConfigureAwait(false);
-        }
     }
 
     public void Dispose()
@@ -2144,7 +2229,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
                 await _visualProfiles.ApplyStartupProfileOnLaunchAsync().ConfigureAwait(false);
                 await _controllerBreathingProfiles.ApplyStartupProfileOnLaunchAsync().ConfigureAwait(false);
-                await DispatchAsync(() => SelectedPhaseTabIndex = DuringSessionTabIndex).ConfigureAwait(false);
             }
 
             await DispatchAsync(() =>
@@ -2704,6 +2788,118 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public Task ResetBreathingCalibrationAsync()
         => SendStudyTwinCommandAsync(_study.Controls.ResetBreathingCalibrationActionId, "Reset Breathing Calibration");
+
+    public async Task ToggleAutomaticBreathingModeAsync()
+    {
+        var automaticActive = await DispatchAsync(IsAutomaticBreathingActiveFromTwinState).ConfigureAwait(false);
+        if (automaticActive)
+        {
+            if (!string.IsNullOrWhiteSpace(_study.Controls.PauseAutomaticBreathingActionId))
+            {
+                var pauseOutcome = await SendStudyTwinCommandCoreAsync(
+                        _study.Controls.PauseAutomaticBreathingActionId,
+                        "Pause Automatic Breathing")
+                    .ConfigureAwait(false);
+                if (pauseOutcome.Kind == OperationOutcomeKind.Failure)
+                {
+                    return;
+                }
+            }
+
+            var restoreModeOutcome = await SendStudyTwinCommandCoreAsync(
+                    _study.Controls.SetBreathingModeControllerVolumeActionId,
+                    "Set Breathing: Controller Volume")
+                .ConfigureAwait(false);
+            if (restoreModeOutcome.Kind == OperationOutcomeKind.Failure)
+            {
+                return;
+            }
+
+            await DispatchAsync(() =>
+            {
+                RememberAutomaticBreathingRequest(false, false, "Use Controller Volume Driver");
+                RefreshAutomaticBreathingStateProperties();
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        var modeOutcome = await SendStudyTwinCommandCoreAsync(
+                _study.Controls.SetBreathingModeAutomaticCycleActionId,
+                "Set Breathing: Automatic Cycle")
+            .ConfigureAwait(false);
+        if (modeOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_study.Controls.StartAutomaticBreathingActionId))
+        {
+            var startOutcome = await SendStudyTwinCommandCoreAsync(
+                    _study.Controls.StartAutomaticBreathingActionId,
+                    "Start Automatic Breathing")
+                .ConfigureAwait(false);
+            if (startOutcome.Kind == OperationOutcomeKind.Failure)
+            {
+                return;
+            }
+        }
+
+        await DispatchAsync(() =>
+        {
+            RememberAutomaticBreathingRequest(true, true, "Use Automatic Driver");
+            RefreshAutomaticBreathingStateProperties();
+        }).ConfigureAwait(false);
+    }
+
+    public async Task ToggleAutomaticBreathingRunAsync()
+    {
+        var telemetry = await DispatchAsync(CaptureAutomaticBreathingTelemetry).ConfigureAwait(false);
+        if (telemetry.AutomaticRoute && telemetry.AutomaticRunning == true)
+        {
+            var pauseOutcome = await SendStudyTwinCommandCoreAsync(
+                    _study.Controls.PauseAutomaticBreathingActionId,
+                    "Pause Automatic Breathing")
+                .ConfigureAwait(false);
+            if (pauseOutcome.Kind == OperationOutcomeKind.Failure)
+            {
+                return;
+            }
+
+            await DispatchAsync(() =>
+            {
+                RememberAutomaticBreathingRequest(true, false, "Pause Automatic");
+                RefreshAutomaticBreathingStateProperties();
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        if (!telemetry.AutomaticRoute)
+        {
+            var modeOutcome = await SendStudyTwinCommandCoreAsync(
+                    _study.Controls.SetBreathingModeAutomaticCycleActionId,
+                    "Set Breathing: Automatic Cycle")
+                .ConfigureAwait(false);
+            if (modeOutcome.Kind == OperationOutcomeKind.Failure)
+            {
+                return;
+            }
+        }
+
+        var startOutcome = await SendStudyTwinCommandCoreAsync(
+                _study.Controls.StartAutomaticBreathingActionId,
+                "Start Automatic Breathing")
+            .ConfigureAwait(false);
+        if (startOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            return;
+        }
+
+        await DispatchAsync(() =>
+        {
+            RememberAutomaticBreathingRequest(true, true, "Start Automatic");
+            RefreshAutomaticBreathingStateProperties();
+        }).ConfigureAwait(false);
+    }
 
     public async Task StartExperimentAsync()
     {
@@ -4860,6 +5056,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(StudyRuntimeActionLabel));
         OnPropertyChanged(nameof(CanStartBreathingCalibration));
         OnPropertyChanged(nameof(CanResetBreathingCalibration));
+        OnPropertyChanged(nameof(CanToggleAutomaticBreathingMode));
+        OnPropertyChanged(nameof(CanToggleAutomaticBreathingRun));
         OnPropertyChanged(nameof(CanStartExperiment));
         OnPropertyChanged(nameof(CanEndExperiment));
         OnPropertyChanged(nameof(CanStartParticipantExperiment));
@@ -4870,6 +5068,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanOpenLastQuestScreenshot));
         OnPropertyChanged(nameof(CanToggleTestLslSender));
         UpdateWorkflowStatus();
+    }
+
+    private void RefreshAutomaticBreathingStateProperties()
+    {
+        OnPropertyChanged(nameof(AutomaticBreathingSummary));
+        OnPropertyChanged(nameof(AutomaticBreathingDetail));
+        OnPropertyChanged(nameof(AutomaticBreathingModeActionLabel));
+        OnPropertyChanged(nameof(AutomaticBreathingRunActionLabel));
     }
 
     private void RefreshLiveTwinState()
@@ -4894,6 +5100,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _activeFocusSectionId = string.Empty;
             FocusRows.Clear();
             RecentTwinEvents.Clear();
+            RefreshAutomaticBreathingStateProperties();
             UpdateWorkflowStatus();
             return;
         }
@@ -4934,6 +5141,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdateRecenterCard();
         UpdateParticlesCard();
         UpdatePinnedBuildStatus();
+        RefreshAutomaticBreathingStateProperties();
         RefreshFocusRows();
         TryRecordLiveTwinState(lslBridge.LastStateReceivedAt ?? DateTimeOffset.UtcNow);
         UpdateWorkflowStatus();
@@ -7680,8 +7888,110 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         LslDetail = $"{routeNote} {comparisonNote} {testSenderDetail}".Trim();
     }
 
+    private bool IsAutomaticBreathingActiveFromTwinState()
+        => CaptureAutomaticBreathingTelemetry().AutomaticRoute;
+
+    private bool IsAutomaticBreathingRunningFromTwinState()
+        => CaptureAutomaticBreathingTelemetry().AutomaticRunning == true;
+
+    private bool IsControllerVolumeBreathingActiveFromTwinState()
+    {
+        var routingMode = GetFirstValue("routing.breathing.mode");
+        if (string.Equals(routingMode, "1", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var routingLabel = GetFirstValue("routing.breathing.label");
+        return string.Equals(routingLabel, "Controller Volume", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private AutomaticBreathingTelemetry CaptureAutomaticBreathingTelemetry()
+    {
+        var routingMode = GetFirstValue("routing.breathing.mode");
+        var routingLabel = GetFirstValue("routing.breathing.label");
+        var automaticRunning = ParseBool(GetFirstValue("routing.automatic_breathing.running"));
+        var automaticValue = ParseUnitInterval(GetAutomaticBreathingValueRaw());
+        var controllerVolumeRoute =
+            string.Equals(routingMode, "1", StringComparison.Ordinal) ||
+            string.Equals(routingLabel, "Controller Volume", StringComparison.OrdinalIgnoreCase);
+        var automaticRoute =
+            string.Equals(routingMode, "6", StringComparison.Ordinal) ||
+            string.Equals(routingLabel, "Automatic Cycle", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(routingLabel, "Automatic", StringComparison.OrdinalIgnoreCase);
+        var hasAnyTelemetry =
+            !string.IsNullOrWhiteSpace(routingMode) ||
+            !string.IsNullOrWhiteSpace(routingLabel) ||
+            automaticRunning.HasValue ||
+            automaticValue.HasValue;
+
+        return new AutomaticBreathingTelemetry(
+            routingMode,
+            routingLabel,
+            automaticRoute,
+            automaticRunning,
+            controllerVolumeRoute,
+            automaticValue,
+            hasAnyTelemetry);
+    }
+
+    private bool IsAutomaticBreathingPending(AutomaticBreathingTelemetry telemetry)
+        => _lastAutomaticBreathingRequest is not null
+           && DateTimeOffset.UtcNow - _lastAutomaticBreathingRequest.RequestedAtUtc <= WorkflowGuidePendingCommandWindow
+           && !AutomaticBreathingMatchesRequest(telemetry, _lastAutomaticBreathingRequest);
+
+    private static bool AutomaticBreathingMatchesRequest(
+        AutomaticBreathingTelemetry telemetry,
+        AutomaticBreathingRequest request)
+        => request.AutomaticModeSelected
+            ? telemetry.AutomaticRoute && telemetry.AutomaticRunning == request.AutomaticRunning
+            : telemetry.ControllerVolumeRoute;
+
+    private string BuildAutomaticBreathingTwinStateDetail(AutomaticBreathingTelemetry telemetry)
+    {
+        if (!telemetry.HasAnyTelemetry)
+        {
+            return "No `routing.breathing.*`, `routing.automatic_breathing.running`, or automatic-cycle value readback has arrived from `quest_twin_state` yet.";
+        }
+
+        var frameLabel = string.IsNullOrWhiteSpace(LastTwinStateTimestampLabel)
+            ? "the latest live frame"
+            : LastTwinStateTimestampLabel;
+        var routingLabel = string.IsNullOrWhiteSpace(telemetry.RoutingLabel) ? "n/a" : telemetry.RoutingLabel;
+        var routingMode = string.IsNullOrWhiteSpace(telemetry.RoutingMode) ? "n/a" : telemetry.RoutingMode;
+        var automaticState = telemetry.AutomaticRoute
+            ? telemetry.AutomaticRunning == true
+                ? "running"
+                : telemetry.AutomaticRunning == false
+                    ? "paused"
+                    : "state n/a"
+            : "not selected";
+        var automaticValue = telemetry.AutomaticValue.HasValue
+            ? $" Automatic value {telemetry.AutomaticValue.Value:0.000}."
+            : string.Empty;
+        return $"`quest_twin_state` reports route {routingLabel} (mode {routingMode}) with automatic cycle {automaticState} in {frameLabel}.{automaticValue}".Trim();
+    }
+
+    private string? GetAutomaticBreathingValueRaw()
+    {
+        if (_study?.Monitoring?.AutomaticBreathingValueKeys is { Count: > 0 } automaticValueKeys)
+        {
+            return GetFirstValue(automaticValueKeys);
+        }
+
+        return GetFirstValue("study.breathing.value01", "signal01.mock_pacer_breathing");
+    }
+
+    private void RememberAutomaticBreathingRequest(bool automaticModeSelected, bool automaticRunning, string requestedLabel)
+        => _lastAutomaticBreathingRequest = new AutomaticBreathingRequest(
+            automaticModeSelected,
+            automaticRunning,
+            requestedLabel,
+            DateTimeOffset.UtcNow);
+
     private void UpdateControllerCard()
     {
+        var automaticTelemetry = CaptureAutomaticBreathingTelemetry();
         var volume = ParseUnitInterval(GetFirstValue(_study.Monitoring.ControllerValueKeys));
         var state = GetFirstValue("tracker.breathing.controller.state");
         var active = ParseBool(GetFirstValue("tracker.breathing.controller.active"));
@@ -7701,6 +8011,60 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         ControllerValuePercent = volume.HasValue ? volume.Value * 100d : 0d;
         ControllerValueLabel = volume.HasValue ? $"{volume.Value:0.000}" : "n/a";
+        if (automaticTelemetry.AutomaticRoute)
+        {
+            BreathingStatusTitle = "Automatic Breathing";
+            BreathingDriverValuePercent = automaticTelemetry.AutomaticValue.HasValue ? automaticTelemetry.AutomaticValue.Value * 100d : 0d;
+            BreathingDriverValueText = automaticTelemetry.AutomaticValue.HasValue
+                ? $"Current automatic cycle {automaticTelemetry.AutomaticValue.Value:0.000}"
+                : automaticTelemetry.AutomaticRunning == false
+                    ? "Automatic cycle paused."
+                    : "Automatic cycle readback pending.";
+            ControllerCalibrationPercent = 0d;
+            ControllerCalibrationLabel = automaticTelemetry.AutomaticRunning == false
+                ? "Automatic mode paused"
+                : "Calibration ignored in automatic mode";
+            ApplyControllerCalibrationQuality(new ControllerCalibrationQualityStatus(
+                Visible: true,
+                Level: OperationOutcomeKind.Preview,
+                Badge: "Not in use",
+                Summary: "Controller calibration is not used while the automatic breathing cycle drives the sphere.",
+                Metrics: automaticTelemetry.AutomaticValue.HasValue
+                    ? $"Automatic value {automaticTelemetry.AutomaticValue.Value:0.000} · Cycle {(automaticTelemetry.AutomaticRunning == true ? "running" : "paused")}"
+                    : $"Cycle {(automaticTelemetry.AutomaticRunning == true ? "running" : "paused")}",
+                Cause: string.Empty,
+                Detail: "Controller tracking, calibration, and failure counters remain available for bench checks, but they do not affect the automatic cycle."));
+
+            if (_reportedTwinState.Count == 0)
+            {
+                ControllerLevel = OperationOutcomeKind.Preview;
+                ControllerSummary = "Waiting for automatic breathing state.";
+                ControllerDetail = "The Sussex study can switch into standalone automatic breathing, but no live twin-state values have arrived yet.";
+                return;
+            }
+
+            bool automaticRunning = automaticTelemetry.AutomaticRunning == true;
+            ControllerLevel = automaticRunning && automaticTelemetry.AutomaticValue.HasValue
+                ? OperationOutcomeKind.Success
+                : automaticRunning
+                    ? OperationOutcomeKind.Warning
+                    : OperationOutcomeKind.Preview;
+            ControllerSummary = automaticRunning
+                ? automaticTelemetry.AutomaticValue.HasValue
+                    ? "Automatic breathing is driving the sphere."
+                    : "Automatic breathing is active but its live cycle readback has not arrived yet."
+                : "Automatic breathing is selected but paused.";
+            ControllerDetail =
+                $"Route {(string.IsNullOrWhiteSpace(routingLabel) ? "n/a" : routingLabel)} (mode {routingMode ?? "n/a"}). " +
+                $"Automatic cycle {(automaticTelemetry.AutomaticRunning == true ? "running" : automaticTelemetry.AutomaticRunning == false ? "paused" : "state n/a")}. " +
+                $"Automatic value {(automaticTelemetry.AutomaticValue.HasValue ? automaticTelemetry.AutomaticValue.Value.ToString("0.000", CultureInfo.InvariantCulture) : "n/a")}. " +
+                $"Controller value {ControllerValueLabel}.";
+            return;
+        }
+
+        BreathingStatusTitle = "Controller Breathing";
+        BreathingDriverValuePercent = ControllerValuePercent;
+        BreathingDriverValueText = $"Current controller volume {ControllerValueLabel}";
         ControllerCalibrationPercent = calibrated == true ? 100d : validationProgress.HasValue ? validationProgress.Value * 100d : 0d;
         ControllerCalibrationLabel = calibrated == true
             ? "Calibrated"
@@ -8542,6 +8906,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             CreateStudyRow("Breathing route mode", ["routing.breathing.mode"], string.Empty, "Runtime-reported breathing route mode."),
             CreateStudyRow("Controller active", ["tracker.breathing.controller.active"], string.Empty, "Whether controller breathing is currently active."),
             CreateStudyRow("Controller state", ["tracker.breathing.controller.state"], string.Empty, "Runtime-reported controller state."),
+            CreateStudyRow("Automatic running", ["routing.automatic_breathing.running"], string.Empty, "Whether the standalone automatic breathing cycle is currently running."),
             CreateStudyRow("Controller calibrated", ["tracker.breathing.controller.calibrated"], string.Empty, "Whether controller breathing is calibrated."),
             CreateStudyRow("Controller validating", ["tracker.breathing.controller.validating"], string.Empty, "Whether controller validation is currently running."),
             CreateStudyRow("Validation progress", ["tracker.breathing.controller.validation_progress01"], string.Empty, "Controller validation progress."),
@@ -8553,6 +8918,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             CreateStudyRow("Rejected: bad tracking", ["tracker.breathing.controller.validation_frames_rejected_bad_tracking"], string.Empty, "Validation frames rejected because controller tracking was unstable."),
             CreateStudyRow("Rejected: low motion", ["tracker.breathing.controller.validation_frames_rejected_low_motion"], string.Empty, "Validation frames rejected because controller movement was too small."),
             CreateStudyRow("Controller value", _study.Monitoring.ControllerValueKeys, string.Empty, "Latest breathing-control value."),
+            CreateStudyRow("Automatic value", _study.Monitoring.AutomaticBreathingValueKeys, string.Empty, "Latest standalone automatic breathing-cycle value."),
             CreateStudyRow("Failure reason", ["tracker.breathing.controller.failure_reason"], string.Empty, "Failure reason when controller breathing cannot activate.")
         ];
     }
@@ -9653,10 +10019,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
     }
 
-    private bool ShouldDefaultToDuringSession()
-        => _reportedTwinState.Count > 0
-           && string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
-
     private void AppendLog(OperatorLogLevel level, string message, string detail)
     {
         Logs.Insert(0, new OperatorLogEntry(DateTimeOffset.Now, level, message, detail));
@@ -9886,6 +10248,21 @@ internal sealed record StudyTwinCommandRequest(
     string? PreviousRecenterAnchorTimestampRaw,
     double? PreviousRecenterDistance,
     bool? PreviousObservedVisible);
+
+internal sealed record AutomaticBreathingRequest(
+    bool AutomaticModeSelected,
+    bool AutomaticRunning,
+    string RequestedLabel,
+    DateTimeOffset RequestedAtUtc);
+
+internal readonly record struct AutomaticBreathingTelemetry(
+    string? RoutingMode,
+    string? RoutingLabel,
+    bool AutomaticRoute,
+    bool? AutomaticRunning,
+    bool ControllerVolumeRoute,
+    double? AutomaticValue,
+    bool HasAnyTelemetry);
 
 internal readonly record struct StudyTwinCommandConfirmation(
     int? Sequence,

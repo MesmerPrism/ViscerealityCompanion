@@ -89,6 +89,18 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
+        <Style x:Key="VisualProfilesCenteredWrappedTextStyle" TargetType="TextBlock" BasedOn="{StaticResource VisualProfilesCenteredTextStyle}">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="TextTrimming" Value="None" />
+        </Style>
+
+        <Style x:Key="VisualProfilesColumnHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="TextBlock.TextAlignment" Value="Center" />
+            <Setter Property="TextBlock.TextWrapping" Value="Wrap" />
+        </Style>
+
         <Style x:Key="VisualProfilesEditorTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="Margin" Value="0" />
             <Setter Property="Padding" Value="6,4" />
@@ -330,11 +342,24 @@
                                                Style="{StaticResource CompactCaptionStyle}"
                                                Margin="0,2,0,0"
                                                Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBlock Text="{Binding AutomaticBreathingSummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding AutomaticBreathingDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap" />
                                     <TextBlock Text="{Binding LslBenchStateLabel}" Style="{StaticResource CompactCaptionStyle}" Margin="0,2,0,0" />
                                     <WrapPanel Margin="0,10,0,0">
                                         <Button Content="Start Calibration"
                                                 Command="{Binding StartBreathingCalibrationCommand}"
                                                 IsEnabled="{Binding CanStartBreathingCalibration}" />
+                                        <Button Content="{Binding AutomaticBreathingModeActionLabel}"
+                                                Command="{Binding ToggleAutomaticBreathingModeCommand}"
+                                                IsEnabled="{Binding CanToggleAutomaticBreathingMode}" />
+                                        <Button Content="{Binding AutomaticBreathingRunActionLabel}"
+                                                Command="{Binding ToggleAutomaticBreathingRunCommand}"
+                                                IsEnabled="{Binding CanToggleAutomaticBreathingRun}" />
                                         <Button Content="Recenter"
                                                 Command="{Binding RecenterCommand}"
                                                 IsEnabled="{Binding CanSendRecenterCommand}" />
@@ -899,7 +924,7 @@
                                         Background="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                                         BorderBrush="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToBrush}}">
                                     <StackPanel>
-                                        <TextBlock Text="Controller Breathing" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Text="{Binding BreathingStatusTitle}" Style="{StaticResource InfoLabelStyle}" />
                                         <TextBlock Text="{Binding ControllerSummary}"
                                                    FontSize="16"
                                                    FontWeight="Bold"
@@ -911,9 +936,9 @@
                                         <ProgressBar Margin="0,10,0,0"
                                                      Height="8"
                                                      Maximum="100"
-                                                     Value="{Binding ControllerValuePercent, Mode=OneWay}"
+                                                     Value="{Binding BreathingDriverValuePercent, Mode=OneWay}"
                                                      Foreground="{Binding ControllerLevel, Converter={StaticResource OutcomeKindToBrush}}" />
-                                        <TextBlock Text="{Binding ControllerValueLabel, StringFormat=Current controller volume {0}}"
+                                        <TextBlock Text="{Binding BreathingDriverValueText}"
                                                    Style="{StaticResource CompactCaptionStyle}"
                                                    Margin="0,6,0,0" />
 
@@ -925,7 +950,7 @@
                                                 BorderThickness="1"
                                                 CornerRadius="8">
                                             <StackPanel>
-                                                <TextBlock Text="Calibration Quality" Style="{StaticResource InfoLabelStyle}" />
+                                                <TextBlock Text="Controller Calibration" Style="{StaticResource InfoLabelStyle}" />
                                                 <TextBlock Text="{Binding ControllerCalibrationQualityBadge}"
                                                            FontSize="14"
                                                            FontWeight="Bold"
@@ -947,10 +972,37 @@
                                             </StackPanel>
                                         </Border>
 
+                                        <Border Margin="0,10,0,0"
+                                                Padding="10"
+                                                BorderBrush="{StaticResource LineBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Background="#11000000">
+                                            <StackPanel>
+                                                <TextBlock Text="Breathing Driver" Style="{StaticResource InfoLabelStyle}" />
+                                                <TextBlock Text="{Binding AutomaticBreathingSummary}"
+                                                           FontSize="14"
+                                                           FontWeight="Bold"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding AutomaticBreathingDetail}"
+                                                           Style="{StaticResource CompactCaptionStyle}"
+                                                           Margin="0,4,0,0"
+                                                           TextWrapping="Wrap" />
+                                                <WrapPanel Margin="0,10,0,0">
+                                                    <Button Content="{Binding AutomaticBreathingModeActionLabel}"
+                                                            Command="{Binding ToggleAutomaticBreathingModeCommand}"
+                                                            IsEnabled="{Binding CanToggleAutomaticBreathingMode}" />
+                                                    <Button Content="{Binding AutomaticBreathingRunActionLabel}"
+                                                            Command="{Binding ToggleAutomaticBreathingRunCommand}"
+                                                            IsEnabled="{Binding CanToggleAutomaticBreathingRun}" />
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </Border>
+
                                         <Expander Style="{StaticResource CompactStatusExpanderStyle}"
                                                   Margin="0,10,0,0">
                                             <Expander.Header>
-                                                <TextBlock Text="Controller details" Style="{StaticResource InfoLabelStyle}" Margin="0" />
+                                                <TextBlock Text="Breathing details" Style="{StaticResource InfoLabelStyle}" Margin="0" />
                                             </Expander.Header>
                                             <StackPanel Margin="0,6,0,0">
                                                 <TextBlock Text="{Binding ControllerDetail}"
@@ -1340,15 +1392,25 @@
                                                PreviewMouseWheel="OnVisualProfilesTablePreviewMouseWheel"
                                                ScrollViewer.VerticalScrollBarVisibility="Auto"
                                                ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                               ColumnHeaderStyle="{StaticResource VisualProfilesColumnHeaderStyle}"
                                                CellStyle="{StaticResource VisualProfilesDataGridCellStyle}">
                                         <DataGrid.Columns>
-                                            <DataGridTextColumn Header="Group" Binding="{Binding Group}" Width="0.85*" IsReadOnly="True" />
+                                            <DataGridTemplateColumn Header="Group" Width="0.85*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Group}"
+                                                                   AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=visual-group-{0}}"
+                                                                   Style="{StaticResource VisualProfilesCenteredWrappedTextStyle}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
                                             <DataGridTemplateColumn Header="Parameter" Width="1.8*" IsReadOnly="True">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
                                                         <TextBlock Text="{Binding Label}"
                                                                    ToolTip="{Binding ToolTipText}"
-                                                                   TextWrapping="Wrap" />
+                                                                   AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=visual-label-{0}}"
+                                                                   Style="{StaticResource VisualProfilesCenteredWrappedTextStyle}" />
                                                     </DataTemplate>
                                                 </DataGridTemplateColumn.CellTemplate>
                                             </DataGridTemplateColumn>
@@ -1376,7 +1438,8 @@
                                                                     </Style>
                                                                 </TextBox.Style>
                                                             </TextBox>
-                                                            <CheckBox IsChecked="{Binding CurrentBoolValue}"
+                                                            <CheckBox IsChecked="{Binding CurrentBoolValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                      Click="OnProfileBooleanToggleClick"
                                                                       HorizontalAlignment="Center"
                                                                       VerticalAlignment="Center"
                                                                       ToolTip="{Binding ToolTipText}"
@@ -1425,6 +1488,7 @@
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
                                                         <Button Content="Reset"
+                                                                HorizontalAlignment="Center"
                                                                 Command="{Binding DataContext.ResetFieldCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                                 CommandParameter="{Binding Field}" />
                                                     </DataTemplate>
@@ -1692,15 +1756,25 @@
                                                PreviewMouseWheel="OnVisualProfilesTablePreviewMouseWheel"
                                                ScrollViewer.VerticalScrollBarVisibility="Auto"
                                                ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                               ColumnHeaderStyle="{StaticResource VisualProfilesColumnHeaderStyle}"
                                                CellStyle="{StaticResource VisualProfilesDataGridCellStyle}">
                                         <DataGrid.Columns>
-                                            <DataGridTextColumn Header="Group" Binding="{Binding Group}" Width="0.85*" IsReadOnly="True" />
+                                            <DataGridTemplateColumn Header="Group" Width="0.85*" IsReadOnly="True">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding Group}"
+                                                                   AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=controller-group-{0}}"
+                                                                   Style="{StaticResource VisualProfilesCenteredWrappedTextStyle}" />
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
                                             <DataGridTemplateColumn Header="Parameter" Width="1.8*" IsReadOnly="True">
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
                                                         <TextBlock Text="{Binding Label}"
                                                                    ToolTip="{Binding ToolTipText}"
-                                                                   TextWrapping="Wrap" />
+                                                                   AutomationProperties.AutomationId="{Binding Field.Id, StringFormat=controller-label-{0}}"
+                                                                   Style="{StaticResource VisualProfilesCenteredWrappedTextStyle}" />
                                                     </DataTemplate>
                                                 </DataGridTemplateColumn.CellTemplate>
                                             </DataGridTemplateColumn>
@@ -1728,7 +1802,8 @@
                                                                     </Style>
                                                                 </TextBox.Style>
                                                             </TextBox>
-                                                            <CheckBox IsChecked="{Binding CurrentBoolValue}"
+                                                            <CheckBox IsChecked="{Binding CurrentBoolValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                      Click="OnProfileBooleanToggleClick"
                                                                       HorizontalAlignment="Center"
                                                                       VerticalAlignment="Center"
                                                                       ToolTip="{Binding ToolTipText}"
@@ -1777,6 +1852,7 @@
                                                 <DataGridTemplateColumn.CellTemplate>
                                                     <DataTemplate>
                                                         <Button Content="Reset"
+                                                                HorizontalAlignment="Center"
                                                                 Command="{Binding DataContext.ResetFieldCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                                                 CommandParameter="{Binding Field}" />
                                                     </DataTemplate>

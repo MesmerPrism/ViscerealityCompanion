@@ -3,6 +3,8 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using ViscerealityCompanion.App.ViewModels;
 
 namespace ViscerealityCompanion.App;
@@ -25,6 +27,22 @@ public partial class StudyShellView : UserControl
 
     private void OnControllerSaveStartupSnapshotClick(object sender, RoutedEventArgs e)
         => ExecuteControllerCommand(sender, ControllerProfilesTable, static viewModel => viewModel.SetStartupProfileCommand);
+
+    private void OnProfileBooleanToggleClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox checkBox)
+        {
+            return;
+        }
+
+        checkBox.Dispatcher.BeginInvoke(() =>
+        {
+            BindingOperations.GetBindingExpression(checkBox, ToggleButton.IsCheckedProperty)?.UpdateSource();
+            var grid = FindAncestor<DataGrid>(checkBox);
+            grid?.CommitEdit(DataGridEditingUnit.Cell, true);
+            grid?.CommitEdit(DataGridEditingUnit.Row, true);
+        }, DispatcherPriority.Background);
+    }
 
     private void OnVisualProfilesTablePreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
@@ -102,5 +120,21 @@ public partial class StudyShellView : UserControl
         {
             command.Execute(null);
         }
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? node)
+        where T : DependencyObject
+    {
+        while (node is not null)
+        {
+            if (node is T match)
+            {
+                return match;
+            }
+
+            node = VisualTreeHelper.GetParent(node);
+        }
+
+        return null;
     }
 }

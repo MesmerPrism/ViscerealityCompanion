@@ -28,6 +28,11 @@ public sealed class StudyShellCatalogLoaderTests
             Assert.Equal("2921110053000610", study.App.VerificationBaseline.BuildId);
             Assert.Equal("2", study.Controls.RecenterCommandActionId);
             Assert.Equal("14", study.Controls.StartBreathingCalibrationActionId);
+            Assert.Equal("20", study.Controls.SetBreathingModeControllerVolumeActionId);
+            Assert.Equal("46", study.Controls.SetBreathingModeAutomaticCycleActionId);
+            Assert.Equal("47", study.Controls.StartAutomaticBreathingActionId);
+            Assert.Equal("48", study.Controls.PauseAutomaticBreathingActionId);
+            Assert.Contains("signal01.mock_pacer_breathing", study.Monitoring.AutomaticBreathingValueKeys);
             Assert.Contains("debug.oculus.gpuLevel", study.DeviceProfile.Properties.Keys);
             Assert.Contains("connection.lsl.connected_count", study.Monitoring.LslConnectivityKeys);
             Assert.Contains("signal01.coherence_lsl", study.Monitoring.LslValueKeys);
@@ -132,6 +137,7 @@ public sealed class StudyShellCatalogLoaderTests
                 "controllerValueKeys": ["tracker.breathing.controller.volume01"],
                 "controllerStateKeys": ["tracker.breathing.controller.state"],
                 "controllerTrackingKeys": ["tracker.breathing.controller.active"],
+                "automaticBreathingValueKeys": ["signal01.mock_pacer_breathing"],
                 "heartbeatValueKeys": ["signal01.heartbeat_lsl"],
                 "heartbeatStateKeys": ["routing.heartbeat.mode"],
                 "coherenceValueKeys": ["signal01.coherence_lsl"],
@@ -147,7 +153,11 @@ public sealed class StudyShellCatalogLoaderTests
                 "recenterCommandActionId": "2",
                 "particleVisibleOnActionId": "",
                 "particleVisibleOffActionId": "",
-                "startBreathingCalibrationActionId": "14"
+                "startBreathingCalibrationActionId": "14",
+                "setBreathingModeControllerVolumeActionId": "20",
+                "setBreathingModeAutomaticCycleActionId": "46",
+                "startAutomaticBreathingActionId": "47",
+                "pauseAutomaticBreathingActionId": "48"
               }
             }
             """);

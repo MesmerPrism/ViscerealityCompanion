@@ -8,7 +8,7 @@
                 "packageId":  "com.Viscereality.SussexExperiment",
                 "apkPath":  "../quest-session-kit/APKs/SussexExperiment.apk",
                 "launchComponent":  "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
-                "sha256":  "AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69",
+                "sha256":  "AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29",
                 "versionName":  "0.1.2",
                 "notes":  "The Sussex shell ships with a bundled Sussex Experiment APK. The operator shell keeps checking the bundled APK hash and the installed headset hash against the approved Sussex study build.",
                 "allowManualSelection":  false,
@@ -30,7 +30,7 @@
                                          }
                       },
     "monitoring":  {
-                       "expectedBreathingLabel":  "Controller Volume",
+                       "expectedBreathingLabel":  "",
                        "expectedHeartbeatLabel":  "LSL Heartbeat",
                        "expectedCoherenceLabel":  "LSL Direct",
                        "expectedLslStreamName":  "HRV_Biofeedback",
@@ -73,6 +73,10 @@
                                                       "routing.breathing.mode",
                                                       "routing.breathing.label"
                                                   ],
+                       "automaticBreathingValueKeys":  [
+                                                           "study.breathing.value01",
+                                                           "signal01.mock_pacer_breathing"
+                                                       ],
                        "heartbeatValueKeys":  [
                                                   "signal01.heartbeat_lsl",
                                                   "signal01.heartbeat_polar",
@@ -118,6 +122,10 @@
                      "startBreathingCalibrationActionId":  "14",
                      "resetBreathingCalibrationActionId":  "41",
                      "startExperimentActionId":  "42",
-                     "endExperimentActionId":  "43"
+                     "endExperimentActionId":  "43",
+                     "setBreathingModeControllerVolumeActionId":  "20",
+                     "setBreathingModeAutomaticCycleActionId":  "46",
+                     "startAutomaticBreathingActionId":  "47",
+                     "pauseAutomaticBreathingActionId":  "48"
                  }
 }

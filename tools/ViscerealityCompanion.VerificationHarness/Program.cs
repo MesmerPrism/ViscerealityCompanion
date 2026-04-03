@@ -55,9 +55,13 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-home-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-tab.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-applied.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-automatic.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-paused.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-home-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-controller-breathing-applied.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-automatic-breathing-automatic.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-automatic-breathing-paused.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-ready-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-running-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-participant-ended-proof.png"));
@@ -158,17 +162,9 @@ public static class HarnessScenarioRunner
         await Task.Delay(TimeSpan.FromSeconds(1.5));
         await studyViewModel.ApplyPinnedDeviceProfileAsync();
         await Task.Delay(TimeSpan.FromSeconds(1.5));
-        var twinStateTimestampBeforeLaunch = studyViewModel.LastTwinStateTimestampLabel;
-        await studyViewModel.LaunchStudyAppAsync();
-
-        await WaitForConditionAsync(
-            () =>
-                studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning &&
-                studyViewModel.QuestStatusSummary.Contains("active", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(studyViewModel.LastTwinStateTimestampLabel, twinStateTimestampBeforeLaunch, StringComparison.Ordinal) &&
-                !studyViewModel.LastTwinStateTimestampLabel.Contains("(stale)", StringComparison.OrdinalIgnoreCase),
-            TimeSpan.FromSeconds(45),
-            "Quest runtime never reached a fresh post-launch twin-state frame.");
+        await EnsureStudyRuntimeLaunchedForHarnessAsync(
+            studyViewModel,
+            allowOffFaceRecovery: skipKioskExit);
 
         await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
 
@@ -218,6 +214,10 @@ public static class HarnessScenarioRunner
                 particlesDetailBefore,
                 expectedVisible: true));
         var controllerBreathingProfileResult = await RunControllerBreathingProfilePhaseAsync(
+            studyViewModel,
+            window,
+            outputRoot);
+        var automaticBreathingResult = await RunAutomaticBreathingPhaseAsync(
             studyViewModel,
             window,
             outputRoot);
@@ -283,6 +283,7 @@ public static class HarnessScenarioRunner
                     validationCaptureResult,
                     latencyResults,
                     controllerBreathingProfileResult,
+                    automaticBreathingResult,
                     senderRestartResult,
                     recenterResult,
                     particlesOffResult,
@@ -298,6 +299,7 @@ public static class HarnessScenarioRunner
                     participantRunResult ?? throw new InvalidOperationException("Participant run result was not captured."),
                     latencyResults,
                     controllerBreathingProfileResult,
+                    automaticBreathingResult,
                     senderRestartResult,
                     recenterResult,
                     particlesOffResult,
@@ -596,6 +598,56 @@ public static class HarnessScenarioRunner
         CaptureWindow(window, Path.Combine(outputRoot, windowScreenshotFileName));
         return proofPath;
     }
+
+    private static async Task EnsureStudyRuntimeLaunchedForHarnessAsync(
+        StudyShellViewModel studyViewModel,
+        bool allowOffFaceRecovery)
+    {
+        var twinStateTimestampBeforeLaunch = studyViewModel.LastTwinStateTimestampLabel;
+        await studyViewModel.LaunchStudyAppAsync();
+
+        try
+        {
+            await WaitForFreshPostLaunchTwinStateAsync(
+                studyViewModel,
+                twinStateTimestampBeforeLaunch,
+                TimeSpan.FromSeconds(45),
+                "Quest runtime never reached a fresh post-launch twin-state frame.");
+        }
+        catch (TimeoutException) when (allowOffFaceRecovery)
+        {
+            if (string.Equals(studyViewModel.ProximityActionLabel, "Disable for 8h", StringComparison.Ordinal))
+            {
+                await ExecuteCommandAsync(
+                    studyViewModel.ToggleProximityCommand,
+                    studyViewModel,
+                    "Disable Proximity For 8h",
+                    TimeSpan.FromSeconds(20));
+                await Task.Delay(TimeSpan.FromSeconds(1.5));
+            }
+
+            await studyViewModel.LaunchStudyAppAsync();
+            await WaitForFreshPostLaunchTwinStateAsync(
+                studyViewModel,
+                twinStateTimestampBeforeLaunch,
+                TimeSpan.FromSeconds(45),
+                "Quest runtime never reached a fresh post-launch twin-state frame, even after off-face launch recovery.");
+        }
+    }
+
+    private static Task WaitForFreshPostLaunchTwinStateAsync(
+        StudyShellViewModel studyViewModel,
+        string twinStateTimestampBeforeLaunch,
+        TimeSpan timeout,
+        string error)
+        => WaitForConditionAsync(
+            () =>
+                studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning &&
+                studyViewModel.QuestStatusSummary.Contains("active", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(studyViewModel.LastTwinStateTimestampLabel, twinStateTimestampBeforeLaunch, StringComparison.Ordinal) &&
+                !studyViewModel.LastTwinStateTimestampLabel.Contains("(stale)", StringComparison.OrdinalIgnoreCase),
+            timeout,
+            error);
 
     private static async Task<ParticipantRunResult> RunParticipantRecordingPhaseAsync(
         MainWindowViewModel mainViewModel,
@@ -1114,6 +1166,7 @@ public static class HarnessScenarioRunner
         ParticipantRunResult participantRunResult,
         IReadOnlyList<LatencyResult> latencyResults,
         ObservationResult controllerBreathingProfileResult,
+        ObservationResult automaticBreathingResult,
         ObservationResult senderRestartResult,
         ObservationResult recenterResult,
         ObservationResult particlesOffResult,
@@ -1142,6 +1195,8 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"LSL: {studyViewModel.LslSummary}");
         builder.AppendLine($"LSL detail: {studyViewModel.LslDetail}");
         builder.AppendLine($"Controller: {studyViewModel.ControllerSummary}");
+        builder.AppendLine($"Automatic breathing: {studyViewModel.AutomaticBreathingSummary}");
+        builder.AppendLine($"Automatic breathing detail: {studyViewModel.AutomaticBreathingDetail}");
         builder.AppendLine($"Coherence: {studyViewModel.CoherenceSummary}");
         builder.AppendLine($"Coherence route: {studyViewModel.CoherenceRouteSummary}");
         builder.AppendLine($"Recenter: {studyViewModel.RecenterSummary}");
@@ -1156,6 +1211,7 @@ public static class HarnessScenarioRunner
         builder.AppendLine();
         builder.AppendLine("Command observations:");
         builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
+        builder.AppendLine($"- {automaticBreathingResult.Label}: {automaticBreathingResult.Detail}");
         builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
         builder.AppendLine($"- {recenterResult.Label}: {recenterResult.Detail}");
         builder.AppendLine($"- {particlesOffResult.Label}: {particlesOffResult.Detail}");
@@ -1251,6 +1307,7 @@ public static class HarnessScenarioRunner
         ValidationCaptureHarnessResult validationCaptureResult,
         IReadOnlyList<LatencyResult> latencyResults,
         ObservationResult controllerBreathingProfileResult,
+        ObservationResult automaticBreathingResult,
         ObservationResult senderRestartResult,
         ObservationResult recenterResult,
         ObservationResult particlesOffResult,
@@ -1277,6 +1334,8 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"LSL: {studyViewModel.LslSummary}");
         builder.AppendLine($"LSL detail: {studyViewModel.LslDetail}");
         builder.AppendLine($"Controller: {studyViewModel.ControllerSummary}");
+        builder.AppendLine($"Automatic breathing: {studyViewModel.AutomaticBreathingSummary}");
+        builder.AppendLine($"Automatic breathing detail: {studyViewModel.AutomaticBreathingDetail}");
         builder.AppendLine($"Coherence: {studyViewModel.CoherenceSummary}");
         builder.AppendLine($"Coherence route: {studyViewModel.CoherenceRouteSummary}");
         builder.AppendLine($"Recenter: {studyViewModel.RecenterSummary}");
@@ -1289,6 +1348,7 @@ public static class HarnessScenarioRunner
         builder.AppendLine();
         builder.AppendLine("Command observations:");
         builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
+        builder.AppendLine($"- {automaticBreathingResult.Label}: {automaticBreathingResult.Detail}");
         builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
         builder.AppendLine($"- {recenterResult.Label}: {recenterResult.Detail}");
         builder.AppendLine($"- {particlesOffResult.Label}: {particlesOffResult.Detail}");
@@ -1610,6 +1670,198 @@ public static class HarnessScenarioRunner
             },
             timeout,
             $"Controller-breathing hotload confirmation did not reach the expected values: {string.Join(", ", expectedValues.Select(pair => pair.Key + '=' + pair.Value))}");
+    }
+
+    private static async Task<ObservationResult> RunAutomaticBreathingPhaseAsync(
+        StudyShellViewModel studyViewModel,
+        Window window,
+        string outputRoot)
+    {
+        if (!studyViewModel.CanToggleAutomaticBreathingMode || !studyViewModel.CanToggleAutomaticBreathingRun)
+        {
+            throw new InvalidOperationException("Automatic-breathing controls are not available in the Sussex shell.");
+        }
+
+        await WaitForConditionAsync(
+            () => studyViewModel.ReportedTwinStateSnapshot.ContainsKey("routing.automatic_breathing.running"),
+            TimeSpan.FromSeconds(15),
+            "Automatic-breathing readback never appeared in quest_twin_state.");
+
+        await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.SelectedPhaseTabIndex = 2);
+        await Task.Delay(TimeSpan.FromMilliseconds(450));
+
+        studyViewModel.ReportedTwinStateSnapshot.TryGetValue("routing.breathing.mode", out var initialRoutingMode);
+        studyViewModel.ReportedTwinStateSnapshot.TryGetValue("routing.automatic_breathing.running", out var initialAutomaticRunningRaw);
+        var initiallyAutomatic =
+            string.Equals(initialRoutingMode, "6", StringComparison.Ordinal) &&
+            ParseBool(initialAutomaticRunningRaw) == true;
+        if (initiallyAutomatic)
+        {
+            await ExecuteCommandAsync(studyViewModel.ToggleAutomaticBreathingRunCommand, studyViewModel, null);
+            await WaitForAutomaticBreathingStateAsync(
+                studyViewModel,
+                expectedAutomaticMode: true,
+                expectedAutomaticRunning: false,
+                TimeSpan.FromSeconds(15),
+                "Automatic breathing pause did not pause the automatic cycle.");
+        }
+
+        await ExecuteCommandAsync(studyViewModel.ToggleAutomaticBreathingModeCommand, studyViewModel, null);
+        var modeObservation = await WaitForAutomaticBreathingStateAsync(
+            studyViewModel,
+            expectedAutomaticMode: true,
+            expectedAutomaticRunning: true,
+            TimeSpan.FromSeconds(15),
+            "Automatic breathing mode switch did not reach the expected headset readback.");
+        var motionObservation = await WaitForAutomaticBreathingMotionAsync(
+            studyViewModel,
+            TimeSpan.FromSeconds(12),
+            "Automatic breathing value never started moving after the automatic driver was enabled.");
+        var automaticQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-automatic-breathing-automatic.png",
+            "sussex-main-window-automatic-breathing-automatic.png");
+
+        await ExecuteCommandAsync(studyViewModel.ToggleAutomaticBreathingRunCommand, studyViewModel, null);
+        var pauseObservation = await WaitForAutomaticBreathingStateAsync(
+            studyViewModel,
+            expectedAutomaticMode: true,
+            expectedAutomaticRunning: false,
+            TimeSpan.FromSeconds(15),
+            "Automatic breathing pause did not reach the expected headset readback.");
+        var pausedQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            "quest-automatic-breathing-paused.png",
+            "sussex-main-window-automatic-breathing-paused.png");
+
+        await ExecuteCommandAsync(studyViewModel.ToggleAutomaticBreathingRunCommand, studyViewModel, null);
+        var resumeObservation = await WaitForAutomaticBreathingStateAsync(
+            studyViewModel,
+            expectedAutomaticMode: true,
+            expectedAutomaticRunning: true,
+            TimeSpan.FromSeconds(15),
+            "Automatic breathing restart did not reach the expected headset readback.");
+
+        await ExecuteCommandAsync(studyViewModel.ToggleAutomaticBreathingModeCommand, studyViewModel, null);
+        var restoreObservation = await WaitForAutomaticBreathingStateAsync(
+            studyViewModel,
+            expectedAutomaticMode: false,
+            expectedAutomaticRunning: null,
+            TimeSpan.FromSeconds(15),
+            "Automatic breathing baseline restore did not return to controller-volume readback.");
+
+        return new ObservationResult(
+            "Automatic-breathing button readback",
+            modeObservation.Success && motionObservation.Success && pauseObservation.Success && resumeObservation.Success && restoreObservation.Success,
+            $"Mode switch: {modeObservation.Detail} Motion: {motionObservation.Detail} Captured {automaticQuestScreenshotPath}. Pause: {pauseObservation.Detail} Captured {pausedQuestScreenshotPath}. Resume: {resumeObservation.Detail} Restore: {restoreObservation.Detail} Final shell summary: {studyViewModel.AutomaticBreathingSummary} {studyViewModel.AutomaticBreathingDetail}".Trim());
+    }
+
+    private static Task<ObservationResult> WaitForAutomaticBreathingStateAsync(
+        StudyShellViewModel studyViewModel,
+        bool expectedAutomaticMode,
+        bool? expectedAutomaticRunning,
+        TimeSpan timeout,
+        string failureDetail)
+        => WaitForObservationAsync(
+            expectedAutomaticMode
+                ? expectedAutomaticRunning == true
+                    ? "Automatic breathing enabled"
+                    : "Automatic breathing paused"
+                : "Controller breathing restored",
+            timeout,
+            () => EvaluateAutomaticBreathingObservation(studyViewModel, expectedAutomaticMode, expectedAutomaticRunning, failureDetail));
+
+    private static async Task<ObservationResult> WaitForAutomaticBreathingMotionAsync(
+        StudyShellViewModel studyViewModel,
+        TimeSpan timeout,
+        string failureDetail)
+    {
+        await WaitForConditionAsync(
+            () => TryGetAutomaticBreathingValue(studyViewModel.ReportedTwinStateSnapshot, out _),
+            timeout,
+            $"{failureDetail} Automatic-cycle value never appeared in quest_twin_state.");
+
+        if (!TryGetAutomaticBreathingValue(studyViewModel.ReportedTwinStateSnapshot, out var initialValue))
+        {
+            return new ObservationResult(
+                "Automatic breathing signal motion",
+                false,
+                $"{failureDetail} Automatic-cycle value was not present in the live twin-state snapshot.");
+        }
+
+        return await WaitForObservationAsync(
+            "Automatic breathing signal motion",
+            timeout,
+            () =>
+            {
+                if (!TryGetAutomaticBreathingValue(studyViewModel.ReportedTwinStateSnapshot, out var currentValue))
+                {
+                    return (false, $"{failureDetail} Automatic-cycle value is still missing from quest_twin_state.");
+                }
+
+                var delta = Math.Abs(currentValue - initialValue);
+                var detail = $"Automatic-cycle value moved from {initialValue:0.000} to {currentValue:0.000} (delta {delta:0.000}).";
+                return delta >= 0.02d
+                    ? (true, detail)
+                    : (false, $"{failureDetail} {detail}");
+            });
+    }
+
+    private static (bool Success, string Detail) EvaluateAutomaticBreathingObservation(
+        StudyShellViewModel studyViewModel,
+        bool expectedAutomaticMode,
+        bool? expectedAutomaticRunning,
+        string failureDetail)
+    {
+        var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+        snapshot.TryGetValue("routing.breathing.mode", out var routingMode);
+        snapshot.TryGetValue("routing.breathing.label", out var routingLabel);
+        snapshot.TryGetValue("routing.automatic_breathing.running", out var automaticRunningRaw);
+        var automaticRunning = ParseBool(automaticRunningRaw);
+        var summary = studyViewModel.AutomaticBreathingSummary;
+        var detail = studyViewModel.AutomaticBreathingDetail;
+        var automaticModeConfirmed =
+            string.Equals(routingMode, "6", StringComparison.Ordinal) ||
+            string.Equals(routingLabel, "Automatic Cycle", StringComparison.OrdinalIgnoreCase);
+        var controllerModeConfirmed =
+            string.Equals(routingMode, "1", StringComparison.Ordinal) ||
+            string.Equals(routingLabel, "Controller Volume", StringComparison.OrdinalIgnoreCase);
+        var confirmed = expectedAutomaticMode
+            ? automaticModeConfirmed
+              && automaticRunning == expectedAutomaticRunning
+              && summary.Contains("automatic", StringComparison.OrdinalIgnoreCase)
+              && detail.Contains("quest_twin_state", StringComparison.OrdinalIgnoreCase)
+            : controllerModeConfirmed
+              && summary.Contains("controller volume", StringComparison.OrdinalIgnoreCase)
+              && detail.Contains("quest_twin_state", StringComparison.OrdinalIgnoreCase);
+        var observationDetail =
+            $"Summary: {summary} Detail: {detail} Raw route {(string.IsNullOrWhiteSpace(routingLabel) ? "n/a" : routingLabel)} (mode {routingMode ?? "n/a"}), automatic running {automaticRunningRaw ?? "n/a"}.";
+        return confirmed
+            ? (true, observationDetail)
+            : (false, $"{failureDetail} {observationDetail}".Trim());
+    }
+
+    private static bool TryGetAutomaticBreathingValue(
+        IReadOnlyDictionary<string, string> snapshot,
+        out double value)
+    {
+        value = 0d;
+        if (!TryGetTwinValue(snapshot, "study.breathing.value01", out var raw) &&
+            !TryGetTwinValue(snapshot, "signal01.mock_pacer_breathing", out raw))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return false;
+        }
+
+        return double.TryParse(raw, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
     }
 
     private static bool TryGetTwinValue(
@@ -1945,12 +2197,15 @@ public static class HarnessScenarioRunner
         foreach (var entry in snapshot.OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
         {
             if (entry.Key.StartsWith("study.lsl", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.StartsWith("routing.breathing", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.StartsWith("routing.automatic_breathing", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.recenter", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.particles", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.session", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.recording.device", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("study.performance", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("connection.lsl", StringComparison.OrdinalIgnoreCase) ||
+                entry.Key.StartsWith("signal01.mock_pacer_breathing", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.StartsWith("signal01.coherence_lsl", StringComparison.OrdinalIgnoreCase) ||
                 entry.Key.Contains("coherence_lsl", StringComparison.OrdinalIgnoreCase) ||
                 coherenceMirrorBases.Any(baseKey => entry.Key.StartsWith(baseKey, StringComparison.OrdinalIgnoreCase)))

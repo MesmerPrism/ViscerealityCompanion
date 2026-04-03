@@ -99,11 +99,14 @@ controller-breathing profile tab, participant locked mode, Windows-plus-Quest
 session snapshots, the LSL/runtime hardening changes, and the profile-table
 hotfix that cleanly separates `Apply To Current Session` from `Save Current
 Values For Next Launch` while keeping the saved launch-override column in sync.
-The bundled Sussex APK in this package is now `0.1.2` with SHA256
-`AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69`. The
-previous full off-face Sussex validation pass on `2026-04-02` still covers the
-older `0.1.1` build; this rebuilt `0.1.2` bundle is the one intended for the
-next full manual headset verification pass.
+It also includes the dedicated Sussex breathing-driver controls with explicit
+controller-vs-automatic readback on the `During session` tab. The bundled
+Sussex APK in this package is `0.1.2` with SHA256
+`AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`. The current
+public verification baseline is the off-face `2026-04-03` pass on that same
+`0.1.2` build, which confirmed automatic-driver switching, automatic
+pause/resume, and return to controller-volume control through the accepted
+published GUI path.
 
 ## Before You Start
 

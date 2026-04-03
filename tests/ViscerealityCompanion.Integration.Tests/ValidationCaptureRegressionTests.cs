@@ -82,6 +82,54 @@ public sealed class ValidationCaptureRegressionTests
         }
     }
 
+    [Fact]
+    public void AutomaticBreathingReadback_UsesQuestTwinStateConfirmation()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        SetPrivateField(
+            viewModel,
+            "_reportedTwinState",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["routing.breathing.mode"] = "6",
+                ["routing.breathing.label"] = "Automatic Cycle",
+                ["routing.automatic_breathing.running"] = "true",
+                ["signal01.mock_pacer_breathing"] = "0.625"
+            });
+        SetPrivateField(viewModel, "_lastTwinStateTimestampLabel", "14:22:31");
+
+        Assert.Equal("Automatic breathing driver confirmed.", viewModel.AutomaticBreathingSummary);
+        Assert.Contains("quest_twin_state", viewModel.AutomaticBreathingDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Automatic Cycle", viewModel.AutomaticBreathingDetail, StringComparison.Ordinal);
+        Assert.Contains("mode 6", viewModel.AutomaticBreathingDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("running", viewModel.AutomaticBreathingDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("14:22:31", viewModel.AutomaticBreathingDetail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AutomaticBreathingReadback_ShowsPendingRequestUntilHeadsetStateMatches()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        SetPrivateField(
+            viewModel,
+            "_reportedTwinState",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["routing.breathing.mode"] = "6",
+                ["routing.breathing.label"] = "Automatic Cycle",
+                ["routing.automatic_breathing.running"] = "true"
+            });
+        SetPrivateField(viewModel, "_lastTwinStateTimestampLabel", "14:22:31");
+        SetPrivateField(
+            viewModel,
+            "_lastAutomaticBreathingRequest",
+            CreateAutomaticBreathingRequest("Pause Automatic", automaticModeSelected: true, automaticRunning: false));
+
+        Assert.Contains("Waiting for headset confirmation", viewModel.AutomaticBreathingSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Pause Automatic", viewModel.AutomaticBreathingDetail, StringComparison.Ordinal);
+        Assert.Contains("Waiting for the requested breathing-driver state", viewModel.AutomaticBreathingDetail, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static MethodInfo GetPrivateMethod(string name)
         => typeof(StudyShellViewModel).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
            ?? throw new InvalidOperationException($"Could not find {name} on {nameof(StudyShellViewModel)}.");
@@ -91,6 +139,19 @@ public sealed class ValidationCaptureRegressionTests
         var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new InvalidOperationException($"Could not find field {fieldName}.");
         field.SetValue(target, value);
+    }
+
+    private static object CreateAutomaticBreathingRequest(string requestedLabel, bool automaticModeSelected, bool automaticRunning)
+    {
+        var type = typeof(StudyShellViewModel).Assembly.GetType("ViscerealityCompanion.App.ViewModels.AutomaticBreathingRequest")
+                   ?? throw new InvalidOperationException("Could not resolve AutomaticBreathingRequest.");
+        return Activator.CreateInstance(
+                   type,
+                   BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                   binder: null,
+                   args: [automaticModeSelected, automaticRunning, requestedLabel, DateTimeOffset.UtcNow],
+                   culture: null)
+               ?? throw new InvalidOperationException("Could not create AutomaticBreathingRequest.");
     }
 
     private sealed class BlockingStartupMonitorService : ILslMonitorService

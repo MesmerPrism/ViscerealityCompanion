@@ -68,7 +68,7 @@ It currently pins:
 
 - package id: `com.Viscereality.SussexExperiment`
 - version: `0.1.2`
-- SHA256: `AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69`
+- SHA256: `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
 - bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
@@ -241,6 +241,17 @@ faster than the earlier public builds.
 The current public shell can also send the study recenter command and the
 dedicated particle visibility on/off commands.
 
+The `During session` surface now also exposes the dedicated breathing-driver
+workflow for Sussex:
+
+- `Use Automatic Driver` switches the study into the standalone automatic breathing cycle
+- `Start Automatic` and `Pause Automatic` control whether that automatic cycle is currently running
+- `Use Controller Volume Driver` returns the study to the controller-volume path
+
+That readback is intentionally driven by the dedicated Sussex automatic-cycle
+telemetry (`study.breathing.value01` plus `routing.automatic_breathing.running`)
+instead of inferring state from `routing.adaptive_pacer.enabled`.
+
 The Sussex shell now uses the bundled APK path from the app payload on
 startup, so packaged Windows installs do not depend on a machine-local Astral
 workspace just to find the Sussex APK.
@@ -262,7 +273,7 @@ That harness:
 - captures GUI and Quest screenshots for kiosk-launch and kiosk-exit review
 - writes a text report alongside those screenshots
 
-The latest completed live Sussex validation pass on `2026-04-02`:
+The latest completed harness-driven Sussex validation pass on `2026-04-02`:
 
 - confirmed controller-breathing profile apply and restore readback through the embedded Sussex shell
 - confirmed participant start/end in `participant_locked` mode on the rebuilt `0.1.1` Sussex APK
@@ -270,15 +281,19 @@ The latest completed live Sussex validation pass on `2026-04-02`:
 - updated the approved Sussex APK hash in the pinned public shell metadata to `B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0`
 - confirmed the reduced Quest locked-mode file set (`session_events.csv`, `signals_long.csv`, `breathing_trace.csv`, `clock_alignment_samples.csv`, `timing_markers.csv`, `session_settings.json`, `session_snapshot.json`) while broad legacy files such as `lsl_samples.csv` stayed intentionally absent
 
-That `2026-04-02` pass was run off-face, so kiosk exit was intentionally
-skipped instead of being re-verified in the same run.
+The current public `0.1.2` Sussex bundle regained a fresh live verification
+baseline on `2026-04-03` through the accepted published GUI path:
 
-The currently bundled public Sussex APK has since been rebuilt to `0.1.2`
-(`AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69`) with the
-LSL source-id hardening, revision-strict twin handling, transactional Quest
-recorder start, recorder-health reporting, and the async Windows recorder path.
-That newer `0.1.2` bundle is packaged and ready, but it does not yet claim a
-fresh live verification baseline until the next manual headset pass completes.
+- confirmed `Use Automatic Driver` switched Sussex into the standalone automatic breathing route with clear GUI readback
+- confirmed the automatic breathing value moved live on the headset after `Start Automatic`, paused cleanly, resumed, and then returned to `Controller Volume`
+- confirmed the installed headset APK hash matched the pinned public Sussex hash `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
+- recorded the accepted-app run under `artifacts/verify/sussex-manual-accept-run/`
+
+That `2026-04-03` pass was also run off-face, so kiosk exit was intentionally
+skipped instead of being re-verified in the same run. On this machine, Windows
+Application Control still blocks freshly republished local harness executables,
+so the accepted published GUI path remains the reliable live-validation route
+for now.
 
 Treat those screenshots as evidence to inspect, not as an automatic proof that
 Meta Home was visibly restored. On the current HorizonOS build, kiosk exit can

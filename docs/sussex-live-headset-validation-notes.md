@@ -5,16 +5,16 @@ Use this file as the running checklist for the next full on-head headset pass. A
 ## Current Readiness Snapshot
 
 - Companion repo branch: `main`
-- Companion repo base commit at this check: `release candidate build from 2026-04-02`
-- Fresh Astral Sussex APK built on `2026-04-02` at:
+- Companion repo state at this check: `pending 2026-04-03 Sussex automatic-breathing release updates`
+- Fresh Astral Sussex APK built on `2026-04-03` at:
   `C:\Users\tillh\source\repos\AstralKarateDojo\Artifacts\APKs\SussexExperiment.apk`
 - Current Sussex APK SHA-256:
-  `AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69`
+  `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
 - Mirrored companion bundle refreshed to the same hash at:
   `C:\Users\tillh\source\repos\ViscerealityCompanion\samples\quest-session-kit\APKs\SussexExperiment.apk`
 - Current Windows installer artifacts refreshed at:
   `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\windows-installer`
-- Current readiness caveat: this rebuilt `0.1.2` bundle is packaged and ready, but it still needs the next full on-head manual verification pass before it should regain a fresh verified baseline. The older `0.1.1` off-face pass remains the last completed live approval reference.
+- Current readiness caveat: the rebuilt `0.1.2` bundle now has a fresh off-face live baseline for recenter, controller-volume restore, and automatic-breathing driver control, but the next worn-head pass should still recheck kiosk exit and the full participant-facing handoff path.
 - Quest OS baseline still matches the approved Sussex software identity:
   `14 | build 2921110053000610 | display UP1A.231005.007.A1`
 - Wi-Fi ADB was last confirmed live during the previous readiness pass on:
@@ -28,18 +28,16 @@ Use this file as the running checklist for the next full on-head headset pass. A
 
 ## Latest Live Result
 
-- The last completed live Sussex verification harness pass completed successfully on `2026-04-02` with the headset exercised off-face.
-- That pass confirmed the new controller-breathing profile workflow end to end, including GUI apply, headset hotload readback, and restore back to baseline.
-- The same off-face validation also confirmed sender-restart recovery, recenter confirmation, particles on/off confirmation, and the pinned-build hash path against the then-current `0.1.1` Sussex APK.
-- Kiosk exit was intentionally skipped in that pass to avoid the known off-face passthrough limbo path, so the next worn-head run should still recheck kiosk exit on the current `0.1.2` APK hash.
-- Latest harness report:
-  `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\verify\sussex-study-mode-live\sussex-study-mode-report.txt`
-- Latest harness session:
-  `C:\Users\tillh\AppData\Local\ViscerealityCompanion\study-data\sussex-university\participant-validation-20260402-144445\session-20260402T144454Z`
+- The last completed live Sussex validation pass completed successfully on `2026-04-03` with the headset exercised off-face.
+- That pass used the accepted published GUI path instead of a freshly republished harness executable because Windows Application Control still blocks newly published local harness binaries on this machine.
+- The run confirmed `Use Automatic Driver`, `Pause Automatic`, `Start Automatic`, and `Use Controller Volume Driver` end to end, including live GUI readback and on-headset value movement on the current `0.1.2` Sussex APK.
+- The same off-face validation also reconfirmed the pinned-build hash path against the current approved Sussex APK and left kiosk exit intentionally skipped to avoid the known off-face passthrough limbo path.
+- Latest live-validation log:
+  `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\verify\sussex-manual-accept-run\automation-log.txt`
+- Latest live-validation screenshots:
+  `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\verify\sussex-manual-accept-run`
 - Latest completed live-pass APK hash:
-  `B19921EE126B780B9530D94DA30ED298A58410D1FEDE58C077B27DD140A9E3A0`
-- Current bundled APK hash awaiting manual verification:
-  `AF549A6D2C0FE32AEAF80E6CA945FAC6F882541706DAF416D7A09E32A791BF69`
+  `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
 - Remaining live caveat:
   the sparse background clock-alignment probe loop starts and logs its own start/stop events, but it still does not receive Quest echoes during the short harness run.
 
