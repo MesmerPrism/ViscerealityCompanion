@@ -33,6 +33,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly RuntimeConfigWorkspaceViewModel _runtimeConfig = new();
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
     private readonly SussexParticleSizeTuningCompiler _sussexParticleSizeTuningCompiler = new();
+    private readonly Dispatcher _dispatcher;
     private readonly Dictionary<string, string> _apkOverrides = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TwinModeCommand> _twinCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -135,6 +136,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public MainWindowViewModel()
     {
+        _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         _sessionState = AppSessionState.Load();
         _questService = QuestControlServiceFactory.CreateDefault(_sessionState.ActiveEndpoint);
         _endpointDraft = _sessionState.ActiveEndpoint ?? string.Empty;
@@ -153,15 +155,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         _selectedTwinInspectorScope = TwinInspectorScopes.FirstOrDefault();
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is not null)
+        _twinRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
         {
-            _twinRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
-            {
-                Interval = TimeSpan.FromMilliseconds(180)
-            };
-            _twinRefreshTimer.Tick += OnTwinRefreshTimerTick;
-        }
+            Interval = TimeSpan.FromMilliseconds(180)
+        };
+        _twinRefreshTimer.Tick += OnTwinRefreshTimerTick;
 
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
@@ -2478,13 +2476,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void OnTwinBridgeStateChanged(object? sender, EventArgs e)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null)
-        {
-            return;
-        }
-
-        _ = dispatcher.InvokeAsync(() =>
+        _ = _dispatcher.InvokeAsync(() =>
         {
             _twinRefreshPending = true;
             if (_twinRefreshTimer is null)
@@ -3228,11 +3220,26 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private QuestAppTarget WithResolvedApkPath(QuestAppTarget target)
         => target with { ApkFile = ResolveApkPathForTarget(target) ?? string.Empty };
 
-    private static Task DispatchAsync(Action action)
-        => Application.Current.Dispatcher.InvokeAsync(action).Task;
+    private Task DispatchAsync(Action action)
+    {
+        if (_dispatcher.CheckAccess())
+        {
+            action();
+            return Task.CompletedTask;
+        }
 
-    private static Task<T> DispatchAsync<T>(Func<T> action)
-        => Application.Current.Dispatcher.InvokeAsync(action).Task;
+        return _dispatcher.InvokeAsync(action).Task;
+    }
+
+    private Task<T> DispatchAsync<T>(Func<T> action)
+    {
+        if (_dispatcher.CheckAccess())
+        {
+            return Task.FromResult(action());
+        }
+
+        return _dispatcher.InvokeAsync(action).Task;
+    }
 
     public sealed record ActionChoice<T>(string Label, string Description, T Value);
 

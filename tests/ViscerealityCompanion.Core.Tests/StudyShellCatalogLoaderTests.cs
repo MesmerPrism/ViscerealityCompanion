@@ -65,6 +65,134 @@ public sealed class StudyShellCatalogLoaderTests
         }
     }
 
+    [Fact]
+    public async Task LoadAsync_RejectsStudyShellWithMissingPinnedPackageId()
+    {
+        var root = CreateStudyShellCatalog();
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(root, "sussex.json"),
+                """
+                {
+                  "id": "sussex-university",
+                  "label": "Sussex University",
+                  "partner": "University of Sussex",
+                  "description": "Controller breathing study shell.",
+                  "app": {
+                    "label": "Sussex Controller Study APK",
+                    "packageId": "",
+                    "apkPath": "payload/Sussex.apk",
+                    "launchComponent": "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
+                    "sha256": "ABC123",
+                    "versionName": "0.1.0",
+                    "notes": "Bundled Sussex APK.",
+                    "allowManualSelection": false,
+                    "launchInKioskMode": true
+                  },
+                  "deviceProfile": {
+                    "id": "sussex-study-profile",
+                    "label": "Sussex Study Device Profile",
+                    "description": "Quest study settings.",
+                    "properties": {
+                      "debug.oculus.cpuLevel": "2"
+                    }
+                  },
+                  "monitoring": {
+                    "expectedLslStreamName": "HRV_Biofeedback",
+                    "expectedLslStreamType": "HRV"
+                  },
+                  "controls": {
+                    "recenterCommandActionId": "2",
+                    "particleVisibleOnActionId": "39",
+                    "particleVisibleOffActionId": "40",
+                    "startBreathingCalibrationActionId": "14",
+                    "resetBreathingCalibrationActionId": "41",
+                    "startExperimentActionId": "42",
+                    "endExperimentActionId": "43",
+                    "setBreathingModeControllerVolumeActionId": "20",
+                    "setBreathingModeAutomaticCycleActionId": "46",
+                    "startAutomaticBreathingActionId": "47",
+                    "pauseAutomaticBreathingActionId": "48"
+                  }
+                }
+                """);
+
+            var loader = new StudyShellCatalogLoader();
+            var ex = await Assert.ThrowsAsync<InvalidDataException>(() => loader.LoadAsync(root));
+            Assert.Contains("app.packageId", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_RejectsStudyShellWithMissingRequiredCommandId()
+    {
+        var root = CreateStudyShellCatalog();
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(root, "sussex.json"),
+                """
+                {
+                  "id": "sussex-university",
+                  "label": "Sussex University",
+                  "partner": "University of Sussex",
+                  "description": "Controller breathing study shell.",
+                  "app": {
+                    "label": "Sussex Controller Study APK",
+                    "packageId": "com.Viscereality.SussexExperiment",
+                    "apkPath": "payload/Sussex.apk",
+                    "launchComponent": "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
+                    "sha256": "ABC123",
+                    "versionName": "0.1.0",
+                    "notes": "Bundled Sussex APK.",
+                    "allowManualSelection": false,
+                    "launchInKioskMode": true
+                  },
+                  "deviceProfile": {
+                    "id": "sussex-study-profile",
+                    "label": "Sussex Study Device Profile",
+                    "description": "Quest study settings.",
+                    "properties": {
+                      "debug.oculus.cpuLevel": "2"
+                    }
+                  },
+                  "monitoring": {
+                    "expectedLslStreamName": "HRV_Biofeedback",
+                    "expectedLslStreamType": "HRV"
+                  },
+                  "controls": {
+                    "recenterCommandActionId": "",
+                    "particleVisibleOnActionId": "39",
+                    "particleVisibleOffActionId": "40",
+                    "startBreathingCalibrationActionId": "14",
+                    "resetBreathingCalibrationActionId": "41",
+                    "startExperimentActionId": "42",
+                    "endExperimentActionId": "43",
+                    "setBreathingModeControllerVolumeActionId": "20",
+                    "setBreathingModeAutomaticCycleActionId": "46",
+                    "startAutomaticBreathingActionId": "47",
+                    "pauseAutomaticBreathingActionId": "48"
+                  }
+                }
+                """);
+
+            var loader = new StudyShellCatalogLoader();
+            var ex = await Assert.ThrowsAsync<InvalidDataException>(() => loader.LoadAsync(root));
+            Assert.Contains("controls.recenterCommandActionId", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateStudyShellCatalog(bool withRelativeApkPath = false)
     {
         var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -96,8 +224,8 @@ public sealed class StudyShellCatalogLoaderTests
               "app": {
                 "label": "Sussex Controller Study APK",
                 "packageId": "com.Viscereality.SussexExperiment",
-                "apkPath": "{{(withRelativeApkPath ? "payload/Sussex.apk" : "")}}",
-                "launchComponent": "",
+                "apkPath": "payload/Sussex.apk",
+                "launchComponent": "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
                 "sha256": "ABC123",
                 "versionName": "0.1.0",
                 "notes": "Bundled Sussex APK.",
@@ -151,9 +279,12 @@ public sealed class StudyShellCatalogLoaderTests
               },
               "controls": {
                 "recenterCommandActionId": "2",
-                "particleVisibleOnActionId": "",
-                "particleVisibleOffActionId": "",
+                "particleVisibleOnActionId": "39",
+                "particleVisibleOffActionId": "40",
                 "startBreathingCalibrationActionId": "14",
+                "resetBreathingCalibrationActionId": "41",
+                "startExperimentActionId": "42",
+                "endExperimentActionId": "43",
                 "setBreathingModeControllerVolumeActionId": "20",
                 "setBreathingModeAutomaticCycleActionId": "46",
                 "startAutomaticBreathingActionId": "47",
@@ -162,10 +293,7 @@ public sealed class StudyShellCatalogLoaderTests
             }
             """);
 
-        if (withRelativeApkPath)
-        {
-            File.WriteAllBytes(Path.Combine(payloadDirectory, "Sussex.apk"), [0x50, 0x4B, 0x03, 0x04]);
-        }
+        File.WriteAllBytes(Path.Combine(payloadDirectory, "Sussex.apk"), [0x50, 0x4B, 0x03, 0x04]);
 
         return root;
     }

@@ -626,11 +626,17 @@ public static class HarnessScenarioRunner
                 await Task.Delay(TimeSpan.FromSeconds(1.5));
             }
 
+            await EnsureHeadsetWakeReadyAsync(studyViewModel);
+            await ExecuteCommandAsync(
+                studyViewModel.RefreshStatusCommand,
+                studyViewModel,
+                null,
+                TimeSpan.FromSeconds(15));
             await studyViewModel.LaunchStudyAppAsync();
             await WaitForFreshPostLaunchTwinStateAsync(
                 studyViewModel,
                 twinStateTimestampBeforeLaunch,
-                TimeSpan.FromSeconds(45),
+                TimeSpan.FromSeconds(75),
                 "Quest runtime never reached a fresh post-launch twin-state frame, even after off-face launch recovery.");
         }
     }

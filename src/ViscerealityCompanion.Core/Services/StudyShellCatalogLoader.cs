@@ -45,6 +45,7 @@ public sealed class StudyShellCatalogLoader
             var definitionJson = await File.ReadAllTextAsync(definitionPath, cancellationToken).ConfigureAwait(false);
             var dto = JsonSerializer.Deserialize<StudyShellDefinitionDto>(definitionJson, JsonOptions)
                 ?? throw new InvalidDataException($"Could not deserialize study shell definition `{item.File}`.");
+            ValidateStudyDefinition(item.File, dto);
 
             var definitionDirectory = Path.GetDirectoryName(definitionPath) ?? fullRoot;
             studies.Add(new StudyShellDefinition(
@@ -123,6 +124,67 @@ public sealed class StudyShellCatalogLoader
             new StudyShellLaunchOptions(
                 manifest.StartupStudyId?.Trim() ?? string.Empty,
                 manifest.LockToStartupStudy));
+    }
+
+    private static void ValidateStudyDefinition(string definitionFile, StudyShellDefinitionDto dto)
+    {
+        if (dto.App is null)
+        {
+            throw new InvalidDataException($"Study shell `{definitionFile}` is missing the `app` section.");
+        }
+
+        RequireValue(dto.App.PackageId, definitionFile, "app.packageId");
+        RequireValue(dto.App.Sha256, definitionFile, "app.sha256");
+        RequireValue(dto.App.LaunchComponent, definitionFile, "app.launchComponent");
+
+        if (dto.App.AllowManualSelection != true)
+        {
+            RequireValue(dto.App.ApkPath, definitionFile, "app.apkPath");
+        }
+
+        if (dto.DeviceProfile is null)
+        {
+            throw new InvalidDataException($"Study shell `{definitionFile}` is missing the `deviceProfile` section.");
+        }
+
+        RequireValue(dto.DeviceProfile.Id, definitionFile, "deviceProfile.id");
+        if (dto.DeviceProfile.Properties is null || dto.DeviceProfile.Properties.Count == 0)
+        {
+            throw new InvalidDataException($"Study shell `{definitionFile}` must define at least one device-profile property.");
+        }
+
+        if (dto.Monitoring is null)
+        {
+            throw new InvalidDataException($"Study shell `{definitionFile}` is missing the `monitoring` section.");
+        }
+
+        RequireValue(dto.Monitoring.ExpectedLslStreamName, definitionFile, "monitoring.expectedLslStreamName");
+        RequireValue(dto.Monitoring.ExpectedLslStreamType, definitionFile, "monitoring.expectedLslStreamType");
+
+        if (dto.Controls is null)
+        {
+            throw new InvalidDataException($"Study shell `{definitionFile}` is missing the `controls` section.");
+        }
+
+        RequireValue(dto.Controls.RecenterCommandActionId, definitionFile, "controls.recenterCommandActionId");
+        RequireValue(dto.Controls.ParticleVisibleOnActionId, definitionFile, "controls.particleVisibleOnActionId");
+        RequireValue(dto.Controls.ParticleVisibleOffActionId, definitionFile, "controls.particleVisibleOffActionId");
+        RequireValue(dto.Controls.StartBreathingCalibrationActionId, definitionFile, "controls.startBreathingCalibrationActionId");
+        RequireValue(dto.Controls.ResetBreathingCalibrationActionId, definitionFile, "controls.resetBreathingCalibrationActionId");
+        RequireValue(dto.Controls.StartExperimentActionId, definitionFile, "controls.startExperimentActionId");
+        RequireValue(dto.Controls.EndExperimentActionId, definitionFile, "controls.endExperimentActionId");
+        RequireValue(dto.Controls.SetBreathingModeControllerVolumeActionId, definitionFile, "controls.setBreathingModeControllerVolumeActionId");
+        RequireValue(dto.Controls.SetBreathingModeAutomaticCycleActionId, definitionFile, "controls.setBreathingModeAutomaticCycleActionId");
+        RequireValue(dto.Controls.StartAutomaticBreathingActionId, definitionFile, "controls.startAutomaticBreathingActionId");
+        RequireValue(dto.Controls.PauseAutomaticBreathingActionId, definitionFile, "controls.pauseAutomaticBreathingActionId");
+    }
+
+    private static void RequireValue(string? value, string definitionFile, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidDataException($"Study shell `{definitionFile}` is missing required field `{fieldName}`.");
+        }
     }
 
     private static IReadOnlyList<string> CloneList(string[]? values)

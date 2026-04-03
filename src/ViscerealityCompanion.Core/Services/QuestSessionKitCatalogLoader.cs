@@ -135,7 +135,7 @@ public sealed class QuestSessionKitCatalogLoader
             hotload.Profiles.Select(profile => new HotloadProfile(
                 profile.Id ?? string.Empty,
                 profile.Label ?? profile.Id ?? "Unnamed profile",
-                profile.File ?? string.Empty,
+                ResolveHotloadProfilePath(fullRoot, profile.File),
                 profile.Version ?? string.Empty,
                 profile.Channel ?? string.Empty,
                 profile.StudyLock,
@@ -146,6 +146,18 @@ public sealed class QuestSessionKitCatalogLoader
                 profile.Label ?? profile.Id ?? "Unnamed device profile",
                 profile.Description ?? string.Empty,
                 new Dictionary<string, string>(profile.Props ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase))).ToArray());
+    }
+
+    private static string ResolveHotloadProfilePath(string fullRoot, string? profileFile)
+    {
+        if (string.IsNullOrWhiteSpace(profileFile))
+        {
+            return string.Empty;
+        }
+
+        return Path.IsPathRooted(profileFile)
+            ? Path.GetFullPath(profileFile)
+            : Path.GetFullPath(Path.Combine(fullRoot, "HotloadProfiles", profileFile));
     }
 
     private static async Task<IReadOnlyList<QuestAppTarget>> BuildQuestAppsAsync(

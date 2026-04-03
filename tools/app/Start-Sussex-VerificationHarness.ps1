@@ -10,6 +10,7 @@ param(
     [string]$RuntimeIdentifier = 'win-x64',
     [string]$OutputRelativePath = 'artifacts\\publish\\ViscerealityCompanion.VerificationHarness',
     [switch]$Refresh,
+    [switch]$SkipKioskExit,
     [switch]$Wait
 )
 
@@ -87,7 +88,26 @@ if (-not (Test-Path $exePath)) {
     throw "Published verification harness executable not found at $exePath"
 }
 
-$process = Start-Process -FilePath $exePath -WorkingDirectory $repoRoot -PassThru
+$previousSkipKioskExit = $env:VC_SKIP_KIOSK_EXIT
+try {
+    if ($SkipKioskExit) {
+        $env:VC_SKIP_KIOSK_EXIT = '1'
+    }
+    else {
+        Remove-Item Env:VC_SKIP_KIOSK_EXIT -ErrorAction SilentlyContinue
+    }
+
+    $process = Start-Process -FilePath $exePath -WorkingDirectory $repoRoot -PassThru
+}
+finally {
+    if ($null -eq $previousSkipKioskExit) {
+        Remove-Item Env:VC_SKIP_KIOSK_EXIT -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:VC_SKIP_KIOSK_EXIT = $previousSkipKioskExit
+    }
+}
+
 if ($Wait) {
     Wait-Process -Id $process.Id
     $process.Refresh()

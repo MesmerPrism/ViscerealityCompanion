@@ -20,7 +20,8 @@ public static class StudyVerificationFingerprint
             Normalize(apkSha256),
             Normalize(softwareVersion),
             Normalize(buildId),
-            Normalize(deviceProfileId));
+            Normalize(deviceProfileId),
+            Normalize(displayId));
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
     }

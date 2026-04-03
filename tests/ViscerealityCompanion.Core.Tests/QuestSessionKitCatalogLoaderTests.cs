@@ -20,6 +20,8 @@ public sealed class QuestSessionKitCatalogLoaderTests
             Assert.Single(catalog.HotloadProfiles);
             Assert.Single(catalog.DeviceProfiles);
             Assert.True(catalog.HotloadProfiles[0].MatchesPackage("com.example.questsample"));
+            Assert.True(Path.IsPathRooted(catalog.HotloadProfiles[0].File));
+            Assert.EndsWith(Path.Combine("HotloadProfiles", "runtime-default.csv"), catalog.HotloadProfiles[0].File, StringComparison.OrdinalIgnoreCase);
             Assert.Equal("debug.mode", catalog.DeviceProfiles[0].Properties.Keys.Single());
         }
         finally
@@ -176,6 +178,8 @@ public sealed class QuestSessionKitCatalogLoaderTests
               ]
             }
             """);
+
+        File.WriteAllText(Path.Combine(root, "HotloadProfiles", "runtime-default.csv"), "alpha,0.5");
 
         File.WriteAllText(
             Path.Combine(root, "DeviceProfiles", "profiles.json"),

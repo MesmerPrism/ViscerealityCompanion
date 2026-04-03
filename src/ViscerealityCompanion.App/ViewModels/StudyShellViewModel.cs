@@ -105,6 +105,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
     private readonly SussexVisualProfilesWorkspaceViewModel _visualProfiles;
     private readonly SussexControllerBreathingProfilesWorkspaceViewModel _controllerBreathingProfiles;
+    private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
     private readonly DispatcherTimer? _deviceSnapshotRefreshTimer;
@@ -369,6 +370,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public StudyShellViewModel(StudyShellDefinition study)
     {
         _study = study;
+        _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         _appSessionState = AppSessionState.Load();
         _studySessionState = StudyShellSessionState.Load();
         _regularAdbSnapshotEnabled = _appSessionState.RegularAdbSnapshotEnabled;
@@ -385,27 +387,23 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         _selectedLiveSection = LiveSections.FirstOrDefault();
 
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is not null)
+        _twinRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
         {
-            _twinRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
-            {
-                Interval = TimeSpan.FromMilliseconds(180)
-            };
-            _twinRefreshTimer.Tick += OnTwinRefreshTimerTick;
+            Interval = TimeSpan.FromMilliseconds(180)
+        };
+        _twinRefreshTimer.Tick += OnTwinRefreshTimerTick;
 
-            _benchRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
-            {
-                Interval = BenchRefreshInterval
-            };
-            _benchRefreshTimer.Tick += OnBenchRefreshTimerTick;
+        _benchRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        {
+            Interval = BenchRefreshInterval
+        };
+        _benchRefreshTimer.Tick += OnBenchRefreshTimerTick;
 
-            _deviceSnapshotRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
-            {
-                Interval = DeviceSnapshotRefreshInterval
-            };
-            _deviceSnapshotRefreshTimer.Tick += OnDeviceSnapshotRefreshTimerTick;
-        }
+        _deviceSnapshotRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        {
+            Interval = DeviceSnapshotRefreshInterval
+        };
+        _deviceSnapshotRefreshTimer.Tick += OnDeviceSnapshotRefreshTimerTick;
 
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
@@ -494,13 +492,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void OnWorkflowGuideCommandCanExecuteChanged(object? sender, EventArgs e)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null)
-        {
-            return;
-        }
-
-        _ = dispatcher.InvokeAsync(UpdateWorkflowGuideState);
+        _ = _dispatcher.InvokeAsync(UpdateWorkflowGuideState);
     }
     public string PinnedBuildVersion => string.IsNullOrWhiteSpace(_study.App.VersionName) ? "n/a" : _study.App.VersionName;
     public string PinnedBuildHash => _study.App.Sha256;
@@ -9145,13 +9137,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void OnTestLslSignalServiceStateChanged(object? sender, EventArgs e)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null)
-        {
-            return;
-        }
-
-        _ = dispatcher.InvokeAsync(() =>
+        _ = _dispatcher.InvokeAsync(() =>
         {
             RefreshBenchToolsStatus();
             UpdateLslCard();
@@ -9160,13 +9146,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void OnTwinBridgeStateChanged(object? sender, EventArgs e)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null)
-        {
-            return;
-        }
-
-        _ = dispatcher.InvokeAsync(() =>
+        _ = _dispatcher.InvokeAsync(() =>
         {
             _twinRefreshPending = true;
             if (_twinRefreshTimer is null)
@@ -10213,27 +10193,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _ => OperatorLogLevel.Info
         };
 
-    private static Task DispatchAsync(Action action)
+    private Task DispatchAsync(Action action)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess())
+        if (_dispatcher.CheckAccess())
         {
             action();
             return Task.CompletedTask;
         }
 
-        return dispatcher.InvokeAsync(action).Task;
+        return _dispatcher.InvokeAsync(action).Task;
     }
 
-    private static Task<T> DispatchAsync<T>(Func<T> action)
+    private Task<T> DispatchAsync<T>(Func<T> action)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess())
+        if (_dispatcher.CheckAccess())
         {
             return Task.FromResult(action());
         }
 
-        return dispatcher.InvokeAsync(action).Task;
+        return _dispatcher.InvokeAsync(action).Task;
     }
 }
 

@@ -27,6 +27,27 @@ public sealed class StudyVerificationFingerprintTests
     }
 
     [Fact]
+    public void Compute_ChangesWhenDisplayIdChanges()
+    {
+        var left = StudyVerificationFingerprint.Compute(
+            "com.Viscereality.SussexExperiment",
+            "ABC123",
+            "14",
+            "2921110053000610",
+            "sussex-study-profile",
+            "UP1A.231005.007.A1");
+        var right = StudyVerificationFingerprint.Compute(
+            "com.Viscereality.SussexExperiment",
+            "ABC123",
+            "14",
+            "2921110053000610",
+            "sussex-study-profile",
+            "UP1A.231005.007.B1");
+
+        Assert.NotEqual(left, right);
+    }
+
+    [Fact]
     public void Matches_UsesStoredBaselineIdentity()
     {
         var baseline = new StudyVerificationBaseline(
