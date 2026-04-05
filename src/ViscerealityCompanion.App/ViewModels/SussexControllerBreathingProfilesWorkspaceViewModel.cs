@@ -456,7 +456,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return null;
         }
 
-        return SelectedProfile.ToRecord() with { Document = document };
+        return SelectedProfile.ToRecord() with { Document = document! };
     }
 
     private SussexControllerBreathingProfileRecord? ResolveEffectiveProfileRecord(
@@ -980,42 +980,34 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 return;
             }
 
-            if (!TryCreateCurrentDocument(out var selectedDocument, out var editorError))
-            {
-                ComparisonRows.Clear();
-                ApplySummary = "Current controller-breathing values are invalid.";
-                ApplyDetail = $"{editorError} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
-                ApplyLevel = OperationOutcomeKind.Warning;
-                foreach (var field in Groups.SelectMany(group => group.Fields))
-                {
-                    field.SetConfirmation("Edited", OperationOutcomeKind.Warning);
-                }
-
-                return;
-            }
-
             var startupComparisonDocument = ResolveStartupComparisonDocument();
-            var fieldsById = Groups
-                .SelectMany(group => group.Fields)
-                .ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
-            var rows = _compiler.BuildComparisonRows(selectedDocument!, startupComparisonDocument);
+            var fields = Groups.SelectMany(group => group.Fields).ToArray();
+            var fieldsById = fields.ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
+            var rows = SussexControllerBreathingComparisonRowBuilder.Build(_compiler, fields, startupComparisonDocument);
             var selectedMatchesLastApplyProfile = _lastApplyRecord is not null &&
                 string.Equals(SelectedProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase);
+            var currentDocumentIsValid = TryCreateCurrentDocument(out _, out var editorError);
+            var editorErrorDetail = editorError ?? "The current editor values could not be compiled.";
 
-            IReadOnlyDictionary<string, SussexControllerBreathingConfirmationRow>? confirmationRows = null;
             var rowConfirmationStates = new Dictionary<string, SussexControllerBreathingRowConfirmationState>(StringComparer.OrdinalIgnoreCase);
             var changedSinceApplyCount = 0;
             var unchangedSinceApplyCount = 0;
             if (selectedMatchesLastApplyProfile)
             {
                 var confirmation = _compiler.EvaluateConfirmation(_lastApplyRecord!, _reportedTwinState);
-                confirmationRows = confirmation.Rows.ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
+                var confirmationRows = confirmation.Rows.ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
                 var computation = SussexControllerBreathingRowConfirmationResolver.Compute(fieldsById.Values, _lastApplyRecord!, confirmationRows);
                 rowConfirmationStates = new Dictionary<string, SussexControllerBreathingRowConfirmationState>(computation.States, StringComparer.OrdinalIgnoreCase);
                 changedSinceApplyCount = computation.ChangedSinceApplyCount;
                 unchangedSinceApplyCount = computation.UnchangedSinceApplyCount;
 
-                if (changedSinceApplyCount > 0)
+                if (!currentDocumentIsValid)
+                {
+                    ApplySummary = "Current controller-breathing values are invalid.";
+                    ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                }
+                else if (changedSinceApplyCount > 0)
                 {
                     ApplySummary = changedSinceApplyCount == 1
                         ? "1 controller-tuning value changed since the last apply."
@@ -1037,6 +1029,12 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                             ? OperationOutcomeKind.Warning
                             : OperationOutcomeKind.Success;
                 }
+            }
+            else if (!currentDocumentIsValid)
+            {
+                ApplySummary = "Current controller-breathing values are invalid.";
+                ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
+                ApplyLevel = OperationOutcomeKind.Warning;
             }
             else if (_lastApplyRecord is not null)
             {
@@ -1079,7 +1077,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 }
             }
 
-            foreach (var field in Groups.SelectMany(group => group.Fields))
+            foreach (var field in fields)
             {
                 var state = ResolveRowConfirmationState(rowConfirmationStates, field.Id);
                 field.SetConfirmation(state.Label, state.Level);
@@ -1087,14 +1085,9 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
         catch (Exception ex) when (ex is InvalidDataException or FormatException or InvalidOperationException)
         {
-            ComparisonRows.Clear();
             ApplySummary = "Current controller-breathing values could not be compared safely.";
             ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next Sussex launch.";
             ApplyLevel = OperationOutcomeKind.Warning;
-            foreach (var field in Groups.SelectMany(group => group.Fields))
-            {
-                field.SetConfirmation("Edited", OperationOutcomeKind.Warning);
-            }
         }
     }
 

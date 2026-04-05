@@ -191,6 +191,46 @@ internal static class SussexVisualCurrentDocumentResolver
     }
 }
 
+internal static class SussexVisualComparisonRowBuilder
+{
+    public static IReadOnlyList<SussexVisualComparisonRow> Build(
+        SussexVisualTuningCompiler compiler,
+        IEnumerable<SussexVisualProfileFieldViewModel> fields,
+        SussexVisualTuningDocument? compareDocument = null)
+    {
+        ArgumentNullException.ThrowIfNull(compiler);
+        ArgumentNullException.ThrowIfNull(fields);
+
+        var selectedValues = fields.ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase);
+        var compareValues = compareDocument?.ControlValues;
+        var rows = new List<SussexVisualComparisonRow>(compiler.TemplateDocument.Controls.Count);
+
+        foreach (var templateControl in compiler.TemplateDocument.Controls)
+        {
+            var selectedValue = selectedValues.TryGetValue(templateControl.Id, out var currentValue)
+                ? currentValue
+                : templateControl.Value;
+            double? compareValue = null;
+            if (compareValues is not null &&
+                compareValues.TryGetValue(templateControl.Id, out var startupValue))
+            {
+                compareValue = startupValue;
+            }
+
+            rows.Add(new SussexVisualComparisonRow(
+                templateControl.Id,
+                templateControl.Label,
+                templateControl.BaselineValue,
+                selectedValue,
+                compareValue,
+                selectedValue - templateControl.BaselineValue,
+                compareValue is null ? null : selectedValue - compareValue.Value));
+        }
+
+        return rows;
+    }
+}
+
 public sealed class SussexVisualProfileListItemViewModel : ObservableObject
 {
     private SussexVisualProfileRecord _record;

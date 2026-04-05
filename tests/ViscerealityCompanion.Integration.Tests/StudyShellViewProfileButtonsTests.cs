@@ -77,38 +77,49 @@ public sealed class StudyShellViewProfileButtonsTests
                 view.UpdateLayout();
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
 
-                var visualEditor = FindDescendantByAutomationId<TextBox>(view, "visual-current-particle_size_max")
-                    ?? throw new InvalidOperationException("Could not resolve the visual editor textbox.");
-                var visualStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-particle_size_max")
-                    ?? throw new InvalidOperationException("Could not resolve the visual startup textblock.");
+                var visualOblatenessGroup = FindDescendantByAutomationId<TextBlock>(view, "visual-group-oblateness_by_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the visual oblateness group text.");
+                var visualOblatenessLabel = FindDescendantByAutomationId<TextBlock>(view, "visual-label-oblateness_by_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the visual oblateness label text.");
+                var visualEditor = FindDescendantByAutomationId<TextBox>(view, "visual-current-oblateness_by_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the visual oblateness editor textbox.");
+                var visualStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-oblateness_by_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the visual oblateness startup textblock.");
                 var visualSaveButton = (Button)view.FindName("VisualSaveStartupSnapshotButton")!;
                 var visualApplyButton = (Button)view.FindName("VisualApplyCurrentSessionButton")!;
 
+                Assert.Equal("Shape", visualOblatenessGroup.Text);
+                Assert.Equal("Oblateness Maximum", visualOblatenessLabel.Text);
+                Assert.Equal("0.5", visualStartup.Text);
+                Assert.Equal(
+                    "0 .. 1",
+                    visualWorkspace.ComparisonRows.First(row => string.Equals(row.Field.Id, "oblateness_by_radius_max", StringComparison.OrdinalIgnoreCase)).Range);
+
                 visualEditor.Focus();
-                visualEditor.Text = 0.24d.ToString("0.###", CultureInfo.CurrentCulture);
+                visualEditor.Text = 0.74d.ToString("0.###", CultureInfo.CurrentCulture);
                 CommitTextBoxEdit(visualEditor);
                 visualSaveButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualSaveButton));
 
                 await WaitForConditionAsync(
-                    () => string.Equals(visualStartup.Text, "0.24", StringComparison.Ordinal),
+                    () => string.Equals(visualStartup.Text, "0.74", StringComparison.Ordinal),
                     TimeSpan.FromSeconds(10));
 
                 var visualStartupState = new SussexVisualProfileStartupStateStore(studyId).Load();
                 Assert.NotNull(visualStartupState);
                 Assert.NotNull(visualStartupState!.ControlValues);
-                Assert.Equal(0.24d, visualStartupState.ControlValues!["particle_size_max"], 6);
+                Assert.Equal(0.74d, visualStartupState.ControlValues!["oblateness_by_radius_max"], 6);
 
                 visualEditor.Focus();
-                visualEditor.Text = 0.31d.ToString("0.###", CultureInfo.CurrentCulture);
+                visualEditor.Text = 0.81d.ToString("0.###", CultureInfo.CurrentCulture);
                 CommitTextBoxEdit(visualEditor);
                 visualApplyButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualApplyButton));
 
                 await WaitForConditionAsync(
-                    () => string.Equals(visualStartup.Text, "0.24", StringComparison.Ordinal),
+                    () => string.Equals(visualStartup.Text, "0.74", StringComparison.Ordinal),
                     TimeSpan.FromSeconds(10));
                 visualStartupState = new SussexVisualProfileStartupStateStore(studyId).Load();
                 Assert.NotNull(visualStartupState);
-                Assert.Equal(0.24d, visualStartupState!.ControlValues!["particle_size_max"], 6);
+                Assert.Equal(0.74d, visualStartupState!.ControlValues!["oblateness_by_radius_max"], 6);
 
                 tabs.SelectedIndex = 4;
                 view.UpdateLayout();
@@ -162,6 +173,8 @@ public sealed class StudyShellViewProfileButtonsTests
                     ?? throw new InvalidOperationException("Could not resolve the visual boolean checkbox.");
                 var savedLaunchHeader = FindColumnHeader(visualTable, "Saved Launch Override")
                     ?? throw new InvalidOperationException("Could not resolve the Saved Launch Override header.");
+                var expectedHeaderBackground = Assert.IsType<SolidColorBrush>(view.FindResource("SurfaceTintBrush"));
+                var expectedHeaderForeground = Assert.IsType<SolidColorBrush>(view.FindResource("InkBrush"));
 
                 Assert.Equal(HorizontalAlignment.Center, savedLaunchHeader.HorizontalContentAlignment);
                 Assert.Equal(TextAlignment.Center, visualGroup.TextAlignment);
@@ -169,6 +182,8 @@ public sealed class StudyShellViewProfileButtonsTests
                 Assert.Equal(TextAlignment.Center, visualLabel.TextAlignment);
                 Assert.Equal(HorizontalAlignment.Stretch, visualLabel.HorizontalAlignment);
                 Assert.Equal(TextAlignment.Center, visualStartupLabel.TextAlignment);
+                Assert.Equal(expectedHeaderBackground.Color, Assert.IsType<SolidColorBrush>(savedLaunchHeader.Background).Color);
+                Assert.Equal(expectedHeaderForeground.Color, Assert.IsType<SolidColorBrush>(savedLaunchHeader.Foreground).Color);
 
                 var togglePeer = new CheckBoxAutomationPeer(visualToggle);
                 var toggleProvider = (IToggleProvider?)togglePeer.GetPattern(PatternInterface.Toggle)

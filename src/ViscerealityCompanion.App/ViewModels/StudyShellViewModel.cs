@@ -69,11 +69,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly WorkflowGuideStepDefinition[] WorkflowGuideCatalog =
     [
         new(1, "Verify USB visibility", "Start with a real USB connection. The headset must be visible over USB ADB before the guide can bootstrap remote control."),
-        new(2, "Enable Wi-Fi ADB", "Turn on Wi-Fi ADB so the headset can stay reachable after the USB cable is removed. This exposes ADB over the headset's current Wi-Fi network."),
+        new(2, "Enable Wi-Fi ADB", "Turn on Wi-Fi ADB so the headset can stay reachable on its current Wi-Fi network. This exposes ADB over the headset's active Wi-Fi connection."),
         new(3, "Match the Wi-Fi network", "Confirm the headset Wi-Fi name matches this PC. If it does not, change the headset Wi-Fi manually in-headset because remote Wi-Fi switching is not reliable."),
-        new(4, "Unplug USB and confirm Wi-Fi-only control", "Remove the USB cable and make sure the companion still reaches the headset over Wi-Fi ADB. Every remaining guided step should run over Wi-Fi ADB, not USB."),
+        new(4, "Confirm Wi-Fi ADB stays active", "Make sure the companion keeps reaching the headset over Wi-Fi ADB and does not silently fall back to USB. The later guided steps should keep showing the Wi-Fi endpoint as the active transport."),
         new(5, "Verify the Sussex APK", "Check whether the approved Sussex Experiment APK is installed. If not, install the bundled study APK before moving on."),
-        new(6, "Review the device profile", "Apply the pinned CPU, GPU, brightness, and media-volume profile, then review the battery and software-identity warnings before leaving the bench. These checks stay visible, but they do not block the Sussex flow."),
+        new(6, "Review the device profile", "Apply the pinned CPU, GPU, brightness, and media-volume profile, then review the battery and remaining bench advisories before leaving the bench. These checks stay visible, but they do not block the Sussex flow."),
         new(7, "Draw the boundary", "Have the experimenter draw a comfortable boundary that covers the participant position, experimenter position, and the full experiment area. This step is manual and not enforced by the app."),
         new(8, "Launch kiosk mode", "Launch the Sussex runtime in kiosk mode. Kiosk means the study app is pinned in front and normal app switching is suppressed until the operator exits."),
         new(9, "Verify LSL reaches the headset", "Confirm the external heartbeat/biofeedback LSL stream is reaching the Sussex runtime and that the resulting live state is visible back in the companion."),
@@ -253,7 +253,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowSetupDetail = "Connect over Wi-Fi ADB, confirm the Sussex build, and apply the pinned device profile.";
     private OperationOutcomeKind _workflowKioskLevel = OperationOutcomeKind.Preview;
     private string _workflowKioskSummary = "Boundary setup and kiosk entry have not started yet.";
-    private string _workflowKioskDetail = "Disconnect USB, put the headset on, wake the controller, then launch kiosk mode.";
+    private string _workflowKioskDetail = "Keep the session on Wi-Fi ADB, put the headset on, wake the controller, then launch kiosk mode.";
     private OperationOutcomeKind _workflowBenchLevel = OperationOutcomeKind.Preview;
     private string _workflowBenchSummary = "Bench verification is waiting for the Sussex runtime.";
     private string _workflowBenchDetail = "Run particles, recenter, LSL, and controller calibration checks before participant handoff.";
@@ -305,6 +305,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _workflowGuideActionLevel = OperationOutcomeKind.Preview;
     private string _workflowGuideActionSummary = "Use the step button below once.";
     private string _workflowGuideActionDetail = "The guide will show immediately when a click was accepted and whether it is still waiting for headset confirmation.";
+    private string _workflowGuideNextActionSummary = "Use the step button below once.";
+    private string _workflowGuideNextActionDetail = "Only the controls relevant to this step stay visible here.";
     private OperationOutcomeKind _workflowGuideQuestScreenshotLevel = OperationOutcomeKind.Warning;
     private string _workflowGuideQuestScreenshotSummary = "Visual confirmation still needed.";
     private string _workflowGuideQuestScreenshotDetail = "Capture a Quest screenshot in the particle step to verify the visible scene.";
@@ -1154,6 +1156,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _workflowGuideActionDetail;
         private set => SetProperty(ref _workflowGuideActionDetail, value);
+    }
+
+    public string WorkflowGuideNextActionSummary
+    {
+        get => _workflowGuideNextActionSummary;
+        private set => SetProperty(ref _workflowGuideNextActionSummary, value);
+    }
+
+    public string WorkflowGuideNextActionDetail
+    {
+        get => _workflowGuideNextActionDetail;
+        private set => SetProperty(ref _workflowGuideNextActionDetail, value);
     }
 
     public OperationOutcomeKind WorkflowGuideQuestScreenshotLevel
@@ -4450,6 +4464,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var hasInstalledHash = !string.IsNullOrWhiteSpace(installedHash);
         var hasInstalledEvidence = _installedAppStatus?.IsInstalled == true || hasInstalledHash;
         var hasConnectedHeadset = _headsetStatus?.IsConnected == true;
+        var hasReadyPinnedApkOnHeadset = hasConnectedHeadset && hasInstalledEvidence && installedMatchesPinnedHash;
         var hasSoftwareIdentity =
             !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareReleaseOrCodename) &&
             !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareBuildId);
@@ -4457,14 +4472,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var reportedRuntimeEnvironmentHash = GetReportedRuntimeEnvironmentHash();
         var hasReportedRuntimeEnvironmentHash = !string.IsNullOrWhiteSpace(reportedRuntimeEnvironmentHash);
         var reportedRuntimeDeviceProfileId = GetReportedRuntimeDeviceProfileId();
+        var softwareMatchesBaseline = false;
+        var displayMatchesBaseline = true;
 
         if (baseline is not null)
         {
             var baselineMatchesPinnedHash = HashMatches(baseline.ApkSha256, _study.App.Sha256);
-            var softwareMatchesBaseline =
+            softwareMatchesBaseline =
                 hasSoftwareIdentity &&
                 string.Equals(_headsetStatus!.SoftwareReleaseOrCodename, baseline.SoftwareVersion, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(_headsetStatus.SoftwareBuildId, baseline.BuildId, StringComparison.OrdinalIgnoreCase);
+            displayMatchesBaseline =
+                string.IsNullOrWhiteSpace(baseline.DisplayId) ||
+                string.Equals(_headsetStatus?.SoftwareDisplayId, baseline.DisplayId, StringComparison.OrdinalIgnoreCase);
             var deviceProfileIdMatchesBaseline =
                 string.IsNullOrWhiteSpace(baseline.DeviceProfileId) ||
                 string.Equals(baseline.DeviceProfileId, _study.DeviceProfile.Id, StringComparison.OrdinalIgnoreCase);
@@ -4487,9 +4507,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     _study.DeviceProfile.Id,
                     _headsetStatus.SoftwareDisplayId);
             var runtimeEnvironmentMatchesBaseline =
-                hasConnectedHeadset &&
-                hasInstalledEvidence &&
-                installedMatchesPinnedHash &&
+                hasReadyPinnedApkOnHeadset &&
                 hasReportedRuntimeEnvironmentHash &&
                 runtimeDeviceProfileIdMatchesBaseline &&
                 string.Equals(reportedRuntimeEnvironmentHash, baseline.EnvironmentHash, StringComparison.OrdinalIgnoreCase);
@@ -4504,20 +4522,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 PinnedBuildLevel = OperationOutcomeKind.Failure;
                 PinnedBuildSummary = "Headset APK does not match the latest verified Sussex build.";
             }
-            else if (hasConnectedHeadset && hasSoftwareIdentity && !softwareMatchesBaseline)
-            {
-                PinnedBuildLevel = OperationOutcomeKind.Failure;
-                PinnedBuildSummary = "Headset OS does not match the latest verified Sussex build.";
-            }
-            else if (hasConnectedHeadset && _deviceProfileStatus is not null && !deviceProfileActive)
-            {
-                PinnedBuildLevel = OperationOutcomeKind.Failure;
-                PinnedBuildSummary = "Headset settings do not match the latest verified Sussex build.";
-            }
-            else if (fingerprintMatches || runtimeEnvironmentMatchesBaseline)
+            else if (hasReadyPinnedApkOnHeadset)
             {
                 PinnedBuildLevel = OperationOutcomeKind.Success;
-                PinnedBuildSummary = "Headset matches the latest verified Sussex build.";
+                PinnedBuildSummary = fingerprintMatches || runtimeEnvironmentMatchesBaseline
+                    ? "Headset matches the latest verified Sussex build."
+                    : "Pinned Sussex APK matches the recorded Sussex build.";
             }
             else
             {
@@ -4590,9 +4600,27 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             details.Add(BuildCurrentHeadsetVerificationDetail(_headsetStatus));
         }
 
+        if (baseline is not null && hasReadyPinnedApkOnHeadset)
+        {
+            if (hasSoftwareIdentity && !softwareMatchesBaseline)
+            {
+                details.Add("Current headset OS/build differs from the verified baseline. Sussex currently keeps software identity as advisory-only bench context.");
+            }
+
+            if (!displayMatchesBaseline)
+            {
+                details.Add("Current headset display id differs from the verified baseline. Sussex currently keeps display identity as advisory-only bench context.");
+            }
+        }
+
         if (_deviceProfileStatus is not null)
         {
             details.Add($"{_deviceProfileStatus.Label}: {_deviceProfileStatus.Detail}");
+
+            if (hasReadyPinnedApkOnHeadset && !deviceProfileActive)
+            {
+                details.Add("Pinned Sussex APK still matches, but the device profile card shows settings that should be reviewed before leaving the bench.");
+            }
         }
 
         PinnedBuildDetail = string.Join(" ", details);
@@ -6465,6 +6493,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ReplaceWorkflowGuideActionItems(WorkflowGuideActions, actions);
         ReplaceWorkflowGuideCheckItems(ValidationClockAlignmentChecks, BuildValidationClockAlignmentCheckItems());
         UpdateWorkflowGuideQuestScreenshotState(stepIndex);
+        UpdateWorkflowGuideNextActionState(stepIndex, actions);
         UpdateWorkflowGuideActionFeedback(stepIndex, actions);
 
         OnPropertyChanged(nameof(CanGoToPreviousWorkflowGuideStep));
@@ -6519,7 +6548,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Wi-Fi ADB is ready."
                 : wifiAdbGate.Summary;
             WorkflowGuideActionDetail = wifiAdbGate.Ready
-                ? "Use Next to move to the Wi-Fi match step. After that, the guide will ask you to unplug USB and confirm Wi-Fi-only control."
+                ? "Use Next to move to the Wi-Fi match step. After that, the guide will keep checking that the transport stays on the Wi-Fi endpoint."
                 : wifiAdbGate.Detail;
             return;
         }
@@ -6560,7 +6589,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             WorkflowGuideActionLevel = wifiOnlyGate.Level;
             WorkflowGuideActionSummary = wifiOnlyGate.Summary;
             WorkflowGuideActionDetail = wifiOnlyGate.Ready
-                ? "USB can stay disconnected now. Use Next to continue with the Wi-Fi-only checks."
+                ? "Wi-Fi ADB is established. Use Next to continue, and keep watching the connection card for the Wi-Fi endpoint in later steps."
                 : wifiOnlyGate.Detail;
             return;
         }
@@ -6590,6 +6619,67 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         WorkflowGuideActionDetail = visibleActions.Count == 0
             ? "This part of the onboarding is operator-only."
             : "The guide will show immediately when a click was accepted and whether it is still waiting for headset confirmation.";
+    }
+
+    private void UpdateWorkflowGuideNextActionState(int stepIndex, IReadOnlyList<WorkflowGuideActionItem> visibleActions)
+    {
+        var runningAction = visibleActions.FirstOrDefault(action => action.IsRunning);
+        if (runningAction is not null)
+        {
+            WorkflowGuideNextActionSummary = "Wait for the current action to finish.";
+            WorkflowGuideNextActionDetail = "Do not click again until the live checks or the feedback card updates.";
+            return;
+        }
+
+        if (visibleActions.Count == 0)
+        {
+            WorkflowGuideNextActionSummary = "No app action is needed for this step.";
+            WorkflowGuideNextActionDetail = "Finish the manual operator step on the headset, then use Next once the goal state above is satisfied.";
+            return;
+        }
+
+        (WorkflowGuideNextActionSummary, WorkflowGuideNextActionDetail) = stepIndex switch
+        {
+            0 => (
+                "Probe USB, then refresh if the live link still looks stale.",
+                "The guide only needs one confirmed USB probe before Wi-Fi ADB can be enabled."),
+            1 => (
+                "Enable Wi-Fi ADB.",
+                "If the session does not switch over cleanly, use Connect Quest on the saved endpoint instead of relying on USB."),
+            2 => (
+                "Refresh the snapshot and compare Wi-Fi names.",
+                "If the headset and PC Wi-Fi names differ, change the headset Wi-Fi manually in-headset before continuing."),
+            3 => (
+                "Keep the active transport on Wi-Fi ADB.",
+                "If the connection card stops showing the Wi-Fi endpoint, use Connect Quest to restore it before continuing."),
+            4 => (
+                "Install the pinned Sussex APK if needed, then refresh.",
+                "This step is only about the Sussex APK identity. Bench advisories are reviewed separately afterward."),
+            5 => (
+                "Apply the pinned device profile, then refresh.",
+                "Confirm the pinned settings and battery floors here. Remaining bench advisories stay visible but do not block Sussex."),
+            6 => (
+                "Draw the experiment boundary in-headset.",
+                "Cover the participant position, the experimenter position, and the full experiment area before using Next."),
+            7 => (
+                "Launch Sussex in kiosk mode.",
+                "Wake the right controller first and confirm the connection still shows the Wi-Fi endpoint before launching."),
+            8 => (
+                "Turn on the test LSL sender if needed, then refresh.",
+                "The goal is to see the expected stream connected to the Sussex runtime before participant handoff."),
+            9 => (
+                "Send Particles On, confirm visually, then send Particles Off.",
+                "This is still a recommended bench-confidence check even though it no longer blocks the guide."),
+            10 => (
+                "Start calibration only if you want the optional bench readback.",
+                "Calibration remains visible here, but the current Sussex path can continue without it."),
+            11 => (
+                "Enter a temporary validation id and run the 20 second capture.",
+                "This step uses the dedicated validation card below rather than the generic action buttons."),
+            _ => (
+                "Reset calibration and leave particles off.",
+                "Return to the main runtime tab with a clean participant-ready state.")
+        };
     }
 
     private void UpdateWorkflowGuideQuestScreenshotState(int stepIndex)
@@ -6657,7 +6747,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var deviceProfileState = EvaluateDeviceProfileGateState();
         var headsetBatteryState = EvaluateHeadsetBatteryGateState();
         var rightControllerBatteryState = EvaluateRightControllerBatteryGateState();
-        var softwareIdentityState = EvaluateSoftwareIdentityGateState();
 
         return stepIndex switch
         {
@@ -6666,7 +6755,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             2 => BuildWifiMatchWorkflowGuideGateState(),
             3 => BuildUsbDisconnectWorkflowGuideGateState(),
             4 => RequireWifiAdbForWorkflowStep(BuildInstalledApkWorkflowGuideGateState()),
-            5 => RequireWifiAdbForWorkflowStep(BuildProfileWorkflowGuideGateState(deviceProfileState, headsetBatteryState, rightControllerBatteryState, softwareIdentityState)),
+            5 => RequireWifiAdbForWorkflowStep(BuildProfileWorkflowGuideGateState(deviceProfileState, headsetBatteryState, rightControllerBatteryState)),
             6 => RequireWifiAdbForWorkflowStep(new WorkflowGuideGateState(
                 OperationOutcomeKind.Preview,
                 "Boundary is a manual step.",
@@ -6714,13 +6803,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? OperationOutcomeKind.Failure
                 : OperationOutcomeKind.Warning;
         var detail = ready
-            ? "Wi-Fi ADB is active. Continue to the Wi-Fi match step. The next step will explicitly require USB removal and Wi-Fi-only control."
+            ? "Wi-Fi ADB is active. Continue to the Wi-Fi match step. After that, the guide will keep checking that the transport stays on the Wi-Fi endpoint."
             : (string.Equals(_lastConnectionActionLabel, "Connect Quest", StringComparison.Ordinal)
                 || string.Equals(_lastConnectionActionLabel, "Enable Wi-Fi ADB", StringComparison.Ordinal))
                 && _lastConnectionLevel == OperationOutcomeKind.Failure
                 && !string.IsNullOrWhiteSpace(_lastConnectionDetail)
                     ? _lastConnectionDetail
-                    : "Press Enable Wi-Fi ADB while the USB cable is still attached. Once this turns green, continue to Wi-Fi matching and then unplug USB in the following step.";
+                    : "Press Enable Wi-Fi ADB while the USB cable is still attached. Once this turns green, continue to Wi-Fi matching.";
         return new WorkflowGuideGateState(level, ready ? "Wi-Fi ADB is active." : "Wi-Fi ADB is not active yet.", detail, ready);
     }
 
@@ -6744,39 +6833,36 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private WorkflowGuideGateState BuildUsbDisconnectWorkflowGuideGateState()
     {
-        var ready = _headsetStatus?.IsWifiAdbTransport == true
-            && _headsetStatus.IsUsbAdbVisible == false;
+        var ready = _headsetStatus?.IsWifiAdbTransport == true;
         var level = ready
             ? OperationOutcomeKind.Success
             : _headsetStatus?.IsConnected == true
                 ? OperationOutcomeKind.Warning
                 : OperationOutcomeKind.Failure;
         var detail = ready
-            ? $"Remote control is still alive on {_headsetStatus?.ConnectionLabel ?? "the saved Wi-Fi endpoint"}. Leave USB unplugged. Every remaining guided step now runs over Wi-Fi ADB."
-            : _headsetStatus?.IsWifiAdbTransport == true && _headsetStatus.IsUsbAdbVisible
-                ? $"Wi-Fi ADB is already active on {_headsetStatus.ConnectionLabel}, but USB {_headsetStatus.VisibleUsbSerial} is still attached. Unplug the cable and refresh until USB disappears."
-                : _headsetStatus?.IsConnected == true
-                    ? $"Current transport is {_headsetStatus.ConnectionLabel}. Unplug the USB cable, then refresh until the companion still reaches the headset over Wi-Fi ADB."
-                    : "Unplug USB now. If the headset disappears from the companion, use Connect Quest to restore the saved Wi-Fi ADB endpoint before continuing.";
+            ? _headsetStatus?.IsUsbAdbVisible == true
+                ? $"Wi-Fi ADB is active on {_headsetStatus.ConnectionLabel}, and USB {_headsetStatus.VisibleUsbSerial} is still visible. Sussex now treats USB visibility as advisory only, but later steps should keep reporting the Wi-Fi endpoint as the active transport."
+                : $"Remote control is still alive on {_headsetStatus?.ConnectionLabel ?? "the saved Wi-Fi endpoint"}. Keep watching the connection card so the remaining guided steps continue to use Wi-Fi ADB."
+            : _headsetStatus?.IsConnected == true
+                    ? $"Current transport is {_headsetStatus.ConnectionLabel}. Restore the saved Wi-Fi ADB endpoint before continuing so the remaining guided steps exercise the same transport used during the study."
+                    : "The headset is not reachable right now. Use Connect Quest to restore the saved Wi-Fi ADB endpoint before continuing.";
         return new WorkflowGuideGateState(
             level,
-            ready ? "Wi-Fi-only control confirmed." : _headsetStatus?.IsUsbAdbVisible == true ? "USB is still attached." : "USB unplug still needs confirmation.",
+            ready ? "Wi-Fi ADB continuity confirmed." : "Wi-Fi ADB continuity still needs confirmation.",
             detail,
             ready);
     }
 
     private WorkflowGuideGateState RequireWifiAdbForWorkflowStep(WorkflowGuideGateState stepState)
     {
-        if (_headsetStatus?.IsWifiAdbTransport == true && _headsetStatus.IsUsbAdbVisible == false)
+        if (_headsetStatus?.IsWifiAdbTransport == true)
         {
             return stepState;
         }
 
-        var detail = _headsetStatus?.IsWifiAdbTransport == true && _headsetStatus.IsUsbAdbVisible
-            ? $"Wi-Fi ADB is active on {_headsetStatus.ConnectionLabel}, but USB {_headsetStatus.VisibleUsbSerial} is still visible. Unplug USB and refresh before continuing. {stepState.Detail}"
-            : _headsetStatus?.IsConnected == true
-                ? $"Current transport is {_headsetStatus.ConnectionLabel}. This step must be performed over Wi-Fi ADB after USB is unplugged. {stepState.Detail}"
-                : $"The headset is not currently reachable over Wi-Fi ADB. Restore the Wi-Fi session first, then continue. {stepState.Detail}";
+        var detail = _headsetStatus?.IsConnected == true
+            ? $"Current transport is {_headsetStatus.ConnectionLabel}. Restore the Wi-Fi ADB session before continuing. {stepState.Detail}"
+            : $"The headset is not currently reachable over Wi-Fi ADB. Restore the Wi-Fi session first, then continue. {stepState.Detail}";
 
         return new WorkflowGuideGateState(
             stepState.Level == OperationOutcomeKind.Failure
@@ -6804,15 +6890,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private WorkflowGuideGateState BuildProfileWorkflowGuideGateState(
         WorkflowGuideGateState deviceProfileState,
         WorkflowGuideGateState headsetBatteryState,
-        WorkflowGuideGateState rightControllerBatteryState,
-        WorkflowGuideGateState softwareIdentityState)
+        WorkflowGuideGateState rightControllerBatteryState)
     {
         var checksClear = deviceProfileState.Ready
             && headsetBatteryState.Ready
-            && rightControllerBatteryState.Ready
-            && softwareIdentityState.Ready;
+            && rightControllerBatteryState.Ready;
         var detail =
-            $"{deviceProfileState.Summary} {headsetBatteryState.Summary} {rightControllerBatteryState.Summary} {softwareIdentityState.Summary}";
+            $"{deviceProfileState.Summary} {headsetBatteryState.Summary} {rightControllerBatteryState.Summary}";
         return new WorkflowGuideGateState(
             checksClear ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
             checksClear ? "Device profile and bench safety checks confirmed." : "Device profile step completed with warnings.",
@@ -6826,7 +6910,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var level = ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
         var detail = ready
             ? "Sussex Experiment is active in the foreground. Kiosk keeps the experiment app pinned in front. If the controller was asleep at launch, wake it and relaunch before moving on."
-            : "Disconnect USB, wake the right controller, then press Launch Sussex In Kiosk Mode. Kiosk pins the experiment app in front and suppresses normal app switching.";
+            : "Wake the right controller, confirm the connection still shows the Wi-Fi endpoint, then press Launch Sussex In Kiosk Mode. Kiosk pins the experiment app in front and suppresses normal app switching.";
         return new WorkflowGuideGateState(level, ready ? "Sussex runtime is active in kiosk." : "Sussex runtime is not active in kiosk yet.", detail, ready);
     }
 
@@ -6998,7 +7082,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var deviceProfileState = EvaluateDeviceProfileGateState();
         var headsetBatteryState = EvaluateHeadsetBatteryGateState();
         var rightControllerBatteryState = EvaluateRightControllerBatteryGateState();
-        var softwareIdentityState = EvaluateSoftwareIdentityGateState();
         var particleCommandSummary = _workflowGuideParticlesOnVerified && _workflowGuideParticlesOffVerified
             ? "Particles were toggled on and off in this guide session."
             : _workflowGuideParticlesOnVerified
@@ -7015,7 +7098,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             1 =>
             [
                 new WorkflowGuideCheckItem("Wi-Fi ADB path", BuildWifiAdbGuideSummary(), BuildWifiAdbGuideDetail(), _headsetStatus?.IsWifiAdbTransport == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
-                new WorkflowGuideCheckItem("Reconnect target", string.IsNullOrWhiteSpace(EndpointDraft) ? "Reconnect target not saved yet." : "Reconnect target is saved.", string.IsNullOrWhiteSpace(EndpointDraft) ? "If Wi-Fi ADB stays on USB only, run Connect Quest once the companion has a reconnect target." : "The companion has a saved reconnect target ready for the later USB disconnect.", string.IsNullOrWhiteSpace(EndpointDraft) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
+                new WorkflowGuideCheckItem("Reconnect target", string.IsNullOrWhiteSpace(EndpointDraft) ? "Reconnect target not saved yet." : "Reconnect target is saved.", string.IsNullOrWhiteSpace(EndpointDraft) ? "If Wi-Fi ADB does not fully switch over, run Connect Quest once the companion has a reconnect target." : "The companion has a saved reconnect target ready if the Wi-Fi session drops later.", string.IsNullOrWhiteSpace(EndpointDraft) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
             ],
             2 =>
             [
@@ -7024,8 +7107,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             3 =>
             [
-                new WorkflowGuideCheckItem("Current transport", ConnectionTransportSummary, ConnectionTransportDetail, _headsetStatus?.IsWifiAdbTransport == true && _headsetStatus.IsUsbAdbVisible == false ? OperationOutcomeKind.Success : _headsetStatus?.IsConnected == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Failure),
-                new WorkflowGuideCheckItem("USB visibility", _headsetStatus?.IsUsbAdbVisible == true ? $"USB {_headsetStatus.VisibleUsbSerial} is still attached." : "No USB ADB device is visible.", "After unplugging the cable, only the Wi-Fi ip:port endpoint should remain.", _headsetStatus?.IsUsbAdbVisible == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
+                new WorkflowGuideCheckItem("Current transport", ConnectionTransportSummary, ConnectionTransportDetail, _headsetStatus?.IsWifiAdbTransport == true ? OperationOutcomeKind.Success : _headsetStatus?.IsConnected == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Failure),
+                new WorkflowGuideCheckItem("USB visibility", _headsetStatus?.IsUsbAdbVisible == true ? $"USB {_headsetStatus.VisibleUsbSerial} is still visible." : "No USB ADB device is visible.", "USB visibility stays tracked here for awareness, but Sussex now only requires the active transport to remain on the Wi-Fi endpoint.", _headsetStatus?.IsUsbAdbVisible == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
             ],
             4 =>
             [
@@ -7036,8 +7119,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             [
                 new WorkflowGuideCheckItem("Pinned device profile", deviceProfileState.Summary, DeviceProfileDetail, deviceProfileState.Level),
                 new WorkflowGuideCheckItem("Headset battery floor", headsetBatteryState.Summary, headsetBatteryState.Detail, headsetBatteryState.Level),
-                new WorkflowGuideCheckItem("Right controller battery floor", rightControllerBatteryState.Summary, rightControllerBatteryState.Detail, rightControllerBatteryState.Level),
-                new WorkflowGuideCheckItem("Software identity", softwareIdentityState.Summary, softwareIdentityState.Detail, softwareIdentityState.Level)
+                new WorkflowGuideCheckItem("Right controller battery floor", rightControllerBatteryState.Summary, rightControllerBatteryState.Detail, rightControllerBatteryState.Level)
             ],
             6 =>
             [
@@ -7191,7 +7273,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         if (_headsetStatus?.IsWifiAdbTransport == true)
         {
-            return "The headset is reachable over Wi-Fi ADB. Continue to the Wi-Fi match step, then unplug USB in the following step and confirm the session stays alive over Wi-Fi only.";
+            return "The headset is reachable over Wi-Fi ADB. Continue to the Wi-Fi match step, then keep watching later steps to ensure the session stays on the Wi-Fi endpoint.";
         }
 
         if (_headsetStatus?.IsConnected == true)
@@ -7576,7 +7658,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : !headsetConnected
                 ? "Connect the headset before starting the Sussex protocol."
                 : !wifiReady
-                    ? "Switch from USB to Wi-Fi ADB before starting the stable Sussex flow."
+                    ? "Enable or restore Wi-Fi ADB before starting the stable Sussex flow."
                     : !wifiMatchReady
                         ? "Match the headset Wi-Fi to this PC before starting the stable Sussex flow."
                     : PinnedBuildLevel == OperationOutcomeKind.Failure
@@ -7584,7 +7666,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         : "Headset setup is still incomplete.";
         WorkflowSetupDetail =
             $"{ConnectionTransportSummary} {WifiNetworkMatchSummary} {PinnedBuildSummary} {DeviceProfileSummary} {HeadsetBatteryLabel}. {HeadsetSoftwareVersionLabel}. " +
-            "Brightness, battery, and software-identity checks stay visible as warnings, but the Sussex flow now only blocks on APK readiness, Wi-Fi ADB, Wi-Fi match, and LSL verification.";
+            "Brightness, battery, and software-identity readouts stay visible as bench context, but the Sussex setup path only blocks on APK readiness, Wi-Fi ADB, and Wi-Fi match. LSL remains the required bench check before participant handoff.";
 
         WorkflowKioskLevel = !setupReady
             ? OperationOutcomeKind.Preview
@@ -7601,7 +7683,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     : "Sussex kiosk is up and ready for bench verification."
                 : "Boundary setup and kiosk entry are still pending.";
         WorkflowKioskDetail =
-            $"{HeadsetAwakeSummary} {ControllerSummary} Disconnect USB before the operator puts the headset on. " +
+            $"{HeadsetAwakeSummary} {ControllerSummary} Keep watching the connection card so the guided path stays on the Wi-Fi endpoint used during the study. " +
             "Use the physical power button for off-face sleep/wake and keep proximity in normal mode during the standard kiosk path.";
 
         WorkflowBenchLevel = !runtimeForeground

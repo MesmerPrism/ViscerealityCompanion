@@ -137,6 +137,10 @@ public sealed class SussexVisualTuningCompiler
         var payload = new JsonObject
         {
             ["UseSphereDeformation"] = GetBooleanControlValue(document, "sphere_deformation_enabled"),
+            ["OblatenessByRadiusCurveLimits"] = BuildLimits(
+                document,
+                "oblateness_by_radius_min",
+                "oblateness_by_radius_max"),
             ["ParticleSizeEnvelopeLimits"] = BuildLimits(
                 document,
                 "particle_size_min",
@@ -196,6 +200,8 @@ public sealed class SussexVisualTuningCompiler
         var values = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase)
         {
             ["sphere_deformation_enabled"] = TryGetBoolean01(root, "UseSphereDeformation"),
+            ["oblateness_by_radius_min"] = TryGetNestedDouble(root, "OblatenessByRadiusCurveLimits", "x"),
+            ["oblateness_by_radius_max"] = TryGetNestedDouble(root, "OblatenessByRadiusCurveLimits", "y"),
             ["particle_size_min"] = TryGetNestedDouble(root, "ParticleSizeEnvelopeLimits", "x"),
             ["particle_size_max"] = TryGetNestedDouble(root, "ParticleSizeEnvelopeLimits", "y"),
             ["depth_wave_min"] = TryGetNestedDouble(root, "DepthWavePercentLimits", "x"),
@@ -603,6 +609,7 @@ public sealed class SussexVisualTuningCompiler
 
     private static void ValidateControlPairs(IReadOnlyList<SussexVisualTuningControl> controls)
     {
+        ValidatePair(controls, "oblateness_by_radius_min", "oblateness_by_radius_max");
         ValidatePair(controls, "particle_size_min", "particle_size_max");
         ValidatePair(controls, "depth_wave_min", "depth_wave_max");
         ValidatePair(controls, "transparency_min", "transparency_max");

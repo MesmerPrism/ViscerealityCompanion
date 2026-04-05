@@ -470,7 +470,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             return null;
         }
 
-        return SelectedProfile.ToRecord() with { Document = document };
+        return SelectedProfile.ToRecord() with { Document = document! };
     }
 
     private SussexVisualProfileRecord? ResolveEffectiveProfileRecord(SussexVisualProfileRecord? currentProfile)
@@ -993,42 +993,34 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 return;
             }
 
-            if (!TryCreateCurrentDocument(out var selectedDocument, out var editorError))
-            {
-                ComparisonRows.Clear();
-                ApplySummary = "Current visual values are invalid.";
-                ApplyDetail = $"{editorError} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
-                ApplyLevel = OperationOutcomeKind.Warning;
-                foreach (var field in Groups.SelectMany(group => group.Fields))
-                {
-                    field.SetConfirmation("Edited", OperationOutcomeKind.Warning);
-                }
-
-                return;
-            }
-
             var startupComparisonDocument = ResolveStartupComparisonDocument();
-            var fieldsById = Groups
-                .SelectMany(group => group.Fields)
-                .ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
-            var rows = _compiler.BuildComparisonRows(selectedDocument!, startupComparisonDocument);
+            var fields = Groups.SelectMany(group => group.Fields).ToArray();
+            var fieldsById = fields.ToDictionary(field => field.Id, StringComparer.OrdinalIgnoreCase);
+            var rows = SussexVisualComparisonRowBuilder.Build(_compiler, fields, startupComparisonDocument);
             var selectedMatchesLastApplyProfile = _lastApplyRecord is not null &&
                 string.Equals(SelectedProfile.Id, _lastApplyRecord.ProfileId, StringComparison.OrdinalIgnoreCase);
+            var currentDocumentIsValid = TryCreateCurrentDocument(out _, out var editorError);
+            var editorErrorDetail = editorError ?? "The current editor values could not be compiled.";
 
-            IReadOnlyDictionary<string, SussexVisualConfirmationRow>? confirmationRows = null;
             var rowConfirmationStates = new Dictionary<string, SussexVisualRowConfirmationState>(StringComparer.OrdinalIgnoreCase);
             var changedSinceApplyCount = 0;
             var unchangedSinceApplyCount = 0;
             if (selectedMatchesLastApplyProfile)
             {
                 var confirmation = _compiler.EvaluateConfirmation(_lastApplyRecord!, _reportedRuntimeConfigJson);
-                confirmationRows = confirmation.Rows.ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
+                var confirmationRows = confirmation.Rows.ToDictionary(row => row.Id, StringComparer.OrdinalIgnoreCase);
                 var computation = SussexVisualRowConfirmationResolver.Compute(fieldsById.Values, _lastApplyRecord!, confirmationRows);
                 rowConfirmationStates = new Dictionary<string, SussexVisualRowConfirmationState>(computation.States, StringComparer.OrdinalIgnoreCase);
                 changedSinceApplyCount = computation.ChangedSinceApplyCount;
                 unchangedSinceApplyCount = computation.UnchangedSinceApplyCount;
 
-                if (changedSinceApplyCount > 0)
+                if (!currentDocumentIsValid)
+                {
+                    ApplySummary = "Current visual values are invalid.";
+                    ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                }
+                else if (changedSinceApplyCount > 0)
                 {
                     ApplySummary = changedSinceApplyCount == 1
                         ? "1 visual value changed since the last apply."
@@ -1050,6 +1042,12 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                             ? OperationOutcomeKind.Warning
                             : OperationOutcomeKind.Success;
                 }
+            }
+            else if (!currentDocumentIsValid)
+            {
+                ApplySummary = "Current visual values are invalid.";
+                ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
+                ApplyLevel = OperationOutcomeKind.Warning;
             }
             else if (_lastApplyRecord is not null)
             {
@@ -1093,7 +1091,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 }
             }
 
-            foreach (var field in Groups.SelectMany(group => group.Fields))
+            foreach (var field in fields)
             {
                 var state = ResolveRowConfirmationState(rowConfirmationStates, field.Id);
                 field.SetConfirmation(state.Label, state.Level);
@@ -1101,14 +1099,9 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         }
         catch (Exception ex) when (ex is InvalidDataException or FormatException or InvalidOperationException)
         {
-            ComparisonRows.Clear();
             ApplySummary = "Current visual values could not be compared safely.";
             ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next Sussex launch.";
             ApplyLevel = OperationOutcomeKind.Warning;
-            foreach (var field in Groups.SelectMany(group => group.Fields))
-            {
-                field.SetConfirmation("Edited", OperationOutcomeKind.Warning);
-            }
         }
     }
 
@@ -1256,6 +1249,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         => controlId switch
         {
             "sphere_deformation_enabled" => "Shape",
+            string id when id.StartsWith("oblateness_by_radius", StringComparison.Ordinal) => "Shape",
             string id when id.StartsWith("particle_size", StringComparison.Ordinal) => "Size",
             string id when id.StartsWith("depth_wave", StringComparison.Ordinal) => "Depth Wave",
             string id when id.StartsWith("transparency", StringComparison.Ordinal) => "Transparency",

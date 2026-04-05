@@ -128,7 +128,7 @@
                                Margin="12,2,0,0" />
                 </Grid>
 
-                <Expander Header="Step context"
+                <Expander Header="Context"
                           Style="{StaticResource GuideExpanderStyle}">
                     <TextBlock Text="{Binding WorkflowGuideStepExplanation}"
                                Style="{StaticResource GuideDetailStyle}"
@@ -155,14 +155,14 @@
                             Background="{Binding WorkflowGuideStepLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                             BorderBrush="{Binding WorkflowGuideStepLevel, Converter={StaticResource OutcomeKindToBrush}}">
                         <StackPanel>
-                            <TextBlock Text="Ready To Continue"
+                            <TextBlock Text="Goal State"
                                        Style="{StaticResource GuideSectionTitleStyle}" />
                             <TextBlock Text="{Binding WorkflowGuideGateSummary}"
                                        FontSize="22"
                                        FontWeight="Bold"
                                        Foreground="{StaticResource InkBrush}"
                                        TextWrapping="Wrap" />
-                            <Expander Header="Show gate detail"
+                            <Expander Header="Detail"
                                       Style="{StaticResource GuideExpanderStyle}">
                                 <TextBlock Text="{Binding WorkflowGuideGateDetail}"
                                            Style="{StaticResource GuideDetailStyle}"
@@ -174,14 +174,14 @@
                     <Border Grid.Column="2"
                             Style="{StaticResource GuidePanelStyle}">
                         <StackPanel>
-                            <TextBlock Text="Current Step Status"
+                            <TextBlock Text="Current Status"
                                        Style="{StaticResource GuideSectionTitleStyle}" />
                             <TextBlock Text="{Binding WorkflowGuideStepSummary}"
                                        FontSize="22"
                                        FontWeight="Bold"
                                        Foreground="{StaticResource InkBrush}"
                                        TextWrapping="Wrap" />
-                            <Expander Header="Show status detail"
+                            <Expander Header="Detail"
                                       Style="{StaticResource GuideExpanderStyle}">
                                 <TextBlock Text="{Binding WorkflowGuideStepDetail}"
                                            Style="{StaticResource GuideDetailStyle}"
@@ -194,7 +194,7 @@
                 <Border Style="{StaticResource GuidePanelStyle}"
                         Margin="0,10,0,0">
                     <StackPanel>
-                        <TextBlock Text="Live Checks For This Step"
+                        <TextBlock Text="Checks"
                                    Style="{StaticResource GuideSectionTitleStyle}" />
                         <ItemsControl ItemsSource="{Binding WorkflowGuideChecks}">
                             <ItemsControl.ItemTemplate>
@@ -213,7 +213,7 @@
                                                        FontWeight="Bold"
                                                        Foreground="{StaticResource InkBrush}"
                                                        TextWrapping="Wrap" />
-                                            <Expander Header="Show detail"
+                                            <Expander Header="Detail"
                                                       Style="{StaticResource GuideExpanderStyle}">
                                                 <TextBlock Text="{Binding Detail}"
                                                            Style="{StaticResource GuideDetailStyle}"
@@ -233,7 +233,7 @@
                     <StackPanel>
                         <TextBlock Text="Pinned Device Profile"
                                    Style="{StaticResource GuideSectionTitleStyle}" />
-                        <Expander Header="Show pinned values"
+                        <Expander Header="Detail"
                                   Style="{StaticResource GuideExpanderStyle}">
                             <ItemsControl ItemsSource="{Binding DeviceProfileRows}"
                                           Margin="0,8,0,0">
@@ -327,7 +327,7 @@
                                            Visibility="{Binding HasControllerCalibrationQualityCause, Converter={StaticResource BoolToVisibility}}" />
                             </StackPanel>
                         </Border>
-                        <Expander Header="Show calibration detail"
+                        <Expander Header="Detail"
                                   Style="{StaticResource GuideExpanderStyle}">
                             <StackPanel Margin="0,8,0,0">
                                 <TextBlock Text="{Binding ControllerSummary}"
@@ -364,10 +364,16 @@
                     <Border Grid.Column="0"
                             Style="{StaticResource GuidePanelStyle}">
                         <StackPanel>
-                            <TextBlock Text="Do This Now"
+                            <TextBlock Text="Next Action"
                                        Style="{StaticResource GuideSectionTitleStyle}" />
-                            <TextBlock Text="Only the controls relevant to this step stay visible here. Manual-only steps will show no app button."
-                                       Style="{StaticResource GuideDetailStyle}" />
+                            <TextBlock Text="{Binding WorkflowGuideNextActionSummary}"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource InkBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding WorkflowGuideNextActionDetail}"
+                                       Style="{StaticResource GuideDetailStyle}"
+                                       Margin="0,6,0,0" />
                             <ItemsControl ItemsSource="{Binding WorkflowGuideActions}"
                                           Margin="0,10,0,0">
                                 <ItemsControl.ItemsPanel>
@@ -392,14 +398,14 @@
                             Background="{Binding WorkflowGuideActionLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                             BorderBrush="{Binding WorkflowGuideActionLevel, Converter={StaticResource OutcomeKindToBrush}}">
                         <StackPanel>
-                            <TextBlock Text="Action Feedback"
+                            <TextBlock Text="Latest Feedback"
                                        Style="{StaticResource GuideSectionTitleStyle}" />
                             <TextBlock Text="{Binding WorkflowGuideActionSummary}"
                                        FontSize="20"
                                        FontWeight="Bold"
                                        Foreground="{StaticResource InkBrush}"
                                        TextWrapping="Wrap" />
-                            <Expander Header="Show action detail"
+                            <Expander Header="Detail"
                                       Style="{StaticResource GuideExpanderStyle}">
                                 <TextBlock Text="{Binding WorkflowGuideActionDetail}"
                                            Style="{StaticResource GuideDetailStyle}"
@@ -429,7 +435,7 @@
                                        FontWeight="Bold"
                                        Foreground="{StaticResource InkBrush}"
                                        TextWrapping="Wrap" />
-                            <Expander Header="Show screenshot detail"
+                            <Expander Header="Detail"
                                       Style="{StaticResource GuideExpanderStyle}">
                                 <StackPanel Margin="0,8,0,0">
                                     <TextBlock Text="{Binding WorkflowGuideQuestScreenshotDetail}"
@@ -494,7 +500,7 @@
                                     Command="{Binding RunWorkflowValidationCaptureCommand}"
                                     IsEnabled="{Binding CanRunWorkflowValidationCapture}" />
                         </WrapPanel>
-                        <Expander Header="Show participant detail"
+                        <Expander Header="Detail"
                                   Style="{StaticResource GuideExpanderStyle}">
                             <StackPanel Margin="0,8,0,0">
                                 <TextBlock Text="{Binding ParticipantEntryDetail}"
@@ -623,7 +629,7 @@
                                     IsEnabled="{Binding CanOpenValidationCaptureDevicePullFolder}" />
                         </WrapPanel>
 
-                        <Expander Header="Show capture detail and paths"
+                        <Expander Header="Detail + Paths"
                                   Style="{StaticResource GuideExpanderStyle}">
                             <StackPanel Margin="0,8,0,0">
                                 <TextBlock Text="{Binding ValidationCaptureDetail}"
@@ -657,7 +663,7 @@
                             </StackPanel>
                         </Expander>
 
-                        <Expander Header="Show quick telemetry plots"
+                        <Expander Header="Quick Plots"
                                   Style="{StaticResource GuideExpanderStyle}">
                             <Grid Margin="0,10,0,0">
                                 <Grid.ColumnDefinitions>

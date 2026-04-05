@@ -19,7 +19,7 @@ public sealed class SussexVisualTuningCompilerTests
         Assert.Equal(SussexVisualTuningCompiler.ExpectedSchemaVersion, document.SchemaVersion);
         Assert.Equal(SussexVisualTuningCompiler.ExpectedDocumentKind, document.DocumentKind);
         Assert.Equal(SussexVisualTuningCompiler.ExpectedPackageId, document.PackageId);
-        Assert.Equal(13, document.Controls.Count);
+        Assert.Equal(15, document.Controls.Count);
     }
 
     [Fact]
@@ -30,6 +30,8 @@ public sealed class SussexVisualTuningCompilerTests
         var root = JsonNode.Parse(templateJson)!.AsObject();
         var controls = root["controls"]!.AsObject();
         controls.Remove("sphere_deformation_enabled");
+        controls.Remove("oblateness_by_radius_min");
+        controls.Remove("oblateness_by_radius_max");
         controls.Remove("depth_wave_min");
         controls.Remove("depth_wave_max");
         controls.Remove("orbit_distance_min");
@@ -37,8 +39,10 @@ public sealed class SussexVisualTuningCompilerTests
 
         var document = compiler.Parse(root.ToJsonString(new() { WriteIndented = true }));
 
-        Assert.Equal(13, document.Controls.Count);
+        Assert.Equal(15, document.Controls.Count);
         Assert.Contains(document.Controls, control => control.Id == "sphere_deformation_enabled");
+        Assert.Contains(document.Controls, control => control.Id == "oblateness_by_radius_min");
+        Assert.Contains(document.Controls, control => control.Id == "oblateness_by_radius_max");
         Assert.Contains(document.Controls, control => control.Id == "depth_wave_max");
         Assert.Contains(document.Controls, control => control.Id == "orbit_distance_max");
     }
@@ -116,6 +120,8 @@ public sealed class SussexVisualTuningCompilerTests
             new Dictionary<string, double>(compiler.TemplateDocument.ControlValues, StringComparer.OrdinalIgnoreCase)
             {
                 ["sphere_deformation_enabled"] = 0,
+                ["oblateness_by_radius_min"] = 0.2,
+                ["oblateness_by_radius_max"] = 0.6,
                 ["particle_size_min"] = 0.055,
                 ["particle_size_max"] = 0.145,
                 ["depth_wave_min"] = 0.02,
@@ -129,6 +135,7 @@ public sealed class SussexVisualTuningCompilerTests
         var compiled = compiler.Compile(document);
 
         Assert.Contains("\"UseSphereDeformation\":false", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
+        Assert.Contains("\"OblatenessByRadiusCurveLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.Contains("\"ParticleSizeEnvelopeLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.Contains("\"DepthWavePercentLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.Contains("\"TransparencyLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
@@ -163,6 +170,7 @@ public sealed class SussexVisualTuningCompilerTests
         var compiler = new SussexVisualTuningCompiler(LoadTemplateJson());
         var requested = new Dictionary<string, double>(compiler.TemplateDocument.ControlValues, StringComparer.OrdinalIgnoreCase)
         {
+            ["oblateness_by_radius_max"] = 0.6,
             ["particle_size_min"] = 0.05
         };
         var applyRecord = new SussexVisualProfileApplyRecord(
@@ -175,6 +183,7 @@ public sealed class SussexVisualTuningCompilerTests
             null);
         const string reportedJson = """
             {
+              "OblatenessByRadiusCurveLimits": { "x": 0.25, "y": 0.6 },
               "ParticleSizeEnvelopeLimits": { "x": 0.05, "y": 0.115 },
               "TransparencyLimits": { "x": 0.2, "y": 1.0 },
               "GlobalSaturationLimits": { "x": 0.3, "y": 1.0 }
@@ -275,8 +284,26 @@ public sealed class SussexVisualTuningCompilerTests
 
         var values = compiler.ExtractRuntimeValues("\0not-json");
 
-        Assert.Equal(13, values.Count);
+        Assert.Equal(15, values.Count);
         Assert.All(values.Values, value => Assert.Null(value));
+    }
+
+    [Fact]
+    public void Extract_runtime_values_includes_oblateness_limits()
+    {
+        var compiler = new SussexVisualTuningCompiler(LoadTemplateJson());
+
+        var values = compiler.ExtractRuntimeValues("""
+            {
+              "UseSphereDeformation": true,
+              "OblatenessByRadiusCurveLimits": { "x": 0.25, "y": 0.5 }
+            }
+            """);
+
+        Assert.NotNull(values["oblateness_by_radius_min"]);
+        Assert.NotNull(values["oblateness_by_radius_max"]);
+        Assert.Equal(0.25, values["oblateness_by_radius_min"]!.Value, 3);
+        Assert.Equal(0.5, values["oblateness_by_radius_max"]!.Value, 3);
     }
 
     [Fact]

@@ -211,6 +211,48 @@ internal static class SussexControllerBreathingCurrentDocumentResolver
     }
 }
 
+internal static class SussexControllerBreathingComparisonRowBuilder
+{
+    public static IReadOnlyList<SussexControllerBreathingComparisonRow> Build(
+        SussexControllerBreathingTuningCompiler compiler,
+        IEnumerable<SussexControllerBreathingProfileFieldViewModel> fields,
+        SussexControllerBreathingTuningDocument? compareDocument = null)
+    {
+        ArgumentNullException.ThrowIfNull(compiler);
+        ArgumentNullException.ThrowIfNull(fields);
+
+        var selectedValues = fields.ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase);
+        var compareValues = compareDocument?.ControlValues;
+        var rows = new List<SussexControllerBreathingComparisonRow>(compiler.TemplateDocument.Controls.Count);
+
+        foreach (var templateControl in compiler.TemplateDocument.Controls)
+        {
+            var selectedValue = selectedValues.TryGetValue(templateControl.Id, out var currentValue)
+                ? currentValue
+                : templateControl.Value;
+            double? compareValue = null;
+            if (compareValues is not null &&
+                compareValues.TryGetValue(templateControl.Id, out var startupValue))
+            {
+                compareValue = startupValue;
+            }
+
+            rows.Add(new SussexControllerBreathingComparisonRow(
+                templateControl.Id,
+                templateControl.Group,
+                templateControl.Label,
+                templateControl.Type,
+                templateControl.BaselineValue,
+                selectedValue,
+                compareValue,
+                selectedValue - templateControl.BaselineValue,
+                compareValue is null ? null : selectedValue - compareValue.Value));
+        }
+
+        return rows;
+    }
+}
+
 public sealed class SussexControllerBreathingProfileListItemViewModel : ObservableObject
 {
     private SussexControllerBreathingProfileRecord _record;

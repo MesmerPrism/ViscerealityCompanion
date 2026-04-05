@@ -7,7 +7,7 @@
     "baselineRuntimeConfigAssetPath": "Assets/Configs/SussexStudyConfig.asset",
     "notes": [
       "This is an experimenter-facing Sussex visual profile.",
-      "The companion compiles only the approved visual envelope values into showcase_active_runtime_config_json before upload.",
+      "The companion compiles only the approved visual envelope and deformation-limit values into showcase_active_runtime_config_json before upload.",
       "Coupling, drivers, splines, cycle multipliers, routing, and scene topology stay locked."
     ]
   },
@@ -15,11 +15,13 @@
     "name": "Sussex Baseline Visual Profile",
     "notes": ""
   },
-  "intent": "Adjust only the approved Sussex visual envelope minimum and maximum values while leaving coupling and all non-visual runtime behavior unchanged.",
+  "intent": "Adjust only the approved Sussex visual envelope minimum and maximum values plus the approved oblateness endpoint limits while leaving coupling and all non-visual runtime behavior unchanged.",
   "llmEditingRules": {
     "editOnlyPaths": [
       "profile.name",
       "profile.notes",
+      "controls.oblateness_by_radius_min.value",
+      "controls.oblateness_by_radius_max.value",
       "controls.particle_size_min.value",
       "controls.particle_size_max.value",
       "controls.transparency_min.value",
@@ -50,7 +52,7 @@
     ]
   },
   "systemDynamics": {
-    "summary": "These controls are visual envelope bounds. The Sussex runtime uses the existing oscillator-phase drivers and existing envelope curves, then interpolates between the min and max values below. This file does not edit those curves or the driver wiring."
+    "summary": "These controls are visual envelope bounds plus approved sphere-deformation oblateness endpoint values. The Sussex runtime uses the existing oscillator-phase drivers and existing envelope curves, then interpolates between the min and max values below. This file does not edit those curves or the driver wiring."
   },
   "lockedBaselineAssumptions": {
     "size": {
@@ -100,6 +102,58 @@
         "tradeoffs": [
           "Turning deformation off reduces one of the strongest shape cues in the Sussex scene.",
           "Turning deformation on keeps the intended Sussex shell geometry active."
+        ]
+      }
+    },
+    "oblateness_by_radius_min": {
+      "id": "oblateness_by_radius_min",
+      "label": "Oblateness Minimum",
+      "editable": true,
+      "value": 0.25,
+      "baselineValue": 0.25,
+      "type": "float",
+      "units": "deformation_scalar_0_to_1",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.OblatenessByRadiusCurveLimits.x",
+        "compiledUnityJsonField": "OblatenessByRadiusCurveLimits.x"
+      },
+      "info": {
+        "effect": "Controls the lowest oblateness value reached across the normalized sphere-deformation curve.",
+        "increaseLooksLike": "The low-radius state keeps more perpendicular width instead of collapsing inward as much.",
+        "decreaseLooksLike": "The low-radius state becomes more pinched and elongated along the deformation axis.",
+        "tradeoffs": [
+          "Higher values make the shell feel rounder and calmer at the low end of the radius cycle.",
+          "Very low values can make the trough state look overly squeezed or stylized."
+        ]
+      }
+    },
+    "oblateness_by_radius_max": {
+      "id": "oblateness_by_radius_max",
+      "label": "Oblateness Maximum",
+      "editable": true,
+      "value": 0.5,
+      "baselineValue": 0.5,
+      "type": "float",
+      "units": "deformation_scalar_0_to_1",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.OblatenessByRadiusCurveLimits.y",
+        "compiledUnityJsonField": "OblatenessByRadiusCurveLimits.y"
+      },
+      "info": {
+        "effect": "Controls the highest oblateness value reached across the normalized sphere-deformation curve.",
+        "increaseLooksLike": "The high-radius state keeps more perpendicular width and reads as rounder for the fixed Sussex axis profile.",
+        "decreaseLooksLike": "The expanded state stays more pinched and stretched along the deformation axis.",
+        "tradeoffs": [
+          "Higher values reduce the apparent stretch at the top of the radius cycle.",
+          "Very low values can make the shell look unnaturally narrow even when fully expanded."
         ]
       }
     },
