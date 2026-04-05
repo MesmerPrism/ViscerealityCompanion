@@ -40,7 +40,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly string[] QuestScreenshotRuntimeCaptureMethods = ["screencap", "metacam"];
     private const int WorkflowGuideValidationCaptureDurationSeconds = 20;
     private const int WorkflowClockAlignmentDurationSeconds = SussexClockAlignmentStreamContract.DefaultDurationSeconds;
-    private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = 10;
+    private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds;
     private static readonly TimeSpan WorkflowClockAlignmentSparseProbeDuration = TimeSpan.FromSeconds(2.5);
     private static readonly TimeSpan WorkflowClockAlignmentRunSafetyMargin = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan WorkflowClockAlignmentStopTimeout = TimeSpan.FromSeconds(8);
@@ -239,7 +239,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _controllerCalibrationQualityLevel = OperationOutcomeKind.Preview;
     private string _controllerCalibrationQualityBadge = "Calibration quality n/a";
     private string _controllerCalibrationQualitySummary = "Quality guidance will appear during controller validation.";
-    private string _controllerCalibrationQualityMetrics = "Progress n/a · Accepted n/a · Acceptance n/a";
+    private string _controllerCalibrationQualityMetrics = "Progress n/a · Observed n/a · Accepted n/a · Rejected n/a · Target n/a · Acceptance n/a";
     private string _controllerCalibrationQualityCause = string.Empty;
     private string _controllerCalibrationQualityDetail = "Raw validation counters stay hidden until you expand details.";
     private int? _controllerValidationLastObservedFrames;
@@ -371,7 +371,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         _study = study;
         _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
-        _appSessionState = AppSessionState.Load();
+        var loadedSessionState = AppSessionState.Load();
+        _appSessionState = NormalizeStartupSessionState(loadedSessionState, out var clearedPersistedRegularSnapshots);
+        if (clearedPersistedRegularSnapshots)
+        {
+            _appSessionState.Save();
+        }
+
         _studySessionState = StudyShellSessionState.Load();
         _regularAdbSnapshotEnabled = _appSessionState.RegularAdbSnapshotEnabled;
         _questService = QuestControlServiceFactory.CreateDefault(_appSessionState.ActiveEndpoint);
@@ -1203,6 +1209,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public bool WorkflowGuideShowsQuestScreenshotVerification => WorkflowGuideStepIndex == 9;
 
     public bool WorkflowGuideShowsValidationCaptureState => WorkflowGuideStepIndex == 11;
+
+    public string ValidationCaptureActionSummary
+        => BuildValidationCaptureActionSummary();
 
     public string ValidationCaptureSummary
     {
@@ -4221,8 +4230,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? OperationOutcomeKind.Warning
             : OperationOutcomeKind.Success;
         HeadsetSnapshotModeSummary = RegularAdbSnapshotEnabled
-            ? $"Regular ADB readouts are on. Useful for debugging, but they add headset-query overhead during a live run. {AutomaticInstalledBuildHashingDetail}"
-            : "Regular ADB readouts are off. Use Refresh Snapshot when you want a fresh device state.";
+            ? $"Regular ADB readouts are on for this session. Useful for debugging, but they add headset-query overhead during a live run. {AutomaticInstalledBuildHashingDetail}"
+            : "Regular ADB readouts are off. Use Refresh Snapshot when you want a fresh device state. Automatic snapshot polling stays off after relaunch until you enable it again.";
         DeviceSnapshotTimestampLabel = _lastDeviceSnapshotAtUtc.HasValue
             ? $"Last headset snapshot {_lastDeviceSnapshotAtUtc.Value.ToLocalTime():HH:mm:ss}."
             : "No headset snapshot received yet.";
@@ -5719,9 +5728,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         try
         {
+            var interval = TimeSpan.FromSeconds(WorkflowClockAlignmentBackgroundProbeIntervalSeconds);
+            var nextProbeDueAtUtc = DateTimeOffset.UtcNow + interval;
             while (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(TimeSpan.FromSeconds(WorkflowClockAlignmentBackgroundProbeIntervalSeconds), cancellationToken).ConfigureAwait(false);
+                var delay = nextProbeDueAtUtc - DateTimeOffset.UtcNow;
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                }
+
                 if (cancellationToken.IsCancellationRequested)
                 {
                     break;
@@ -5740,6 +5756,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     BuildRecorderEventDetail(outcome),
                     null,
                     outcome.Kind.ToString());
+                nextProbeDueAtUtc += interval;
             }
         }
         catch (OperationCanceledException)
@@ -5914,12 +5931,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException) when (alignmentCts.IsCancellationRequested)
         {
-            var timeoutOutcome = new OperationOutcome(
-                OperationOutcomeKind.Warning,
-                $"{windowLabel} timed out.",
-                cancellationToken.IsCancellationRequested
-                    ? $"{windowLabel} was canceled while the companion was stopping the background timing probe."
-                    : $"{windowLabel} did not finish within {timeout.TotalSeconds:0} seconds, so the companion continued without waiting forever.");
+            var timeoutOutcome = windowKind == StudyClockAlignmentWindowKind.BackgroundSparse && cancellationToken.IsCancellationRequested
+                ? new OperationOutcome(
+                    OperationOutcomeKind.Preview,
+                    "Background drift probe stopped for wrap-up.",
+                    "The current sparse background probe was interrupted because the companion was starting the end burst. Earlier completed background drift results remain valid for this run.")
+                : new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    $"{windowLabel} timed out.",
+                    cancellationToken.IsCancellationRequested
+                        ? $"{windowLabel} was canceled while the companion was stopping the background timing probe."
+                        : $"{windowLabel} did not finish within {timeout.TotalSeconds:0} seconds, so the companion continued without waiting forever.");
             if (updateUi)
             {
                 await DispatchAsync(() =>
@@ -6454,6 +6476,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(WorkflowGuideShowsCalibrationTelemetry));
         OnPropertyChanged(nameof(WorkflowGuideShowsQuestScreenshotVerification));
         OnPropertyChanged(nameof(WorkflowGuideShowsValidationCaptureState));
+        OnPropertyChanged(nameof(ValidationCaptureActionSummary));
         OnPropertyChanged(nameof(CanOpenWorkflowGuideQuestScreenshot));
         OnPropertyChanged(nameof(CanRunWorkflowValidationCapture));
     }
@@ -6934,6 +6957,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 _validationClockAlignmentEndDetail = detail;
                 break;
             default:
+                if (level == OperationOutcomeKind.Preview && _validationClockAlignmentBackgroundProbeObserved)
+                {
+                    break;
+                }
+
                 _validationClockAlignmentBackgroundProbeObserved = level != OperationOutcomeKind.Preview
                     || _validationClockAlignmentBackgroundProbeObserved;
                 _validationClockAlignmentBackgroundLevel = level;
@@ -8148,7 +8176,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 Level: OperationOutcomeKind.Preview,
                 Badge: "Calibration quality n/a",
                 Summary: "Quality guidance will appear during controller validation.",
-                Metrics: "Progress n/a · Accepted n/a · Acceptance n/a",
+                Metrics: "Progress n/a · Observed n/a · Accepted n/a · Rejected n/a · Target n/a · Acceptance n/a",
                 Cause: string.Empty,
                 Detail: "Raw validation counters stay hidden until you expand details.");
         }
@@ -8159,6 +8187,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : null);
         var estimatedTargetFrames = EstimateControllerValidationTargetFrames(validationFramesAccepted, validationProgress, calibrated == true);
         var stalled = UpdateControllerCalibrationStallTracking(validating == true, validationFramesObserved, validationFramesAccepted);
+        var acceptedFrames = validationFramesAccepted.GetValueOrDefault();
+        var rejectedFrames = validationFramesRejected.GetValueOrDefault();
         var badTrackingRejects = validationFramesRejectedBadTracking.GetValueOrDefault();
         var lowMotionRejects = validationFramesRejectedLowMotion.GetValueOrDefault();
         var knownRejectBreakdown = badTrackingRejects + lowMotionRejects;
@@ -8166,6 +8196,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var lowMotionDominant = knownRejectBreakdown > 0 && lowMotionRejects > badTrackingRejects && lowMotionRejects >= Math.Ceiling(knownRejectBreakdown * 0.55);
         var lowAcceptance = effectiveAcceptance is <= 0.35d;
         var middlingAcceptance = effectiveAcceptance is > 0.35d and < 0.65d;
+        var acceptedTargetReached = estimatedTargetFrames is int estimatedTarget
+            ? acceptedFrames >= estimatedTarget
+            : acceptedFrames > 0;
+        var completedWithHealthyMargin =
+            calibrated == true
+            && acceptedTargetReached
+            && effectiveAcceptance is null or >= 0.65d;
 
         var level = OperationOutcomeKind.Success;
         var badge = "Good";
@@ -8183,17 +8220,37 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
         else if (badTrackingDominant || lowAcceptance || ContainsCalibrationKeyword(failureReason, "tracking"))
         {
-            level = OperationOutcomeKind.Failure;
-            badge = "Poor";
-            summary = "Tracking unstable";
-            cause = "Many frames rejected by tracking";
+            if (completedWithHealthyMargin)
+            {
+                level = OperationOutcomeKind.Warning;
+                badge = "Accepted";
+                summary = "Calibration completed, but tracking was noisy";
+                cause = "Target reached, but tracking rejects were still high enough to reduce confidence";
+            }
+            else
+            {
+                level = OperationOutcomeKind.Failure;
+                badge = "Poor";
+                summary = "Tracking unstable";
+                cause = "Many frames were rejected by tracking";
+            }
         }
         else if (lowMotionDominant || middlingAcceptance || ContainsCalibrationKeyword(failureReason, "motion", "movement"))
         {
-            level = OperationOutcomeKind.Warning;
-            badge = "Degraded";
-            summary = "Movement too small";
-            cause = "Many frames rejected for low movement";
+            if (completedWithHealthyMargin && !middlingAcceptance)
+            {
+                level = OperationOutcomeKind.Success;
+                badge = "Accepted";
+                summary = "Calibration completed with a narrow movement margin";
+                cause = "Target reached; most rejected frames were low-motion rather than tracking loss";
+            }
+            else
+            {
+                level = OperationOutcomeKind.Warning;
+                badge = "Needs broader motion";
+                summary = "Movement range was too small";
+                cause = "Many frames were rejected because the controller motion stayed too small";
+            }
         }
 
         var progressLabel = calibrated == true && validationProgress is null
@@ -8203,18 +8260,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : "n/a";
         var acceptedLabel = validationFramesAccepted?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
         var targetLabel = estimatedTargetFrames?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
+        var observedLabel = validationFramesObserved?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
+        var rejectedLabel = validationFramesRejected?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
         var acceptanceLabel = effectiveAcceptance.HasValue
             ? $"{effectiveAcceptance.Value * 100d:0}%"
             : "n/a";
-        var metrics = $"Progress {progressLabel} · Accepted {acceptedLabel} / {targetLabel} · Acceptance {acceptanceLabel}";
+        var metrics = $"Progress {progressLabel} · Observed {observedLabel} · Accepted {acceptedLabel} · Rejected {rejectedLabel} · Target {targetLabel} · Acceptance {acceptanceLabel}";
 
-        var rawRejectedLabel = validationFramesRejected?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
         var detailParts = new List<string>
         {
             $"Axis {(string.IsNullOrWhiteSpace(validationAxisMode) ? "n/a" : validationAxisMode)}.",
             $"Observed {FormatControllerValidationCount(validationFramesObserved)}.",
             $"Accepted {FormatControllerValidationCount(validationFramesAccepted)}.",
-            $"Rejected {rawRejectedLabel} (tracking {FormatControllerValidationCount(validationFramesRejectedBadTracking)}, low motion {FormatControllerValidationCount(validationFramesRejectedLowMotion)})."
+            $"Rejected {rejectedFrames.ToString(CultureInfo.InvariantCulture)} (tracking {FormatControllerValidationCount(validationFramesRejectedBadTracking)}, low motion {FormatControllerValidationCount(validationFramesRejectedLowMotion)})."
         };
         if (!string.IsNullOrWhiteSpace(failureReason))
         {
@@ -8229,6 +8287,51 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             Metrics: metrics,
             Cause: cause,
             Detail: string.Join(" ", detailParts));
+    }
+
+    private string BuildValidationCaptureActionSummary()
+    {
+        if (ValidationCaptureRunning)
+        {
+            return "Validation capture is already running. Watch the timing card below for the live burst and recording progress.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(_recorderFaultDetail))
+        {
+            return "Validation capture is blocked by the current recorder fault. Clear the earlier failure before starting another run.";
+        }
+
+        if (string.IsNullOrWhiteSpace(ParticipantIdDraft))
+        {
+            return "Enter a temporary subject id first. The button stays disabled until the capture has a participant label.";
+        }
+
+        if (!CanStartExperiment || !CanEndExperiment)
+        {
+            return "This Sussex shell is missing the Start or End Experiment command, so the guided validation capture cannot run from here.";
+        }
+
+        if (!IsStudyRuntimeForeground())
+        {
+            return "Bring the Sussex runtime back to the foreground before starting the validation capture.";
+        }
+
+        if (_participantRunStopping)
+        {
+            return "Wait for the current participant run to finish closing before starting another validation capture.";
+        }
+
+        if (ClockAlignmentRunning)
+        {
+            return "Wait for the current clock-alignment burst to finish before starting another validation capture.";
+        }
+
+        if (ValidationCaptureCompleted)
+        {
+            return "The guide is ready to run another 20 second validation capture with the subject id shown above.";
+        }
+
+        return "The guide is ready to run the 20 second validation capture from this card.";
     }
 
     private bool UpdateControllerCalibrationStallTracking(bool validating, int? observedFrames, int? acceptedFrames)
@@ -9918,6 +10021,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         return true;
+    }
+
+    internal static AppSessionState NormalizeStartupSessionState(
+        AppSessionState sessionState,
+        out bool clearedPersistedRegularSnapshots)
+    {
+        ArgumentNullException.ThrowIfNull(sessionState);
+
+        if (!sessionState.RegularAdbSnapshotEnabled)
+        {
+            clearedPersistedRegularSnapshots = false;
+            return sessionState;
+        }
+
+        // Regular snapshot polling is a bench-only debug mode. Auto-restoring it can
+        // trap the locked startup study shell in a failing launch loop before the
+        // operator can reach the toggle again, so require an explicit opt-in each run.
+        clearedPersistedRegularSnapshots = true;
+        return sessionState.WithRegularAdbSnapshotEnabled(false);
     }
 
     private static bool HasConfirmationMoved(StudyTwinCommandRequest request, StudyTwinCommandConfirmation confirmation)

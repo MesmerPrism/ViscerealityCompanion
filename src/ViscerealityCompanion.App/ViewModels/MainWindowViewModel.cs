@@ -1329,6 +1329,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
             if (catalog.LaunchOptions.LockToStartupStudy && startupStudy is not null)
             {
+                ResetPersistedStudyShellStartupState();
                 await ActivateStudyModeAsync(startupStudy).ConfigureAwait(false);
                 _startupStudyAutoOpened = true;
                 return;
@@ -1336,6 +1337,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
             if (startupStudy is not null && !_startupStudyAutoOpened)
             {
+                ResetPersistedStudyShellStartupState();
                 await ActivateStudyModeAsync(startupStudy).ConfigureAwait(false);
                 _startupStudyAutoOpened = true;
                 return;
@@ -3192,6 +3194,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private static string ResolveCatalogRoot()
         => AppAssetLocator.ResolveQuestSessionKitRoot();
+
+    private static void ResetPersistedStudyShellStartupState()
+    {
+        var loadedSessionState = AppSessionState.Load();
+        var normalizedSessionState = StudyShellViewModel.NormalizeStartupSessionState(
+            loadedSessionState,
+            out var clearedPersistedRegularSnapshots);
+
+        if (clearedPersistedRegularSnapshots)
+        {
+            normalizedSessionState.Save();
+        }
+    }
 
     private string? ResolveApkPathForTarget(QuestAppTarget target)
     {

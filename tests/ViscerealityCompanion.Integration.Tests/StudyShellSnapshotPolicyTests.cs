@@ -1,3 +1,4 @@
+using ViscerealityCompanion.App;
 using ViscerealityCompanion.App.ViewModels;
 using ViscerealityCompanion.Core.Models;
 
@@ -5,6 +6,27 @@ namespace ViscerealityCompanion.Integration.Tests;
 
 public sealed class StudyShellSnapshotPolicyTests
 {
+    [Fact]
+    public void NormalizeStartupSessionState_ClearsPersistedRegularAdbSnapshots()
+    {
+        var sessionState = new AppSessionState(
+            ActiveEndpoint: "192.168.2.56:5555",
+            LastUsbSerial: "usb",
+            LastProximitySelector: "192.168.2.56:5555",
+            LastProximityExpectedEnabled: false,
+            LastProximityDisableUntilUtc: DateTimeOffset.UtcNow,
+            LastProximityUpdatedAtUtc: DateTimeOffset.UtcNow,
+            RegularAdbSnapshotEnabled: true);
+
+        var normalized = StudyShellViewModel.NormalizeStartupSessionState(
+            sessionState,
+            out var clearedPersistedRegularSnapshots);
+
+        Assert.True(clearedPersistedRegularSnapshots);
+        Assert.False(normalized.RegularAdbSnapshotEnabled);
+        Assert.Equal(sessionState.ActiveEndpoint, normalized.ActiveEndpoint);
+    }
+
     [Fact]
     public void ShouldRefreshInstalledAppStatusForSnapshot_RefreshesWhenForced()
     {

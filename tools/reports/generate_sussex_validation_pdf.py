@@ -48,6 +48,7 @@ class PlotSpec:
 
 @dataclass(frozen=True)
 class ClockAlignmentSample:
+    window_kind: str
     probe_sequence: int
     probe_sent_at_utc: float
     echo_received_at_utc: float
@@ -236,6 +237,7 @@ def read_clock_alignment(path: Path) -> list[ClockAlignmentSample]:
 
             samples.append(
                 ClockAlignmentSample(
+                    window_kind=row.get("window_kind", "").strip(),
                     probe_sequence=probe_sequence,
                     probe_sent_at_utc=probe_sent_at_utc,
                     echo_received_at_utc=echo_received_at_utc,
@@ -521,17 +523,24 @@ def build_cover_page(
     except ValueError:
         expected_probes = 0
 
-    if clock_samples:
-        roundtrips = [sample.roundtrip_ms for sample in clock_samples]
-        offsets = [sample.quest_minus_windows_clock_seconds for sample in clock_samples]
-        coverage = f"{len(clock_samples)} echoed"
+    start_burst_samples = [sample for sample in clock_samples if sample.window_kind == "StartBurst"]
+    burst_samples = start_burst_samples or clock_samples
+
+    if burst_samples:
+        roundtrips = [sample.roundtrip_ms for sample in burst_samples]
+        offsets = [sample.quest_minus_windows_clock_seconds for sample in burst_samples]
+        coverage = f"{len(burst_samples)} echoed"
         if expected_probes > 0:
-            coverage = f"{len(clock_samples)} echoed / {expected_probes} sent"
+            coverage = f"{len(burst_samples)} echoed / {expected_probes} sent"
         alignment_lines = [
             f"Round-trip mean {statistics.mean(roundtrips):.1f} ms, median {statistics.median(roundtrips):.1f} ms",
             f"Clock-origin offset {statistics.median(offsets):.3f} s",
             coverage,
         ]
+        if start_burst_samples and len(start_burst_samples) != len(clock_samples):
+            background_count = sum(1 for sample in clock_samples if sample.window_kind == "BackgroundSparse")
+            end_count = sum(1 for sample in clock_samples if sample.window_kind == "EndBurst")
+            alignment_lines.append(f"Background echoes {background_count}, end burst echoes {end_count}")
     else:
         alignment_lines = ["Clock alignment file missing or empty.", "No RTT/offset estimates available."]
 
@@ -708,12 +717,14 @@ def build_clock_alignment_page(pdf: PdfPages, clock_samples: list[ClockAlignment
     figure.text(
         0.07,
         0.848,
-        "Early high-RTT probes reflect stream warm-up; the offset estimate uses the lowest-latency quartile.",
+        "Early high-RTT probes usually reflect fresh probe-stream startup; the offset estimate uses the lowest-latency quartile.",
         color=COLORS["muted"],
         fontsize=9.4,
     )
 
-    if not clock_samples:
+    page_samples = [sample for sample in clock_samples if sample.window_kind == "StartBurst"] or clock_samples
+
+    if not page_samples:
         for axis in axes:
             axis.set_facecolor(COLORS["panel_alt"])
             axis.axis("off")
@@ -722,12 +733,12 @@ def build_clock_alignment_page(pdf: PdfPages, clock_samples: list[ClockAlignment
         plt.close(figure)
         return
 
-    probe_ids = [sample.probe_sequence for sample in clock_samples]
-    roundtrips = [sample.roundtrip_ms for sample in clock_samples]
-    offsets_seconds = [sample.quest_minus_windows_clock_seconds for sample in clock_samples]
+    probe_ids = [sample.probe_sequence for sample in page_samples]
+    roundtrips = [sample.roundtrip_ms for sample in page_samples]
+    offsets_seconds = [sample.quest_minus_windows_clock_seconds for sample in page_samples]
     median_offset = statistics.median(offsets_seconds)
     offset_residual_ms = [(value - median_offset) * 1000.0 for value in offsets_seconds]
-    turnarounds = [sample.quest_turnaround_ms for sample in clock_samples]
+    turnarounds = [sample.quest_turnaround_ms for sample in page_samples]
     histogram_bins = min(12, max(4, math.ceil(math.sqrt(len(roundtrips)))))
 
     apply_axis_style(axes[0], "Round-trip latency", "ms", "Probe echo return time")
@@ -772,7 +783,7 @@ def build_clock_alignment_page(pdf: PdfPages, clock_samples: list[ClockAlignment
         expected_probes = 0
 
     summary = (
-        f"Echo coverage {len(clock_samples)}"
+        f"Echo coverage {len(page_samples)}"
         + (f" / {expected_probes}" if expected_probes > 0 else "")
         + f" | RTT mean {statistics.mean(roundtrips):.1f} ms"
         + f" | RTT span {min(roundtrips):.1f} to {max(roundtrips):.1f} ms"

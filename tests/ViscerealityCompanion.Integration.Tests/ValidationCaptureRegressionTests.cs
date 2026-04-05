@@ -130,6 +130,78 @@ public sealed class ValidationCaptureRegressionTests
         Assert.Contains("Waiting for the requested breathing-driver state", viewModel.AutomaticBreathingDetail, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ControllerCalibrationQuality_UsesAcceptedStatusWhenCalibrationCompletedWithHealthyLowMotionMargin()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        var method = GetPrivateMethod("BuildControllerCalibrationQualityStatus");
+
+        var status = method.Invoke(
+            viewModel,
+            [
+                false,
+                true,
+                1d,
+                "controller_volume",
+                150,
+                120,
+                30,
+                2,
+                28,
+                0.80d,
+                "movement too small"
+            ]) ?? throw new InvalidOperationException("Calibration quality status was null.");
+
+        Assert.Equal(OperationOutcomeKind.Success, GetPropertyValue<OperationOutcomeKind>(status, "Level"));
+        Assert.Equal("Accepted", GetPropertyValue<string>(status, "Badge"));
+        Assert.Contains("narrow movement margin", GetPropertyValue<string>(status, "Summary"), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("low-motion", GetPropertyValue<string>(status, "Cause"), StringComparison.OrdinalIgnoreCase);
+
+        var metrics = GetPropertyValue<string>(status, "Metrics");
+        Assert.Contains("Observed 150", metrics, StringComparison.Ordinal);
+        Assert.Contains("Rejected 30", metrics, StringComparison.Ordinal);
+        Assert.Contains("Target 120", metrics, StringComparison.Ordinal);
+        Assert.Contains("Acceptance 80%", metrics, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidationCaptureActionSummary_ExplainsWhyTheInlineRunButtonIsDisabledWithoutSubjectId()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+
+        Assert.Contains("Enter a temporary subject id first", viewModel.ValidationCaptureActionSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidationCaptureBackgroundDriftDetail_UsesFiveSecondCadence()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        var method = GetPrivateMethod("MarkValidationClockAlignmentBackgroundArmed");
+
+        method.Invoke(viewModel, []);
+
+        var detail = GetFieldValue<string>(viewModel, "_validationClockAlignmentBackgroundDetail");
+        Assert.Contains("every 5 seconds", detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("sparse drift probe", detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidationCaptureBackgroundDriftStatus_PreservesCompletedProbeWhenWrapUpStopsLaterAttempt()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        var method = GetPrivateMethod("UpdateValidationClockAlignmentStage");
+
+        method.Invoke(
+            viewModel,
+            [StudyClockAlignmentWindowKind.BackgroundSparse, OperationOutcomeKind.Success, "Background drift completed.", "Quest echoed background probes."]);
+        method.Invoke(
+            viewModel,
+            [StudyClockAlignmentWindowKind.BackgroundSparse, OperationOutcomeKind.Preview, "Background drift stopped for wrap-up.", "The current sparse probe was interrupted."]);
+
+        Assert.Equal("Background drift completed.", GetFieldValue<string>(viewModel, "_validationClockAlignmentBackgroundSummary"));
+        Assert.Equal("Quest echoed background probes.", GetFieldValue<string>(viewModel, "_validationClockAlignmentBackgroundDetail"));
+    }
+
     private static MethodInfo GetPrivateMethod(string name)
         => typeof(StudyShellViewModel).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
            ?? throw new InvalidOperationException($"Could not find {name} on {nameof(StudyShellViewModel)}.");
@@ -139,6 +211,20 @@ public sealed class ValidationCaptureRegressionTests
         var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new InvalidOperationException($"Could not find field {fieldName}.");
         field.SetValue(target, value);
+    }
+
+    private static T GetPropertyValue<T>(object target, string propertyName)
+    {
+        var property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                       ?? throw new InvalidOperationException($"Could not find property {propertyName}.");
+        return (T)(property.GetValue(target) ?? throw new InvalidOperationException($"Property {propertyName} was null."));
+    }
+
+    private static T GetFieldValue<T>(object target, string fieldName)
+    {
+        var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException($"Could not find field {fieldName}.");
+        return (T)(field.GetValue(target) ?? throw new InvalidOperationException($"Field {fieldName} was null."));
     }
 
     private static object CreateAutomaticBreathingRequest(string requestedLabel, bool automaticModeSelected, bool automaticRunning)

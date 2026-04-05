@@ -10,6 +10,7 @@ public static class SussexClockAlignmentStreamContract
     public const int DefaultDurationSeconds = 10;
     public const int DefaultProbeIntervalMilliseconds = 250;
     public const int DefaultEchoGraceMilliseconds = 1500;
+    public const int DefaultBackgroundProbeIntervalSeconds = 5;
 }
 
 public enum StudyClockAlignmentWindowKind

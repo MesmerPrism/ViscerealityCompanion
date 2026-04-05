@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Reflection;
 using System.Windows.Forms;
 
@@ -7,21 +8,43 @@ namespace ViscerealityCompanion.PreviewInstaller;
 
 internal sealed class InstallerStatusForm : Form
 {
+    private static readonly Color AppBackgroundColor = Color.FromArgb(0, 0, 0);
+    private static readonly Color ShellBackgroundColor = Color.FromArgb(2, 6, 11);
+    private static readonly Color StatusPanelBackgroundColor = Color.FromArgb(4, 29, 41);
+    private static readonly Color StatusPanelSuccessBackgroundColor = Color.FromArgb(3, 29, 17);
+    private static readonly Color StatusPanelFailureBackgroundColor = Color.FromArgb(38, 6, 20);
+    private static readonly Color LineColor = Color.FromArgb(24, 69, 106);
+    private static readonly Color InkColor = Color.FromArgb(250, 253, 255);
+    private static readonly Color MutedColor = Color.FromArgb(208, 219, 234);
+    private static readonly Color AccentColor = Color.FromArgb(0, 232, 255);
+    private static readonly Color AccentSoftColor = Color.FromArgb(4, 29, 41);
+    private static readonly Color SuccessColor = Color.FromArgb(0, 255, 153);
+    private static readonly Color FailureColor = Color.FromArgb(255, 77, 152);
+    private static readonly Color ButtonBackgroundColor = Color.FromArgb(4, 11, 18);
+    private static readonly Color ButtonHoverColor = Color.FromArgb(14, 24, 36);
+
     private readonly Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> _installAsync;
     private readonly string _releasePageUri;
     private readonly CancellationTokenSource _cancellation = new();
+    private readonly Panel _shellPanel;
+    private readonly Panel _statusPanel;
     private readonly PictureBox _logoBox;
-    private readonly Label _eyebrowLabel;
     private readonly Label _titleLabel;
+    private readonly Label _introLabel;
     private readonly Label _summaryLabel;
     private readonly Label _detailLabel;
-    private readonly ProgressBar _progressBar;
+    private readonly Panel _progressTrack;
+    private readonly Panel _progressFill;
+    private readonly Label _progressValueLabel;
     private readonly Label _footerLabel;
     private readonly Button _openReleaseButton;
     private readonly Button _retryButton;
     private readonly Button _closeButton;
+
     private bool _started;
     private string? _lastAppInstallerPath;
+    private int _progressPercent = 5;
+    private Color _statusAccentColor = AccentColor;
 
     public InstallerStatusForm(
         Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> installAsync,
@@ -31,133 +54,206 @@ internal sealed class InstallerStatusForm : Form
         _releasePageUri = releasePageUri ?? throw new ArgumentNullException(nameof(releasePageUri));
 
         AutoScaleMode = AutoScaleMode.Dpi;
-        BackColor = Color.FromArgb(6, 10, 16);
-        ForeColor = Color.White;
-        ClientSize = new Size(760, 470);
+        BackColor = AppBackgroundColor;
+        ClientSize = new Size(760, 430);
         DoubleBuffered = true;
-        Font = new Font("Segoe UI", 10f, FontStyle.Regular, GraphicsUnit.Point);
+        Font = CreateUiFont(10.5f, FontStyle.Regular);
         FormBorderStyle = FormBorderStyle.FixedDialog;
+        ForeColor = InkColor;
         MaximizeBox = false;
         MinimizeBox = false;
-        Padding = new Padding(24);
+        Padding = new Padding(16);
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "Viscereality Companion Guided Setup";
+        Text = "Viscereality Companion Preview Setup";
 
-        var panel = new Panel
+        _shellPanel = new Panel
         {
+            BackColor = ShellBackgroundColor,
             Dock = DockStyle.Fill,
-            BackColor = Color.FromArgb(10, 16, 26),
-            Padding = new Padding(28)
+            Padding = new Padding(22, 20, 22, 20)
         };
-        panel.Paint += OnPanelPaint;
-        Controls.Add(panel);
-
-        _logoBox = new PictureBox
-        {
-            Dock = DockStyle.Top,
-            Height = 150,
-            SizeMode = PictureBoxSizeMode.Zoom,
-            Image = LoadEmbeddedLogo()
-        };
-        panel.Controls.Add(_logoBox);
-
-        _eyebrowLabel = new Label
-        {
-            Dock = DockStyle.Top,
-            AutoSize = false,
-            Height = 28,
-            ForeColor = Color.FromArgb(52, 210, 255),
-            Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold, GraphicsUnit.Point),
-            Text = "SUSSEX-FOCUSED RESEARCH PREVIEW",
-            TextAlign = ContentAlignment.MiddleLeft
-        };
-        panel.Controls.Add(_eyebrowLabel);
-
-        _titleLabel = new Label
-        {
-            Dock = DockStyle.Top,
-            AutoSize = false,
-            Height = 42,
-            Font = new Font("Segoe UI Semibold", 20f, FontStyle.Bold, GraphicsUnit.Point),
-            ForeColor = Color.White,
-            Text = "Installing Viscereality Companion",
-            TextAlign = ContentAlignment.MiddleLeft
-        };
-        panel.Controls.Add(_titleLabel);
-
-        _summaryLabel = new Label
-        {
-            Dock = DockStyle.Top,
-            AutoSize = false,
-            Height = 36,
-            Font = new Font("Segoe UI Semibold", 14f, FontStyle.Bold, GraphicsUnit.Point),
-            ForeColor = Color.White,
-            Text = "Preparing guided setup",
-            TextAlign = ContentAlignment.MiddleLeft
-        };
-        panel.Controls.Add(_summaryLabel);
-
-        _detailLabel = new Label
-        {
-            Dock = DockStyle.Top,
-            AutoSize = false,
-            Height = 72,
-            Font = new Font("Segoe UI", 11f, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.FromArgb(204, 214, 232),
-            Text = "The bootstrapper will trust the preview certificate and then open Windows App Installer for the final install step.",
-            TextAlign = ContentAlignment.TopLeft
-        };
-        panel.Controls.Add(_detailLabel);
-
-        _progressBar = new ProgressBar
-        {
-            Dock = DockStyle.Top,
-            Height = 14,
-            Style = ProgressBarStyle.Continuous,
-            Minimum = 0,
-            Maximum = 100,
-            Value = 5,
-            Margin = new Padding(0, 0, 0, 18)
-        };
-        panel.Controls.Add(_progressBar);
-
-        _footerLabel = new Label
-        {
-            Dock = DockStyle.Top,
-            AutoSize = false,
-            Height = 60,
-            Font = new Font("Segoe UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point),
-            ForeColor = Color.FromArgb(148, 166, 196),
-            Text = "After this window opens Windows App Installer, confirm the update there. This bootstrapper only stages the certificate and package metadata.",
-            TextAlign = ContentAlignment.TopLeft
-        };
-        panel.Controls.Add(_footerLabel);
+        _shellPanel.Paint += (_, e) => DrawPanelBorder(e.Graphics, _shellPanel.ClientRectangle, LineColor);
+        Controls.Add(_shellPanel);
 
         var buttonRow = new FlowLayoutPanel
         {
-            Dock = DockStyle.Bottom,
             AutoSize = false,
-            Height = 46,
+            BackColor = Color.Transparent,
+            Dock = DockStyle.Bottom,
             FlowDirection = FlowDirection.RightToLeft,
-            WrapContents = false,
-            BackColor = Color.Transparent
+            Height = 42,
+            Margin = new Padding(0),
+            WrapContents = false
         };
-        panel.Controls.Add(buttonRow);
 
-        _closeButton = BuildButton("Close", Color.FromArgb(20, 27, 40), Color.FromArgb(26, 180, 255));
+        _closeButton = BuildButton("Close", isPrimary: false, AccentColor);
         _closeButton.Click += (_, _) => Close();
         _closeButton.Visible = false;
         buttonRow.Controls.Add(_closeButton);
 
-        _retryButton = BuildButton("Open App Installer Again", Color.FromArgb(20, 27, 40), Color.FromArgb(26, 180, 255));
+        _retryButton = BuildButton("Open App Installer Again", isPrimary: true, AccentColor);
         _retryButton.Click += (_, _) => RetryOpenAppInstaller();
         _retryButton.Visible = false;
         buttonRow.Controls.Add(_retryButton);
 
-        _openReleaseButton = BuildButton("Open Releases", Color.FromArgb(20, 27, 40), Color.FromArgb(255, 103, 177));
+        _openReleaseButton = BuildButton("Open Releases", isPrimary: false, AccentColor);
         _openReleaseButton.Click += (_, _) => OpenReleasePage();
         _openReleaseButton.Visible = false;
         buttonRow.Controls.Add(_openReleaseButton);
+
+        _shellPanel.Controls.Add(buttonRow);
+
+        _statusPanel = new Panel
+        {
+            BackColor = StatusPanelBackgroundColor,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0),
+            Padding = new Padding(18, 16, 18, 16)
+        };
+        _statusPanel.Paint += (_, e) => DrawPanelBorder(e.Graphics, _statusPanel.ClientRectangle, _statusAccentColor);
+        _shellPanel.Controls.Add(_statusPanel);
+
+        var statusLayout = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Color.Transparent,
+            ColumnCount = 1,
+            Dock = DockStyle.Top,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+            RowCount = 4
+        };
+        statusLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        _statusPanel.Controls.Add(statusLayout);
+
+        _summaryLabel = new Label
+        {
+            AutoSize = true,
+            Dock = DockStyle.Top,
+            Font = CreateUiFont(18f, FontStyle.Bold),
+            ForeColor = InkColor,
+            Margin = new Padding(0, 0, 0, 8),
+            Text = "Preparing guided setup"
+        };
+        statusLayout.Controls.Add(_summaryLabel, 0, 0);
+
+        _detailLabel = new Label
+        {
+            AutoSize = true,
+            Dock = DockStyle.Top,
+            Font = CreateUiFont(11.5f, FontStyle.Regular),
+            ForeColor = MutedColor,
+            Margin = new Padding(0, 0, 0, 12),
+            MaximumSize = new Size(640, 0),
+            Text = "The bootstrapper will trust the preview certificate and then open Windows App Installer for the final install step."
+        };
+        statusLayout.Controls.Add(_detailLabel, 0, 1);
+
+        var progressRow = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Color.Transparent,
+            ColumnCount = 2,
+            Dock = DockStyle.Top,
+            Margin = new Padding(0, 0, 0, 12),
+            Padding = new Padding(0),
+            RowCount = 1
+        };
+        progressRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        progressRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        statusLayout.Controls.Add(progressRow, 0, 2);
+
+        _progressTrack = new Panel
+        {
+            BackColor = AccentSoftColor,
+            Dock = DockStyle.Top,
+            Height = 18,
+            Margin = new Padding(0, 2, 12, 0),
+            Padding = new Padding(1)
+        };
+        _progressTrack.Paint += (_, e) => DrawTrackBorder(e.Graphics, _progressTrack.ClientRectangle, _statusAccentColor);
+        _progressTrack.Resize += (_, _) => UpdateProgressBarFill();
+        progressRow.Controls.Add(_progressTrack, 0, 0);
+
+        _progressFill = new Panel
+        {
+            BackColor = AccentColor,
+            Dock = DockStyle.Left,
+            Width = 0
+        };
+        _progressTrack.Controls.Add(_progressFill);
+
+        _progressValueLabel = new Label
+        {
+            AutoSize = true,
+            Dock = DockStyle.Right,
+            Font = CreateUiFont(11f, FontStyle.Bold),
+            ForeColor = AccentColor,
+            Margin = new Padding(0),
+            Padding = new Padding(0, 0, 0, 0),
+            Text = "5%"
+        };
+        progressRow.Controls.Add(_progressValueLabel, 1, 0);
+
+        _footerLabel = new Label
+        {
+            AutoSize = true,
+            Dock = DockStyle.Top,
+            Font = CreateUiFont(10f, FontStyle.Regular),
+            ForeColor = MutedColor,
+            Margin = new Padding(0),
+            MaximumSize = new Size(640, 0),
+            Text = "After this window opens Windows App Installer, confirm the update there. This helper only stages the certificate and package metadata."
+        };
+        statusLayout.Controls.Add(_footerLabel, 0, 3);
+
+        var headerPanel = new Panel
+        {
+            AutoSize = false,
+            Dock = DockStyle.Top,
+            Height = 126,
+            Margin = new Padding(0, 0, 0, 16)
+        };
+        _shellPanel.Controls.Add(headerPanel);
+
+        _logoBox = new PictureBox
+        {
+            Dock = DockStyle.Top,
+            Height = 54,
+            Image = LoadEmbeddedLogo(),
+            Margin = new Padding(0, 0, 0, 12),
+            SizeMode = PictureBoxSizeMode.Zoom
+        };
+
+        _introLabel = new Label
+        {
+            AutoSize = false,
+            Dock = DockStyle.Top,
+            Font = CreateUiFont(11f, FontStyle.Regular),
+            ForeColor = MutedColor,
+            Height = 42,
+            Margin = new Padding(0),
+            Text = "This installer stages the latest public preview and then hands off to Windows App Installer for the final install or update.",
+            TextAlign = ContentAlignment.TopLeft
+        };
+
+        _titleLabel = new Label
+        {
+            AutoSize = false,
+            Dock = DockStyle.Top,
+            Font = CreateUiFont(28f, FontStyle.Bold),
+            ForeColor = InkColor,
+            Height = 48,
+            Margin = new Padding(0, 8, 0, 8),
+            Text = "Install Or Update Viscereality Companion",
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        headerPanel.Controls.Add(_introLabel);
+        headerPanel.Controls.Add(_titleLabel);
+        headerPanel.Controls.Add(_logoBox);
+        UpdateProgressBarFill();
     }
 
     protected override void OnShown(EventArgs e)
@@ -192,9 +288,10 @@ internal sealed class InstallerStatusForm : Form
         {
             var result = await _installAsync(progress, _cancellation.Token).ConfigureAwait(true);
             _lastAppInstallerPath = result.AppInstallerPath;
+            ApplyStatusVisuals(StatusPanelSuccessBackgroundColor, SuccessColor, InkColor);
             _summaryLabel.Text = "Windows App Installer opened";
             _detailLabel.Text = "Finish the install or update in the Windows App Installer window. If that window did not appear, you can reopen it from here.";
-            _footerLabel.Text = "The package metadata is already staged. This bootstrapper does not perform the final install itself.";
+            _footerLabel.Text = "The package metadata is already staged. This helper does not perform the final install itself.";
             _retryButton.Visible = true;
             _closeButton.Visible = true;
         }
@@ -204,11 +301,12 @@ internal sealed class InstallerStatusForm : Form
         }
         catch (Exception exception)
         {
+            ApplyStatusVisuals(StatusPanelFailureBackgroundColor, FailureColor, FailureColor);
             _summaryLabel.Text = "Guided setup could not finish";
-            _summaryLabel.ForeColor = Color.FromArgb(255, 124, 191);
             _detailLabel.Text = exception.Message;
             _footerLabel.Text = "If the latest preview release is not reachable yet, open the GitHub releases page and download the certificate and MSIX manually.";
-            _progressBar.Value = 0;
+            _progressPercent = 0;
+            UpdateProgressBarFill();
             _openReleaseButton.Visible = true;
             _closeButton.Visible = true;
         }
@@ -216,10 +314,30 @@ internal sealed class InstallerStatusForm : Form
 
     private void ApplyProgressUpdate(InstallerProgressUpdate update)
     {
-        _summaryLabel.ForeColor = Color.White;
+        ApplyStatusVisuals(StatusPanelBackgroundColor, AccentColor, InkColor);
         _summaryLabel.Text = update.Status;
         _detailLabel.Text = update.Detail;
-        _progressBar.Value = Math.Clamp(update.PercentComplete, _progressBar.Minimum, _progressBar.Maximum);
+        _progressPercent = Math.Clamp(update.PercentComplete, 0, 100);
+        UpdateProgressBarFill();
+    }
+
+    private void ApplyStatusVisuals(Color panelBackColor, Color accentColor, Color summaryColor)
+    {
+        _statusPanel.BackColor = panelBackColor;
+        _statusAccentColor = accentColor;
+        _summaryLabel.ForeColor = summaryColor;
+        _progressFill.BackColor = accentColor;
+        _progressValueLabel.ForeColor = accentColor;
+        _statusPanel.Invalidate();
+        _progressTrack.Invalidate();
+    }
+
+    private void UpdateProgressBarFill()
+    {
+        var availableWidth = Math.Max(0, _progressTrack.ClientSize.Width - _progressTrack.Padding.Horizontal);
+        var fillWidth = (int)Math.Round(availableWidth * (_progressPercent / 100d));
+        _progressFill.Width = Math.Clamp(fillWidth, 0, availableWidth);
+        _progressValueLabel.Text = $"{_progressPercent}%";
     }
 
     private void RetryOpenAppInstaller()
@@ -245,24 +363,39 @@ internal sealed class InstallerStatusForm : Form
         });
     }
 
-    private static Button BuildButton(string text, Color backColor, Color borderColor)
+    private static Button BuildButton(string text, bool isPrimary, Color accentColor)
     {
         var button = new Button
         {
             AutoSize = true,
-            BackColor = backColor,
+            BackColor = isPrimary ? accentColor : ButtonBackgroundColor,
             FlatStyle = FlatStyle.Flat,
-            ForeColor = Color.White,
+            Font = CreateUiFont(10f, FontStyle.Bold),
+            ForeColor = isPrimary ? AppBackgroundColor : InkColor,
             Height = 38,
             Margin = new Padding(10, 0, 0, 0),
             Padding = new Padding(14, 0, 14, 0),
             Text = text
         };
-        button.FlatAppearance.BorderColor = borderColor;
+
+        button.FlatAppearance.BorderColor = accentColor;
         button.FlatAppearance.BorderSize = 1;
-        button.FlatAppearance.MouseDownBackColor = Color.FromArgb(30, 40, 58);
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(26, 36, 52);
+        button.FlatAppearance.MouseDownBackColor = isPrimary ? ControlPaint.Dark(accentColor, 0.2f) : ButtonHoverColor;
+        button.FlatAppearance.MouseOverBackColor = isPrimary ? ControlPaint.Light(accentColor, 0.08f) : ButtonHoverColor;
         return button;
+    }
+
+    private static Font CreateUiFont(float size, FontStyle style)
+    {
+        try
+        {
+            return new Font("Bahnschrift Condensed", size, style, GraphicsUnit.Point);
+        }
+        catch (ArgumentException)
+        {
+            var fallbackFont = SystemFonts.MessageBoxFont ?? SystemFonts.DefaultFont;
+            return new Font(fallbackFont.FontFamily, size, style, GraphicsUnit.Point);
+        }
     }
 
     private static Image? LoadEmbeddedLogo()
@@ -272,19 +405,47 @@ internal sealed class InstallerStatusForm : Form
         return stream is null ? null : Image.FromStream(stream);
     }
 
-    private static void OnPanelPaint(object? sender, PaintEventArgs e)
+    private static void DrawPanelBorder(Graphics graphics, Rectangle bounds, Color borderColor)
     {
-        if (sender is not Panel panel)
+        if (bounds.Width <= 1 || bounds.Height <= 1)
         {
             return;
         }
 
-        using var outlinePen = new Pen(Color.FromArgb(26, 180, 255), 1.6f);
-        using var accentPen = new Pen(Color.FromArgb(255, 103, 177), 1.2f);
-        var outlineRect = new Rectangle(0, 0, panel.Width - 1, panel.Height - 1);
-        var accentRect = new Rectangle(10, 10, panel.Width - 21, panel.Height - 21);
-        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        e.Graphics.DrawRectangle(outlinePen, outlineRect);
-        e.Graphics.DrawRectangle(accentPen, accentRect);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        var borderRectangle = Rectangle.Inflate(bounds, -1, -1);
+        using var path = CreateRoundedRectanglePath(borderRectangle, 8);
+        using var pen = new Pen(borderColor, 1.2f);
+        graphics.DrawPath(pen, path);
+
+        using var accentBrush = new SolidBrush(borderColor);
+        graphics.FillRectangle(accentBrush, borderRectangle.Left + 1, borderRectangle.Top + 1, Math.Max(0, borderRectangle.Width - 2), 2);
+    }
+
+    private static void DrawTrackBorder(Graphics graphics, Rectangle bounds, Color accentColor)
+    {
+        if (bounds.Width <= 1 || bounds.Height <= 1)
+        {
+            return;
+        }
+
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        var borderRectangle = Rectangle.Inflate(bounds, -1, -1);
+        using var path = CreateRoundedRectanglePath(borderRectangle, 5);
+        using var pen = new Pen(accentColor, 1f);
+        graphics.DrawPath(pen, path);
+    }
+
+    private static GraphicsPath CreateRoundedRectanglePath(Rectangle bounds, int radius)
+    {
+        var diameter = radius * 2;
+        var path = new GraphicsPath();
+
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 }

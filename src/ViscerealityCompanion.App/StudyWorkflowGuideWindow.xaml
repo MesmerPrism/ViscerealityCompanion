@@ -137,7 +137,8 @@
             </StackPanel>
         </Border>
 
-        <ScrollViewer Grid.Row="2"
+        <ScrollViewer x:Name="GuideScrollViewer"
+                      Grid.Row="2"
                       Background="{StaticResource AppBackgroundBrush}"
                       BorderThickness="0"
                       VerticalScrollBarVisibility="Auto">
@@ -349,6 +350,16 @@
                         <ColumnDefinition Width="10" />
                         <ColumnDefinition Width="0.92*" />
                     </Grid.ColumnDefinitions>
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding WorkflowGuideShowsParticipantEntry}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
 
                     <Border Grid.Column="0"
                             Style="{StaticResource GuidePanelStyle}">
@@ -458,19 +469,31 @@
                         Margin="0,10,0,0"
                         Visibility="{Binding WorkflowGuideShowsParticipantEntry, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel>
-                        <TextBlock Text="Temporary Subject Id"
+                        <TextBlock Text="Validation Capture Setup"
                                    Style="{StaticResource GuideSectionTitleStyle}" />
-                        <TextBlock Text="Enter a temporary validation id for the 20 second test run. Duplicate ids warn but do not block."
+                        <TextBlock Text="Enter a temporary validation id first, then start the 20 second test run from this card. Duplicate ids warn but do not block."
                                    Style="{StaticResource GuideDetailStyle}" />
+                        <TextBlock Text="Temporary Subject Id"
+                                   Style="{StaticResource GuideMicroLabelStyle}"
+                                   Margin="0,10,0,0" />
                         <TextBox Text="{Binding ParticipantIdDraft, UpdateSourceTrigger=PropertyChanged}"
                                  FontSize="18"
-                                 Margin="0,10,0,0" />
+                                 Margin="0,6,0,0" />
                         <TextBlock Text="{Binding ParticipantEntrySummary}"
                                    FontSize="18"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource InkBrush}"
                                    Margin="0,6,0,0"
                                    TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding ValidationCaptureActionSummary}"
+                                   Style="{StaticResource GuideDetailStyle}"
+                                   Margin="0,8,0,0" />
+                        <WrapPanel Margin="0,10,0,0">
+                            <Button Content="Run 20 Second Validation Capture"
+                                    Style="{StaticResource GuideActionButtonStyle}"
+                                    Command="{Binding RunWorkflowValidationCaptureCommand}"
+                                    IsEnabled="{Binding CanRunWorkflowValidationCapture}" />
+                        </WrapPanel>
                         <Expander Header="Show participant detail"
                                   Style="{StaticResource GuideExpanderStyle}">
                             <StackPanel Margin="0,8,0,0">
@@ -566,6 +589,7 @@
                 </Border>
 
                 <Border Style="{StaticResource GuidePanelStyle}"
+                        x:Name="ValidationTimingPanel"
                         Margin="0,10,0,0"
                         Visibility="{Binding WorkflowGuideShowsValidationCaptureState, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel>

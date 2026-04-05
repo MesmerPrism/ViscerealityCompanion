@@ -336,7 +336,7 @@ public sealed class StudyDataRecordingSession : IDisposable
             ClockAlignmentCsvPath,
             SussexClockAlignmentStreamContract.DefaultDurationSeconds,
             SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds,
-            10,
+            SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds,
             null,
             null,
             0,
