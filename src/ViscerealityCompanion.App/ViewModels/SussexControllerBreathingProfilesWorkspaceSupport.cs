@@ -12,6 +12,11 @@ internal sealed record SussexControllerBreathingProfileSnapshot(
     string? ProfileNotes,
     IReadOnlyDictionary<string, double> ControlValues);
 
+internal sealed record SussexControllerBreathingStartupHotloadPlan(
+    SussexControllerBreathingProfileRecord Profile,
+    IReadOnlyList<RuntimeConfigEntry> Entries,
+    IReadOnlyDictionary<string, double?> PreviousReportedValues);
+
 public readonly record struct SussexControllerBreathingRowConfirmationState(
     string Label,
     OperationOutcomeKind Level);

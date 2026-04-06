@@ -413,6 +413,38 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             wakeOutcome);
     }
 
+    public async Task<OperationOutcome> ClearHotloadOverrideAsync(
+        QuestAppTarget target,
+        CancellationToken cancellationToken = default)
+    {
+        var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
+        var remotePaths = BuildRuntimeHotloadRemotePaths(target.PackageId);
+
+        var remove = await RunShellAsync(selector, $"rm -f {remotePaths.QuotedFile}", cancellationToken).ConfigureAwait(false);
+        if (remove.ExitCode != 0)
+        {
+            return Failure(
+                $"Failed to clear the staged runtime override for {target.Label}.",
+                remove.CombinedOutput,
+                packageId: target.PackageId);
+        }
+
+        var verify = await RunShellAsync(selector, $"ls {remotePaths.QuotedFile} 2>/dev/null", cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(verify.StdOut))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"Runtime override clear for {target.Label} could not be verified.",
+                AdbShellSupport.Collapse(verify.CombinedOutput),
+                PackageId: target.PackageId);
+        }
+
+        return Success(
+            $"Cleared staged runtime override for {target.Label}.",
+            $"Removed {remotePaths.DeviceFile}.",
+            packageId: target.PackageId);
+    }
+
     public async Task<OperationOutcome> ApplyDeviceProfileAsync(DeviceProfile profile, CancellationToken cancellationToken = default)
     {
         var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);

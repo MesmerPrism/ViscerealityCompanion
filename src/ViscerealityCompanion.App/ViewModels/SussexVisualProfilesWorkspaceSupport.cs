@@ -12,6 +12,11 @@ internal sealed record SussexVisualProfileSnapshot(
     string? ProfileNotes,
     IReadOnlyDictionary<string, double> ControlValues);
 
+internal sealed record SussexVisualStartupHotloadPlan(
+    SussexVisualProfileRecord Profile,
+    IReadOnlyList<RuntimeConfigEntry> Entries,
+    IReadOnlyDictionary<string, double?> PreviousReportedValues);
+
 public readonly record struct SussexVisualRowConfirmationState(
     string Label,
     OperationOutcomeKind Level);
@@ -76,6 +81,9 @@ internal static class SussexVisualRowConfirmationResolver
 
     public static SussexVisualRowConfirmationState EditedConfirmationState
         => new("Edited", OperationOutcomeKind.Warning);
+
+    public static SussexVisualRowConfirmationState MissingTelemetryConfirmationState
+        => new("No telemetry", OperationOutcomeKind.Warning);
 
     private static bool ValuesMatch(
         SussexVisualProfileFieldViewModel field,
@@ -191,6 +199,94 @@ internal static class SussexVisualCurrentDocumentResolver
     }
 }
 
+internal static class SussexVisualDocumentComparer
+{
+    public static bool Matches(
+        SussexVisualTuningCompiler compiler,
+        SussexVisualTuningDocument left,
+        SussexVisualTuningDocument right)
+    {
+        ArgumentNullException.ThrowIfNull(compiler);
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+
+        if (!string.Equals(left.Profile.Name.Trim(), right.Profile.Name.Trim(), StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.Equals(
+                left.Profile.Notes?.Trim() ?? string.Empty,
+                right.Profile.Notes?.Trim() ?? string.Empty,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        foreach (var control in compiler.TemplateDocument.Controls)
+        {
+            if (!left.ControlValues.TryGetValue(control.Id, out var leftValue) ||
+                !right.ControlValues.TryGetValue(control.Id, out var rightValue))
+            {
+                return false;
+            }
+
+            if (string.Equals(control.Type, "bool", StringComparison.OrdinalIgnoreCase))
+            {
+                if ((leftValue >= 0.5d) != (rightValue >= 0.5d))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (Math.Abs(leftValue - rightValue) > 0.000001d)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static bool MatchesControlValues(
+        SussexVisualTuningCompiler compiler,
+        SussexVisualTuningDocument document,
+        IReadOnlyDictionary<string, double> controlValues)
+    {
+        ArgumentNullException.ThrowIfNull(compiler);
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(controlValues);
+
+        foreach (var control in compiler.TemplateDocument.Controls)
+        {
+            if (!document.ControlValues.TryGetValue(control.Id, out var currentValue) ||
+                !controlValues.TryGetValue(control.Id, out var expectedValue))
+            {
+                return false;
+            }
+
+            if (string.Equals(control.Type, "bool", StringComparison.OrdinalIgnoreCase))
+            {
+                if ((currentValue >= 0.5d) != (expectedValue >= 0.5d))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (Math.Abs(currentValue - expectedValue) > 0.000001d)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
+
 internal static class SussexVisualComparisonRowBuilder
 {
     public static IReadOnlyList<SussexVisualComparisonRow> Build(
@@ -234,18 +330,31 @@ internal static class SussexVisualComparisonRowBuilder
 public sealed class SussexVisualProfileListItemViewModel : ObservableObject
 {
     private SussexVisualProfileRecord _record;
+    private readonly string? _displayLabelOverride;
+    private readonly string? _modifiedLabelOverride;
 
-    public SussexVisualProfileListItemViewModel(SussexVisualProfileRecord record)
+    public SussexVisualProfileListItemViewModel(
+        SussexVisualProfileRecord record,
+        bool isBundledBaseline = false,
+        string? displayLabelOverride = null,
+        string? modifiedLabelOverride = null)
     {
         _record = record;
+        IsBundledBaseline = isBundledBaseline;
+        _displayLabelOverride = displayLabelOverride;
+        _modifiedLabelOverride = modifiedLabelOverride;
     }
 
+    public bool IsBundledBaseline { get; }
     public string Id => _record.Id;
     public string FilePath => _record.FilePath;
     public string FileHash => _record.FileHash;
     public SussexVisualTuningDocument Document => _record.Document;
-    public string ModifiedLabel => _record.ModifiedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-    public string DisplayLabel => _record.Document.Profile.Name;
+    public string ModifiedLabel
+        => IsBundledBaseline
+            ? _modifiedLabelOverride ?? "Bundled with the APK"
+            : _record.ModifiedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    public string DisplayLabel => _displayLabelOverride ?? _record.Document.Profile.Name;
 
     public void Apply(SussexVisualProfileRecord record)
     {
@@ -301,6 +410,7 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
     public string Label { get; }
     public string Type { get; }
     public bool IsBoolean => string.Equals(Type, "bool", StringComparison.OrdinalIgnoreCase);
+    public bool IsInteger => string.Equals(Type, "int", StringComparison.OrdinalIgnoreCase);
     public string ToolTipText { get; }
     public double Minimum { get; }
     public double Maximum { get; }
@@ -328,9 +438,7 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
 
     public void SetValue(double value, bool notify)
     {
-        var normalized = IsBoolean
-            ? value >= 0.5d ? 1d : 0d
-            : Math.Clamp(value, Minimum, Maximum);
+        var normalized = NormalizeValue(value);
 
         if (SetProperty(ref _value, normalized, nameof(Value)) && notify)
         {
@@ -347,8 +455,36 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
         ConfirmationLevel = level;
     }
 
+    public double NormalizeValue(double value)
+    {
+        if (IsBoolean)
+        {
+            return value >= 0.5d ? 1d : 0d;
+        }
+
+        if (IsInteger)
+        {
+            var rounded = Math.Round(value, MidpointRounding.AwayFromZero);
+            return Math.Clamp(rounded, Minimum, Maximum);
+        }
+
+        return Math.Clamp(value, Minimum, Maximum);
+    }
+
     private string FormatDisplayValue(double value)
-        => IsBoolean ? FormatBooleanValue(value) : value.ToString("0.###", CultureInfo.InvariantCulture);
+    {
+        if (IsBoolean)
+        {
+            return FormatBooleanValue(value);
+        }
+
+        if (IsInteger)
+        {
+            return Math.Round(value, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
+        }
+
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
 
     private static string BuildToolTip(SussexVisualTuningControl control)
     {
@@ -363,11 +499,12 @@ public sealed class SussexVisualProfileFieldViewModel : ObservableObject
                    $"{Environment.NewLine}{Environment.NewLine}{tradeoffs}";
         }
 
+        var numericFormat = string.Equals(control.Type, "int", StringComparison.OrdinalIgnoreCase) ? "0" : "0.###";
         return $"{control.Info.Effect}{Environment.NewLine}{Environment.NewLine}" +
                $"Increase: {control.Info.IncreaseLooksLike}{Environment.NewLine}" +
                $"Decrease: {control.Info.DecreaseLooksLike}{Environment.NewLine}{Environment.NewLine}" +
-               $"Baseline: {control.BaselineValue.ToString("0.###", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
-               $"Range: {control.SafeMinimum.ToString("0.###", CultureInfo.InvariantCulture)} .. {control.SafeMaximum.ToString("0.###", CultureInfo.InvariantCulture)}{Environment.NewLine}{Environment.NewLine}" +
+               $"Baseline: {control.BaselineValue.ToString(numericFormat, CultureInfo.InvariantCulture)}{Environment.NewLine}" +
+               $"Range: {control.SafeMinimum.ToString(numericFormat, CultureInfo.InvariantCulture)} .. {control.SafeMaximum.ToString(numericFormat, CultureInfo.InvariantCulture)}{Environment.NewLine}{Environment.NewLine}" +
                $"{tradeoffs}";
     }
 
@@ -503,7 +640,7 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
                 return;
             }
 
-            if (TryParseEditableValue(value, out var parsed))
+            if (TryParseEditableValue(value, _field.IsInteger, out var parsed))
             {
                 _field.SetValue(parsed, notify: true);
             }
@@ -569,23 +706,71 @@ public sealed class SussexVisualComparisonRowViewModel : ObservableObject
     }
 
     private string FormatValue(double value)
-        => _field.IsBoolean
-            ? FormatBooleanValue(value)
-            : value.ToString("0.###", CultureInfo.InvariantCulture);
+    {
+        if (_field.IsBoolean)
+        {
+            return FormatBooleanValue(value);
+        }
+
+        if (_field.IsInteger)
+        {
+            return Math.Round(value, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
+        }
+
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
 
     private string FormatEditableValue(double value)
-        => _field.IsBoolean
-            ? FormatBooleanValue(value)
-            : value.ToString("0.###", CultureInfo.CurrentCulture);
+    {
+        if (_field.IsBoolean)
+        {
+            return FormatBooleanValue(value);
+        }
+
+        if (_field.IsInteger)
+        {
+            return Math.Round(value, MidpointRounding.AwayFromZero).ToString(CultureInfo.CurrentCulture);
+        }
+
+        return value.ToString("0.###", CultureInfo.CurrentCulture);
+    }
 
     private string FormatDelta(double selected, double reference)
-        => _field.IsBoolean
-            ? NearlyEqual(selected, reference) ? "Same" : "Changed"
-            : (selected - reference).ToString("+0.###;-0.###;0", CultureInfo.InvariantCulture);
+    {
+        if (_field.IsBoolean)
+        {
+            return NearlyEqual(selected, reference) ? "Same" : "Changed";
+        }
 
-    private static bool TryParseEditableValue(string text, out double value)
-        => double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out value) ||
-           double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
+        if (_field.IsInteger)
+        {
+            var delta = (int)Math.Round(selected - reference, MidpointRounding.AwayFromZero);
+            return delta.ToString("+0;-0;0", CultureInfo.InvariantCulture);
+        }
+
+        return (selected - reference).ToString("+0.###;-0.###;0", CultureInfo.InvariantCulture);
+    }
+
+    private static bool TryParseEditableValue(string text, bool integer, out double value)
+    {
+        if (integer)
+        {
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var currentCultureInt))
+            {
+                value = currentCultureInt;
+                return true;
+            }
+
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var invariantInt))
+            {
+                value = invariantInt;
+                return true;
+            }
+        }
+
+        return double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out value) ||
+               double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
+    }
 
     private static bool NearlyEqual(double left, double right)
         => Math.Abs(left - right) <= 0.000001d;

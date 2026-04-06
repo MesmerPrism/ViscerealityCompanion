@@ -19,6 +19,9 @@ public interface IQuestControlService
         HotloadProfile profile,
         QuestAppTarget target,
         CancellationToken cancellationToken = default);
+    Task<OperationOutcome> ClearHotloadOverrideAsync(
+        QuestAppTarget target,
+        CancellationToken cancellationToken = default);
     Task<OperationOutcome> ApplyDeviceProfileAsync(DeviceProfile profile, CancellationToken cancellationToken = default);
     Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, bool kioskMode = false, CancellationToken cancellationToken = default);
     Task<OperationOutcome> StopAppAsync(QuestAppTarget target, bool exitKioskMode = false, CancellationToken cancellationToken = default);
@@ -122,6 +125,14 @@ public sealed class PreviewQuestControlService : IQuestControlService
         => Task.FromResult(Preview(
             $"Runtime preset prepared: {profile.Label}.",
             $"CSV payload {profile.File} would be pushed to {target.PackageId}.",
+            PackageId: target.PackageId));
+
+    public Task<OperationOutcome> ClearHotloadOverrideAsync(
+        QuestAppTarget target,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(Preview(
+            $"Runtime override clear prepared for {target.Label}.",
+            $"The preview transport would remove runtime_overrides.csv for {target.PackageId}.",
             PackageId: target.PackageId));
 
     public Task<OperationOutcome> ApplyDeviceProfileAsync(DeviceProfile profile, CancellationToken cancellationToken = default)

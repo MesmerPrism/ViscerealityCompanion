@@ -8,6 +8,66 @@ namespace ViscerealityCompanion.Integration.Tests;
 public sealed class SussexProfileWorkspaceInvalidEditTests
 {
     [Fact]
+    public async Task Visual_workspace_loads_the_pinned_launch_profile_into_the_runtime_draft_on_startup()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex visual tuning template.");
+        var compiler = new SussexVisualTuningCompiler(File.ReadAllText(templatePath));
+        var store = new SussexVisualProfileStore(compiler);
+        var studyId = $"visual-startup-load-{Guid.NewGuid():N}";
+        var profileName = $"ZZZ Startup Visual {Guid.NewGuid():N}";
+
+        SussexVisualProfileRecord? record = null;
+        try
+        {
+            record = await store.SaveAsync(
+                existingPath: null,
+                profileName,
+                notes: null,
+                new Dictionary<string, double>(compiler.TemplateDocument.ControlValues, StringComparer.OrdinalIgnoreCase)
+                {
+                    ["tracers_per_oscillator"] = 5d,
+                    ["oblateness_by_radius_min"] = 0.3d,
+                    ["sphere_radius_max"] = 3d,
+                    ["particle_size_relative_to_radius"] = 0d
+                });
+
+            var startupState = new SussexVisualProfileStartupState(
+                record.Id,
+                record.Document.Profile.Name,
+                DateTimeOffset.UtcNow,
+                record.Document.Profile.Notes,
+                new Dictionary<string, double>(record.Document.ControlValues, StringComparer.OrdinalIgnoreCase));
+            new SussexVisualProfileStartupStateStore(studyId).Save(startupState);
+
+            using var workspace = new SussexVisualProfilesWorkspaceViewModel(CreateStudy(studyId), new ConnectedQuestControlService());
+            await workspace.InitializeAsync();
+
+            Assert.NotNull(workspace.SelectedProfile);
+            Assert.Equal(record.Id, workspace.SelectedProfile!.Id);
+            Assert.False(workspace.HasUnsavedDraftChanges);
+            Assert.Equal(
+                "5",
+                workspace.ComparisonRows.First(row => string.Equals(row.Field.Id, "tracers_per_oscillator", StringComparison.OrdinalIgnoreCase)).Selected);
+            Assert.Equal(
+                "3",
+                workspace.ComparisonRows.First(row => string.Equals(row.Field.Id, "sphere_radius_max", StringComparison.OrdinalIgnoreCase)).Selected);
+            Assert.Equal(
+                "Off",
+                workspace.ComparisonRows.First(row => string.Equals(row.Field.Id, "particle_size_relative_to_radius", StringComparison.OrdinalIgnoreCase)).Selected);
+            Assert.Contains(profileName, workspace.DraftSourceSummary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFileIfPresent(record?.FilePath);
+            DeleteStudySessionArtifacts(
+                studyId,
+                "sussex-visual-startup",
+                "sussex-visual-apply");
+        }
+    }
+
+    [Fact]
     public async Task Visual_workspace_invalid_edit_only_marks_the_edited_row()
     {
         var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
@@ -23,7 +83,10 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
         {
             record = await store.CreateFromTemplateAsync(profileName);
 
-            using var workspace = new SussexVisualProfilesWorkspaceViewModel(CreateStudy(studyId), new ConnectedQuestControlService());
+            using var workspace = new SussexVisualProfilesWorkspaceViewModel(
+                CreateStudy(studyId),
+                new ConnectedQuestControlService(),
+                new ConnectedTwinModeBridge());
             await workspace.InitializeAsync();
             workspace.SelectedProfile = workspace.Profiles.First(profile => string.Equals(profile.Id, record.Id, StringComparison.OrdinalIgnoreCase));
 
@@ -36,10 +99,10 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
             var appliedDocument = compiler.CreateDocument(record.Document.Profile.Name, record.Document.Profile.Notes, applyRecord.RequestedValues);
             var compiled = compiler.Compile(appliedDocument);
 
-            workspace.RefreshReportedTwinState(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                [SussexVisualTuningCompiler.ExpectedHotloadTargetKey] = compiled.CompactRuntimeConfigJson
-            });
+            workspace.RefreshReportedTwinState(compiled.Entries.ToDictionary(
+                entry => entry.Key,
+                entry => entry.Value,
+                StringComparer.OrdinalIgnoreCase));
 
             await WaitForConditionAsync(
                 () => string.Equals(FindVisualRow(workspace, "sphere_deformation_enabled").Confirmation, "Confirmed", StringComparison.Ordinal),
@@ -71,6 +134,69 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
     }
 
     [Fact]
+    public async Task Visual_workspace_valid_single_edit_only_marks_the_edited_row()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex visual tuning template.");
+        var compiler = new SussexVisualTuningCompiler(File.ReadAllText(templatePath));
+        var store = new SussexVisualProfileStore(compiler);
+        var studyId = $"visual-single-edit-{Guid.NewGuid():N}";
+        var profileName = $"ZZZ Valid Visual {Guid.NewGuid():N}";
+
+        SussexVisualProfileRecord? record = null;
+        string? compiledCsvPath = null;
+        try
+        {
+            record = await store.CreateFromTemplateAsync(profileName);
+
+            using var workspace = new SussexVisualProfilesWorkspaceViewModel(
+                CreateStudy(studyId),
+                new ConnectedQuestControlService(),
+                new ConnectedTwinModeBridge());
+            await workspace.InitializeAsync();
+            workspace.SelectedProfile = workspace.Profiles.First(profile => string.Equals(profile.Id, record.Id, StringComparison.OrdinalIgnoreCase));
+
+            workspace.ApplySelectedCommand.Execute(null);
+            await WaitForConditionAsync(() => new SussexVisualProfileApplyStateStore(studyId).Load() is not null, TimeSpan.FromSeconds(10));
+            compiledCsvPath = workspace.LastCompiledCsvPath;
+
+            var applyRecord = new SussexVisualProfileApplyStateStore(studyId).Load()
+                ?? throw new InvalidOperationException("Expected a saved visual apply record.");
+            var appliedDocument = compiler.CreateDocument(record.Document.Profile.Name, record.Document.Profile.Notes, applyRecord.RequestedValues);
+            var compiled = compiler.Compile(appliedDocument);
+
+            workspace.RefreshReportedTwinState(compiled.Entries.ToDictionary(
+                entry => entry.Key,
+                entry => entry.Value,
+                StringComparer.OrdinalIgnoreCase));
+
+            await WaitForConditionAsync(
+                () => string.Equals(FindVisualRow(workspace, "sphere_deformation_enabled").Confirmation, "Confirmed", StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5));
+
+            var editedField = FindVisualField(workspace, "sphere_radius_max");
+            editedField.SetValue(editedField.Value - 0.1d, notify: true);
+
+            await WaitForConditionAsync(
+                () => string.Equals(FindVisualRow(workspace, "sphere_radius_max").Confirmation, "Edited", StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5));
+
+            Assert.Equal("Edited", FindVisualRow(workspace, "sphere_radius_max").Confirmation);
+            Assert.Equal("Confirmed", FindVisualRow(workspace, "sphere_radius_min").Confirmation);
+            Assert.Equal("Confirmed", FindVisualRow(workspace, "sphere_deformation_enabled").Confirmation);
+        }
+        finally
+        {
+            DeleteFileIfPresent(record?.FilePath);
+            DeleteFileIfPresent(compiledCsvPath);
+            DeleteStudySessionArtifacts(
+                studyId,
+                "sussex-visual-startup",
+                "sussex-visual-apply");
+        }
+    }
+
+    [Fact]
     public async Task Controller_workspace_valid_single_edit_only_marks_the_edited_row()
     {
         var templatePath = AppAssetLocator.TryResolveSussexControllerBreathingTuningTemplatePath()
@@ -86,7 +212,10 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
         {
             record = await store.CreateFromTemplateAsync(profileName);
 
-            using var workspace = new SussexControllerBreathingProfilesWorkspaceViewModel(CreateStudy(studyId), new ConnectedQuestControlService());
+            using var workspace = new SussexControllerBreathingProfilesWorkspaceViewModel(
+                CreateStudy(studyId),
+                new ConnectedQuestControlService(),
+                new ConnectedTwinModeBridge());
             await workspace.InitializeAsync();
             workspace.SelectedProfile = workspace.Profiles.First(profile => string.Equals(profile.Id, record.Id, StringComparison.OrdinalIgnoreCase));
 
@@ -293,6 +422,15 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
                 $"Test transport uploaded {profile.File} to {target.PackageId}.",
                 PackageId: target.PackageId));
 
+        public Task<OperationOutcome> ClearHotloadOverrideAsync(
+            QuestAppTarget target,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(
+                OperationOutcomeKind.Success,
+                $"Cleared staged override for {target.Label}.",
+                $"Test transport removed runtime_overrides.csv for {target.PackageId}.",
+                PackageId: target.PackageId));
+
         public Task<OperationOutcome> ApplyDeviceProfileAsync(DeviceProfile profile, CancellationToken cancellationToken = default)
             => _preview.ApplyDeviceProfileAsync(profile, cancellationToken);
 
@@ -357,5 +495,40 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
                 OperationOutcomeKind.Success,
                 $"{action} completed.",
                 "Test utility transport succeeded."));
+    }
+
+    private sealed class ConnectedTwinModeBridge : ITwinModeBridge
+    {
+        public TwinBridgeStatus Status { get; } = new(
+            IsAvailable: true,
+            UsesPrivateImplementation: false,
+            Summary: "Connected test twin bridge.",
+            Detail: "Test twin bridge publishes runtime config snapshots successfully.");
+
+        public Task<OperationOutcome> SendCommandAsync(TwinModeCommand command, CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(
+                OperationOutcomeKind.Success,
+                $"Sent {command.DisplayName}.",
+                "Test twin bridge command succeeded."));
+
+        public Task<OperationOutcome> ApplyConfigAsync(
+            HotloadProfile profile,
+            QuestAppTarget target,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(
+                OperationOutcomeKind.Success,
+                $"Tracked {profile.Label}.",
+                $"Test twin bridge staged {profile.File} for {target.PackageId}.",
+                PackageId: target.PackageId));
+
+        public Task<OperationOutcome> PublishRuntimeConfigAsync(
+            RuntimeConfigProfile profile,
+            QuestAppTarget target,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(
+                OperationOutcomeKind.Success,
+                $"Published runtime config: {profile.Label}.",
+                $"Test twin bridge published {profile.Entries.Count} entries for {target.PackageId}.",
+                PackageId: target.PackageId));
     }
 }

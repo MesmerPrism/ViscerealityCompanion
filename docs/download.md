@@ -17,6 +17,9 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 `Sussex University experiment mode` workflow first, not yet as the final
 general-purpose multi-study release.
 
+The current packaged preview line tracked by this repo is
+`0.1.16.0`.
+
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
 and immediate access to the bundled Sussex APK and bundled Windows liblsl
@@ -96,17 +99,22 @@ packaged preview install.
 
 The current Sussex preview also includes the updated sequential guide flow, the
 controller-breathing profile tab, participant locked mode, Windows-plus-Quest
-session snapshots, the LSL/runtime hardening changes, and the profile-table
-hotfix that cleanly separates `Apply To Current Session` from `Save Current
-Values For Next Launch` while keeping the saved launch-override column in sync.
+session snapshots, the LSL/runtime hardening changes, and the refactored
+Sussex visual-profile workflow:
+
+- the bundled Sussex baseline stays permanently available as a library profile
+- one saved profile can be pinned as the next-launch override
+- the visual table edits only the runtime working draft until you explicitly
+  save it as a new profile or overwrite a saved one
+- `Apply To Current Session` now means runtime-only hotload, not profile
+  mutation
+- the simplified Sussex visual surface now includes tracer controls, sphere
+  radius limits, and the particle-size-relative-to-radius toggle
+
 It also includes the dedicated Sussex breathing-driver controls with explicit
 controller-vs-automatic readback on the `During session` tab. The bundled
 Sussex APK in this package is `0.1.2` with SHA256
-`AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`. The current
-public verification baseline is the off-face `2026-04-03` pass on that same
-`0.1.2` build, which confirmed automatic-driver switching, automatic
-pause/resume, and return to controller-volume control through the accepted
-published GUI path.
+`265168A57323F5A73FEDF310254824D7ABCD71D69EE64BAFC6D9B6EE7A80CA85`.
 
 ## Before You Start
 

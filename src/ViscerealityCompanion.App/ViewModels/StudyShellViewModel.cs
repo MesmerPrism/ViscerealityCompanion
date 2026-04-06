@@ -22,6 +22,12 @@ internal sealed record ValidationCapturePlotLoadResult(
     string Summary,
     PointCollection Points);
 
+internal sealed record PinnedStartupHotloadSyncResult(
+    string? CsvPath,
+    SussexVisualStartupHotloadPlan? VisualPlan,
+    SussexControllerBreathingStartupHotloadPlan? ControllerPlan,
+    bool AppliedToDevice);
+
 public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
     private const int WorkflowTabIndex = 0;
@@ -48,6 +54,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly TimeSpan WorkflowValidationPdfTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan WorkflowHzdbListTimeout = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan WorkflowHzdbPullTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan StartupRuntimeConfigBaselineTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan StartupRuntimeConfigBaselinePollInterval = TimeSpan.FromMilliseconds(150);
     private const double ValidationPlotCanvasWidth = 300d;
     private const double ValidationPlotCanvasHeight = 120d;
     private static readonly TimeSpan TwinStateIdleThreshold = TimeSpan.FromSeconds(5);
@@ -103,6 +111,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly IStudyClockAlignmentService _clockAlignmentService = StudyClockAlignmentServiceFactory.CreateDefault();
     private readonly ILslMonitorService _upstreamLslMonitorService = LslMonitorServiceFactory.CreateDefault();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
+    private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
+    private readonly SemaphoreSlim _startupHotloadSyncSemaphore = new(1, 1);
     private readonly SussexVisualProfilesWorkspaceViewModel _visualProfiles;
     private readonly SussexControllerBreathingProfilesWorkspaceViewModel _controllerBreathingProfiles;
     private readonly Dispatcher _dispatcher;
@@ -116,6 +126,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private bool _twinRefreshPending;
     private bool _proximityRefreshPending;
     private bool _deviceSnapshotRefreshPending;
+    private bool _startupHotloadSyncDeferredUntilStudyStops;
     private string _activeFocusSectionId = string.Empty;
     private IReadOnlyDictionary<string, string> _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private HeadsetAppStatus? _headsetStatus;
@@ -383,8 +394,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _studySessionState = StudyShellSessionState.Load();
         _regularAdbSnapshotEnabled = _appSessionState.RegularAdbSnapshotEnabled;
         _questService = QuestControlServiceFactory.CreateDefault(_appSessionState.ActiveEndpoint);
-        _visualProfiles = new SussexVisualProfilesWorkspaceViewModel(study, _questService);
-        _controllerBreathingProfiles = new SussexControllerBreathingProfilesWorkspaceViewModel(study, _questService);
+        _visualProfiles = new SussexVisualProfilesWorkspaceViewModel(study, _questService, _twinBridge);
+        _controllerBreathingProfiles = new SussexControllerBreathingProfilesWorkspaceViewModel(study, _questService, _twinBridge);
+        _visualProfiles.StartupProfileChanged += OnStartupProfileChanged;
+        _controllerBreathingProfiles.StartupProfileChanged += OnStartupProfileChanged;
         _endpointDraft = _appSessionState.ActiveEndpoint ?? string.Empty;
         _stagedApkPath = ResolveInitialApkPath();
 
@@ -2070,6 +2083,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         _testLslSignalService.StateChanged -= OnTestLslSignalServiceStateChanged;
+        _visualProfiles.StartupProfileChanged -= OnStartupProfileChanged;
+        _controllerBreathingProfiles.StartupProfileChanged -= OnStartupProfileChanged;
 
         if (_twinRefreshTimer is not null)
         {
@@ -2095,6 +2110,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _activeRecordingSession?.Dispose();
         _visualProfiles.Dispose();
         _controllerBreathingProfiles.Dispose();
+        _startupHotloadSyncSemaphore.Dispose();
         _clockAlignmentService.Dispose();
         _testLslSignalService.Dispose();
     }
@@ -2212,9 +2228,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public async Task LaunchStudyAppAsync()
     {
+        var target = CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false));
+        var startupHotloadSync = await EnsurePinnedStartupHotloadStateAsync(
+            target,
+            forceWhenStudyNotForeground: true,
+            reasonLabel: "before launch").ConfigureAwait(false);
+
+        var launchTwinSnapshotGate = await DispatchAsync(CaptureTwinSnapshotGate).ConfigureAwait(false);
+        var launchIssuedAtUtc = DateTimeOffset.UtcNow;
         var outcome = await _questService
             .LaunchAppAsync(
-                CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false)),
+                target,
                 kioskMode: _study.App.LaunchInKioskMode)
             .ConfigureAwait(false);
 
@@ -2231,7 +2255,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
             await DispatchAsync(ClearQuestVisualConfirmationPending).ConfigureAwait(false);
-            var runtimeForeground = await DispatchAsync(IsStudyRuntimeForeground).ConfigureAwait(false);
+            var runtimeForeground = await WaitForStudyRuntimeForegroundAsync().ConfigureAwait(false);
             if (runtimeForeground)
             {
                 var performanceOutcome = await TryStabilizeStudyPerformancePolicyAsync().ConfigureAwait(false);
@@ -2242,8 +2266,41 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     await RefreshHeadsetStatusAsync().ConfigureAwait(false);
                 }
 
-                await _visualProfiles.ApplyStartupProfileOnLaunchAsync().ConfigureAwait(false);
-                await _controllerBreathingProfiles.ApplyStartupProfileOnLaunchAsync().ConfigureAwait(false);
+                var hasPinnedVisualStartupProfile = await DispatchAsync(() => _visualProfiles.HasPinnedStartupProfile).ConfigureAwait(false);
+                if (hasPinnedVisualStartupProfile)
+                {
+                    var runtimeConfigBaselineReady = await WaitForFreshRuntimeConfigBaselineAsync(
+                        launchTwinSnapshotGate,
+                        launchIssuedAtUtc).ConfigureAwait(false);
+                    if (!runtimeConfigBaselineReady)
+                    {
+                        await DispatchAsync(() =>
+                            AppendLog(
+                                OperatorLogLevel.Warning,
+                                "Startup visual baseline did not report readiness in time.",
+                                "Sussex did not publish a fresh showcase_active_runtime_config_json snapshot within 8 seconds of launch, so the pinned startup visual profile is staged on device without that readiness confirmation yet. If shape or size values still mismatch, wait for live twin state and launch again or reapply the runtime draft manually.")).ConfigureAwait(false);
+                    }
+                }
+
+                if (startupHotloadSync.AppliedToDevice)
+                {
+                    var startupAppliedAtUtc = DateTimeOffset.UtcNow;
+                    await DispatchAsync(() =>
+                    {
+                        // Startup plans track only the saved launch profiles staged for the next
+                        // Sussex boot. Runtime draft applies are confirmed separately and do not
+                        // rewrite this launch-profile history.
+                        if (startupHotloadSync.VisualPlan is not null)
+                        {
+                            _visualProfiles.TrackPinnedStartupLaunch(startupHotloadSync.VisualPlan, startupAppliedAtUtc, startupHotloadSync.CsvPath);
+                        }
+
+                        if (startupHotloadSync.ControllerPlan is not null)
+                        {
+                            _controllerBreathingProfiles.TrackPinnedStartupLaunch(startupHotloadSync.ControllerPlan, startupAppliedAtUtc, startupHotloadSync.CsvPath);
+                        }
+                    }).ConfigureAwait(false);
+                }
             }
 
             await DispatchAsync(() =>
@@ -2261,16 +2318,214 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public async Task StopStudyAppAsync()
     {
+        var target = CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false));
         var outcome = await _questService
             .StopAppAsync(
-                CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false)),
+                target,
                 exitKioskMode: _study.App.LaunchInKioskMode)
             .ConfigureAwait(false);
 
         await ApplyOutcomeAsync(
             _study.App.LaunchInKioskMode ? "Exit Sussex Kiosk Mode" : "Stop Sussex APK",
             outcome).ConfigureAwait(false);
+
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await EnsurePinnedStartupHotloadStateAsync(
+                target,
+                forceWhenStudyNotForeground: true,
+                reasonLabel: "after stop").ConfigureAwait(false);
+        }
+
         await RefreshStatusAsync().ConfigureAwait(false);
+    }
+
+    private void OnStartupProfileChanged(object? sender, EventArgs e)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var target = CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false));
+                var runtimeForeground = await DispatchAsync(IsStudyRuntimeForeground).ConfigureAwait(false);
+                if (runtimeForeground)
+                {
+                    _startupHotloadSyncDeferredUntilStudyStops = true;
+                    await DispatchAsync(() =>
+                        AppendLog(
+                            OperatorLogLevel.Info,
+                            "Saved launch profile update queued.",
+                            "The selected launch profile was saved locally, but the device-side launch file will wait until Sussex stops so the current session keeps running unchanged.")).ConfigureAwait(false);
+                    return;
+                }
+
+                await EnsurePinnedStartupHotloadStateAsync(
+                    target,
+                    forceWhenStudyNotForeground: true,
+                    reasonLabel: "after launch-profile change").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                await DispatchAsync(() =>
+                    AppendLog(
+                        OperatorLogLevel.Warning,
+                        "Saved launch profile sync failed.",
+                        ex.Message)).ConfigureAwait(false);
+            }
+        });
+    }
+
+    private async Task<bool> WaitForStudyRuntimeForegroundAsync()
+    {
+        var timeoutAtUtc = DateTimeOffset.UtcNow + StartupRuntimeConfigBaselineTimeout;
+        while (DateTimeOffset.UtcNow < timeoutAtUtc)
+        {
+            await RefreshHeadsetStatusAsync(includeHostWifiStatus: false).ConfigureAwait(false);
+            if (await DispatchAsync(IsStudyRuntimeForeground).ConfigureAwait(false))
+            {
+                return true;
+            }
+
+            await Task.Delay(StartupRuntimeConfigBaselinePollInterval).ConfigureAwait(false);
+        }
+
+        return await DispatchAsync(IsStudyRuntimeForeground).ConfigureAwait(false);
+    }
+
+    private async Task<PinnedStartupHotloadSyncResult> EnsurePinnedStartupHotloadStateAsync(
+        QuestAppTarget target,
+        bool forceWhenStudyNotForeground,
+        string reasonLabel)
+    {
+        await _startupHotloadSyncSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SussexVisualStartupHotloadPlan? visualPlan = null;
+            SussexControllerBreathingStartupHotloadPlan? controllerPlan = null;
+            await DispatchAsync(() =>
+            {
+                visualPlan = _visualProfiles.CapturePinnedStartupHotloadPlan();
+                controllerPlan = _controllerBreathingProfiles.CapturePinnedStartupHotloadPlan();
+            }).ConfigureAwait(false);
+
+            if (visualPlan is null && controllerPlan is null)
+            {
+                var clearOutcome = await _questService.ClearHotloadOverrideAsync(target).ConfigureAwait(false);
+                _startupHotloadSyncDeferredUntilStudyStops = false;
+                if (clearOutcome.Kind is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
+                {
+                    await DispatchAsync(() =>
+                        AppendLog(
+                            MapLevel(clearOutcome.Kind),
+                            clearOutcome.Summary,
+                            clearOutcome.Detail)).ConfigureAwait(false);
+                }
+
+                return new PinnedStartupHotloadSyncResult(
+                    CsvPath: null,
+                    VisualPlan: null,
+                    ControllerPlan: null,
+                    AppliedToDevice: clearOutcome.Kind != OperationOutcomeKind.Failure);
+            }
+
+            if (!forceWhenStudyNotForeground)
+            {
+                var runtimeForeground = await DispatchAsync(IsStudyRuntimeForeground).ConfigureAwait(false);
+                if (runtimeForeground)
+                {
+                    _startupHotloadSyncDeferredUntilStudyStops = true;
+                    return new PinnedStartupHotloadSyncResult(
+                        CsvPath: null,
+                        VisualPlan: visualPlan,
+                        ControllerPlan: controllerPlan,
+                        AppliedToDevice: false);
+                }
+            }
+
+            var mergedEntries = MergeRuntimeConfigEntries(
+                visualPlan?.Entries,
+                controllerPlan?.Entries);
+            var runtimeProfile = new RuntimeConfigProfile(
+                $"sussex_pinned_startup_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
+                "Sussex Pinned Startup Profile",
+                string.Empty,
+                DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
+                "study",
+                false,
+                "Pinned Sussex launch profile payload staged for the next runtime start.",
+                [target.PackageId],
+                mergedEntries);
+            var csvPath = await _runtimeConfigWriter.WriteAsync(runtimeProfile).ConfigureAwait(false);
+            var hotloadProfile = new HotloadProfile(
+                runtimeProfile.Id,
+                runtimeProfile.Label,
+                csvPath,
+                runtimeProfile.Version,
+                runtimeProfile.Channel,
+                runtimeProfile.StudyLock,
+                runtimeProfile.Description,
+                runtimeProfile.PackageIds);
+
+            var outcome = await _questService.ApplyHotloadProfileAsync(hotloadProfile, target).ConfigureAwait(false);
+            if (outcome.Kind is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
+            {
+                _startupHotloadSyncDeferredUntilStudyStops = true;
+                await DispatchAsync(() =>
+                    AppendLog(
+                        MapLevel(outcome.Kind),
+                        outcome.Summary,
+                        outcome.Detail)).ConfigureAwait(false);
+                return new PinnedStartupHotloadSyncResult(csvPath, visualPlan, controllerPlan, AppliedToDevice: false);
+            }
+
+            _startupHotloadSyncDeferredUntilStudyStops = false;
+            if (!string.Equals(reasonLabel, "before launch", StringComparison.OrdinalIgnoreCase))
+            {
+                await DispatchAsync(() =>
+                    AppendLog(
+                        OperatorLogLevel.Info,
+                        "Saved launch profile synced to headset.",
+                        $"Updated the persistent Sussex launch profile file on device from the current pinned startup profiles ({reasonLabel}).")).ConfigureAwait(false);
+            }
+
+            return new PinnedStartupHotloadSyncResult(csvPath, visualPlan, controllerPlan, AppliedToDevice: true);
+        }
+        finally
+        {
+            _startupHotloadSyncSemaphore.Release();
+        }
+    }
+
+    private static IReadOnlyList<RuntimeConfigEntry> MergeRuntimeConfigEntries(
+        IReadOnlyList<RuntimeConfigEntry>? visualEntries,
+        IReadOnlyList<RuntimeConfigEntry>? controllerEntries)
+    {
+        var merged = new List<RuntimeConfigEntry>();
+        var indexesByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        void Append(IEnumerable<RuntimeConfigEntry>? entries)
+        {
+            if (entries is null)
+            {
+                return;
+            }
+
+            foreach (var entry in entries)
+            {
+                if (indexesByKey.TryGetValue(entry.Key, out var index))
+                {
+                    merged[index] = entry;
+                    continue;
+                }
+
+                indexesByKey[entry.Key] = merged.Count;
+                merged.Add(entry);
+            }
+        }
+
+        Append(visualEntries);
+        Append(controllerEntries);
+        return merged;
     }
 
     public async Task ToggleStudyRuntimeAsync()
@@ -4454,6 +4709,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(StudyRuntimeActionLabel));
             OnPropertyChanged(nameof(CanToggleHeadsetPower));
         }).ConfigureAwait(false);
+
+        if (_startupHotloadSyncDeferredUntilStudyStops &&
+            _headsetStatus is { IsConnected: true, IsTargetForeground: false })
+        {
+            var target = CreateStudyTarget(await DispatchAsync(() => StagedApkPath).ConfigureAwait(false));
+            _ = EnsurePinnedStartupHotloadStateAsync(
+                target,
+                forceWhenStudyNotForeground: true,
+                reasonLabel: "after Sussex stopped");
+        }
     }
 
     private void UpdatePinnedBuildStatus()
@@ -5539,6 +5804,68 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         return currentCommittedAtUtc.Value > gate.CommittedAtUtc.Value ||
                !string.Equals(currentRevision, gate.Revision, StringComparison.Ordinal);
+    }
+
+    internal static bool HasReportedStudyRuntimeConfigJson(IReadOnlyDictionary<string, string>? reportedTwinState)
+    {
+        if (reportedTwinState is null || reportedTwinState.Count == 0)
+        {
+            return false;
+        }
+
+        return reportedTwinState.TryGetValue("showcase_active_runtime_config_json", out var directRuntimeConfigJson) &&
+               !string.IsNullOrWhiteSpace(directRuntimeConfigJson) ||
+               reportedTwinState.TryGetValue("hotload.showcase_active_runtime_config_json", out var hotloadRuntimeConfigJson) &&
+               !string.IsNullOrWhiteSpace(hotloadRuntimeConfigJson);
+    }
+
+    internal static bool HasFreshRuntimeConfigTwinBaseline(
+        string? previousRevision,
+        DateTimeOffset? previousCommittedAtUtc,
+        DateTimeOffset commandIssuedAtUtc,
+        string? currentRevision,
+        DateTimeOffset? currentCommittedAtUtc,
+        IReadOnlyDictionary<string, string>? reportedTwinState)
+        => HasFreshCommittedTwinSnapshot(
+               new TwinSnapshotGate(previousRevision, previousCommittedAtUtc),
+               commandIssuedAtUtc,
+               currentRevision,
+               currentCommittedAtUtc) &&
+           HasReportedStudyRuntimeConfigJson(reportedTwinState);
+
+    private async Task<bool> WaitForFreshRuntimeConfigBaselineAsync(
+        TwinSnapshotGate snapshotGate,
+        DateTimeOffset commandIssuedAtUtc)
+    {
+        if (_twinBridge is not LslTwinModeBridge)
+        {
+            return false;
+        }
+
+        var timeoutAtUtc = DateTimeOffset.UtcNow + StartupRuntimeConfigBaselineTimeout;
+        while (DateTimeOffset.UtcNow < timeoutAtUtc)
+        {
+            var ready = await DispatchAsync(() =>
+            {
+                var bridge = _twinBridge as LslTwinModeBridge;
+                return HasFreshRuntimeConfigTwinBaseline(
+                    snapshotGate.Revision,
+                    snapshotGate.CommittedAtUtc,
+                    commandIssuedAtUtc,
+                    bridge?.LastCommittedSnapshotRevision,
+                    bridge?.LastCommittedSnapshotReceivedAt,
+                    _reportedTwinState);
+            }).ConfigureAwait(false);
+
+            if (ready)
+            {
+                return true;
+            }
+
+            await Task.Delay(StartupRuntimeConfigBaselinePollInterval).ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     private async Task<OperationOutcome> ConfirmDeviceRecordingSessionAsync(

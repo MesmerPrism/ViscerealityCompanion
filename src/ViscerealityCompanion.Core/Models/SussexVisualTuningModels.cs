@@ -25,7 +25,12 @@ public sealed record SussexVisualTuningControl(
     string RuntimeJsonField,
     SussexVisualTuningInfo Info)
 {
-    public string BaselineLabel => BaselineValue.ToString("0.###", CultureInfo.InvariantCulture);
+    public string BaselineLabel => Type switch
+    {
+        "bool" => BaselineValue >= 0.5d ? "On" : "Off",
+        "int" => Math.Round(BaselineValue, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture),
+        _ => BaselineValue.ToString("0.###", CultureInfo.InvariantCulture)
+    };
 }
 
 public sealed record SussexVisualTuningDocument(
@@ -45,7 +50,8 @@ public sealed record SussexVisualTuningCompileResult(
     SussexVisualTuningDocument Document,
     string CompactRuntimeConfigJson,
     string PrettyRuntimeConfigJson,
-    string HotloadTargetKey);
+    string HotloadTargetKey,
+    IReadOnlyList<RuntimeConfigEntry> Entries);
 
 public sealed record SussexVisualProfileRecord(
     string Id,

@@ -16,6 +16,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 {
     private readonly StudyShellDefinition _study;
     private readonly IQuestControlService _questService;
+    private readonly ITwinModeBridge? _twinBridge;
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
     private readonly SussexControllerBreathingTuningCompiler? _compiler;
     private readonly SussexControllerBreathingProfileStore? _profileStore;
@@ -44,10 +45,12 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
     public SussexControllerBreathingProfilesWorkspaceViewModel(
         StudyShellDefinition study,
-        IQuestControlService questService)
+        IQuestControlService questService,
+        ITwinModeBridge? twinBridge = null)
     {
         _study = study;
         _questService = questService;
+        _twinBridge = twinBridge;
 
         try
         {
@@ -104,6 +107,8 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         ApplySelectedCommand = new AsyncRelayCommand(ApplySelectedAsync, () => SelectedProfile is not null && IsAvailable);
         ResetFieldCommand = new AsyncRelayCommand(ResetFieldAsync, parameter => parameter is SussexControllerBreathingProfileFieldViewModel && IsAvailable);
     }
+
+    public event EventHandler? StartupProfileChanged;
 
     public bool IsAvailable => _compiler is not null && _profileStore is not null;
 
@@ -753,6 +758,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             NotifyStartupStateChanged();
             RefreshComparisonState();
         }).ConfigureAwait(false);
+        StartupProfileChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private Task UseBundledStartupAsync()
@@ -761,7 +767,53 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         _startupStateStore?.Save(null);
         NotifyStartupStateChanged();
         RefreshComparisonState();
+        StartupProfileChanged?.Invoke(this, EventArgs.Empty);
         return Task.CompletedTask;
+    }
+
+    internal SussexControllerBreathingStartupHotloadPlan? CapturePinnedStartupHotloadPlan()
+    {
+        if (_compiler is null)
+        {
+            return null;
+        }
+
+        var startupRecord = CreateStartupProfileRecord();
+        if (startupRecord is null)
+        {
+            return null;
+        }
+
+        var compiled = _compiler.Compile(startupRecord.Document);
+        var previousReportedValues = _compiler.ExtractReportedValues(_reportedTwinState);
+        return new SussexControllerBreathingStartupHotloadPlan(
+            startupRecord,
+            compiled.Entries,
+            new Dictionary<string, double?>(previousReportedValues, StringComparer.OrdinalIgnoreCase));
+    }
+
+    internal void TrackPinnedStartupLaunch(
+        SussexControllerBreathingStartupHotloadPlan plan,
+        DateTimeOffset appliedAtUtc,
+        string? csvPath = null)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+
+        _lastApplyRecord = new SussexControllerBreathingProfileApplyRecord(
+            plan.Profile.Id,
+            plan.Profile.Document.Profile.Name,
+            plan.Profile.FileHash,
+            ComputeEntriesHash(plan.Entries),
+            appliedAtUtc,
+            new Dictionary<string, double>(plan.Profile.Document.ControlValues, StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double?>(plan.PreviousReportedValues, StringComparer.OrdinalIgnoreCase));
+        _applyStateStore?.Save(_lastApplyRecord);
+        if (!string.IsNullOrWhiteSpace(csvPath))
+        {
+            LastCompiledCsvPath = csvPath;
+        }
+
+        RefreshComparisonState();
     }
 
     public async Task ApplyStartupProfileOnLaunchAsync()
@@ -819,6 +871,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             _startupState = null;
             _startupStateStore?.Save(null);
             NotifyStartupStateChanged();
+            StartupProfileChanged?.Invoke(this, EventArgs.Empty);
         }
 
         await _profileStore.DeleteAsync(SelectedProfile.FilePath).ConfigureAwait(false);
@@ -838,12 +891,13 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return;
         }
 
-        await ApplyProfileRecordAsync(saved, "Apply Controller Breathing Profile").ConfigureAwait(false);
+        await ApplyProfileRecordAsync(saved, "Apply Controller Breathing Profile", preferTwinRuntimePublish: true).ConfigureAwait(false);
     }
 
     private async Task ApplyProfileRecordAsync(
         SussexControllerBreathingProfileRecord saved,
-        string actionLabel)
+        string actionLabel,
+        bool preferTwinRuntimePublish = false)
     {
         if (_compiler is null)
         {
@@ -925,7 +979,34 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 }
             }
 
-            var outcome = await _questService.ApplyHotloadProfileAsync(hotloadProfile, target).ConfigureAwait(false);
+            OperationOutcome outcome;
+            if (preferTwinRuntimePublish)
+            {
+                if (headsetStatus.IsTargetForeground != true)
+                {
+                    ApplySummary = $"{actionLabel} requires an active Sussex session.";
+                    ApplyDetail = $"Current-session controller-breathing applies are live-only and do not rewrite the saved launch profile. Bring {target.Label} to the foreground, then apply the runtime draft again.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                    RefreshComparisonState();
+                    return;
+                }
+
+                if (_twinBridge is null || !_twinBridge.Status.IsAvailable)
+                {
+                    ApplySummary = $"{actionLabel} requires the live twin bridge.";
+                    ApplyDetail = "Current-session controller-breathing applies now use the live quest_hotload_config channel so they stay temporary and do not overwrite the saved launch profile on device.";
+                    ApplyLevel = OperationOutcomeKind.Warning;
+                    RefreshComparisonState();
+                    return;
+                }
+
+                outcome = await _twinBridge.PublishRuntimeConfigAsync(runtimeProfile, target).ConfigureAwait(false);
+            }
+            else
+            {
+                outcome = await _questService.ApplyHotloadProfileAsync(hotloadProfile, target).ConfigureAwait(false);
+            }
+
             if (outcome.Kind != OperationOutcomeKind.Failure)
             {
                 _lastApplyRecord = new SussexControllerBreathingProfileApplyRecord(
@@ -940,7 +1021,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             }
 
             ApplySummary = outcome.Summary;
-            ApplyDetail = BuildApplyOutcomeDetail(outcome, headsetStatus, csvPath, wakeOutcome);
+            ApplyDetail = BuildApplyOutcomeDetail(outcome, headsetStatus, csvPath, wakeOutcome, preferTwinRuntimePublish);
             ApplyLevel = outcome.Kind;
             RefreshComparisonState();
         }
@@ -1232,7 +1313,8 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         OperationOutcome outcome,
         HeadsetAppStatus headsetStatus,
         string csvPath,
-        OperationOutcome? wakeOutcome)
+        OperationOutcome? wakeOutcome,
+        bool usedTwinRuntimePublish)
     {
         var detailParts = new List<string>();
         if (wakeOutcome is not null && !string.IsNullOrWhiteSpace(wakeOutcome.Detail))
@@ -1247,7 +1329,11 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
         detailParts.Add($"Compiled CSV: {csvPath}.");
 
-        if (!headsetStatus.IsTargetForeground)
+        if (usedTwinRuntimePublish)
+        {
+            detailParts.Add("The live quest_hotload_config channel changed only the active Sussex session. The saved launch profile on device was left untouched.");
+        }
+        else if (!headsetStatus.IsTargetForeground)
         {
             detailParts.Add(
                 headsetStatus.IsTargetRunning

@@ -68,7 +68,7 @@ It currently pins:
 
 - package id: `com.Viscereality.SussexExperiment`
 - version: `0.1.2`
-- SHA256: `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
+- SHA256: `265168A57323F5A73FEDF310254824D7ABCD71D69EE64BAFC6D9B6EE7A80CA85`
 - bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
@@ -184,7 +184,13 @@ The active Sussex shell is organized into three operator views:
 The `Visual Profiles` tab is intentionally narrower than the general runtime
 editor. It only exposes the approved appearance controls for the Sussex scene:
 
+- simplified tracer controls:
+  - tracers enabled
+  - tracer lifetime seconds
+  - tracers per oscillator
 - sphere deformation on/off
+- sphere radius minimum and maximum
+- particle size relative to radius on/off
 - particle-size minimum and maximum
 - depth-wave minimum and maximum
 - transparency minimum and maximum
@@ -193,21 +199,35 @@ editor. It only exposes the approved appearance controls for the Sussex scene:
 - orbit-distance minimum and maximum
 
 Each saved profile is stored as one self-describing JSON file under the local
-Companion profile library. The shell compiles that profile into a
-`showcase_active_runtime_config_json` hotload payload and uploads it through the
-existing Sussex ADB file path. The headset never consumes the partial source
-JSON directly.
+Companion profile library. The shell compiles saved profiles and runtime drafts
+into a `showcase_active_runtime_config_json` hotload payload and uploads that
+through the existing Sussex ADB file path. The headset never consumes the
+partial source JSON directly.
 
-The selected profile can also be saved as the `next launch override` directly
-from this tab. That pinned startup snapshot is the one the shell auto-applies
-when it launches the Sussex APK from the companion. If no saved profile is
-pinned, the shell stays on the bundled Sussex baseline.
+The workflow is intentionally split into three separate surfaces:
 
-The parameter table now compares the current editor values against that saved
-launch override. `Apply To Current Session` only uploads the current values to
-the running headset session, while `Save Current Values For Next Launch` only
-changes the pinned launch override. Row reset still returns a single value to
-the bundled Sussex baseline.
+- one saved launch profile:
+  - this is the pinned saved profile the shell stages to the device-side
+    startup CSV before Sussex launches
+- one runtime working draft:
+  - the editable table is always this draft
+  - selecting a saved profile copies it into the draft
+  - runtime edits and `Apply To Current Session` only mutate the draft and the
+    running Sussex session
+- the saved profile library:
+  - `Save As New Profile` copies the current runtime draft into the library as
+    a new saved profile
+  - `Save Changes To Selected Profile` overwrites the currently selected saved
+    profile from the runtime draft
+  - `Set Selected Profile For Next Launch` pins a saved profile without
+    changing the current running session
+
+The parameter table always compares against the current saved launch profile.
+At shell startup, the runtime working draft is initialized from that same
+launch profile so the editable and comparison columns begin aligned, but later
+runtime edits stay temporary until the operator explicitly saves them back into
+the profile library. Row reset still returns a single value to the bundled
+Sussex baseline.
 
 The workflow tab now also offers `Open Sequential Guide`, a pop-out onboarding
 window that walks the operator through the fixed Sussex protocol step by step:
@@ -288,6 +308,13 @@ baseline on `2026-04-03` through the accepted published GUI path:
 - confirmed the automatic breathing value moved live on the headset after `Start Automatic`, paused cleanly, resumed, and then returned to `Controller Volume`
 - confirmed the installed headset APK hash matched the pinned public Sussex hash `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
 - recorded the accepted-app run under `artifacts/verify/sussex-manual-accept-run/`
+
+After that off-face pass, the Sussex bundle was refreshed again on `2026-04-06`
+to the current pinned SHA256 `265168A57323F5A73FEDF310254824D7ABCD71D69EE64BAFC6D9B6EE7A80CA85`
+so the companion can confirm the simplified tracer controls through
+`hotload.integrated_tracers_*` readback. Treat the `2026-04-03` notes as the
+last published off-face behavior baseline, and the newer hash above as the
+current shipped Sussex bundle.
 
 That `2026-04-03` pass was also run off-face, so kiosk exit was intentionally
 skipped instead of being re-verified in the same run. On this machine, Windows

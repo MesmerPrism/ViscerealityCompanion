@@ -14,6 +14,18 @@ public sealed class SussexVisualTuningCompiler
     public const string ExpectedHotloadTargetKey = "showcase_active_runtime_config_json";
 
     private const double ComparisonTolerance = 0.000001d;
+    private const string TracersEnabledControlId = "tracers_enabled";
+    private const string TracersLifetimeControlId = "tracers_lifetime_seconds";
+    private const string TracersPerOscillatorControlId = "tracers_per_oscillator";
+    private const string IntegratedTracersEnabledKey = "integrated_tracers_enabled";
+    private const string IntegratedTracersVisualsEnabledKey = "integrated_tracers_visuals_enabled";
+    private const string IntegratedTracersLifetimeSecondsKey = "integrated_tracers_lifetime_seconds";
+    private const string IntegratedTracersCopiesPerSecondKey = "integrated_tracers_copies_per_second";
+    private const string IntegratedTracersMaxSpawnBatchesPerFrameKey = "integrated_tracers_max_spawn_batches_per_frame";
+    private const string IntegratedTracersPerOscillatorKey = "integrated_tracers_per_oscillator";
+    private const string IntegratedTracersSizeMultiplierKey = "integrated_tracers_size_multiplier";
+    private const int FixedTracerMaxSpawnBatchesPerFrame = 4;
+    private const double FixedTracerSizeMultiplier = 1d;
     private static readonly TimeSpan ConfirmationGracePeriod = TimeSpan.FromSeconds(4);
 
     private static readonly JsonSerializerOptions PrettyJsonOptions = new()
@@ -60,6 +72,7 @@ public sealed class SussexVisualTuningCompiler
             double nextValue = controlValues is not null && controlValues.TryGetValue(templateControl.Id, out var explicitValue)
                 ? explicitValue
                 : templateControl.Value;
+            nextValue = NormalizeValue(templateControl.Type, nextValue);
             ValidateControlValue(
                 templateControl.Id,
                 nextValue,
@@ -121,9 +134,12 @@ public sealed class SussexVisualTuningCompiler
         foreach (var control in document.Controls)
         {
             var node = GetRequiredObject(controls, control.Id);
-            node["value"] = string.Equals(control.Type, "bool", StringComparison.OrdinalIgnoreCase)
-                ? control.Value >= 0.5d
-                : control.Value;
+            node["value"] = control.Type switch
+            {
+                "bool" => control.Value >= 0.5d,
+                "int" => (int)Math.Round(control.Value, MidpointRounding.AwayFromZero),
+                _ => control.Value
+            };
         }
 
         return root.ToJsonString(PrettyJsonOptions);
@@ -141,6 +157,11 @@ public sealed class SussexVisualTuningCompiler
                 document,
                 "oblateness_by_radius_min",
                 "oblateness_by_radius_max"),
+            ["SharedRadiusLimits"] = BuildLimits(
+                document,
+                "sphere_radius_min",
+                "sphere_radius_max"),
+            ["UsePercentSize"] = GetBooleanControlValue(document, "particle_size_relative_to_radius"),
             ["ParticleSizeEnvelopeLimits"] = BuildLimits(
                 document,
                 "particle_size_min",
@@ -167,19 +188,35 @@ public sealed class SussexVisualTuningCompiler
                 "orbit_distance_max")
         };
 
+        var compactRuntimeConfigJson = payload.ToJsonString();
+        var entries = new List<RuntimeConfigEntry>
+        {
+            new(document.HotloadTargetKey, compactRuntimeConfigJson)
+        };
+        AppendTracerEntries(document.Controls, entries);
+
         return new SussexVisualTuningCompileResult(
             document,
-            payload.ToJsonString(),
+            compactRuntimeConfigJson,
             payload.ToJsonString(PrettyJsonOptions),
-            document.HotloadTargetKey);
+            document.HotloadTargetKey,
+            entries);
     }
 
-    public IReadOnlyDictionary<string, double?> ExtractRuntimeValues(string runtimeConfigJson)
+    public IReadOnlyDictionary<string, double?> ExtractRuntimeValues(
+        string runtimeConfigJson,
+        IReadOnlyDictionary<string, string>? reportedTwinState = null)
     {
+        var values = BuildEmptyRuntimeValues().ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value,
+            StringComparer.OrdinalIgnoreCase);
+
         var sanitizedJson = SanitizeRuntimeConfigJson(runtimeConfigJson);
         if (string.IsNullOrWhiteSpace(sanitizedJson))
         {
-            return BuildEmptyRuntimeValues();
+            OverlayTracerReportedValues(values, reportedTwinState);
+            return values;
         }
 
         JsonNode? rootNode;
@@ -189,42 +226,46 @@ public sealed class SussexVisualTuningCompiler
         }
         catch (JsonException)
         {
-            return BuildEmptyRuntimeValues();
+            OverlayTracerReportedValues(values, reportedTwinState);
+            return values;
         }
 
         if (rootNode is not JsonObject root)
         {
-            return BuildEmptyRuntimeValues();
+            OverlayTracerReportedValues(values, reportedTwinState);
+            return values;
         }
 
-        var values = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["sphere_deformation_enabled"] = TryGetBoolean01(root, "UseSphereDeformation"),
-            ["oblateness_by_radius_min"] = TryGetNestedDouble(root, "OblatenessByRadiusCurveLimits", "x"),
-            ["oblateness_by_radius_max"] = TryGetNestedDouble(root, "OblatenessByRadiusCurveLimits", "y"),
-            ["particle_size_min"] = TryGetNestedDouble(root, "ParticleSizeEnvelopeLimits", "x"),
-            ["particle_size_max"] = TryGetNestedDouble(root, "ParticleSizeEnvelopeLimits", "y"),
-            ["depth_wave_min"] = TryGetNestedDouble(root, "DepthWavePercentLimits", "x"),
-            ["depth_wave_max"] = TryGetNestedDouble(root, "DepthWavePercentLimits", "y"),
-            ["transparency_min"] = TryGetNestedDouble(root, "TransparencyLimits", "x"),
-            ["transparency_max"] = TryGetNestedDouble(root, "TransparencyLimits", "y"),
-            ["saturation_min"] = TryGetNestedDouble(root, "GlobalSaturationLimits", "x"),
-            ["saturation_max"] = TryGetNestedDouble(root, "GlobalSaturationLimits", "y"),
-            ["brightness_min"] = TryGetNestedDouble(root, "GlobalBrightnessLimits", "x"),
-            ["brightness_max"] = TryGetNestedDouble(root, "GlobalBrightnessLimits", "y"),
-            ["orbit_distance_min"] = TryGetNestedDouble(root, "OrbitRadiusMultiplierLimits", "x"),
-            ["orbit_distance_max"] = TryGetNestedDouble(root, "OrbitRadiusMultiplierLimits", "y")
-        };
+        values["sphere_deformation_enabled"] = TryGetBoolean01(root, "UseSphereDeformation");
+        values["oblateness_by_radius_min"] = TryGetNestedDouble(root, "OblatenessByRadiusCurveLimits", "x");
+        values["oblateness_by_radius_max"] = TryGetNestedDouble(root, "OblatenessByRadiusCurveLimits", "y");
+        values["sphere_radius_min"] = TryGetNestedDouble(root, "SharedRadiusLimits", "x");
+        values["sphere_radius_max"] = TryGetNestedDouble(root, "SharedRadiusLimits", "y");
+        values["particle_size_relative_to_radius"] = TryGetBoolean01(root, "UsePercentSize");
+        values["particle_size_min"] = TryGetNestedDouble(root, "ParticleSizeEnvelopeLimits", "x");
+        values["particle_size_max"] = TryGetNestedDouble(root, "ParticleSizeEnvelopeLimits", "y");
+        values["depth_wave_min"] = TryGetNestedDouble(root, "DepthWavePercentLimits", "x");
+        values["depth_wave_max"] = TryGetNestedDouble(root, "DepthWavePercentLimits", "y");
+        values["transparency_min"] = TryGetNestedDouble(root, "TransparencyLimits", "x");
+        values["transparency_max"] = TryGetNestedDouble(root, "TransparencyLimits", "y");
+        values["saturation_min"] = TryGetNestedDouble(root, "GlobalSaturationLimits", "x");
+        values["saturation_max"] = TryGetNestedDouble(root, "GlobalSaturationLimits", "y");
+        values["brightness_min"] = TryGetNestedDouble(root, "GlobalBrightnessLimits", "x");
+        values["brightness_max"] = TryGetNestedDouble(root, "GlobalBrightnessLimits", "y");
+        values["orbit_distance_min"] = TryGetNestedDouble(root, "OrbitRadiusMultiplierLimits", "x");
+        values["orbit_distance_max"] = TryGetNestedDouble(root, "OrbitRadiusMultiplierLimits", "y");
+        OverlayTracerReportedValues(values, reportedTwinState);
 
         return values;
     }
 
     public SussexVisualConfirmationResult EvaluateConfirmation(
         SussexVisualProfileApplyRecord applyRecord,
-        string? reportedRuntimeConfigJson)
+        string? reportedRuntimeConfigJson,
+        IReadOnlyDictionary<string, string>? reportedTwinState = null)
     {
         ArgumentNullException.ThrowIfNull(applyRecord);
-        var reportedValues = ExtractRuntimeValues(reportedRuntimeConfigJson ?? string.Empty);
+        var reportedValues = ExtractRuntimeValues(reportedRuntimeConfigJson ?? string.Empty, reportedTwinState);
         var previousReportedValues = applyRecord.PreviousReportedValues;
         var withinGracePeriod = DateTimeOffset.UtcNow - applyRecord.AppliedAtUtc <= ConfirmationGracePeriod;
         var rows = new List<SussexVisualConfirmationRow>(TemplateDocument.Controls.Count);
@@ -277,10 +318,10 @@ public sealed class SussexVisualTuningCompiler
         }
 
         string summary = mismatch > 0
-            ? $"Headset reported {confirmed} confirmed, {waiting} waiting, and {mismatch} mismatched visual values."
+            ? $"Headset reported {confirmed} confirmed, {waiting} waiting, and {mismatch} mismatched Sussex parameter values."
             : waiting > 0
-                ? $"Waiting on headset confirmation for {waiting} visual values; {confirmed} already confirmed."
-                : $"Headset confirmed all {confirmed} requested visual values.";
+                ? $"Waiting on headset confirmation for {waiting} Sussex parameter values; {confirmed} already confirmed."
+                : $"Headset confirmed all {confirmed} requested Sussex parameter values.";
 
         return new SussexVisualConfirmationResult(summary, rows, confirmed, waiting, mismatch);
     }
@@ -383,8 +424,8 @@ public sealed class SussexVisualTuningCompiler
         var label = GetRequiredString(node, "label");
         var editable = GetRequiredBoolean(node, "editable");
         var type = GetRequiredString(node, "type");
-        var value = GetRequiredControlValue(node, "value", type);
-        var baselineValue = GetRequiredControlValue(node, "baselineValue", type);
+        var value = NormalizeValue(type, GetRequiredControlValue(node, "value", type));
+        var baselineValue = NormalizeValue(type, GetRequiredControlValue(node, "baselineValue", type));
         var units = GetRequiredString(node, "units");
         var safeRange = GetRequiredObject(node, "safeRange");
         var safeMinimum = GetRequiredDouble(safeRange, "minimum");
@@ -531,6 +572,21 @@ public sealed class SussexVisualTuningCompiler
     private static IReadOnlyList<string> GetControlIdsFromObject(JsonObject controlsRoot)
         => controlsRoot.Select(property => property.Key).ToArray();
 
+    private static double NormalizeValue(string type, double value)
+    {
+        if (string.Equals(type, "bool", StringComparison.OrdinalIgnoreCase))
+        {
+            return value >= 0.5d ? 1d : 0d;
+        }
+
+        if (string.Equals(type, "int", StringComparison.OrdinalIgnoreCase))
+        {
+            return Math.Round(value, MidpointRounding.AwayFromZero);
+        }
+
+        return value;
+    }
+
     private static bool TryGetValue<T>(JsonNode node, out T value)
     {
         try
@@ -564,6 +620,89 @@ public sealed class SussexVisualTuningCompiler
     {
         var control = document.Controls.First(candidate => string.Equals(candidate.Id, controlId, StringComparison.OrdinalIgnoreCase));
         return control.Value >= 0.5d;
+    }
+
+    private static void AppendTracerEntries(
+        IReadOnlyList<SussexVisualTuningControl> controls,
+        ICollection<RuntimeConfigEntry> entries)
+    {
+        if (!TryGetControlValue(controls, TracersEnabledControlId, out var tracersEnabledValue) ||
+            !TryGetControlValue(controls, TracersLifetimeControlId, out var tracersLifetimeValue) ||
+            !TryGetControlValue(controls, TracersPerOscillatorControlId, out var tracersPerOscillatorValue))
+        {
+            return;
+        }
+
+        var tracersEnabled = tracersEnabledValue >= 0.5d;
+        var lifetimeSeconds = Math.Max(0.001d, tracersLifetimeValue);
+        var perOscillator = Math.Max(1, (int)Math.Round(tracersPerOscillatorValue, MidpointRounding.AwayFromZero));
+        var copiesPerSecond = perOscillator / lifetimeSeconds;
+
+        entries.Add(new RuntimeConfigEntry(IntegratedTracersEnabledKey, FormatRuntimeValue("bool", tracersEnabled ? 1d : 0d)));
+        entries.Add(new RuntimeConfigEntry(IntegratedTracersVisualsEnabledKey, FormatRuntimeValue("bool", tracersEnabled ? 1d : 0d)));
+        entries.Add(new RuntimeConfigEntry(IntegratedTracersLifetimeSecondsKey, FormatRuntimeValue("float", lifetimeSeconds)));
+        entries.Add(new RuntimeConfigEntry(IntegratedTracersCopiesPerSecondKey, FormatRuntimeValue("float", copiesPerSecond)));
+        entries.Add(new RuntimeConfigEntry(IntegratedTracersMaxSpawnBatchesPerFrameKey, FormatRuntimeValue("int", FixedTracerMaxSpawnBatchesPerFrame)));
+        entries.Add(new RuntimeConfigEntry(IntegratedTracersPerOscillatorKey, FormatRuntimeValue("int", perOscillator)));
+        entries.Add(new RuntimeConfigEntry(IntegratedTracersSizeMultiplierKey, FormatRuntimeValue("float", FixedTracerSizeMultiplier)));
+    }
+
+    private static void OverlayTracerReportedValues(
+        IDictionary<string, double?> values,
+        IReadOnlyDictionary<string, string>? reportedTwinState)
+    {
+        if (reportedTwinState is null || reportedTwinState.Count == 0)
+        {
+            return;
+        }
+
+        if (values.ContainsKey(TracersEnabledControlId))
+        {
+            values[TracersEnabledControlId] =
+                TryGetReportedBoolean01(reportedTwinState, IntegratedTracersEnabledKey) ??
+                TryGetReportedBoolean01(reportedTwinState, IntegratedTracersVisualsEnabledKey);
+        }
+
+        if (values.ContainsKey(TracersLifetimeControlId))
+        {
+            values[TracersLifetimeControlId] = TryGetReportedDouble(reportedTwinState, IntegratedTracersLifetimeSecondsKey);
+        }
+
+        if (values.ContainsKey(TracersPerOscillatorControlId))
+        {
+            values[TracersPerOscillatorControlId] = TryGetReportedDouble(reportedTwinState, IntegratedTracersPerOscillatorKey);
+        }
+    }
+
+    private static bool TryGetControlValue(
+        IReadOnlyList<SussexVisualTuningControl> controls,
+        string controlId,
+        out double value)
+    {
+        var control = controls.FirstOrDefault(candidate => string.Equals(candidate.Id, controlId, StringComparison.OrdinalIgnoreCase));
+        if (control is null)
+        {
+            value = 0d;
+            return false;
+        }
+
+        value = control.Value;
+        return true;
+    }
+
+    private static string FormatRuntimeValue(string type, double value)
+    {
+        if (string.Equals(type, "bool", StringComparison.OrdinalIgnoreCase))
+        {
+            return value >= 0.5d ? "true" : "false";
+        }
+
+        if (string.Equals(type, "int", StringComparison.OrdinalIgnoreCase))
+        {
+            return Math.Round(value, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
+        }
+
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
     private static double? TryGetNestedDouble(JsonObject root, string parentKey, string childKey)
@@ -607,9 +746,84 @@ public sealed class SussexVisualTuningCompiler
         }
     }
 
+    private static double? TryGetReportedBoolean01(
+        IReadOnlyDictionary<string, string> reportedTwinState,
+        string key)
+    {
+        if (!TryGetReportedToken(reportedTwinState, key, out var token))
+        {
+            return null;
+        }
+
+        return TryParseBooleanToken(token, out var value)
+            ? value ? 1d : 0d
+            : null;
+    }
+
+    private static double? TryGetReportedDouble(
+        IReadOnlyDictionary<string, string> reportedTwinState,
+        string key)
+    {
+        if (!TryGetReportedToken(reportedTwinState, key, out var token))
+        {
+            return null;
+        }
+
+        return double.TryParse(token, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : null;
+    }
+
+    private static bool TryGetReportedToken(
+        IReadOnlyDictionary<string, string> reportedTwinState,
+        string key,
+        out string token)
+    {
+        if (reportedTwinState.TryGetValue(key, out var directValue) &&
+            !string.IsNullOrWhiteSpace(directValue))
+        {
+            token = directValue.Trim();
+            return true;
+        }
+
+        var hotloadKey = "hotload." + key;
+        if (reportedTwinState.TryGetValue(hotloadKey, out var hotloadValue) &&
+            !string.IsNullOrWhiteSpace(hotloadValue))
+        {
+            token = hotloadValue.Trim();
+            return true;
+        }
+
+        token = string.Empty;
+        return false;
+    }
+
+    private static bool TryParseBooleanToken(string token, out bool value)
+    {
+        switch ((token ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "1":
+            case "true":
+            case "on":
+            case "yes":
+                value = true;
+                return true;
+            case "0":
+            case "false":
+            case "off":
+            case "no":
+                value = false;
+                return true;
+            default:
+                value = false;
+                return false;
+        }
+    }
+
     private static void ValidateControlPairs(IReadOnlyList<SussexVisualTuningControl> controls)
     {
         ValidatePair(controls, "oblateness_by_radius_min", "oblateness_by_radius_max");
+        ValidatePair(controls, "sphere_radius_min", "sphere_radius_max");
         ValidatePair(controls, "particle_size_min", "particle_size_max");
         ValidatePair(controls, "depth_wave_min", "depth_wave_max");
         ValidatePair(controls, "transparency_min", "transparency_max");
@@ -643,6 +857,12 @@ public sealed class SussexVisualTuningCompiler
             !NearlyEqual(value, 1d))
         {
             throw new InvalidDataException($"controls.{controlId}.value must be either false or true.");
+        }
+
+        if (string.Equals(type, "int", StringComparison.OrdinalIgnoreCase) &&
+            !NearlyEqual(value, Math.Round(value, MidpointRounding.AwayFromZero)))
+        {
+            throw new InvalidDataException($"controls.{controlId}.value must be a whole number.");
         }
 
         if (value < safeMinimum || value > safeMaximum)

@@ -19,6 +19,12 @@ public partial class StudyShellView : UserControl
     private void OnVisualApplyCurrentSessionClick(object sender, RoutedEventArgs e)
         => ExecuteVisualCommand(sender, VisualProfilesTable, static viewModel => viewModel.ApplySelectedCommand);
 
+    private void OnVisualSaveAsNewProfileClick(object sender, RoutedEventArgs e)
+        => ExecuteVisualCommand(sender, VisualProfilesTable, static viewModel => viewModel.SaveAsNewProfileCommand);
+
+    private void OnVisualSaveSelectedProfileClick(object sender, RoutedEventArgs e)
+        => ExecuteVisualCommand(sender, VisualProfilesTable, static viewModel => viewModel.SaveSelectedCommand);
+
     private void OnVisualSaveStartupSnapshotClick(object sender, RoutedEventArgs e)
         => ExecuteVisualCommand(sender, VisualProfilesTable, static viewModel => viewModel.SetStartupProfileCommand);
 

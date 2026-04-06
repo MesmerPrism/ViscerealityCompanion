@@ -85,29 +85,133 @@ public sealed class StudyShellViewProfileButtonsTests
                     ?? throw new InvalidOperationException("Could not resolve the visual oblateness editor textbox.");
                 var visualStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-oblateness_by_radius_max")
                     ?? throw new InvalidOperationException("Could not resolve the visual oblateness startup textblock.");
+                var tracerGroup = FindDescendantByAutomationId<TextBlock>(view, "visual-group-tracers_per_oscillator")
+                    ?? throw new InvalidOperationException("Could not resolve the tracer group text.");
+                var tracerLabel = FindDescendantByAutomationId<TextBlock>(view, "visual-label-tracers_per_oscillator")
+                    ?? throw new InvalidOperationException("Could not resolve the tracer label text.");
+                var tracerEditor = FindDescendantByAutomationId<TextBox>(view, "visual-current-tracers_per_oscillator")
+                    ?? throw new InvalidOperationException("Could not resolve the tracer editor textbox.");
+                var tracerStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-tracers_per_oscillator")
+                    ?? throw new InvalidOperationException("Could not resolve the tracer startup textblock.");
+                var sphereRadiusGroup = FindDescendantByAutomationId<TextBlock>(view, "visual-group-sphere_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the sphere radius group text.");
+                var sphereRadiusLabel = FindDescendantByAutomationId<TextBlock>(view, "visual-label-sphere_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the sphere radius label text.");
+                var sphereRadiusEditor = FindDescendantByAutomationId<TextBox>(view, "visual-current-sphere_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the sphere radius editor textbox.");
+                var sphereRadiusStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-sphere_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the sphere radius startup textblock.");
+                var sizeModeGroup = FindDescendantByAutomationId<TextBlock>(view, "visual-group-particle_size_relative_to_radius")
+                    ?? throw new InvalidOperationException("Could not resolve the size mode group text.");
+                var sizeModeLabel = FindDescendantByAutomationId<TextBlock>(view, "visual-label-particle_size_relative_to_radius")
+                    ?? throw new InvalidOperationException("Could not resolve the size mode label text.");
+                var sizeModeToggle = FindDescendantByAutomationId<CheckBox>(view, "visual-current-particle_size_relative_to_radius")
+                    ?? throw new InvalidOperationException("Could not resolve the size mode checkbox.");
+                var sizeModeStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-particle_size_relative_to_radius")
+                    ?? throw new InvalidOperationException("Could not resolve the size mode startup textblock.");
+                var visualSaveSelectedButton = (Button)view.FindName("VisualSaveSelectedProfileButton")!;
                 var visualSaveButton = (Button)view.FindName("VisualSaveStartupSnapshotButton")!;
                 var visualApplyButton = (Button)view.FindName("VisualApplyCurrentSessionButton")!;
 
                 Assert.Equal("Shape", visualOblatenessGroup.Text);
                 Assert.Equal("Oblateness Maximum", visualOblatenessLabel.Text);
                 Assert.Equal("0.5", visualStartup.Text);
+                Assert.Equal("Tracers", tracerGroup.Text);
+                Assert.Equal("Tracers Per Oscillator", tracerLabel.Text);
+                Assert.Equal("7", tracerStartup.Text);
+                Assert.Equal("Size", sphereRadiusGroup.Text);
+                Assert.Equal("Sphere Radius Maximum", sphereRadiusLabel.Text);
+                Assert.Equal("2", sphereRadiusStartup.Text);
+                Assert.Equal("Size", sizeModeGroup.Text);
+                Assert.Equal("Particle Size Relative To Radius", sizeModeLabel.Text);
+                Assert.Equal("On", sizeModeStartup.Text);
                 Assert.Equal(
                     "0 .. 1",
                     visualWorkspace.ComparisonRows.First(row => string.Equals(row.Field.Id, "oblateness_by_radius_max", StringComparison.OrdinalIgnoreCase)).Range);
+                Assert.Equal(
+                    "1 .. 16",
+                    visualWorkspace.ComparisonRows.First(row => string.Equals(row.Field.Id, "tracers_per_oscillator", StringComparison.OrdinalIgnoreCase)).Range);
+                Assert.Equal(
+                    "0.5 .. 3",
+                    visualWorkspace.ComparisonRows.First(row => string.Equals(row.Field.Id, "sphere_radius_max", StringComparison.OrdinalIgnoreCase)).Range);
+                Assert.Equal(
+                    "Off / On",
+                    visualWorkspace.ComparisonRows.First(row => string.Equals(row.Field.Id, "particle_size_relative_to_radius", StringComparison.OrdinalIgnoreCase)).Range);
 
                 visualEditor.Focus();
                 visualEditor.Text = 0.74d.ToString("0.###", CultureInfo.CurrentCulture);
                 CommitTextBoxEdit(visualEditor);
+                tracerEditor.Focus();
+                tracerEditor.Text = "10";
+                CommitTextBoxEdit(tracerEditor);
+                sphereRadiusEditor.Focus();
+                sphereRadiusEditor.Text = 2.4d.ToString("0.###", CultureInfo.CurrentCulture);
+                CommitTextBoxEdit(sphereRadiusEditor);
+                var sizeModePeer = new CheckBoxAutomationPeer(sizeModeToggle);
+                var sizeModeProvider = (IToggleProvider?)sizeModePeer.GetPattern(PatternInterface.Toggle)
+                    ?? throw new InvalidOperationException("Could not resolve the size mode toggle provider.");
+                sizeModeProvider.Toggle();
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+
+                visualSaveSelectedButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualSaveSelectedButton));
+
+                await WaitForConditionAsync(
+                    () => visualWorkspace.SelectedProfile?.Document.ControlValues.TryGetValue("oblateness_by_radius_max", out var persistedVisualMax) == true &&
+                          Math.Abs(persistedVisualMax - 0.74d) < 0.000001d,
+                    TimeSpan.FromSeconds(10));
+                Assert.False(visualWorkspace.HasUnsavedDraftChanges);
+
                 visualSaveButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualSaveButton));
 
                 await WaitForConditionAsync(
-                    () => string.Equals(visualStartup.Text, "0.74", StringComparison.Ordinal),
+                    () =>
+                    {
+                        var startup = new SussexVisualProfileStartupStateStore(studyId).Load();
+                        return startup?.ControlValues is not null &&
+                               Math.Abs(startup.ControlValues["oblateness_by_radius_max"] - 0.74d) < 0.000001d &&
+                               Math.Abs(startup.ControlValues["tracers_per_oscillator"] - 10d) < 0.000001d &&
+                               Math.Abs(startup.ControlValues["sphere_radius_max"] - 2.4d) < 0.000001d &&
+                               Math.Abs(startup.ControlValues["particle_size_relative_to_radius"] - 0d) < 0.000001d;
+                    },
+                    TimeSpan.FromSeconds(10));
+
+                await WaitForConditionAsync(
+                    () =>
+                    {
+                        var visualRow = visualWorkspace.ComparisonRows.FirstOrDefault(row => string.Equals(row.Field.Id, "oblateness_by_radius_max", StringComparison.OrdinalIgnoreCase));
+                        var tracerRow = visualWorkspace.ComparisonRows.FirstOrDefault(row => string.Equals(row.Field.Id, "tracers_per_oscillator", StringComparison.OrdinalIgnoreCase));
+                        var sphereRadiusRow = visualWorkspace.ComparisonRows.FirstOrDefault(row => string.Equals(row.Field.Id, "sphere_radius_max", StringComparison.OrdinalIgnoreCase));
+                        var sizeModeRow = visualWorkspace.ComparisonRows.FirstOrDefault(row => string.Equals(row.Field.Id, "particle_size_relative_to_radius", StringComparison.OrdinalIgnoreCase));
+                        return string.Equals(visualRow?.Startup, "0.74", StringComparison.Ordinal) &&
+                               string.Equals(tracerRow?.Startup, "10", StringComparison.Ordinal) &&
+                               string.Equals(sphereRadiusRow?.Startup, "2.4", StringComparison.Ordinal) &&
+                               string.Equals(sizeModeRow?.Startup, "Off", StringComparison.Ordinal);
+                    },
+                    TimeSpan.FromSeconds(10));
+
+                visualStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-oblateness_by_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the refreshed visual oblateness startup textblock.");
+                tracerStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-tracers_per_oscillator")
+                    ?? throw new InvalidOperationException("Could not resolve the refreshed tracer startup textblock.");
+                sphereRadiusStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-sphere_radius_max")
+                    ?? throw new InvalidOperationException("Could not resolve the refreshed sphere radius startup textblock.");
+                sizeModeStartup = FindDescendantByAutomationId<TextBlock>(view, "visual-startup-particle_size_relative_to_radius")
+                    ?? throw new InvalidOperationException("Could not resolve the refreshed size mode startup textblock.");
+
+                await WaitForConditionAsync(
+                    () => string.Equals(visualStartup.Text, "0.74", StringComparison.Ordinal) &&
+                          string.Equals(tracerStartup.Text, "10", StringComparison.Ordinal) &&
+                          string.Equals(sphereRadiusStartup.Text, "2.4", StringComparison.Ordinal) &&
+                          string.Equals(sizeModeStartup.Text, "Off", StringComparison.Ordinal),
                     TimeSpan.FromSeconds(10));
 
                 var visualStartupState = new SussexVisualProfileStartupStateStore(studyId).Load();
                 Assert.NotNull(visualStartupState);
                 Assert.NotNull(visualStartupState!.ControlValues);
                 Assert.Equal(0.74d, visualStartupState.ControlValues!["oblateness_by_radius_max"], 6);
+                Assert.Equal(10d, visualStartupState.ControlValues!["tracers_per_oscillator"], 6);
+                Assert.Equal(2.4d, visualStartupState.ControlValues!["sphere_radius_max"], 6);
+                Assert.Equal(0d, visualStartupState.ControlValues!["particle_size_relative_to_radius"], 6);
 
                 visualEditor.Focus();
                 visualEditor.Text = 0.81d.ToString("0.###", CultureInfo.CurrentCulture);
@@ -115,11 +219,14 @@ public sealed class StudyShellViewProfileButtonsTests
                 visualApplyButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualApplyButton));
 
                 await WaitForConditionAsync(
-                    () => string.Equals(visualStartup.Text, "0.74", StringComparison.Ordinal),
+                    () => string.Equals(tracerStartup.Text, "10", StringComparison.Ordinal),
                     TimeSpan.FromSeconds(10));
                 visualStartupState = new SussexVisualProfileStartupStateStore(studyId).Load();
                 Assert.NotNull(visualStartupState);
                 Assert.Equal(0.74d, visualStartupState!.ControlValues!["oblateness_by_radius_max"], 6);
+                Assert.True(
+                    visualWorkspace.SelectedProfile?.Document.ControlValues.TryGetValue("oblateness_by_radius_max", out var persistedSavedValue) == true &&
+                    Math.Abs(persistedSavedValue - 0.74d) < 0.000001d);
 
                 tabs.SelectedIndex = 4;
                 view.UpdateLayout();
@@ -204,10 +311,9 @@ public sealed class StudyShellViewProfileButtonsTests
                     },
                     TimeSpan.FromSeconds(5));
 
-                await WaitForConditionAsync(
-                    () => visualWorkspace.SelectedProfile?.Document.ControlValues.TryGetValue("sphere_deformation_enabled", out var persistedValue) == true &&
-                          persistedValue < 0.5d,
-                    TimeSpan.FromSeconds(5));
+                Assert.True(
+                    visualWorkspace.SelectedProfile?.Document.ControlValues.TryGetValue("sphere_deformation_enabled", out var persistedValue) == true &&
+                    persistedValue >= 0.5d);
 
                 window.Close();
             });

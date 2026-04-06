@@ -19,7 +19,7 @@ public sealed class SussexVisualTuningCompilerTests
         Assert.Equal(SussexVisualTuningCompiler.ExpectedSchemaVersion, document.SchemaVersion);
         Assert.Equal(SussexVisualTuningCompiler.ExpectedDocumentKind, document.DocumentKind);
         Assert.Equal(SussexVisualTuningCompiler.ExpectedPackageId, document.PackageId);
-        Assert.Equal(15, document.Controls.Count);
+        Assert.Equal(21, document.Controls.Count);
     }
 
     [Fact]
@@ -30,8 +30,14 @@ public sealed class SussexVisualTuningCompilerTests
         var root = JsonNode.Parse(templateJson)!.AsObject();
         var controls = root["controls"]!.AsObject();
         controls.Remove("sphere_deformation_enabled");
+        controls.Remove("tracers_enabled");
+        controls.Remove("tracers_lifetime_seconds");
+        controls.Remove("tracers_per_oscillator");
         controls.Remove("oblateness_by_radius_min");
         controls.Remove("oblateness_by_radius_max");
+        controls.Remove("sphere_radius_min");
+        controls.Remove("sphere_radius_max");
+        controls.Remove("particle_size_relative_to_radius");
         controls.Remove("depth_wave_min");
         controls.Remove("depth_wave_max");
         controls.Remove("orbit_distance_min");
@@ -39,10 +45,16 @@ public sealed class SussexVisualTuningCompilerTests
 
         var document = compiler.Parse(root.ToJsonString(new() { WriteIndented = true }));
 
-        Assert.Equal(15, document.Controls.Count);
+        Assert.Equal(21, document.Controls.Count);
+        Assert.Contains(document.Controls, control => control.Id == "tracers_enabled");
+        Assert.Contains(document.Controls, control => control.Id == "tracers_lifetime_seconds");
+        Assert.Contains(document.Controls, control => control.Id == "tracers_per_oscillator");
         Assert.Contains(document.Controls, control => control.Id == "sphere_deformation_enabled");
         Assert.Contains(document.Controls, control => control.Id == "oblateness_by_radius_min");
         Assert.Contains(document.Controls, control => control.Id == "oblateness_by_radius_max");
+        Assert.Contains(document.Controls, control => control.Id == "sphere_radius_min");
+        Assert.Contains(document.Controls, control => control.Id == "sphere_radius_max");
+        Assert.Contains(document.Controls, control => control.Id == "particle_size_relative_to_radius");
         Assert.Contains(document.Controls, control => control.Id == "depth_wave_max");
         Assert.Contains(document.Controls, control => control.Id == "orbit_distance_max");
     }
@@ -111,7 +123,7 @@ public sealed class SussexVisualTuningCompilerTests
     }
 
     [Fact]
-    public void Compile_emits_only_approved_visual_fields()
+    public void Compile_emits_approved_visual_overlay_and_derived_tracer_entries()
     {
         var compiler = new SussexVisualTuningCompiler(LoadTemplateJson());
         var document = compiler.CreateDocument(
@@ -119,9 +131,15 @@ public sealed class SussexVisualTuningCompilerTests
             null,
             new Dictionary<string, double>(compiler.TemplateDocument.ControlValues, StringComparer.OrdinalIgnoreCase)
             {
+                ["tracers_enabled"] = 1,
+                ["tracers_lifetime_seconds"] = 0.5,
+                ["tracers_per_oscillator"] = 9,
                 ["sphere_deformation_enabled"] = 0,
                 ["oblateness_by_radius_min"] = 0.2,
                 ["oblateness_by_radius_max"] = 0.6,
+                ["sphere_radius_min"] = 0.8,
+                ["sphere_radius_max"] = 2.4,
+                ["particle_size_relative_to_radius"] = 0,
                 ["particle_size_min"] = 0.055,
                 ["particle_size_max"] = 0.145,
                 ["depth_wave_min"] = 0.02,
@@ -136,6 +154,8 @@ public sealed class SussexVisualTuningCompilerTests
 
         Assert.Contains("\"UseSphereDeformation\":false", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.Contains("\"OblatenessByRadiusCurveLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
+        Assert.Contains("\"SharedRadiusLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
+        Assert.Contains("\"UsePercentSize\":false", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.Contains("\"ParticleSizeEnvelopeLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.Contains("\"DepthWavePercentLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.Contains("\"TransparencyLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
@@ -144,6 +164,14 @@ public sealed class SussexVisualTuningCompilerTests
         Assert.Contains("\"OrbitRadiusMultiplierLimits\"", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.DoesNotContain("CrossCouplingMatrix", compiled.CompactRuntimeConfigJson, StringComparison.Ordinal);
         Assert.Equal(SussexVisualTuningCompiler.ExpectedHotloadTargetKey, compiled.HotloadTargetKey);
+        Assert.Contains(compiled.Entries, entry => entry.Key == SussexVisualTuningCompiler.ExpectedHotloadTargetKey);
+        Assert.Contains(compiled.Entries, entry => entry.Key == "integrated_tracers_enabled" && entry.Value == "true");
+        Assert.Contains(compiled.Entries, entry => entry.Key == "integrated_tracers_visuals_enabled" && entry.Value == "true");
+        Assert.Contains(compiled.Entries, entry => entry.Key == "integrated_tracers_lifetime_seconds" && entry.Value == "0.5");
+        Assert.Contains(compiled.Entries, entry => entry.Key == "integrated_tracers_per_oscillator" && entry.Value == "9");
+        Assert.Contains(compiled.Entries, entry => entry.Key == "integrated_tracers_copies_per_second" && entry.Value == "18");
+        Assert.Contains(compiled.Entries, entry => entry.Key == "integrated_tracers_max_spawn_batches_per_frame" && entry.Value == "4");
+        Assert.Contains(compiled.Entries, entry => entry.Key == "integrated_tracers_size_multiplier" && entry.Value == "1");
     }
 
     [Fact]
@@ -284,8 +312,29 @@ public sealed class SussexVisualTuningCompilerTests
 
         var values = compiler.ExtractRuntimeValues("\0not-json");
 
-        Assert.Equal(15, values.Count);
+        Assert.Equal(21, values.Count);
         Assert.All(values.Values, value => Assert.Null(value));
+    }
+
+    [Fact]
+    public void Extract_runtime_values_reads_simplified_tracer_wrapper_from_reported_hotload_keys()
+    {
+        var compiler = new SussexVisualTuningCompiler(LoadTemplateJson());
+
+        var values = compiler.ExtractRuntimeValues(
+            "{}",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["hotload.integrated_tracers_enabled"] = "true",
+                ["hotload.integrated_tracers_lifetime_seconds"] = "0.75",
+                ["hotload.integrated_tracers_per_oscillator"] = "11"
+            });
+
+        Assert.Equal(1d, values["tracers_enabled"]);
+        Assert.NotNull(values["tracers_lifetime_seconds"]);
+        Assert.NotNull(values["tracers_per_oscillator"]);
+        Assert.Equal(0.75d, values["tracers_lifetime_seconds"]!.Value, 3);
+        Assert.Equal(11d, values["tracers_per_oscillator"]!.Value, 3);
     }
 
     [Fact]
@@ -304,6 +353,26 @@ public sealed class SussexVisualTuningCompilerTests
         Assert.NotNull(values["oblateness_by_radius_max"]);
         Assert.Equal(0.25, values["oblateness_by_radius_min"]!.Value, 3);
         Assert.Equal(0.5, values["oblateness_by_radius_max"]!.Value, 3);
+    }
+
+    [Fact]
+    public void Extract_runtime_values_reads_sphere_radius_limits_and_particle_size_mode()
+    {
+        var compiler = new SussexVisualTuningCompiler(LoadTemplateJson());
+
+        var values = compiler.ExtractRuntimeValues("""
+            {
+              "SharedRadiusLimits": { "x": 0.9, "y": 2.3 },
+              "UsePercentSize": false,
+              "ParticleSizeEnvelopeLimits": { "x": 0.03, "y": 0.12 }
+            }
+            """);
+
+        Assert.Equal(0.9, values["sphere_radius_min"]!.Value, 3);
+        Assert.Equal(2.3, values["sphere_radius_max"]!.Value, 3);
+        Assert.Equal(0d, values["particle_size_relative_to_radius"]!.Value, 3);
+        Assert.Equal(0.03, values["particle_size_min"]!.Value, 3);
+        Assert.Equal(0.12, values["particle_size_max"]!.Value, 3);
     }
 
     [Fact]

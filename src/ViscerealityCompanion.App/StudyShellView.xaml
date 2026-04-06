@@ -1160,7 +1160,7 @@
                                     Background="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                                     BorderBrush="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToBrush}}">
                                 <StackPanel>
-                                    <TextBlock Text="Visual profile library" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Saved profile library" Style="{StaticResource SectionTitleStyle}" />
                                     <TextBlock Text="{Binding LibrarySummary}"
                                                FontSize="16"
                                                FontWeight="Bold"
@@ -1178,15 +1178,21 @@
                                                Margin="0,2,0,0" />
                                     <WrapPanel Margin="0,12,0,0">
                                         <Button Content="New From Baseline" Command="{Binding NewFromBaselineCommand}" />
-                                        <Button Content="Duplicate" Command="{Binding DuplicateSelectedCommand}" />
-                                        <Button Content="Rename" Command="{Binding RenameSelectedCommand}" />
+                                        <Button x:Name="VisualSaveAsNewProfileButton"
+                                                Content="Save Draft As New Profile"
+                                                Click="OnVisualSaveAsNewProfileClick"
+                                                AutomationProperties.AutomationId="VisualSaveAsNewProfileButton" />
+                                        <Button x:Name="VisualSaveSelectedProfileButton"
+                                                Content="Save Changes To Selected Profile"
+                                                Click="OnVisualSaveSelectedProfileClick"
+                                                AutomationProperties.AutomationId="VisualSaveSelectedProfileButton" />
                                         <Button Content="Import" Command="{Binding ImportProfileCommand}" />
                                         <Button Content="Export" Command="{Binding ExportSelectedCommand}" />
                                         <Button Content="Open Folder" Command="{Binding OpenFolderCommand}" />
                                         <Button Content="Delete" Command="{Binding DeleteSelectedCommand}" />
                                     </WrapPanel>
                                     <TextBlock Margin="0,8,0,0"
-                                               Text="Session apply and next-launch save actions live with the table below so they always commit the edited cell first."
+                                               Text="Selecting a saved profile loads it into the working draft below. Typing in the table does not change the library until you use one of the save buttons."
                                                Style="{StaticResource CompactCaptionStyle}" />
                                 </StackPanel>
                             </Border>
@@ -1194,7 +1200,7 @@
                             <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
                                 <StackPanel>
                                     <TextBlock Text="Saved profiles" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="Each profile is stored as a self-describing json file in the local library."
+                                    <TextBlock Text="The bundled Sussex baseline is always listed first. Saved profiles are stored as self-describing json files in the local library."
                                                Style="{StaticResource SectionCaptionStyle}" />
                                     <ListBox ItemsSource="{Binding Profiles}"
                                              SelectedItem="{Binding SelectedProfile}"
@@ -1247,8 +1253,8 @@
 
                             <Border Style="{StaticResource StudyPanelStyle}">
                                 <StackPanel>
-                                    <TextBlock Text="Selected profile" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="Edit values in the table below. Hover a parameter name for the metadata and tuning guidance bundled in the profile schema."
+                                    <TextBlock Text="Runtime working draft" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="The selected saved profile is copied into this runtime draft. Applying changes touches only the live Sussex session; saving decides whether the library or launch profile changes."
                                                Style="{StaticResource SectionCaptionStyle}" />
 
                                     <Border Style="{StaticResource StudyInsetPanelStyle}"
@@ -1275,6 +1281,39 @@
                                         </Grid>
                                     </Border>
 
+                                    <Border Style="{StaticResource StudyInsetPanelStyle}"
+                                            Margin="0,8,0,0"
+                                            Background="{Binding DraftLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                            BorderBrush="{Binding DraftLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                        <StackPanel>
+                                            <TextBlock Text="Runtime draft source" Style="{StaticResource InfoLabelStyle}" />
+                                            <TextBlock Text="{Binding DraftSourceSummary}"
+                                                       FontSize="15"
+                                                       FontWeight="Bold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding DraftSourceDetail}"
+                                                       Style="{StaticResource CompactCaptionStyle}"
+                                                       Margin="0,6,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource StudyInsetPanelStyle}"
+                                            Margin="0,8,0,0"
+                                            Background="{Binding DraftLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                            BorderBrush="{Binding DraftLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                        <StackPanel>
+                                            <TextBlock Text="Draft state" Style="{StaticResource InfoLabelStyle}" />
+                                            <TextBlock Text="{Binding DraftSummary}"
+                                                       FontSize="15"
+                                                       FontWeight="Bold"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="{Binding DraftLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                            <TextBlock Text="{Binding DraftDetail}"
+                                                       Style="{StaticResource CompactCaptionStyle}"
+                                                       Margin="0,6,0,0" />
+                                        </StackPanel>
+                                    </Border>
+
                                     <Grid Margin="0,10,0,0">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="120" />
@@ -1288,7 +1327,7 @@
 
                                         <TextBlock Grid.Row="0"
                                                    Grid.Column="0"
-                                                   Text="Profile name"
+                                                   Text="Draft name"
                                                    Style="{StaticResource InfoLabelStyle}"
                                                    VerticalAlignment="Center" />
                                         <TextBox Grid.Row="0"
@@ -1298,7 +1337,7 @@
 
                                         <TextBlock Grid.Row="2"
                                                    Grid.Column="0"
-                                                   Text="Notes"
+                                                   Text="Draft notes"
                                                    Style="{StaticResource InfoLabelStyle}"
                                                    VerticalAlignment="Top" />
                                         <TextBox Grid.Row="2"
@@ -1323,7 +1362,7 @@
 
                                     <StackPanel Grid.Row="0">
                                         <TextBlock Text="Visual parameter table" Style="{StaticResource SectionTitleStyle}" />
-                                        <TextBlock Text="The table compares the current editor values against the saved launch override shown above. Sussex may briefly start on the bundled baseline before that override lands. Reset returns a row to the bundled Sussex baseline."
+                                        <TextBlock Text="The table edits the runtime working draft and compares it against the saved launch profile shown above. Reset returns a row to the bundled Sussex baseline."
                                                    Style="{StaticResource SectionCaptionStyle}" />
                                         <Grid Margin="0,10,0,0">
                                             <Grid.ColumnDefinitions>
@@ -1342,10 +1381,10 @@
                                                     <TextBlock Text="Current session"
                                                                Style="{StaticResource InfoLabelStyle}" />
                                                     <TextBlock Margin="0,4,0,8"
-                                                               Text="Upload the edited values to the headset now. This does not change the next Sussex launch."
+                                                               Text="Publish the runtime working draft to the active Sussex session now. This changes only the live session and leaves the saved launch profile untouched."
                                                                Style="{StaticResource SectionCaptionStyle}" />
                                                     <Button x:Name="VisualApplyCurrentSessionButton"
-                                                            Content="Apply To Current Session"
+                                                            Content="Apply Runtime Draft To Current Session"
                                                             Click="OnVisualApplyCurrentSessionClick"
                                                             MinWidth="220"
                                                             FontWeight="Bold"
@@ -1363,7 +1402,7 @@
                                                     <TextBlock Text="Next Sussex launch"
                                                                Style="{StaticResource InfoLabelStyle}" />
                                                     <TextBlock Margin="0,4,0,8"
-                                                               Text="Save the current editor values as the pinned launch override used the next time Sussex launches from this shell."
+                                                               Text="Pin the selected saved profile as the persisted Sussex launch profile. Save the runtime draft first if you want the current draft values to become the next-launch profile."
                                                                Style="{StaticResource SectionCaptionStyle}" />
                                                     <WrapPanel>
                                                         <Button x:Name="VisualSaveStartupSnapshotButton"

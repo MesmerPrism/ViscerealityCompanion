@@ -104,4 +104,57 @@ public sealed class StudyShellSnapshotPolicyTests
 
         Assert.True(shouldRefresh);
     }
+
+    [Fact]
+    public void HasReportedStudyRuntimeConfigJson_AcceptsDirectAndHotloadKeys()
+    {
+        Assert.True(StudyShellViewModel.HasReportedStudyRuntimeConfigJson(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["showcase_active_runtime_config_json"] = "{\"UseSphereDeformation\":true}"
+        }));
+
+        Assert.True(StudyShellViewModel.HasReportedStudyRuntimeConfigJson(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hotload.showcase_active_runtime_config_json"] = "{\"UseSphereDeformation\":true}"
+        }));
+
+        Assert.False(StudyShellViewModel.HasReportedStudyRuntimeConfigJson(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["showcase_active_runtime_config_json"] = "   "
+        }));
+    }
+
+    [Fact]
+    public void HasFreshRuntimeConfigTwinBaseline_RequiresFreshSnapshotAndRuntimeConfigJson()
+    {
+        var commandIssuedAtUtc = DateTimeOffset.UtcNow;
+        var reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["showcase_active_runtime_config_json"] = "{\"UseSphereDeformation\":true}"
+        };
+
+        Assert.False(StudyShellViewModel.HasFreshRuntimeConfigTwinBaseline(
+            previousRevision: "10",
+            previousCommittedAtUtc: commandIssuedAtUtc.AddSeconds(-2),
+            commandIssuedAtUtc,
+            currentRevision: "10",
+            currentCommittedAtUtc: commandIssuedAtUtc.AddSeconds(-2),
+            reportedTwinState));
+
+        Assert.False(StudyShellViewModel.HasFreshRuntimeConfigTwinBaseline(
+            previousRevision: "10",
+            previousCommittedAtUtc: commandIssuedAtUtc.AddSeconds(-2),
+            commandIssuedAtUtc,
+            currentRevision: "11",
+            currentCommittedAtUtc: commandIssuedAtUtc.AddSeconds(1),
+            reportedTwinState: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)));
+
+        Assert.True(StudyShellViewModel.HasFreshRuntimeConfigTwinBaseline(
+            previousRevision: "10",
+            previousCommittedAtUtc: commandIssuedAtUtc.AddSeconds(-2),
+            commandIssuedAtUtc,
+            currentRevision: "11",
+            currentCommittedAtUtc: commandIssuedAtUtc.AddSeconds(1),
+            reportedTwinState));
+    }
 }
