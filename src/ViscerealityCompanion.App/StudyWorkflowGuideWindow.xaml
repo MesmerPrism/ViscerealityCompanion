@@ -98,14 +98,12 @@
 
                     <StackPanel Grid.Column="0">
                         <Image Source="Assets/viscereality-wordmark.png"
-                               Height="56"
+                               Height="48"
                                Stretch="Uniform"
                                HorizontalAlignment="Left"
-                               Margin="0,0,0,10" />
-                        <TextBlock Text="Sequential Sussex Guide"
-                                   Style="{StaticResource GuideSectionTitleStyle}" />
+                               Margin="0,0,0,8" />
                         <TextBlock Text="{Binding WorkflowGuideStepTitle}"
-                                   FontSize="31"
+                                   FontSize="28"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource InkBrush}"
                                    TextWrapping="Wrap" />
