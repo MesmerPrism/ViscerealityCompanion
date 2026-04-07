@@ -232,16 +232,17 @@ public sealed class StudyShellViewProfileButtonsTests
                 view.UpdateLayout();
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
 
-                var controllerEditor = FindDescendantByAutomationId<TextBox>(view, "controller-current-median_window")
-                    ?? throw new InvalidOperationException("Could not resolve the controller editor textbox.");
                 var controllerStartup = FindDescendantByAutomationId<TextBlock>(view, "controller-startup-median_window")
                     ?? throw new InvalidOperationException("Could not resolve the controller startup textblock.");
                 var controllerSaveButton = (Button)view.FindName("ControllerSaveStartupSnapshotButton")!;
                 var controllerApplyButton = (Button)view.FindName("ControllerApplyCurrentSessionButton")!;
+                var controllerField = controllerWorkspace.Groups
+                    .SelectMany(group => group.Fields)
+                    .FirstOrDefault(field => string.Equals(field.Id, "median_window", StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException("Could not resolve the controller median-window field.");
 
-                controllerEditor.Focus();
-                controllerEditor.Text = "7";
-                CommitTextBoxEdit(controllerEditor);
+                controllerField.Value = 7d;
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                 controllerSaveButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, controllerSaveButton));
 
                 await WaitForConditionAsync(
@@ -253,9 +254,8 @@ public sealed class StudyShellViewProfileButtonsTests
                 Assert.NotNull(controllerStartupState!.ControlValues);
                 Assert.Equal(7d, controllerStartupState.ControlValues!["median_window"], 6);
 
-                controllerEditor.Focus();
-                controllerEditor.Text = "11";
-                CommitTextBoxEdit(controllerEditor);
+                controllerField.Value = 11d;
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
                 controllerApplyButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, controllerApplyButton));
 
                 await WaitForConditionAsync(

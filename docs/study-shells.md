@@ -253,6 +253,75 @@ runtime edits stay temporary until the operator explicitly saves them back into
 the profile library. Row reset still returns a single value to the bundled
 Sussex baseline.
 
+## Agent Automation And CLI Parity
+
+The packaged Sussex shell now exposes two agent-facing control modes:
+
+- GUI-driving for rendered-state checks, screenshots, and visual confirmation
+- CLI-driving for deterministic profile edits, startup/default changes, and
+  machine-readable inspection
+
+For GUI-driving, use real UI interactions: select the relevant Sussex tab,
+focus the editable cell or toggle, type or toggle through UI Automation /
+keyboard input, then invoke the matching button. For deterministic profile
+authoring and startup/default changes, prefer the CLI.
+
+For automation, prefer the CLI. It now uses the same persisted profile JSON
+files, startup/default state, apply-state tracking, and device-side hotload
+sync rules as the GUI.
+
+The agent-readable field catalogs are:
+
+```powershell
+viscereality sussex visual fields --json
+viscereality sussex controller fields --json
+```
+
+Those commands expose the stable control ids, ranges, baseline values,
+runtime-key mappings, full tooltip text, and the effect/increase/decrease/
+tradeoff metadata bundled in the Sussex schemas.
+
+The core profile commands are:
+
+```powershell
+viscereality sussex visual list --json
+viscereality sussex visual show "<profile>" --json
+viscereality sussex visual create --name "<new-name>" --from bundled-baseline --set ... --scale ... --json
+viscereality sussex visual update "<profile>" --set ... --scale ... --json
+viscereality sussex visual set-startup "<profile>" --json
+viscereality sussex visual clear-startup --json
+viscereality sussex visual apply-live "<profile>" --json
+
+viscereality sussex controller list --json
+viscereality sussex controller show "<profile>" --json
+viscereality sussex controller create --name "<new-name>" --from bundled-baseline --set ... --scale ... --json
+viscereality sussex controller update "<profile>" --set ... --scale ... --json
+viscereality sussex controller set-startup "<profile>" --json
+viscereality sussex controller clear-startup --json
+viscereality sussex controller apply-live "<profile>" --json
+```
+
+Current-session `apply-live` mirrors the GUI `Apply To Current Session`
+buttons:
+
+- it publishes over the live `quest_hotload_config` twin path
+- it requires the Sussex runtime to be in the foreground
+- it does not rewrite the saved next-launch/default profile
+
+Startup/default commands mirror the GUI next-launch actions:
+
+- they change the persisted startup/default profile
+- they sync the device-side startup CSV immediately when Sussex is not
+  currently in the foreground
+- if Sussex is running in the foreground, the saved startup/default change is
+  deferred until the next `viscereality study stop sussex-university` or
+  `viscereality study launch sussex-university`
+
+For natural-language requests like "reduce particle size by 50%", agents should
+usually adjust both `particle_size_min` and `particle_size_max`, because the
+visual shell models that concept as a paired min/max envelope instead of one
+single knob.
+
 The Home tab now also offers `Open Sequential Guide`, a pop-out onboarding
 window that walks the operator through the fixed Sussex protocol step by step:
 

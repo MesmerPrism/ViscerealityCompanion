@@ -190,6 +190,163 @@ For Quest wake / Guardian tracking-loss debugging, keep
 for tested `adb` / `hzdb` commands, observed shell states, and the current best
 recovery sequence.
 
+## Local-Agent Operation Modes
+
+For Sussex shell automation there are now two supported agent-facing control
+surfaces:
+
+1. GUI-driving
+   - Use this when the task depends on rendered state, visual validation,
+     screenshot confirmation, or user-facing layout/tooltip placement.
+   - Example: verify that the pinned startup profile appears in the `Visual
+     Profiles` table, or confirm that a tooltip is attached to the right row.
+   - Use real UI interactions: activate the tab, focus the control, type or
+     toggle through UI Automation / keyboard input, then invoke the matching
+     button. Do not rely on direct WPF property mutation when documenting or
+     scripting GUI behavior.
+2. CLI-driving
+   - Prefer this for deterministic state changes, profile creation, profile
+     edits, startup/default changes, and machine-readable inspection.
+   - Example: create a new profile, halve `particle_size_min` and
+     `particle_size_max`, save it, pin it for next launch, or export it.
+
+When an action exists in both places, the CLI is the preferred automation path.
+It uses the same persisted profile JSON files, the same startup/apply state
+files under `%LOCALAPPDATA%\ViscerealityCompanion\session\`, the same Sussex
+template schemas, and the same hotload/twin publish channels as the GUI.
+
+## Sussex CLI Parity
+
+Run the CLI with:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- <args>
+```
+
+Or, after installing/publishing the tool:
+
+```powershell
+viscereality <args>
+```
+
+The Sussex-specific command surface is:
+
+- `viscereality sussex visual ...`
+- `viscereality sussex controller ...`
+
+Important parity rules:
+
+- `sussex visual apply-live <profile>` and
+  `sussex controller apply-live <profile>` mirror the GUI `Apply To Current
+  Session` buttons.
+  - They publish over the live `quest_hotload_config` twin path.
+  - They do not rewrite the saved next-launch/default profile.
+  - They require the Sussex runtime to be in the foreground.
+- `sussex visual set-startup <profile>` and
+  `sussex controller set-startup <profile>` mirror the GUI next-launch/default
+  actions.
+  - They change the persisted startup/default profile.
+  - If Sussex is not currently in the foreground, the CLI also syncs the
+    device-side startup CSV immediately.
+  - If Sussex is running in the foreground, the change is saved locally and
+    the device-side startup CSV is deferred until the next `study stop` or
+    `study launch`.
+- `viscereality study launch sussex-university` now stages the saved Sussex
+  startup/default profile(s) to the device before launch, matching the GUI.
+- `viscereality study stop sussex-university` now refreshes the device-side
+  startup CSV after stop, matching the GUI deferred-sync behavior.
+
+## Sussex Profile Recipes
+
+Use `--json` for agent-readable output whenever possible.
+
+Inspect the complete tooltip/metadata catalog:
+
+```powershell
+viscereality sussex visual fields --json
+viscereality sussex controller fields --json
+```
+
+Inspect one saved or bundled profile:
+
+```powershell
+viscereality sussex visual show "<profile-id-or-name>" --json
+viscereality sussex controller show "<profile-id-or-name>" --json
+```
+
+Create a new visual profile from the bundled baseline:
+
+```powershell
+viscereality sussex visual create `
+  --name "Half-size particles" `
+  --from bundled-baseline `
+  --scale particle_size_min=0.5 `
+  --scale particle_size_max=0.5 `
+  --set-startup `
+  --json
+```
+
+Update an existing controller-breathing profile and make it the next-launch
+default:
+
+```powershell
+viscereality sussex controller update "<profile-id-or-name>" `
+  --set median_window=7 `
+  --set-startup `
+  --json
+```
+
+Reset startup/default behavior back to the bundled baseline:
+
+```powershell
+viscereality sussex visual clear-startup --json
+viscereality sussex controller clear-startup --json
+```
+
+Import/export profile JSON directly:
+
+```powershell
+viscereality sussex visual import "C:\path\profile.json" --json
+viscereality sussex visual export "<profile-id-or-name>" "C:\path\out.json" --json
+viscereality sussex controller import "C:\path\profile.json" --json
+viscereality sussex controller export "<profile-id-or-name>" "C:\path\out.json" --json
+```
+
+## Sussex Parameter Guidance
+
+Do not guess control ids from prose if the exact field mapping matters. Ask the
+CLI for the field catalog first.
+
+The field catalogs include, for every parameter:
+
+- stable control id
+- group/title
+- type
+- baseline value
+- safe minimum and maximum
+- runtime JSON key / hotload key
+- full tooltip text
+- effect
+- increase/decrease visual meaning
+- tradeoffs
+- pair metadata for `_min` / `_max` envelopes
+
+For Sussex visual profiles, paired envelope controls usually need to move
+together:
+
+- `oblateness_by_radius_min` + `oblateness_by_radius_max`
+- `sphere_radius_min` + `sphere_radius_max`
+- `particle_size_min` + `particle_size_max`
+- `depth_wave_min` + `depth_wave_max`
+- `transparency_min` + `transparency_max`
+- `saturation_min` + `saturation_max`
+- `brightness_min` + `brightness_max`
+- `orbit_distance_min` + `orbit_distance_max`
+
+For natural-language requests like "reduce particle size by 50%", an agent
+should usually scale both `particle_size_min` and `particle_size_max` by `0.5`
+unless the user explicitly asks for asymmetric behavior.
+
 ## Available Skills
 
 - `$bureau-context` is available and should be used when the task genuinely

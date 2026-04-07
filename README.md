@@ -18,7 +18,7 @@ desktop release needs:
 
 - WPF desktop app for Quest connection, install, launch, monitoring, and runtime-config staging
 - reusable study-shell windows for simplified experiment-specific operator flows
-- CLI for scriptable ADB, LSL, and twin command workflows
+- CLI for scriptable ADB, LSL, twin command workflows, and Sussex profile automation
 - repo-local Sussex sample catalog, scene-matched hotload baseline, device profiles, and the bundled Sussex APK
 - public runtime-config editor that mirrors the Astral inspector layout
 - Pages docs and release automation
@@ -72,6 +72,19 @@ validation capture. The validation step now keeps the timing alignment flow
 inline in the guide itself, instead of opening a separate timing window, and
 the `During session` surface now keeps Quest screenshot capture and clock
 alignment next to the other live-session controls.
+
+For local agents and scripted operators, the CLI now mirrors the Sussex
+`Visual Profiles` and `Controller Breathing` tabs. The agent-readable field
+catalogs are:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- sussex visual fields --json
+dotnet run --project src/ViscerealityCompanion.Cli -- sussex controller fields --json
+```
+
+Those commands expose the bundled tooltip/effect/tradeoff metadata and the
+stable control ids needed to create, update, inspect, apply, import/export,
+and set next-launch/default Sussex profiles entirely through the CLI.
 
 For local development:
 

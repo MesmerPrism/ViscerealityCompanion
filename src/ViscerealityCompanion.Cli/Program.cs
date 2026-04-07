@@ -29,6 +29,7 @@ public static class Program
         rootCommand.AddCommand(BuildTwinCommand());
         rootCommand.AddCommand(BuildCatalogCommand());
         rootCommand.AddCommand(BuildStudyCommand());
+        rootCommand.AddCommand(BuildSussexCommand());
         rootCommand.AddCommand(BuildHzdbCommand());
         rootCommand.AddCommand(BuildUtilityCommand());
 
@@ -465,6 +466,21 @@ public static class Program
         {
             var definition = await ResolveStudyShellAsync(study, root);
             var service = CreateQuestService(device);
+            var startupSync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(
+                definition,
+                service,
+                definition.Id,
+                root,
+                forceWhenStudyNotForeground: true);
+            if (!string.IsNullOrWhiteSpace(startupSync.Summary))
+            {
+                Console.WriteLine($"[STARTUP] {startupSync.Summary}");
+                if (!string.IsNullOrWhiteSpace(startupSync.Detail))
+                {
+                    Console.WriteLine($"          {startupSync.Detail}");
+                }
+            }
+
             var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
             var result = await service.LaunchAppAsync(target, kioskMode: definition.App.LaunchInKioskMode);
             PrintOutcome(result);
@@ -478,6 +494,23 @@ public static class Program
             var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
             var result = await service.StopAppAsync(target, exitKioskMode: definition.App.LaunchInKioskMode);
             PrintOutcome(result);
+            if (result.Kind != OperationOutcomeKind.Failure)
+            {
+                var startupSync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(
+                    definition,
+                    service,
+                    definition.Id,
+                    root,
+                    forceWhenStudyNotForeground: true);
+                if (!string.IsNullOrWhiteSpace(startupSync.Summary))
+                {
+                    Console.WriteLine($"[STARTUP] {startupSync.Summary}");
+                    if (!string.IsNullOrWhiteSpace(startupSync.Detail))
+                    {
+                        Console.WriteLine($"          {startupSync.Detail}");
+                    }
+                }
+            }
         });
 
         var statusCommand = new Command("status", "Show current headset state against the pinned study verification baseline") { studyArg, rootOption };
@@ -540,6 +573,615 @@ public static class Program
         studyCommand.AddCommand(stopCommand);
         studyCommand.AddCommand(statusCommand);
         return studyCommand;
+    }
+
+    private static Command BuildSussexCommand()
+    {
+        var sussexCommand = new Command("sussex", "Sussex profile automation commands that mirror the GUI profile tabs");
+        var studyOption = new Option<string>("--study", () => SussexCliSupport.DefaultStudyId, "Study shell ID used for local startup/apply state.");
+        var rootOption = new Option<string?>("--root", "Study shell catalog root directory path");
+        var jsonOption = new Option<bool>("--json", "Emit JSON output.");
+        sussexCommand.AddGlobalOption(studyOption);
+        sussexCommand.AddGlobalOption(rootOption);
+        sussexCommand.AddGlobalOption(jsonOption);
+
+        static Option<string[]> CreateRepeatedAssignmentOption(string name, string description)
+        {
+            var option = new Option<string[]>(name, description)
+            {
+                Arity = ArgumentArity.ZeroOrMore
+            };
+            option.AllowMultipleArgumentsPerToken = true;
+            return option;
+        }
+
+        sussexCommand.AddCommand(BuildSussexVisualCommand(studyOption, rootOption, jsonOption, CreateRepeatedAssignmentOption));
+        sussexCommand.AddCommand(BuildSussexControllerCommand(studyOption, rootOption, jsonOption, CreateRepeatedAssignmentOption));
+        return sussexCommand;
+    }
+
+    private static Command BuildSussexVisualCommand(
+        Option<string> studyOption,
+        Option<string?> rootOption,
+        Option<bool> jsonOption,
+        Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
+    {
+        var visual = new Command("visual", "Sussex visual-profile commands");
+
+        var list = new Command("list", "List bundled and local Sussex visual profiles");
+        list.Handler = CommandHandler.Create(async (string study, string? root, bool json) =>
+        {
+            var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(profiles.Select(profile => new
+                {
+                    id = profile.Record.Id,
+                    name = profile.Record.Document.Profile.Name,
+                    kind = profile.IsBundledBaseline ? "bundled-baseline" : profile.IsBundledProfile ? "bundled-profile" : "local-profile",
+                    path = string.IsNullOrWhiteSpace(profile.Record.FilePath) ? null : profile.Record.FilePath
+                }));
+            }
+            else
+            {
+                SussexCliSupport.PrintVisualProfiles(profiles, study);
+            }
+        });
+
+        var fields = new Command("fields", "List all Sussex visual field ids, ranges, and tooltip metadata");
+        fields.Handler = CommandHandler.Create((bool json) =>
+        {
+            var specs = SussexCliSupport.BuildVisualFieldSpecs();
+            if (json)
+            {
+                SussexCliSupport.WriteJson(specs);
+            }
+            else
+            {
+                SussexCliSupport.PrintFieldSpecs("Sussex Visual Fields:", specs);
+            }
+        });
+
+        var profileArg = new Argument<string>("profile", "Visual profile id or name.");
+        var show = new Command("show", "Show one Sussex visual profile, including its field metadata") { profileArg };
+        show.Handler = CommandHandler.Create(async (string profile, string study, string? root) =>
+        {
+            var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            var resolved = SussexCliSupport.ResolveVisualProfile(profiles, profile);
+            SussexCliSupport.WriteJson(SussexCliSupport.BuildVisualProfileView(resolved, study));
+        });
+
+        var fromOption = new Option<string>("--from", () => "bundled-baseline", "Source profile id/name, or bundled-baseline.");
+        var nameOption = new Option<string>("--name", "New profile name.") { IsRequired = true };
+        var notesOption = new Option<string?>("--notes", "Profile notes. Pass an empty string to clear notes.");
+        var setOption = createRepeatedAssignmentOption("--set", "Set one or more field values as id=value.");
+        var scaleOption = createRepeatedAssignmentOption("--scale", "Scale one or more numeric fields as id=factor.");
+        var setStartupOption = new Option<bool>("--set-startup", "Also save the resulting profile as the next-launch default.");
+
+        var create = new Command("create", "Create a new Sussex visual profile from baseline or another profile");
+        create.AddOption(fromOption);
+        create.AddOption(nameOption);
+        create.AddOption(notesOption);
+        create.AddOption(setOption);
+        create.AddOption(scaleOption);
+        create.AddOption(setStartupOption);
+        create.Handler = CommandHandler.Create(async (string from, string name, string? notes, string[] set, string[] scale, bool setStartup, string study, string? root, bool json, string? device) =>
+        {
+            var compiler = SussexCliSupport.CreateVisualCompiler();
+            var store = SussexCliSupport.CreateVisualStore(compiler);
+            var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            var source = SussexCliSupport.ResolveVisualProfile(profiles, from);
+            var document = SussexCliSupport.BuildVisualDocument(compiler, source.Record.Document, name, notes, set, scale);
+            var saved = await SussexCliSupport.SaveVisualAsNewAsync(store, document);
+
+            SussexCliSupport.StartupSyncResult? sync = null;
+            if (setStartup)
+            {
+                SussexCliSupport.SaveVisualStartupState(study, saved);
+                var definition = await ResolveStudyShellAsync(study, root);
+                sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            }
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new
+                {
+                    created = SussexCliSupport.BuildVisualProfileView(new SussexCliSupport.VisualResolvedProfile(saved, false, false), study),
+                    startup_sync = sync
+                });
+            }
+            else
+            {
+                Console.WriteLine($"Created visual profile: {saved.Document.Profile.Name} ({saved.Id})");
+                Console.WriteLine(saved.FilePath);
+                if (sync is not null)
+                {
+                    Console.WriteLine(sync.Summary);
+                    Console.WriteLine(sync.Detail);
+                }
+            }
+        });
+
+        var update = new Command("update", "Update an existing local Sussex visual profile") { profileArg };
+        update.AddOption(nameOption);
+        update.AddOption(notesOption);
+        update.AddOption(setOption);
+        update.AddOption(scaleOption);
+        update.AddOption(setStartupOption);
+        update.Handler = CommandHandler.Create(async (string profile, string? name, string? notes, string[] set, string[] scale, bool setStartup, string study, string? root, bool json, string? device) =>
+        {
+            var compiler = SussexCliSupport.CreateVisualCompiler();
+            var store = SussexCliSupport.CreateVisualStore(compiler);
+            var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            var target = SussexCliSupport.ResolveVisualProfile(profiles, profile);
+            var startupBefore = new SussexVisualProfileStartupStateStore(study).Load();
+            var document = SussexCliSupport.BuildVisualDocument(compiler, target.Record.Document, name, notes, set, scale);
+            var saved = await SussexCliSupport.SaveVisualExistingAsync(store, target, document);
+            var shouldSyncStartup = setStartup || string.Equals(startupBefore?.ProfileId, target.Record.Id, StringComparison.OrdinalIgnoreCase);
+            SussexCliSupport.RefreshVisualStateAfterSave(study, target.Record.Id, saved, forceSetStartup: setStartup);
+
+            SussexCliSupport.StartupSyncResult? sync = null;
+            if (shouldSyncStartup)
+            {
+                var definition = await ResolveStudyShellAsync(study, root);
+                sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            }
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new
+                {
+                    updated = SussexCliSupport.BuildVisualProfileView(new SussexCliSupport.VisualResolvedProfile(saved, false, false), study),
+                    startup_sync = sync
+                });
+            }
+            else
+            {
+                Console.WriteLine($"Updated visual profile: {saved.Document.Profile.Name} ({saved.Id})");
+                Console.WriteLine(saved.FilePath);
+                if (sync is not null)
+                {
+                    Console.WriteLine(sync.Summary);
+                    Console.WriteLine(sync.Detail);
+                }
+            }
+        });
+
+        var delete = new Command("delete", "Delete one local Sussex visual profile") { profileArg };
+        delete.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
+        {
+            var compiler = SussexCliSupport.CreateVisualCompiler();
+            var store = SussexCliSupport.CreateVisualStore(compiler);
+            var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            var target = SussexCliSupport.ResolveVisualProfile(profiles, profile);
+            if (!target.IsWritableLocalProfile)
+            {
+                throw new InvalidOperationException("Only local Sussex visual profiles can be deleted.");
+            }
+
+            var startupBefore = new SussexVisualProfileStartupStateStore(study).Load();
+            var shouldSyncStartup = string.Equals(startupBefore?.ProfileId, target.Record.Id, StringComparison.OrdinalIgnoreCase);
+            SussexCliSupport.ClearVisualStateForDeletedProfile(study, target.Record.Id);
+            await store.DeleteAsync(target.Record.FilePath);
+
+            SussexCliSupport.StartupSyncResult? sync = null;
+            if (shouldSyncStartup)
+            {
+                var definition = await ResolveStudyShellAsync(study, root);
+                sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            }
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { deleted = target.Record.Id, startup_sync = sync });
+            }
+            else
+            {
+                Console.WriteLine($"Deleted visual profile: {target.Record.Id}");
+                if (sync is not null)
+                {
+                    Console.WriteLine(sync.Summary);
+                    Console.WriteLine(sync.Detail);
+                }
+            }
+        });
+
+        var importArg = new Argument<string>("path", "Path to a Sussex visual profile JSON file.");
+        var import = new Command("import", "Import a Sussex visual profile JSON file") { importArg };
+        import.Handler = CommandHandler.Create(async (string path, string study, bool json) =>
+        {
+            var store = SussexCliSupport.CreateVisualStore(SussexCliSupport.CreateVisualCompiler());
+            var imported = await store.ImportAsync(path);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { imported = SussexCliSupport.BuildVisualProfileView(new SussexCliSupport.VisualResolvedProfile(imported, false, false), study) });
+            }
+            else
+            {
+                Console.WriteLine($"Imported visual profile: {imported.Document.Profile.Name} ({imported.Id})");
+                Console.WriteLine(imported.FilePath);
+            }
+        });
+
+        var exportArg = new Argument<string>("path", "Destination JSON path.");
+        var export = new Command("export", "Export one Sussex visual profile as JSON") { profileArg, exportArg };
+        export.Handler = CommandHandler.Create(async (string profile, string path, string study, string? root, bool json) =>
+        {
+            var store = SussexCliSupport.CreateVisualStore(SussexCliSupport.CreateVisualCompiler());
+            var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            var target = SussexCliSupport.ResolveVisualProfile(profiles, profile);
+            await store.ExportAsync(target.Record.Document, path);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { exported = target.Record.Id, path = Path.GetFullPath(path) });
+            }
+            else
+            {
+                Console.WriteLine($"Exported visual profile {target.Record.Id} -> {Path.GetFullPath(path)}");
+            }
+        });
+
+        var setStartup = new Command("set-startup", "Set the next-launch Sussex visual profile") { profileArg };
+        setStartup.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
+        {
+            var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            var target = SussexCliSupport.ResolveVisualProfile(profiles, profile);
+            SussexCliSupport.SaveVisualStartupState(study, target.IsBundledBaseline ? null : target.Record);
+            var definition = await ResolveStudyShellAsync(study, root);
+            var sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { startup = target.IsBundledBaseline ? "bundled-baseline" : target.Record.Id, sync });
+            }
+            else
+            {
+                Console.WriteLine(target.IsBundledBaseline
+                    ? "Visual startup profile reset to bundled baseline."
+                    : $"Visual startup profile set to {target.Record.Document.Profile.Name} ({target.Record.Id}).");
+                Console.WriteLine(sync.Summary);
+                Console.WriteLine(sync.Detail);
+            }
+        });
+
+        var clearStartup = new Command("clear-startup", "Reset the next-launch Sussex visual profile to the bundled baseline");
+        clearStartup.Handler = CommandHandler.Create(async (string study, string? root, bool json, string? device) =>
+        {
+            SussexCliSupport.SaveVisualStartupState(study, null);
+            var definition = await ResolveStudyShellAsync(study, root);
+            var sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { startup = "bundled-baseline", sync });
+            }
+            else
+            {
+                Console.WriteLine("Visual startup profile reset to bundled baseline.");
+                Console.WriteLine(sync.Summary);
+                Console.WriteLine(sync.Detail);
+            }
+        });
+
+        var applyLive = new Command("apply-live", "Apply one Sussex visual profile to the current running Sussex session") { profileArg };
+        applyLive.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            var target = SussexCliSupport.ResolveVisualProfile(profiles, profile);
+            var result = await SussexCliSupport.ApplyVisualLiveAsync(definition, CreateQuestService(device), TwinModeBridgeFactory.CreateDefault(), study, target.Record);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { outcome = result.Outcome, csv_path = result.CsvPath });
+            }
+            else
+            {
+                PrintOutcome(result.Outcome);
+            }
+        });
+
+        visual.AddCommand(list);
+        visual.AddCommand(fields);
+        visual.AddCommand(show);
+        visual.AddCommand(create);
+        visual.AddCommand(update);
+        visual.AddCommand(delete);
+        visual.AddCommand(import);
+        visual.AddCommand(export);
+        visual.AddCommand(setStartup);
+        visual.AddCommand(clearStartup);
+        visual.AddCommand(applyLive);
+        return visual;
+    }
+
+    private static Command BuildSussexControllerCommand(
+        Option<string> studyOption,
+        Option<string?> rootOption,
+        Option<bool> jsonOption,
+        Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
+    {
+        var controller = new Command("controller", "Sussex controller-breathing profile commands");
+
+        var list = new Command("list", "List local Sussex controller-breathing profiles");
+        list.Handler = CommandHandler.Create(async (string study, bool json) =>
+        {
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(
+                    new[]
+                    {
+                        new { id = "bundled-baseline", name = "Bundled Sussex controller-breathing baseline", kind = "bundled-baseline", path = (string?)null }
+                    }
+                    .Concat(profiles.Select(profile => new
+                    {
+                        id = profile.Record.Id,
+                        name = profile.Record.Document.Profile.Name,
+                        kind = "local-profile",
+                        path = (string?)profile.Record.FilePath
+                    })));
+            }
+            else
+            {
+                SussexCliSupport.PrintControllerProfiles(profiles, study);
+            }
+        });
+
+        var fields = new Command("fields", "List all Sussex controller-breathing field ids, ranges, and tooltip metadata");
+        fields.Handler = CommandHandler.Create((bool json) =>
+        {
+            var specs = SussexCliSupport.BuildControllerFieldSpecs();
+            if (json)
+            {
+                SussexCliSupport.WriteJson(specs);
+            }
+            else
+            {
+                SussexCliSupport.PrintFieldSpecs("Sussex Controller-Breathing Fields:", specs);
+            }
+        });
+
+        var profileArg = new Argument<string>("profile", "Controller-breathing profile id or name.");
+        var show = new Command("show", "Show one Sussex controller-breathing profile, including its field metadata") { profileArg };
+        show.Handler = CommandHandler.Create(async (string profile, string study) =>
+        {
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var resolved = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
+            SussexCliSupport.WriteJson(SussexCliSupport.BuildControllerProfileView(resolved, study));
+        });
+
+        var fromOption = new Option<string>("--from", () => "bundled-baseline", "Source profile id/name, or bundled-baseline.");
+        var nameOption = new Option<string>("--name", "New profile name.") { IsRequired = true };
+        var notesOption = new Option<string?>("--notes", "Profile notes. Pass an empty string to clear notes.");
+        var setOption = createRepeatedAssignmentOption("--set", "Set one or more field values as id=value.");
+        var scaleOption = createRepeatedAssignmentOption("--scale", "Scale one or more numeric fields as id=factor.");
+        var setStartupOption = new Option<bool>("--set-startup", "Also save the resulting profile as the next-launch default.");
+
+        var create = new Command("create", "Create a new Sussex controller-breathing profile from baseline or another profile");
+        create.AddOption(fromOption);
+        create.AddOption(nameOption);
+        create.AddOption(notesOption);
+        create.AddOption(setOption);
+        create.AddOption(scaleOption);
+        create.AddOption(setStartupOption);
+        create.Handler = CommandHandler.Create(async (string from, string name, string? notes, string[] set, string[] scale, bool setStartup, string study, string? root, bool json, string? device) =>
+        {
+            var compiler = SussexCliSupport.CreateControllerCompiler();
+            var store = SussexCliSupport.CreateControllerStore(compiler);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var source = SussexCliSupport.ResolveControllerProfile(profiles, from, allowBaselineTemplate: true);
+            var document = SussexCliSupport.BuildControllerDocument(compiler, source.Record.Document, name, notes, set, scale);
+            var saved = await SussexCliSupport.SaveControllerAsNewAsync(store, document);
+
+            SussexCliSupport.StartupSyncResult? sync = null;
+            if (setStartup)
+            {
+                SussexCliSupport.SaveControllerStartupState(study, saved);
+                var definition = await ResolveStudyShellAsync(study, root);
+                sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            }
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new
+                {
+                    created = SussexCliSupport.BuildControllerProfileView(new SussexCliSupport.ControllerResolvedProfile(saved, false), study),
+                    startup_sync = sync
+                });
+            }
+            else
+            {
+                Console.WriteLine($"Created controller-breathing profile: {saved.Document.Profile.Name} ({saved.Id})");
+                Console.WriteLine(saved.FilePath);
+                if (sync is not null)
+                {
+                    Console.WriteLine(sync.Summary);
+                    Console.WriteLine(sync.Detail);
+                }
+            }
+        });
+
+        var update = new Command("update", "Update an existing local Sussex controller-breathing profile") { profileArg };
+        update.AddOption(nameOption);
+        update.AddOption(notesOption);
+        update.AddOption(setOption);
+        update.AddOption(scaleOption);
+        update.AddOption(setStartupOption);
+        update.Handler = CommandHandler.Create(async (string profile, string? name, string? notes, string[] set, string[] scale, bool setStartup, string study, string? root, bool json, string? device) =>
+        {
+            var compiler = SussexCliSupport.CreateControllerCompiler();
+            var store = SussexCliSupport.CreateControllerStore(compiler);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: false);
+            var startupBefore = new SussexControllerBreathingProfileStartupStateStore(study).Load();
+            var document = SussexCliSupport.BuildControllerDocument(compiler, target.Record.Document, name, notes, set, scale);
+            var saved = await SussexCliSupport.SaveControllerExistingAsync(store, target, document);
+            var shouldSyncStartup = setStartup || string.Equals(startupBefore?.ProfileId, target.Record.Id, StringComparison.OrdinalIgnoreCase);
+            SussexCliSupport.RefreshControllerStateAfterSave(study, target.Record.Id, saved, forceSetStartup: setStartup);
+
+            SussexCliSupport.StartupSyncResult? sync = null;
+            if (shouldSyncStartup)
+            {
+                var definition = await ResolveStudyShellAsync(study, root);
+                sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            }
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new
+                {
+                    updated = SussexCliSupport.BuildControllerProfileView(new SussexCliSupport.ControllerResolvedProfile(saved, false), study),
+                    startup_sync = sync
+                });
+            }
+            else
+            {
+                Console.WriteLine($"Updated controller-breathing profile: {saved.Document.Profile.Name} ({saved.Id})");
+                Console.WriteLine(saved.FilePath);
+                if (sync is not null)
+                {
+                    Console.WriteLine(sync.Summary);
+                    Console.WriteLine(sync.Detail);
+                }
+            }
+        });
+
+        var delete = new Command("delete", "Delete one local Sussex controller-breathing profile") { profileArg };
+        delete.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
+        {
+            var compiler = SussexCliSupport.CreateControllerCompiler();
+            var store = SussexCliSupport.CreateControllerStore(compiler);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: false);
+            var startupBefore = new SussexControllerBreathingProfileStartupStateStore(study).Load();
+            var shouldSyncStartup = string.Equals(startupBefore?.ProfileId, target.Record.Id, StringComparison.OrdinalIgnoreCase);
+            SussexCliSupport.ClearControllerStateForDeletedProfile(study, target.Record.Id);
+            await store.DeleteAsync(target.Record.FilePath);
+
+            SussexCliSupport.StartupSyncResult? sync = null;
+            if (shouldSyncStartup)
+            {
+                var definition = await ResolveStudyShellAsync(study, root);
+                sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            }
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { deleted = target.Record.Id, startup_sync = sync });
+            }
+            else
+            {
+                Console.WriteLine($"Deleted controller-breathing profile: {target.Record.Id}");
+                if (sync is not null)
+                {
+                    Console.WriteLine(sync.Summary);
+                    Console.WriteLine(sync.Detail);
+                }
+            }
+        });
+
+        var importArg = new Argument<string>("path", "Path to a Sussex controller-breathing profile JSON file.");
+        var import = new Command("import", "Import a Sussex controller-breathing profile JSON file") { importArg };
+        import.Handler = CommandHandler.Create(async (string path, string study, bool json) =>
+        {
+            var store = SussexCliSupport.CreateControllerStore(SussexCliSupport.CreateControllerCompiler());
+            var imported = await store.ImportAsync(path);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { imported = SussexCliSupport.BuildControllerProfileView(new SussexCliSupport.ControllerResolvedProfile(imported, false), study) });
+            }
+            else
+            {
+                Console.WriteLine($"Imported controller-breathing profile: {imported.Document.Profile.Name} ({imported.Id})");
+                Console.WriteLine(imported.FilePath);
+            }
+        });
+
+        var exportArg = new Argument<string>("path", "Destination JSON path.");
+        var export = new Command("export", "Export one Sussex controller-breathing profile as JSON") { profileArg, exportArg };
+        export.Handler = CommandHandler.Create(async (string profile, string path, string study, bool json) =>
+        {
+            var store = SussexCliSupport.CreateControllerStore(SussexCliSupport.CreateControllerCompiler());
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
+            await store.ExportAsync(target.Record.Document, path);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { exported = target.Record.Id, path = Path.GetFullPath(path) });
+            }
+            else
+            {
+                Console.WriteLine($"Exported controller-breathing profile {target.Record.Id} -> {Path.GetFullPath(path)}");
+            }
+        });
+
+        var setStartup = new Command("set-startup", "Set the next-launch Sussex controller-breathing profile") { profileArg };
+        setStartup.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
+        {
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
+            SussexCliSupport.SaveControllerStartupState(study, target.IsBaselineTemplate ? null : target.Record);
+            var definition = await ResolveStudyShellAsync(study, root);
+            var sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { startup = target.IsBaselineTemplate ? "bundled-baseline" : target.Record.Id, sync });
+            }
+            else
+            {
+                Console.WriteLine(target.IsBaselineTemplate
+                    ? "Controller-breathing startup profile reset to bundled baseline."
+                    : $"Controller-breathing startup profile set to {target.Record.Document.Profile.Name} ({target.Record.Id}).");
+                Console.WriteLine(sync.Summary);
+                Console.WriteLine(sync.Detail);
+            }
+        });
+
+        var clearStartup = new Command("clear-startup", "Reset the next-launch Sussex controller-breathing profile to the bundled baseline");
+        clearStartup.Handler = CommandHandler.Create(async (string study, string? root, bool json, string? device) =>
+        {
+            SussexCliSupport.SaveControllerStartupState(study, null);
+            var definition = await ResolveStudyShellAsync(study, root);
+            var sync = await SussexCliSupport.SyncPinnedStartupProfilesAsync(definition, CreateQuestService(device), study, root, forceWhenStudyNotForeground: false);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { startup = "bundled-baseline", sync });
+            }
+            else
+            {
+                Console.WriteLine("Controller-breathing startup profile reset to bundled baseline.");
+                Console.WriteLine(sync.Summary);
+                Console.WriteLine(sync.Detail);
+            }
+        });
+
+        var applyLive = new Command("apply-live", "Apply one Sussex controller-breathing profile to the current running Sussex session") { profileArg };
+        applyLive.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
+            var result = await SussexCliSupport.ApplyControllerLiveAsync(definition, CreateQuestService(device), TwinModeBridgeFactory.CreateDefault(), study, target.Record);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { outcome = result.Outcome, csv_path = result.CsvPath });
+            }
+            else
+            {
+                PrintOutcome(result.Outcome);
+            }
+        });
+
+        controller.AddCommand(list);
+        controller.AddCommand(fields);
+        controller.AddCommand(show);
+        controller.AddCommand(create);
+        controller.AddCommand(update);
+        controller.AddCommand(delete);
+        controller.AddCommand(import);
+        controller.AddCommand(export);
+        controller.AddCommand(setStartup);
+        controller.AddCommand(clearStartup);
+        controller.AddCommand(applyLive);
+        return controller;
     }
 
     private static Command BuildUtilityCommand()
