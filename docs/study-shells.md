@@ -204,6 +204,15 @@ into a `showcase_active_runtime_config_json` hotload payload and uploads that
 through the existing Sussex ADB file path. The headset never consumes the
 partial source JSON directly.
 
+The packaged app can also carry extra read-only Sussex visual profiles from:
+
+- `samples/study-shells/sussex-university/visual-profiles/`
+
+Those bundled release profiles are listed after the bundled baseline and before
+the local writable profile library. They can be selected, applied, exported,
+and pinned for launch, but editing them requires copying them into the runtime
+draft and saving that draft as a new local profile.
+
 The workflow is intentionally split into three separate surfaces:
 
 - one saved launch profile:
@@ -218,9 +227,19 @@ The workflow is intentionally split into three separate surfaces:
   - `Save As New Profile` copies the current runtime draft into the library as
     a new saved profile
   - `Save Changes To Selected Profile` overwrites the currently selected saved
-    profile from the runtime draft
+    local saved profile from the runtime draft
   - `Set Selected Profile For Next Launch` pins a saved profile without
     changing the current running session
+
+When preparing a public release, copy the machine-local visual profiles you want
+to ship into that bundled folder with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-VisualProfiles.ps1
+```
+
+That sync keeps the most recent local file for each visual profile name and
+skips repo-local GUI/test artifacts such as `zzz-*`.
 
 The parameter table always compares against the current saved launch profile.
 At shell startup, the runtime working draft is initialized from that same

@@ -15,6 +15,7 @@ namespace ViscerealityCompanion.App.ViewModels;
 public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, IDisposable
 {
     private const string BundledBaselineProfileId = "__bundled_sussex_visual_baseline__";
+    private const string BundledProfileIdPrefix = "__bundled_sussex_visual_profile__::";
     private static readonly HashSet<string> TracerControlIds = new(StringComparer.OrdinalIgnoreCase)
     {
         "tracers_enabled",
@@ -104,7 +105,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         SetStartupProfileCommand = new AsyncRelayCommand(SetStartupProfileAsync, CanSetSelectedProfileAsStartup);
         UseBundledStartupCommand = new AsyncRelayCommand(UseBundledStartupAsync, () => HasPinnedStartupProfile && IsAvailable);
         OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync, () => IsAvailable && !string.IsNullOrWhiteSpace(LibraryRootLabel));
-        DeleteSelectedCommand = new AsyncRelayCommand(DeleteSelectedAsync, () => SelectedProfile is { IsBundledBaseline: false } && IsAvailable);
+        DeleteSelectedCommand = new AsyncRelayCommand(DeleteSelectedAsync, () => SelectedProfile is { IsWritableLocalProfile: true } && IsAvailable);
         ApplySelectedCommand = new AsyncRelayCommand(ApplySelectedAsync, () => SelectedProfile is not null && IsAvailable);
         ResetFieldCommand = new AsyncRelayCommand(ResetFieldAsync, parameter => parameter is SussexVisualProfileFieldViewModel && IsAvailable);
     }
@@ -261,6 +262,8 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             ? "Select the bundled baseline or a saved profile to load it into the runtime working draft."
             : string.Equals(_draftSourceProfileId, BundledBaselineProfileId, StringComparison.OrdinalIgnoreCase)
                 ? "The bundled baseline is read-only. Apply it directly, or change the draft and use Save Draft As New Profile to add a writable copy to the library."
+                : SelectedProfile is { IsWritableLocalProfile: false }
+                    ? $"'{_draftSourceLabel}' is a read-only bundled profile that ships with the app. Use Save Draft As New Profile if you want a writable local copy, or pin the bundled profile directly for future launches."
                 : HasUnsavedDraftChanges
                     ? $"Table edits change only the runtime working draft loaded from {_draftSourceLabel}. Use Save Changes To Selected Profile or Save Draft As New Profile to write the current draft into the profile library."
                     : $"Apply To Current Session uses the runtime working draft only. Set Selected Profile For Next Launch pins the saved launch profile separately from the current runtime draft.";
@@ -469,7 +472,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
     private bool CanSaveSelectedProfile()
         => IsAvailable &&
-           SelectedProfile is { IsBundledBaseline: false } &&
+           SelectedProfile is { IsWritableLocalProfile: true } &&
            HasUnsavedDraftChanges &&
            TryCreateCurrentDocument(out _, out _);
 
@@ -491,6 +494,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             return;
         }
 
+        var bundledProfiles = await LoadBundledProfilesAsync();
         var savedProfiles = await _profileStore.LoadAllAsync();
         await DispatchAsync(() =>
         {
@@ -502,12 +506,20 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                                          _startupState?.ProfileId;
                 Profiles.Clear();
                 Profiles.Add(CreateBundledBaselineListItem());
+                foreach (var bundledProfile in bundledProfiles)
+                {
+                    Profiles.Add(new SussexVisualProfileListItemViewModel(
+                        bundledProfile,
+                        isBundledProfile: true,
+                        modifiedLabelOverride: "Included in this release"));
+                }
+
                 foreach (var profile in savedProfiles)
                 {
                     Profiles.Add(new SussexVisualProfileListItemViewModel(profile));
                 }
 
-                if (savedProfiles.Count == 0)
+                if (savedProfiles.Count == 0 && bundledProfiles.Count == 0)
                 {
                     if (_startupState is not null)
                     {
@@ -516,8 +528,8 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                     }
 
                     SelectedProfile = Profiles[0];
-                    LibrarySummary = "No saved Sussex visual profiles yet.";
-                    LibraryDetail = "The bundled Sussex baseline is still available below. Use Save Draft As New Profile to create the first editable copy in the local library.";
+                    LibrarySummary = "No bundled or local Sussex visual profiles yet.";
+                    LibraryDetail = "The bundled Sussex baseline is still available below. Use Save Draft As New Profile to create the first editable copy in the local library, then sync chosen profiles into the repo bundle when you want to ship them.";
                     LibraryLevel = OperationOutcomeKind.Preview;
                     NotifyStartupStateChanged();
                     return;
@@ -536,8 +548,8 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                     _startupStateStore?.Save(null);
                 }
 
-                LibrarySummary = $"Loaded {savedProfiles.Count.ToString(CultureInfo.InvariantCulture)} saved Sussex visual profile(s) plus the bundled baseline.";
-                LibraryDetail = $"Saved profiles live in {LibraryRootLabel}. Selecting a profile loads it into the working draft; nothing in the library changes until you explicitly save.";
+                LibrarySummary = $"Loaded {bundledProfiles.Count.ToString(CultureInfo.InvariantCulture)} bundled Sussex visual profile(s), {savedProfiles.Count.ToString(CultureInfo.InvariantCulture)} local saved profile(s), plus the bundled baseline.";
+                LibraryDetail = $"Bundled release profiles are read-only and ship from the app payload. Local saved profiles live in {LibraryRootLabel}. Selecting any profile loads it into the working draft; nothing in the local library changes until you explicitly save.";
                 LibraryLevel = OperationOutcomeKind.Success;
                 NotifyStartupStateChanged();
             }
@@ -772,7 +784,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
     private async Task SaveSelectedAsync()
     {
-        if (_profileStore is null || SelectedProfile is not { IsBundledBaseline: false })
+        if (_profileStore is null || SelectedProfile is not { IsWritableLocalProfile: true })
         {
             return;
         }
@@ -1018,7 +1030,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
     private async Task DeleteSelectedAsync()
     {
-        if (_profileStore is null || SelectedProfile is not { IsBundledBaseline: false })
+        if (_profileStore is null || SelectedProfile is not { IsWritableLocalProfile: true })
         {
             return;
         }
@@ -1508,6 +1520,47 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         UseBundledStartupCommand.RaiseCanExecuteChanged();
         DeleteSelectedCommand.RaiseCanExecuteChanged();
         ApplySelectedCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task<IReadOnlyList<SussexVisualProfileRecord>> LoadBundledProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        if (_compiler is null)
+        {
+            return Array.Empty<SussexVisualProfileRecord>();
+        }
+
+        var bundledRoot = AppAssetLocator.TryResolveBundledSussexVisualProfilesRoot();
+        if (string.IsNullOrWhiteSpace(bundledRoot) || !Directory.Exists(bundledRoot))
+        {
+            return Array.Empty<SussexVisualProfileRecord>();
+        }
+
+        var records = new List<SussexVisualProfileRecord>();
+        foreach (var path in Directory.EnumerateFiles(bundledRoot, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var json = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+                var document = _compiler.Parse(json);
+                var hash = ComputeTextHash(json);
+                records.Add(new SussexVisualProfileRecord(
+                    BundledProfileIdPrefix + Path.GetFileNameWithoutExtension(path),
+                    Path.GetFullPath(path),
+                    hash,
+                    File.GetLastWriteTimeUtc(path),
+                    document));
+            }
+            catch (InvalidDataException)
+            {
+                // Skip invalid bundled profile files so a bad payload does not break the workspace.
+            }
+        }
+
+        return records
+            .OrderBy(record => record.Document.Profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private SussexVisualProfileListItemViewModel? ResolvePinnedStartupProfile()

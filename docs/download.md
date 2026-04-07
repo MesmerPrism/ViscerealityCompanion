@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.16.0`.
+`0.1.21.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -90,6 +90,7 @@ If you know exactly which file you want, use these direct links:
 - the Windows operator app
 - the dedicated `Sussex University experiment mode` shell
 - the bundled Sussex APK used by the public Sussex study workflow
+- the bundled read-only Sussex visual profiles shipped in the release build
 - the bundled Windows x64 `lsl.dll` runtime used by the built-in TEST sender and live LSL monitor path
 - the pinned Quest device profile and study-specific monitoring surface
 - the install assets needed to put the Windows app on another machine
@@ -103,6 +104,8 @@ session snapshots, the LSL/runtime hardening changes, and the refactored
 Sussex visual-profile workflow:
 
 - the bundled Sussex baseline stays permanently available as a library profile
+- the app can also ship additional bundled Sussex visual profiles from the
+  release payload, listed ahead of the local writable profile library
 - one saved profile can be pinned as the next-launch override
 - the visual table edits only the runtime working draft until you explicitly
   save it as a new profile or overwrite a saved one

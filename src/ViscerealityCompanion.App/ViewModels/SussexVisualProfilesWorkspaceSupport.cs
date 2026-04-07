@@ -336,16 +336,20 @@ public sealed class SussexVisualProfileListItemViewModel : ObservableObject
     public SussexVisualProfileListItemViewModel(
         SussexVisualProfileRecord record,
         bool isBundledBaseline = false,
+        bool isBundledProfile = false,
         string? displayLabelOverride = null,
         string? modifiedLabelOverride = null)
     {
         _record = record;
         IsBundledBaseline = isBundledBaseline;
+        IsBundledProfile = isBundledProfile;
         _displayLabelOverride = displayLabelOverride;
         _modifiedLabelOverride = modifiedLabelOverride;
     }
 
     public bool IsBundledBaseline { get; }
+    public bool IsBundledProfile { get; }
+    public bool IsWritableLocalProfile => !IsBundledBaseline && !IsBundledProfile;
     public string Id => _record.Id;
     public string FilePath => _record.FilePath;
     public string FileHash => _record.FileHash;
@@ -353,8 +357,20 @@ public sealed class SussexVisualProfileListItemViewModel : ObservableObject
     public string ModifiedLabel
         => IsBundledBaseline
             ? _modifiedLabelOverride ?? "Bundled with the APK"
+            : IsBundledProfile
+                ? _modifiedLabelOverride ?? "Included in this release"
             : _record.ModifiedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     public string DisplayLabel => _displayLabelOverride ?? _record.Document.Profile.Name;
+    public string OriginLabel
+        => IsBundledBaseline
+            ? "Bundled baseline"
+            : IsBundledProfile
+                ? "Bundled profile"
+                : "Local profile";
+    public string SecondaryLabel
+        => IsBundledBaseline || IsBundledProfile
+            ? $"{OriginLabel} | {ModifiedLabel}"
+            : $"{OriginLabel} | Updated {ModifiedLabel}";
 
     public void Apply(SussexVisualProfileRecord record)
     {
@@ -365,6 +381,8 @@ public sealed class SussexVisualProfileListItemViewModel : ObservableObject
         OnPropertyChanged(nameof(Document));
         OnPropertyChanged(nameof(ModifiedLabel));
         OnPropertyChanged(nameof(DisplayLabel));
+        OnPropertyChanged(nameof(OriginLabel));
+        OnPropertyChanged(nameof(SecondaryLabel));
     }
 
     public SussexVisualProfileRecord ToRecord() => _record;

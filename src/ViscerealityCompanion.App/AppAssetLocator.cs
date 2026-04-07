@@ -60,6 +60,11 @@ internal static class AppAssetLocator
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_TUNING_TEMPLATE"),
             Path.Combine(TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-visual-tuning-v1.template.json"));
 
+    public static string? TryResolveBundledSussexVisualProfilesRoot()
+        => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT"),
+            Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "visual-profiles"));
+
     public static string? TryResolveSussexControllerBreathingTuningTemplatePath()
         => TryResolveExistingFile(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_TUNING_TEMPLATE"),

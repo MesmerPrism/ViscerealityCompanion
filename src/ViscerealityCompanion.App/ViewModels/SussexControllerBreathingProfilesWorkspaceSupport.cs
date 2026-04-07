@@ -273,6 +273,7 @@ public sealed class SussexControllerBreathingProfileListItemViewModel : Observab
     public SussexControllerBreathingTuningDocument Document => _record.Document;
     public string ModifiedLabel => _record.ModifiedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     public string DisplayLabel => _record.Document.Profile.Name;
+    public string SecondaryLabel => $"Local profile | Updated {ModifiedLabel}";
 
     public void Apply(SussexControllerBreathingProfileRecord record)
     {
@@ -283,6 +284,7 @@ public sealed class SussexControllerBreathingProfileListItemViewModel : Observab
         OnPropertyChanged(nameof(Document));
         OnPropertyChanged(nameof(ModifiedLabel));
         OnPropertyChanged(nameof(DisplayLabel));
+        OnPropertyChanged(nameof(SecondaryLabel));
     }
 
     public SussexControllerBreathingProfileRecord ToRecord() => _record;

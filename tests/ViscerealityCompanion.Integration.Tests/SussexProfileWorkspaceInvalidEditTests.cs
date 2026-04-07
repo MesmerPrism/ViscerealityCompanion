@@ -8,6 +8,67 @@ namespace ViscerealityCompanion.Integration.Tests;
 public sealed class SussexProfileWorkspaceInvalidEditTests
 {
     [Fact]
+    public async Task Visual_workspace_loads_read_only_bundled_release_profiles_before_local_profiles()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex visual tuning template.");
+        var compiler = new SussexVisualTuningCompiler(File.ReadAllText(templatePath));
+        var store = new SussexVisualProfileStore(compiler);
+        var studyId = $"visual-bundled-profiles-{Guid.NewGuid():N}";
+        var bundledRoot = Path.Combine(Path.GetTempPath(), $"sussex-visual-bundle-{Guid.NewGuid():N}");
+        var previousBundleRoot = Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT");
+        var bundledName = $"ZZZ Bundled Visual {Guid.NewGuid():N}";
+        var localName = $"ZZZ Local Visual {Guid.NewGuid():N}";
+
+        SussexVisualProfileRecord? localRecord = null;
+        try
+        {
+            Directory.CreateDirectory(bundledRoot);
+            var bundledDocument = compiler.CreateDocument(
+                bundledName,
+                profileNotes: "Bundled release profile.",
+                new Dictionary<string, double>(compiler.TemplateDocument.ControlValues, StringComparer.OrdinalIgnoreCase)
+                {
+                    ["tracers_per_oscillator"] = 5d,
+                    ["sphere_radius_max"] = 2.6d
+                });
+            await File.WriteAllTextAsync(
+                Path.Combine(bundledRoot, "bundled-release-profile.json"),
+                compiler.Serialize(bundledDocument));
+
+            Environment.SetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT", bundledRoot);
+            localRecord = await store.CreateFromTemplateAsync(localName);
+
+            using var workspace = new SussexVisualProfilesWorkspaceViewModel(CreateStudy(studyId), new ConnectedQuestControlService());
+            await workspace.InitializeAsync();
+
+            Assert.Equal("Bundled Sussex Baseline", workspace.Profiles[0].DisplayLabel);
+            var bundledProfile = workspace.Profiles.FirstOrDefault(profile => profile.IsBundledProfile);
+            Assert.NotNull(bundledProfile);
+            Assert.Equal(bundledName, bundledProfile!.DisplayLabel);
+            Assert.False(bundledProfile.IsWritableLocalProfile);
+            Assert.Contains("Bundled profile", bundledProfile.SecondaryLabel, StringComparison.Ordinal);
+
+            workspace.SelectedProfile = bundledProfile;
+
+            Assert.False(workspace.SaveSelectedCommand.CanExecute(null));
+            Assert.True(workspace.SetStartupProfileCommand.CanExecute(null));
+            Assert.Contains(bundledName, workspace.DraftSourceSummary, StringComparison.Ordinal);
+            Assert.Contains("read-only bundled profile", workspace.DraftDetail, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT", previousBundleRoot);
+            DeleteFileIfPresent(localRecord?.FilePath);
+            DeleteDirectoryIfPresent(bundledRoot);
+            DeleteStudySessionArtifacts(
+                studyId,
+                "sussex-visual-startup",
+                "sussex-visual-apply");
+        }
+    }
+
+    [Fact]
     public async Task Visual_workspace_loads_the_pinned_launch_profile_into_the_runtime_draft_on_startup()
     {
         var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
@@ -359,6 +420,14 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
         if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
         {
             File.Delete(path);
+        }
+    }
+
+    private static void DeleteDirectoryIfPresent(string? path)
+    {
+        if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
         }
     }
 

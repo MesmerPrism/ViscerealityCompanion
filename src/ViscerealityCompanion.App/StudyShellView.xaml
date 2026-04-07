@@ -1200,7 +1200,7 @@
                             <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
                                 <StackPanel>
                                     <TextBlock Text="Saved profiles" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="The bundled Sussex baseline is always listed first. Saved profiles are stored as self-describing json files in the local library."
+                                    <TextBlock Text="The bundled Sussex baseline is always listed first. Read-only bundled release profiles follow it, and writable local profiles stay in the local library."
                                                Style="{StaticResource SectionCaptionStyle}" />
                                     <ListBox ItemsSource="{Binding Profiles}"
                                              SelectedItem="{Binding SelectedProfile}"
@@ -1212,8 +1212,9 @@
                                                 <StackPanel Margin="0,0,0,8">
                                                     <TextBlock Text="{Binding DisplayLabel}"
                                                                FontWeight="Bold"
+                                                               Foreground="{StaticResource InkBrush}"
                                                                TextWrapping="Wrap" />
-                                                    <TextBlock Text="{Binding ModifiedLabel, StringFormat=Updated {0}}"
+                                                    <TextBlock Text="{Binding SecondaryLabel}"
                                                                Style="{StaticResource CompactCaptionStyle}" />
                                                 </StackPanel>
                                             </DataTemplate>
@@ -1609,8 +1610,9 @@
                                                 <StackPanel Margin="0,0,0,8">
                                                     <TextBlock Text="{Binding DisplayLabel}"
                                                                FontWeight="Bold"
+                                                               Foreground="{StaticResource InkBrush}"
                                                                TextWrapping="Wrap" />
-                                                    <TextBlock Text="{Binding ModifiedLabel, StringFormat=Updated {0}}"
+                                                    <TextBlock Text="{Binding SecondaryLabel}"
                                                                Style="{StaticResource CompactCaptionStyle}" />
                                                 </StackPanel>
                                             </DataTemplate>
