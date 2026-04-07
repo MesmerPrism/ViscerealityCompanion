@@ -56,6 +56,25 @@ If no signed preview release exists, use the source-build path from
 [Getting Started](getting-started.md) or build an unsigned package locally with
 `tools/app/Build-App-Package.ps1 -Unsigned`.
 
+## The repo-local pinned launcher opens an error instead of the app
+
+Refresh the verified single-file launcher path instead of trusting an older
+repo-local executable or shortcut:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1 -Refresh
+```
+
+If you only need to rebuild the Desktop and Start Menu shortcuts, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Desktop-Launcher.ps1
+```
+
+That republish path refreshes the canonical shortcut target and removes stale
+repo-local `ViscerealityCompanion.exe` copies so Windows search and taskbar
+pins keep resolving to the verified published build.
+
 ## The docs site does not build
 
 Confirm Node.js is installed, then run:

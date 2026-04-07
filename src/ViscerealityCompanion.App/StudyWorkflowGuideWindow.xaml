@@ -6,7 +6,6 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Sussex Sequential Guide"
-        Icon="Assets/viscereality-companion.ico"
         Width="1120"
         Height="860"
         MinWidth="960"

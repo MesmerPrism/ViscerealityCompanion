@@ -63,14 +63,15 @@ that study shell.
 - First-session walkthrough: [docs/first-session.md](docs/first-session.md)
 - Study-shell guide: [docs/study-shells.md](docs/study-shells.md)
 
-For Sussex specifically, the packaged app now includes a sequential onboarding
-guide on the workflow tab. That step-by-step window is the intended first-run
-path for USB trust, Wi-Fi handoff, APK/profile checks, kiosk launch, LSL
-verification, particle checks, the optional controller-calibration probe, and
-the short validation capture. The validation step now keeps the timing
-alignment flow inline in the guide itself, instead of opening a separate timing
-window, and the normal study command path avoids the older full pre-send
-snapshot refresh on already-awake headsets.
+For Sussex specifically, the packaged app now opens on a Home/orientation tab
+that includes the `Open Sequential Guide` entrypoint plus the condensed
+operator checklist. That step-by-step window is the intended first-run path for
+USB trust, Wi-Fi handoff, APK/profile checks, kiosk launch, LSL verification,
+particle checks, the optional controller-calibration probe, and the short
+validation capture. The validation step now keeps the timing alignment flow
+inline in the guide itself, instead of opening a separate timing window, and
+the `During session` surface now keeps Quest screenshot capture and clock
+alignment next to the other live-session controls.
 
 For local development:
 

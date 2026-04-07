@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.21.0`.
+`0.1.22.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -98,10 +98,10 @@ If you know exactly which file you want, use these direct links:
 Sussex operators should not need a separate APK download if they are using the
 packaged preview install.
 
-The current Sussex preview also includes the updated sequential guide flow, the
-controller-breathing profile tab, participant locked mode, Windows-plus-Quest
-session snapshots, the LSL/runtime hardening changes, and the refactored
-Sussex visual-profile workflow:
+The current Sussex preview also includes the updated Home/orientation shell,
+the sequential guide flow, the controller-breathing profile tab, participant
+locked mode, Windows-plus-Quest session snapshots, the LSL/runtime hardening
+changes, and the refactored Sussex visual-profile workflow:
 
 - the bundled Sussex baseline stays permanently available as a library profile
 - the app can also ship additional bundled Sussex visual profiles from the
@@ -118,6 +118,11 @@ It also includes the dedicated Sussex breathing-driver controls with explicit
 controller-vs-automatic readback on the `During session` tab. The bundled
 Sussex APK in this package is `0.1.2` with SHA256
 `265168A57323F5A73FEDF310254824D7ABCD71D69EE64BAFC6D9B6EE7A80CA85`.
+
+The refreshed Sussex shell layout now puts the operator's high-level checklist
+on `Home`, while `During session` keeps Quest screenshot capture and LSL clock
+alignment grouped with the live breathing, coherence, particle, and recenter
+checks.
 
 ## Before You Start
 

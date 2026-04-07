@@ -213,8 +213,13 @@ the local writable profile library. They can be selected, applied, exported,
 and pinned for launch, but editing them requires copying them into the runtime
 draft and saving that draft as a new local profile.
 
-The workflow is intentionally split into three separate surfaces:
+The workflow is intentionally split into three separate surfaces plus the
+orientation-first Sussex home view:
 
+- the Home tab:
+  - this is the operator landing page
+  - it summarizes pre-session state, live-session state, and the current
+    sequential-guide step before the operator dives deeper
 - one saved launch profile:
   - this is the pinned saved profile the shell stages to the device-side
     startup CSV before Sussex launches
@@ -248,7 +253,7 @@ runtime edits stay temporary until the operator explicitly saves them back into
 the profile library. Row reset still returns a single value to the bundled
 Sussex baseline.
 
-The workflow tab now also offers `Open Sequential Guide`, a pop-out onboarding
+The Home tab now also offers `Open Sequential Guide`, a pop-out onboarding
 window that walks the operator through the fixed Sussex protocol step by step:
 
 - USB probe
@@ -290,6 +295,16 @@ workflow for Sussex:
 That readback is intentionally driven by the dedicated Sussex automatic-cycle
 telemetry (`study.breathing.value01` plus `routing.automatic_breathing.running`)
 instead of inferring state from `routing.adaptive_pacer.enabled`.
+
+That same `During session` surface now keeps the other live-session controls in
+one place:
+
+- live particles and performance status
+- breathing-driver and coherence state
+- recenter status and fresh Quest screenshot capture
+- LSL clock alignment and live LSL inlet status
+- the collapsible operator log for deeper troubleshooting without taking over
+  the main live-monitoring layout
 
 The Sussex shell now uses the bundled APK path from the app payload on
 startup, so packaged Windows installs do not depend on a machine-local Astral

@@ -56,8 +56,8 @@ The Sussex shell now stages its bundled Sussex APK automatically, and the
 dedicated Sussex package opens directly into that shell instead of the full
 operator workspace.
 
-For first-time Sussex setup, open the workflow tab and use the
-`Open Sequential Guide` window. It walks the operator through USB probe,
+For first-time Sussex setup, stay on the `Home` tab and use the
+`Open Sequential Guide` window there. It walks the operator through USB probe,
 Wi-Fi ADB handoff, Wi-Fi-only verification, APK/profile checks, kiosk launch,
 LSL confirmation, particle verification, an optional-for-now controller
 calibration check, and the short 20 second validation capture. After that
@@ -181,6 +181,7 @@ viscereality twin send twin-pause
 - controller breathing calibration is still exposed in the guide, but it is currently optional until the Sussex runtime calibration path is stabilized
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 - if the headset is already awake, normal Sussex command buttons should now react faster because the app no longer forces a full pre-send snapshot refresh before every command
+- the `During session` tab now keeps Quest screenshot capture and LSL clock alignment alongside the live monitoring cards instead of splitting them into separate operator surfaces
 
 ## Catalog Discovery
 

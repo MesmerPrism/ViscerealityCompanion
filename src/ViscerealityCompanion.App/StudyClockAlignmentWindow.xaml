@@ -5,7 +5,6 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         Title="Sussex Clock Alignment"
-        Icon="Assets/viscereality-companion.ico"
         Width="760"
         Height="430"
         MinWidth="700"
