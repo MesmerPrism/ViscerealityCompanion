@@ -187,6 +187,7 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         SetPrivateField(viewModel, "_lslConnectionStateLabel", "Connected 1, connecting 0, total 1");
         SetPrivateField(viewModel, "_lslStatusLineLabel", "Runtime matched expected inlet.");
         SetPrivateField(viewModel, "_lslEchoStateLabel", "Connected, but this public build does not echo the routed inlet value yet.");
+        SetPrivateField(viewModel, "_lslBenchStateLabel", "Windows TEST sender active. Latest local send 0.336 at 13:07:28.");
 
         var checks = InvokePrivateMethod<IReadOnlyList<WorkflowGuideCheckItem>>(viewModel, "BuildWorkflowGuideCheckItems", 8);
 
