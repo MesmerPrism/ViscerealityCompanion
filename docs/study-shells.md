@@ -83,6 +83,8 @@ toggle rather than a plain launch/stop button:
   and pins it with `am task lock <TASK_ID>`
 - `Exit Kiosk Runtime` sends the confirmed Home-return stack:
   `automation_disable -> task lock stop -> HomeActivity -> force-stop Sussex`
+  when an operator intentionally invokes it from a visible on-head runtime
+  state
 - `Capture Quest Screenshot` prefers the active Wi-Fi ADB endpoint when one is
   available and falls back to USB only if Wi-Fi ADB is not available
 - when Sussex itself is in front, the helper prefers the runtime-oriented
@@ -107,6 +109,12 @@ Current operator rule:
   Sussex task is reported without a usable visible scene
 - treat the screenshot card as mandatory for launch/exit verification in those
   cases
+- do not use `Exit Kiosk Runtime` or `viscereality study stop
+  sussex-university` as off-face automated cleanup on this machine
+- if Sussex must be exited, ask the wearer to quit while the headset is on-face
+  and visually confirm the Home-side result afterward
+- for off-face functionality tests, quitting Sussex is optional and can be
+  skipped
 
 Current confirmed GUI behavior on this machine:
 
@@ -114,8 +122,9 @@ Current confirmed GUI behavior on this machine:
   kiosk state again
 - in that confirmed kiosk state, the controller Meta/menu button is visually
   neutralized while the Unity runtime stays in front
-- `Exit Kiosk Runtime` then returns the headset to visible Meta Home and the
-  controller Meta/menu button works normally again
+- from a worn-head, visible Sussex runtime state, `Exit Kiosk Runtime` can
+  return the headset to visible Meta Home and restore normal controller
+  Meta/menu behavior
 - if the headset is already in black `SensorLock` limbo before the operator
   starts, a physical power-button recovery can still be required first
 
@@ -316,6 +325,12 @@ Startup/default commands mirror the GUI next-launch actions:
 - if Sussex is running in the foreground, the saved startup/default change is
   deferred until the next `viscereality study stop sussex-university` or
   `viscereality study launch sussex-university`
+- do not treat `viscereality study stop sussex-university` as the default
+  off-face cleanup path; on this machine that quit flow can still end in
+  Guardian / SensorLock / passthrough limbo
+- if exit is required, prefer a worn-head operator quit with visual
+  confirmation afterward
+- for normal functionality validation, leaving Sussex running is acceptable
 
 For natural-language requests like "reduce particle size by 50%", agents should
 usually adjust both `particle_size_min` and `particle_size_max`, because the
@@ -335,6 +350,17 @@ window that walks the operator through the fixed Sussex protocol step by step:
 - optional controller calibration
 - 20 second validation capture with inline timing alignment, local and pulled Quest output folders, and a generated PDF review report
 - reset-to-ready handoff back to the main shell
+
+At the LSL step, the guide now exposes `Probe Connection`. That button does not
+sniff raw LSL packets directly from Android. Instead, it combines the current
+ADB-backed headset snapshot with the live Sussex twin telemetry so the operator
+gets an explicit diagnosis of:
+
+- the expected Quest inlet stream name/type
+- the runtime target currently configured on the headset
+- the currently connected inlet stream and connection counts
+- the fresh return path back to Windows on `quest_twin_state / quest.twin.state`
+- the companion's operator-to-headset channels on `quest_twin_commands / quest.twin.command` and `quest_hotload_config / quest.config`
 
 The validation step now keeps the timing workflow inside the same guide
 surface. Instead of opening a separate timing window, step 12 shows:

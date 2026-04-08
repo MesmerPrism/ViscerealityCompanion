@@ -167,6 +167,69 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.DoesNotContain(checks, item => string.Equals(item.Label, "Software identity", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void LslGuideChecks_ExposeWindowsReturnPathAndExactChannels()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(viewModel, "_reportedTwinState", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["study.lsl.connected"] = "true",
+            ["study.lsl.connected_name"] = "HRV_Biofeedback",
+            ["study.lsl.connected_type"] = "HRV"
+        });
+        SetPrivateField(viewModel, "_lslLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_lslSummary", "LSL input live: HRV_Biofeedback.");
+        SetPrivateField(viewModel, "_lslDetail", "The inlet is healthy and matches the study stream target.");
+        SetPrivateField(viewModel, "_lslExpectedStreamLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslRuntimeTargetLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslConnectedStreamLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslConnectionStateLabel", "Connected 1, connecting 0, total 1");
+        SetPrivateField(viewModel, "_lslStatusLineLabel", "Runtime matched expected inlet.");
+        SetPrivateField(viewModel, "_lslEchoStateLabel", "Connected, but this public build does not echo the routed inlet value yet.");
+
+        var checks = InvokePrivateMethod<IReadOnlyList<WorkflowGuideCheckItem>>(viewModel, "BuildWorkflowGuideCheckItems", 8);
+
+        Assert.Equal(3, checks.Count);
+        Assert.Contains("Expected inlet:", checks[0].Detail, StringComparison.Ordinal);
+        Assert.Contains("Bench sender:", checks[0].Detail, StringComparison.Ordinal);
+        Assert.Contains(Environment.NewLine, checks[0].Detail, StringComparison.Ordinal);
+        Assert.Contains("Runtime target:", checks[1].Detail, StringComparison.Ordinal);
+        Assert.Contains("Counts:", checks[1].Detail, StringComparison.Ordinal);
+        Assert.Equal("Windows return path", checks[2].Label);
+        Assert.Equal(OperationOutcomeKind.Success, checks[2].Level);
+        Assert.Contains("Selector:", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Contains("Return path:", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_twin_state / quest.twin.state", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_twin_commands / quest.twin.command", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_hotload_config / quest.config", checks[2].Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LslGuideGate_RequiresFreshQuestTwinStateReturnPath()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(viewModel, "_lslLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_lslSummary", "LSL input live: HRV_Biofeedback.");
+        SetPrivateField(viewModel, "_lslDetail", "The inlet is healthy and matches the study stream target.");
+        SetPrivateField(viewModel, "_lslExpectedStreamLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslRuntimeTargetLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslConnectedStreamLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslConnectionStateLabel", "Connected 1, connecting 0, total 1");
+        SetPrivateField(viewModel, "_lslStatusLineLabel", "Runtime matched expected inlet.");
+        SetPrivateField(viewModel, "_lslEchoStateLabel", "Connected, but this public build does not echo the routed inlet value yet.");
+
+        var gate = InvokePrivateMethod<WorkflowGuideGateState>(viewModel, "BuildLslWorkflowGuideGateState");
+
+        Assert.False(gate.Ready);
+        Assert.Equal(OperationOutcomeKind.Warning, gate.Level);
+        Assert.Contains("Selector:", gate.Detail, StringComparison.Ordinal);
+        Assert.Contains("Return path:", gate.Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_twin_state / quest.twin.state", gate.Detail, StringComparison.Ordinal);
+        Assert.Contains("must turn green", gate.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static StudyShellViewModel CreateViewModel(StudyShellDefinition study)
     {
         var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
@@ -238,6 +301,28 @@ public sealed class StudyShellWorkflowGuideRegressionTests
             EnvironmentHash: "env-hash",
             VerifiedAtUtc: DateTimeOffset.UtcNow.AddDays(-1),
             VerifiedBy: "regression-test");
+
+    private static HeadsetAppStatus CreateConnectedHeadsetStatus(string foregroundPackageId)
+        => new(
+            IsConnected: true,
+            ConnectionLabel: "192.168.0.55:5555",
+            DeviceModel: "Quest 3",
+            BatteryLevel: 90,
+            CpuLevel: 4,
+            GpuLevel: 4,
+            ForegroundPackageId: foregroundPackageId,
+            IsTargetInstalled: true,
+            IsTargetRunning: true,
+            IsTargetForeground: true,
+            RemoteOnlyControlEnabled: true,
+            Timestamp: DateTimeOffset.UtcNow,
+            Summary: "Connected.",
+            Detail: "Connected over Wi-Fi ADB.",
+            IsWifiAdbTransport: true,
+            HeadsetWifiSsid: "SussexLab",
+            HeadsetWifiIpAddress: "192.168.0.55",
+            HostWifiSsid: "SussexLab",
+            WifiSsidMatchesHost: true);
 
     private static T InvokePrivateMethod<T>(object target, string methodName, params object[] args)
     {

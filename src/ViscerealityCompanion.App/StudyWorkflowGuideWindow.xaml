@@ -47,6 +47,7 @@
             <Setter Property="FontSize" Value="14" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="LineHeight" Value="20" />
         </Style>
 
         <Style x:Key="GuidePathStyle" TargetType="TextBlock" BasedOn="{StaticResource GuideDetailStyle}">

@@ -47,6 +47,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int WorkflowGuideValidationCaptureDurationSeconds = 20;
     private const int WorkflowClockAlignmentDurationSeconds = SussexClockAlignmentStreamContract.DefaultDurationSeconds;
     private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds;
+    private const string TwinCommandStreamName = "quest_twin_commands";
+    private const string TwinCommandStreamType = "quest.twin.command";
+    private const string TwinStateStreamName = "quest_twin_state";
+    private const string TwinStateStreamType = "quest.twin.state";
+    private const string TwinConfigStreamName = "quest_hotload_config";
+    private const string TwinConfigStreamType = "quest.config";
     private static readonly TimeSpan WorkflowClockAlignmentSparseProbeDuration = TimeSpan.FromSeconds(2.5);
     private static readonly TimeSpan WorkflowClockAlignmentRunSafetyMargin = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan WorkflowClockAlignmentStopTimeout = TimeSpan.FromSeconds(8);
@@ -440,6 +446,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ConnectQuestCommand = new AsyncRelayCommand(ConnectQuestAsync);
         RefreshStatusCommand = new AsyncRelayCommand(RefreshStatusAsync);
         RefreshDeviceSnapshotCommand = new AsyncRelayCommand(RefreshDeviceSnapshotAsync);
+        ProbeLslConnectionCommand = new AsyncRelayCommand(ProbeLslConnectionAsync);
         BrowseApkCommand = new AsyncRelayCommand(BrowseApkAsync);
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
         LaunchStudyAppCommand = new AsyncRelayCommand(LaunchStudyAppAsync);
@@ -2023,6 +2030,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ConnectQuestCommand { get; }
     public AsyncRelayCommand RefreshStatusCommand { get; }
     public AsyncRelayCommand RefreshDeviceSnapshotCommand { get; }
+    public AsyncRelayCommand ProbeLslConnectionCommand { get; }
     public AsyncRelayCommand BrowseApkCommand { get; }
     public AsyncRelayCommand InstallStudyAppCommand { get; }
     public AsyncRelayCommand LaunchStudyAppCommand { get; }
@@ -2165,6 +2173,23 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 OperationOutcomeKind.Preview,
                 "Headset snapshot already refreshing.",
                 "A device refresh is already in progress. Wait for the live checks to update instead of clicking again.")).ConfigureAwait(false);
+    }
+
+    public async Task ProbeLslConnectionAsync()
+    {
+        var started = await RefreshDeviceSnapshotBundleAsync(forceProximity: true).ConfigureAwait(false);
+        if (!started)
+        {
+            await ApplyOutcomeAsync(
+                "Probe Connection",
+                new OperationOutcome(
+                    OperationOutcomeKind.Preview,
+                    "Connection probe already refreshing.",
+                    "A device refresh is already in progress. Wait for the live checks to update instead of clicking Probe Connection again.")).ConfigureAwait(false);
+            return;
+        }
+
+        await ApplyOutcomeAsync("Probe Connection", BuildLslConnectionProbeOutcome()).ConfigureAwait(false);
     }
 
     private async Task BrowseApkAsync()
@@ -6992,8 +7017,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 "Launch Sussex in kiosk mode.",
                 "Wake the right controller first and confirm the connection still shows the Wi-Fi endpoint before launching."),
             8 => (
-                "Turn on the test LSL sender if needed, then refresh.",
-                "The goal is to see the expected stream connected to the Sussex runtime before participant handoff."),
+                "Turn on the test LSL sender if needed, then run Probe Connection.",
+                "The goal is to see the expected stream connected to the Sussex runtime and a fresh quest_twin_state frame returning to Windows before participant handoff."),
             9 => (
                 "Send Particles On, confirm visually, then send Particles Off.",
                 "This is still a recommended bench-confidence check even though it no longer blocks the guide."),
@@ -7241,19 +7266,142 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return new WorkflowGuideGateState(level, ready ? "Sussex runtime is active in kiosk." : "Sussex runtime is not active in kiosk yet.", detail, ready);
     }
 
+    private OperationOutcome BuildLslConnectionProbeOutcome()
+    {
+        var probeState = BuildLslConnectionProbeState();
+        return new OperationOutcome(probeState.Level, probeState.Summary, probeState.Detail);
+    }
+
+    private (OperationOutcomeKind Level, string Summary, string Detail, bool ReturnPathReady) BuildLslConnectionProbeState()
+    {
+        if (_headsetStatus?.IsConnected != true)
+        {
+            return (
+                OperationOutcomeKind.Failure,
+                "Quest is not reachable over ADB.",
+                "Probe Connection needs a live headset selector before it can inspect Sussex runtime routing. Reconnect USB or Wi-Fi ADB, then run the probe again.",
+                false);
+        }
+
+        var selector = ResolveHeadsetActionSelector();
+        var selectorLabel = string.IsNullOrWhiteSpace(selector)
+            ? "Selector n/a."
+            : $"Selector {selector} over {DescribeSelectorTransport(selector)}.";
+        var lastStateReceivedAt = _twinBridge is LslTwinModeBridge lslBridge
+            ? lslBridge.LastStateReceivedAt
+            : null;
+        var hasTwinState = _reportedTwinState.Count > 0;
+        var twinStateFresh = hasTwinState
+            && (!lastStateReceivedAt.HasValue || DateTimeOffset.UtcNow - lastStateReceivedAt.Value <= TwinStateIdleThreshold);
+        var twinStateSummary = !hasTwinState
+            ? $"No {TwinStateStreamName} / {TwinStateStreamType} frame has reached Windows yet."
+            : twinStateFresh
+                ? lastStateReceivedAt.HasValue
+                    ? $"Latest {TwinStateStreamName} / {TwinStateStreamType} frame {lastStateReceivedAt.Value.ToLocalTime():HH:mm:ss}."
+                    : $"{TwinStateStreamName} / {TwinStateStreamType} is active."
+                : $"Latest {TwinStateStreamName} / {TwinStateStreamType} frame {lastStateReceivedAt!.Value.ToLocalTime():HH:mm:ss}; the return path is stale.";
+        var connectedFlag = ParseBool(GetFirstValue("study.lsl.connected"));
+        var connectedCount = ParseInt(GetFirstValue("connection.lsl.connected_count"));
+        var hasConnectedInput = connectedFlag == true
+            || connectedCount.GetValueOrDefault() > 0
+            || !string.Equals(LslConnectedStreamLabel, "Connected stream n/a", StringComparison.OrdinalIgnoreCase);
+        var inletReady = LslLevel == OperationOutcomeKind.Success || hasConnectedInput;
+        var returnPathReady = twinStateFresh;
+
+        var detail = BuildGuideDetailLines(
+            ("Selector", string.IsNullOrWhiteSpace(selectorLabel) ? "n/a" : selectorLabel),
+            ("Foreground + snapshot", HeadsetForegroundLabel),
+            ("Expected inlet", LslExpectedStreamLabel),
+            ("Runtime target", LslRuntimeTargetLabel),
+            ("Connected inlet", LslConnectedStreamLabel),
+            ("Counts", LslConnectionStateLabel),
+            ("Quest status", LslStatusLineLabel),
+            ("Quest echo", LslEchoStateLabel),
+            ("Return path", twinStateSummary),
+            ("Command channel", $"{TwinCommandStreamName} / {TwinCommandStreamType}"),
+            ("Hotload channel", $"{TwinConfigStreamName} / {TwinConfigStreamType}"),
+            ("Transport detail", BuildTwinCommandTransportDetail()));
+
+        if (inletReady && returnPathReady)
+        {
+            return (
+                OperationOutcomeKind.Success,
+                "Quest inlet is connected and the Windows return path is live.",
+                detail,
+                true);
+        }
+
+        if (inletReady)
+        {
+            return (
+                OperationOutcomeKind.Warning,
+                "Quest inlet is connected, but Windows is not receiving a fresh return path yet.",
+                detail,
+                false);
+        }
+
+        if (returnPathReady)
+        {
+            return (
+                OperationOutcomeKind.Warning,
+                "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet.",
+                detail,
+                false);
+        }
+
+        return (
+            IsStudyRuntimeForeground() ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning,
+            IsStudyRuntimeForeground()
+                ? "Sussex is in front, but neither the LSL inlet nor the Windows return path is confirmed."
+                : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.",
+            detail,
+            false);
+    }
+
     private WorkflowGuideGateState BuildLslWorkflowGuideGateState()
     {
-        var ready = LslLevel == OperationOutcomeKind.Success;
+        var probeState = BuildLslConnectionProbeState();
+        var ready = LslLevel == OperationOutcomeKind.Success && probeState.ReturnPathReady;
         var level = ready
             ? OperationOutcomeKind.Success
-            : LslLevel == OperationOutcomeKind.Failure
+            : LslLevel == OperationOutcomeKind.Failure || probeState.Level == OperationOutcomeKind.Failure
                 ? OperationOutcomeKind.Failure
                 : OperationOutcomeKind.Warning;
         var detail = ready
-            ? $"{LslDetail} Connected stream {LslConnectedStreamLabel}."
-            : $"{LslDetail} The experiment heartbeat stream is the operator's responsibility, but this step must turn green before the onboarding run continues.";
+            ? $"{LslDetail} Connected stream {LslConnectedStreamLabel}. {probeState.Summary}"
+            : $"{LslDetail} {probeState.Detail} The experiment heartbeat stream is the operator's responsibility, but this step must turn green before the onboarding run continues.";
         return new WorkflowGuideGateState(level, ready ? "Heartbeat LSL is reaching the headset." : "Heartbeat LSL is not confirmed yet.", detail, ready);
     }
+
+    private WorkflowGuideCheckItem BuildLslReturnPathWorkflowGuideCheckItem()
+    {
+        var probeState = BuildLslConnectionProbeState();
+        return new WorkflowGuideCheckItem("Windows return path", probeState.Summary, probeState.Detail, probeState.Level);
+    }
+
+    private string BuildLslReceiptWorkflowGuideDetail()
+        => BuildGuideDetailLines(
+            ("Expected inlet", LslExpectedStreamLabel),
+            ("Connected inlet", LslConnectedStreamLabel),
+            ("Quest echo", LslEchoStateLabel),
+            ("Bench sender", LslBenchStateLabel),
+            ("Assessment", LslDetail));
+
+    private string BuildLslStreamWorkflowGuideDetail()
+        => BuildGuideDetailLines(
+            ("Expected inlet", LslExpectedStreamLabel),
+            ("Runtime target", LslRuntimeTargetLabel),
+            ("Connected inlet", LslConnectedStreamLabel),
+            ("Counts", LslConnectionStateLabel),
+            ("Quest status", LslStatusLineLabel),
+            ("Quest echo", LslEchoStateLabel));
+
+    private static string BuildGuideDetailLines(params (string Label, string Value)[] lines)
+        => string.Join(
+            Environment.NewLine,
+            lines
+                .Where(line => !string.IsNullOrWhiteSpace(line.Value))
+                .Select(line => $"{line.Label}: {line.Value.Trim()}"));
 
     private WorkflowGuideGateState BuildParticleWorkflowGuideGateState()
     {
@@ -7459,8 +7607,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             8 =>
             [
-                new WorkflowGuideCheckItem("LSL receipt", LslSummary, LslDetail, LslLevel),
-                new WorkflowGuideCheckItem("Expected vs connected stream", $"Expected {LslExpectedStreamLabel}", $"Connected {LslConnectedStreamLabel}. {LslEchoStateLabel}", LslLevel)
+                new WorkflowGuideCheckItem("LSL receipt", LslSummary, BuildLslReceiptWorkflowGuideDetail(), LslLevel),
+                new WorkflowGuideCheckItem("Expected vs connected stream", $"Expected {LslExpectedStreamLabel}", BuildLslStreamWorkflowGuideDetail(), LslLevel),
+                BuildLslReturnPathWorkflowGuideCheckItem()
             ],
             9 =>
             [
@@ -7535,7 +7684,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             8 =>
             [
                 BuildWorkflowGuideActionItem(TestLslSenderActionLabel, ToggleTestLslSenderCommand, CanToggleTestLslSender),
-                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+                BuildWorkflowGuideActionItem("Probe Connection", ProbeLslConnectionCommand, true, "Probing Connection...")
             ],
             9 =>
             [

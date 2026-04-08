@@ -66,7 +66,10 @@ folder, the pulled Quest backup folder, and the formatted PDF preview report.
 That validation step now keeps the clock-alignment process inline in the guide
 itself: start burst first, the 20 second capture in the middle with sparse
 drift probes armed in the background, then the matching end burst before
-pullback and PDF generation.
+pullback and PDF generation. The LSL step now also includes `Probe Connection`,
+which refreshes the ADB-backed headset snapshot and then reports the Quest inlet
+target, the currently connected inlet stream, and whether fresh
+`quest_twin_state / quest.twin.state` frames are making it back to Windows.
 
 ## 3. Install The Study Build
 
@@ -159,12 +162,16 @@ Before the participant starts, a good operator state is:
 
 ## 7. End Session
 
-**WPF App:** If you are in a kiosk study shell such as Sussex, click
+**WPF App:** If you are in a kiosk study shell such as Sussex and the headset
+is on-face with a visible runtime scene, the operator can click
 **Exit Kiosk Runtime** before closing the app. That exit path clears active
 proximity automation, stops task pinning, returns Home to the front, and then
-stops the Sussex APK. After exit, capture a Quest screenshot and confirm the
-visible headset scene before calling the run complete. Then click
-**Export Manifest** to save session metadata.
+stops the Sussex APK. Do not trigger that quit path from an off-face automated
+cleanup pass on this machine. If exit matters, ask the wearer to quit while
+wearing the headset, then capture a Quest screenshot and confirm the visible
+headset scene before calling the run complete. For bench functionality tests,
+leaving Sussex running is acceptable. Then click **Export Manifest** to save
+session metadata.
 
 **CLI:**
 

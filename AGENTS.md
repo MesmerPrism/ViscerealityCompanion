@@ -45,6 +45,11 @@ cross-project patterns, or central-bureau maintenance, use
   `driver.stream.*.value01` mirror entry. Do not claim value-level round-trip
   latency unless the runtime actually exposes that coherence value or an inlet
   sample timestamp on `quest_twin_state` during the verified run.
+- For Sussex step-9 LSL troubleshooting, prefer the sequential-guide
+  `Probe Connection` action before inventing ad hoc checks. It refreshes the
+  current ADB-backed headset snapshot and then reports the expected inlet,
+  runtime target, connected inlet, connection counts, and whether fresh
+  `quest_twin_state / quest.twin.state` frames are returning to Windows.
 - `liblsl` on Windows may log repeated startup warnings like
   `Could not bind multicast responder ... to interface ::1 (An invalid argument
   was supplied.)` while enumerating the IPv6 loopback adapter. Treat that as a
@@ -59,6 +64,16 @@ cross-project patterns, or central-bureau maintenance, use
 - If a GUI validation run appears stuck, check
   `%LOCALAPPDATA%\\ViscerealityCompanion\\logs` and the active
   `artifacts/verify/...` folder before retrying.
+- Do not call `Exit Kiosk Runtime`, `viscereality study stop
+  sussex-university`, or any equivalent Sussex APK quit path while the headset
+  is off-face or while the visible headset scene is unconfirmed. On this
+  HorizonOS build that cleanup path can strand the headset in Guardian /
+  SensorLock / passthrough limbo even when shell ownership looks home-like.
+- For off-face automation and functionality tests, quitting the Sussex APK is
+  optional and should normally be skipped.
+- If Sussex really must be exited, ask the user to wear the headset and quit it
+  from a visible on-head state, then confirm the resulting Home-side scene with
+  `Capture Quest Screenshot` or an equivalent metacam capture.
 
 ## Architecture Rules
 
@@ -214,6 +229,9 @@ When an action exists in both places, the CLI is the preferred automation path.
 It uses the same persisted profile JSON files, the same startup/apply state
 files under `%LOCALAPPDATA%\ViscerealityCompanion\session\`, the same Sussex
 template schemas, and the same hotload/twin publish channels as the GUI.
+Current exception: Sussex kiosk exit / `study stop` cleanup is not a preferred
+off-face automation path on this machine. Treat runtime exit as a user-worn
+operator action unless the user explicitly wants to take that risk.
 
 ## Sussex CLI Parity
 
@@ -255,6 +273,9 @@ Important parity rules:
   startup/default profile(s) to the device before launch, matching the GUI.
 - `viscereality study stop sussex-university` now refreshes the device-side
   startup CSV after stop, matching the GUI deferred-sync behavior.
+  - Do not use it as unattended cleanup while the headset is off-face.
+  - If exit matters, ask the user to quit Sussex while wearing the headset.
+  - For functionality tests, leaving the Sussex runtime running is acceptable.
 
 ## Sussex Profile Recipes
 

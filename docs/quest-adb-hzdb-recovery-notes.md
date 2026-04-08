@@ -1262,6 +1262,34 @@ Updated interpretation:
   "headset on face, normal wear sensor" operator workflow that had exited
   cleanly
 
+## April 8 Off-Face Exit Failure
+
+Artifact bundle:
+
+- `artifacts/verify/headset-recovery-20260408-073525/`
+
+Observed during a later off-face Sussex cleanup attempt on 2026-04-08:
+
+- shell-side `dumpsys activity` still looked home-like with
+  `HomeActivity` plus `FocusPlaceholderActivity`
+- `dumpsys vrpowermanager` simultaneously reported `State: STANDBY` with
+  `Virtual proximity state: DISABLED`
+- `uiautomator dump` confirmed the visible blocker was again the Guardian
+  `Finding position in room` dialog with `Continue without tracking`
+- after `automation_disable -> prox_close`, the Guardian layer dismissed, but
+  the deeper blocker became `com.oculus.os.vrlockscreen` with the text:
+  `Press the power button to enable cameras and microphones`
+- even after renewed physical power-button attempts, the session still did not
+  produce a dependable screenshot-confirmed Meta Home recovery
+
+Updated practical rule:
+
+- do not use Sussex kiosk exit or `viscereality study stop sussex-university`
+  as default off-face cleanup
+- if Sussex must be exited, prefer a user-worn manual quit with screenshot
+  confirmation afterward
+- for functionality tests, quitting the Sussex APK is not required
+
 ## March 29 Double-Power Escape Hatch
 
 Artifact bundle:
