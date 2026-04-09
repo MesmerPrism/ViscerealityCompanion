@@ -417,17 +417,77 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
 
     private static void DeleteFileIfPresent(string? path)
     {
-        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        if (string.IsNullOrWhiteSpace(path))
         {
-            File.Delete(path);
+            return;
         }
+
+        RetryIoCleanup(() =>
+        {
+            if (!File.Exists(path))
+            {
+                return true;
+            }
+
+            File.SetAttributes(path, FileAttributes.Normal);
+            File.Delete(path);
+            return !File.Exists(path);
+        });
     }
 
     private static void DeleteDirectoryIfPresent(string? path)
     {
-        if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+        if (string.IsNullOrWhiteSpace(path))
         {
+            return;
+        }
+
+        RetryIoCleanup(() =>
+        {
+            if (!Directory.Exists(path))
+            {
+                return true;
+            }
+
             Directory.Delete(path, recursive: true);
+            return !Directory.Exists(path);
+        });
+    }
+
+    private static void RetryIoCleanup(Func<bool> action)
+    {
+        IOException? lastIo = null;
+        UnauthorizedAccessException? lastUnauthorized = null;
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                if (action())
+                {
+                    return;
+                }
+            }
+            catch (IOException ex)
+            {
+                lastIo = ex;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                lastUnauthorized = ex;
+            }
+
+            System.Threading.Thread.Sleep(100);
+        }
+
+        if (lastIo is not null)
+        {
+            throw lastIo;
+        }
+
+        if (lastUnauthorized is not null)
+        {
+            throw lastUnauthorized;
         }
     }
 
