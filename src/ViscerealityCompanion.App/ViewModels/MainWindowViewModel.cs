@@ -1192,8 +1192,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         _initialized = true;
-        EnsureTwinBridgeMonitoringStarted();
         await RefreshCatalogAsync().ConfigureAwait(false);
+        EnsureTwinBridgeMonitoringStarted();
         await RestartMonitorAsync().ConfigureAwait(false);
     }
 
@@ -1472,6 +1472,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void ConfigureTwinStateSourceForSelectedApp()
     {
+        if (ActiveStudyShell is not null)
+        {
+            return;
+        }
+
         if (_twinBridge is not LslTwinModeBridge lslBridge)
         {
             return;
@@ -1545,16 +1550,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return false;
         }
 
-        if (lslBridge.ReportedSettings.TryGetValue("showcase_active_runtime_config_json", out runtimeConfigJson) &&
-            !string.IsNullOrWhiteSpace(runtimeConfigJson))
+        if (lslBridge.ReportedSettings.TryGetValue("showcase_active_runtime_config_json", out var liveRuntimeConfigJson) &&
+            !string.IsNullOrWhiteSpace(liveRuntimeConfigJson))
         {
+            runtimeConfigJson = liveRuntimeConfigJson;
             detail = "Live Sussex runtime JSON baseline is available on quest_twin_state.";
             return true;
         }
 
-        if (lslBridge.ReportedSettings.TryGetValue("hotload.showcase_active_runtime_config_json", out runtimeConfigJson) &&
-            !string.IsNullOrWhiteSpace(runtimeConfigJson))
+        if (lslBridge.ReportedSettings.TryGetValue("hotload.showcase_active_runtime_config_json", out liveRuntimeConfigJson) &&
+            !string.IsNullOrWhiteSpace(liveRuntimeConfigJson))
         {
+            runtimeConfigJson = liveRuntimeConfigJson;
             detail = "Live Sussex runtime JSON baseline is available on quest_twin_state.";
             return true;
         }

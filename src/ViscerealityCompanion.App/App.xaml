@@ -435,6 +435,23 @@
             </Setter>
         </Style>
 
+        <Style x:Key="StateActionButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Tag}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource StatusSuccessSoftBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource StatusSuccessBrush}" />
+                    <Setter Property="Foreground" Value="{StaticResource StatusSuccessBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Tag}" Value="False">
+                    <Setter Property="Background" Value="{StaticResource StatusFailureSoftBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource StatusFailureBrush}" />
+                    <Setter Property="Foreground" Value="{StaticResource StatusFailureBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="Margin" Value="0,0,0,10" />
             <Setter Property="Padding" Value="8,6" />

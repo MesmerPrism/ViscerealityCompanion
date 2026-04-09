@@ -24,6 +24,7 @@
         <local:BoolToBrushConverter x:Key="BoolToBrush" />
         <local:BoolToSoftBrushConverter x:Key="BoolToSoftBrush" />
         <local:BoolToStatusTextConverter x:Key="BoolToStatusText" />
+        <local:StatusDetailFormatterConverter x:Key="StatusDetailFormatter" />
         <local:LogLevelToBrushConverter x:Key="LogLevelToBrush" />
         <local:BatteryToBrushConverter x:Key="BatteryToBrush" />
         <local:TagsToBadgeTextConverter x:Key="TagsToBadgeText" />
@@ -812,50 +813,65 @@
                                             Margin="0,0,0,8" />
                                     <Button Content="{Binding ActiveStudyShell.HeadsetAwakeActionLabel}"
                                             Command="{Binding ActiveStudyShell.ToggleHeadsetPowerCommand}"
+                                            Style="{StaticResource StateActionButtonStyle}"
+                                            Tag="{Binding ActiveStudyShell.IsHeadsetAwakeToggleState}"
                                             IsEnabled="{Binding ActiveStudyShell.CanToggleHeadsetPower}"
                                             Margin="0,0,0,8" />
                                     <Button Content="{Binding ActiveStudyShell.StudyRuntimeActionLabel}"
                                             Command="{Binding ActiveStudyShell.ToggleStudyRuntimeCommand}"
+                                            Style="{StaticResource StateActionButtonStyle}"
+                                            Tag="{Binding ActiveStudyShell.IsStudyRuntimeToggleState}"
                                             Margin="0" />
                                 </StackPanel>
                             </Grid>
                             <Expander Style="{StaticResource CompactStatusExpanderStyle}">
                                 <Expander.Header>
-                                    <TextBlock Text="Details" Style="{StaticResource EyebrowStyle}" />
+                                    <TextBlock Text="Connection details" Style="{StaticResource EyebrowStyle}" />
                                 </Expander.Header>
                                 <StackPanel Margin="0,6,0,0">
-                                    <TextBlock Text="{Binding ActiveStudyShell.ConnectionSummary}"
-                                               Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="Transport"
+                                               Style="{StaticResource EyebrowStyle}" />
                                     <TextBlock Text="{Binding ActiveStudyShell.ConnectionTransportSummary}"
+                                               Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.ConnectionTransportDetail, Converter={StaticResource StatusDetailFormatter}}"
                                                Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetForegroundLabel}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="Quest link"
+                                               Style="{StaticResource EyebrowStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.ConnectionSummary, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetForegroundLabel, Converter={StaticResource StatusDetailFormatter}}"
                                                Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetWifiSummary}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.QuestStatusDetail, Converter={StaticResource StatusDetailFormatter}}"
                                                Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.DeviceSnapshotTimestampLabel}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="Network"
+                                               Style="{StaticResource EyebrowStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetWifiSummary, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.DeviceSnapshotTimestampLabel, Converter={StaticResource StatusDetailFormatter}}"
                                                Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetSnapshotModeSummary}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetSnapshotModeSummary, Converter={StaticResource StatusDetailFormatter}}"
                                                Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetAwakeDetail}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="Headset state"
+                                               Style="{StaticResource EyebrowStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetAwakeDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                               Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetBatteryLabel, Converter={StaticResource StatusDetailFormatter}}"
                                                Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.QuestStatusDetail}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetSoftwareVersionLabel, Converter={StaticResource StatusDetailFormatter}}"
                                                Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetBatteryLabel}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetPerformanceLabel, Converter={StaticResource StatusDetailFormatter}}"
                                                Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetSoftwareVersionLabel}"
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,2,0,0" />
-                                    <TextBlock Text="{Binding ActiveStudyShell.HeadsetPerformanceLabel}"
-                                               Style="{StaticResource MicroCaptionStyle}"
-                                               Margin="0,2,0,0" />
+                                               Margin="0,4,0,0" />
                                 </StackPanel>
                             </Expander>
                         </StackPanel>
@@ -901,18 +917,21 @@
                             BorderBrush="{Binding ActiveStudyShell.WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}">
                         <StackPanel>
                             <TextBlock Text="Operator workflow" Style="{StaticResource EyebrowStyle}" />
-                            <TextBlock Text="Open the full Sussex sequential guide."
+                            <TextBlock Text="Run Sussex in two GUI stages: Sequential Guide, then Experiment Session."
                                        FontSize="14"
                                        FontWeight="Bold"
                                        Foreground="{Binding ActiveStudyShell.WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                        TextWrapping="Wrap" />
-                            <TextBlock Text="Use it for setup, Wi-Fi handoff, kiosk launch, validation capture, and participant wrap-up."
+                            <TextBlock Text="Use the guide for setup, Wi-Fi handoff, kiosk launch, and validation. Use Experiment Session for the actual participant recording run."
                                        Style="{StaticResource MicroCaptionStyle}"
                                        Margin="0,6,0,0"
                                        TextWrapping="Wrap" />
-                            <Button Content="Open full sequential session guide"
-                                    Command="{Binding ActiveStudyShell.OpenWorkflowGuideWindowCommand}"
-                                    Margin="0,10,0,0" />
+                            <WrapPanel Margin="0,10,0,0">
+                                <Button Content="Open full sequential session guide"
+                                        Command="{Binding ActiveStudyShell.OpenWorkflowGuideWindowCommand}" />
+                                <Button Content="Open experiment session window"
+                                        Command="{Binding ActiveStudyShell.OpenExperimentSessionWindowCommand}" />
+                            </WrapPanel>
                             <Expander Style="{StaticResource CompactStatusExpanderStyle}">
                                 <Expander.Header>
                                     <TextBlock Text="Details" Style="{StaticResource EyebrowStyle}" />
@@ -1344,16 +1363,25 @@
                                             <TextBlock Text="{Binding ConnectionSummary}"
                                                        FontWeight="Bold"
                                                        TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding UsbSummary}"
-                                                       Style="{StaticResource MicroCaptionStyle}"
-                                                       Margin="0,8,0,0" />
-                                            <TextBlock Text="{Binding HeadsetStatusSummary}"
-                                                       Style="{StaticResource MicroCaptionStyle}"
-                                                       Margin="0,8,0,0" />
                                             <TextBlock Text="{Binding HeadsetModel}"
                                                        FontWeight="Bold"
                                                        Margin="0,10,0,0"
                                                        TextWrapping="Wrap" />
+                                            <Expander Style="{StaticResource CompactStatusExpanderStyle}">
+                                                <Expander.Header>
+                                                    <TextBlock Text="Connection details" Style="{StaticResource EyebrowStyle}" />
+                                                </Expander.Header>
+                                                <StackPanel Margin="0,6,0,0">
+                                                    <TextBlock Text="Transport" Style="{StaticResource EyebrowStyle}" />
+                                                    <TextBlock Text="{Binding UsbSummary, Converter={StaticResource StatusDetailFormatter}}"
+                                                               Style="{StaticResource MicroCaptionStyle}" />
+                                                    <TextBlock Text="Headset state"
+                                                               Style="{StaticResource EyebrowStyle}"
+                                                               Margin="0,8,0,0" />
+                                                    <TextBlock Text="{Binding HeadsetStatusSummary, Converter={StaticResource StatusDetailFormatter}}"
+                                                               Style="{StaticResource MicroCaptionStyle}" />
+                                                </StackPanel>
+                                            </Expander>
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>
@@ -1487,9 +1515,16 @@
                                                    FontWeight="Bold"
                                                    Margin="0,6,0,0"
                                                    TextWrapping="Wrap" />
-                                        <TextBlock Text="{Binding UsbSummary}"
-                                                   Style="{StaticResource MicroCaptionStyle}"
-                                                   Margin="0,8,0,0" />
+                                        <Expander Style="{StaticResource CompactStatusExpanderStyle}">
+                                            <Expander.Header>
+                                                <TextBlock Text="Connection details" Style="{StaticResource EyebrowStyle}" />
+                                            </Expander.Header>
+                                            <StackPanel Margin="0,6,0,0">
+                                                <TextBlock Text="Transport" Style="{StaticResource EyebrowStyle}" />
+                                                <TextBlock Text="{Binding UsbSummary, Converter={StaticResource StatusDetailFormatter}}"
+                                                           Style="{StaticResource MicroCaptionStyle}" />
+                                            </StackPanel>
+                                        </Expander>
                                     </StackPanel>
                                 </Border>
                                 <TextBlock Text="Research browser link"

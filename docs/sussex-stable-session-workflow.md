@@ -83,25 +83,26 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
 
 1. When the participant is ready, wake the headset with the physical power
    button.
-2. Send `Particles On`.
-3. Send `Recenter`.
-4. Ask the participant to confirm the view.
-5. Capture one Quest screenshot as an operator-side confirmation.
-6. Enter the participant number in the GUI.
-7. If the participant number already exists on this Windows machine, show a
+2. Open the dedicated `Experiment Session` window if it is not already open.
+3. Send `Particles On`.
+4. Send `Recenter`.
+5. Ask the participant to confirm the view.
+6. Capture one Quest screenshot as an operator-side confirmation.
+7. Enter the participant number in the `Experiment Session` window.
+8. If the participant number already exists on this Windows machine, show a
    warning but do not block the run.
-8. Press `Start Experiment`.
-9. `Start Experiment` should:
+9. Press `Start Recording`.
+10. `Start Recording` should:
    - stamp participant and session metadata
    - reset any stale recording state
    - trigger the participant calibration and start path in the headset runtime
    - start companion-side data capture immediately
-10. Keep the Sussex shell on the live-monitor surface for the running session.
+11. Keep the `Experiment Session` window open for the running session.
 
 ### 5. Participant end
 
-1. Press `End Experiment`.
-2. `End Experiment` should:
+1. Press `Stop Recording` in the `Experiment Session` window.
+2. `Stop Recording` should:
    - stop companion-side data capture
    - send the headset-side stop and end command
    - send `Reset Calibration`
@@ -255,7 +256,8 @@ evolving CSV. The row shape should stay stable across signals.
 
 ### `signals_long.csv`
 
-Write one row per observed value change or sample. Recommended columns:
+Write one row per fixed companion sampling tick. Do not suppress unchanged
+values during a run. Recommended columns:
 
 - `participant_id`
 - `session_id`
@@ -298,7 +300,6 @@ Recommended columns:
 - `breath_volume01`
 - `sphere_radius_progress01`
 - `sphere_radius_raw`
-- `controller_active`
 - `controller_calibrated`
 
 ### `session_events.csv`
@@ -322,6 +323,7 @@ Recommended columns:
 - `participant_id`
 - `session_id`
 - `recorded_at_utc`
+- `source_timestamp_utc`
 - `event_name`
 - `event_detail`
 - `command_action_id`

@@ -64,6 +64,23 @@
             <Setter Property="Margin" Value="0,0,8,8" />
         </Style>
 
+        <Style x:Key="GuideStateActionButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource GuideActionButtonStyle}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Tag}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource StatusSuccessSoftBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource StatusSuccessBrush}" />
+                    <Setter Property="Foreground" Value="{StaticResource StatusSuccessBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Tag}" Value="False">
+                    <Setter Property="Background" Value="{StaticResource StatusFailureSoftBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource StatusFailureBrush}" />
+                    <Setter Property="Foreground" Value="{StaticResource StatusFailureBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <Style x:Key="GuideExpanderStyle" TargetType="Expander">
             <Setter Property="Margin" Value="0,8,0,0" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
@@ -382,9 +399,10 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Button Content="{Binding Label}"
-                                                Style="{StaticResource GuideActionButtonStyle}"
                                                 Command="{Binding Command}"
-                                                IsEnabled="{Binding IsEnabled}" />
+                                                IsEnabled="{Binding IsEnabled}"
+                                                Tag="{Binding StateIsOn}"
+                                                Style="{StaticResource GuideStateActionButtonStyle}" />
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -820,6 +838,20 @@
 
                     <Button Content="Return To Main Window"
                             Command="{Binding CloseWorkflowGuideWindowCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource GuideActionButtonStyle}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding WorkflowGuideIsFinalStep}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <Button Content="Open Experiment Session Window"
+                            Command="{Binding OpenExperimentSessionWindowCommand}">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource GuideActionButtonStyle}">
                                 <Setter Property="Visibility" Value="Collapsed" />

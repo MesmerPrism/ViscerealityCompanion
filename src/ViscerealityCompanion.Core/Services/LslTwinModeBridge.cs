@@ -6,6 +6,7 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 {
     private const int TwinMessageChannelCount = 4;
     private static readonly TimeSpan KeepaliveInterval = TimeSpan.FromMilliseconds(750);
+    private static readonly TimeSpan MonitorShutdownTimeout = TimeSpan.FromSeconds(2);
     private const string DefaultCommandStreamName = "quest_twin_commands";
     private const string DefaultCommandStreamType = "quest.twin.command";
     private const string DefaultStateStreamName = "quest_twin_state";
@@ -24,8 +25,10 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     private readonly Lock _settingsSync = new();
     private readonly Lock _commandOutletSync = new();
     private readonly Lock _configOutletSync = new();
+    private readonly SemaphoreSlim _monitorRestartGate = new(1, 1);
 
     private CancellationTokenSource? _monitorCts;
+    private Task? _monitorTask;
     private CancellationTokenSource? _keepaliveCts;
     private Task? _keepaliveTask;
     private bool _commandOutletOpened;
@@ -294,13 +297,23 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
     public void ConfigureStateSourceFilter(string? exactSourceId, string? sourceIdPrefix = null)
     {
+        var normalizedExactSourceId = string.IsNullOrWhiteSpace(exactSourceId) ? null : exactSourceId.Trim();
+        var normalizedSourceIdPrefix = string.IsNullOrWhiteSpace(sourceIdPrefix) ? null : sourceIdPrefix.Trim();
+        var changed = false;
         lock (_settingsSync)
         {
-            _expectedStateSourceId = string.IsNullOrWhiteSpace(exactSourceId) ? null : exactSourceId.Trim();
-            _expectedStateSourceIdPrefix = string.IsNullOrWhiteSpace(sourceIdPrefix) ? null : sourceIdPrefix.Trim();
+            changed =
+                !string.Equals(_expectedStateSourceId, normalizedExactSourceId, StringComparison.Ordinal) ||
+                !string.Equals(_expectedStateSourceIdPrefix, normalizedSourceIdPrefix, StringComparison.Ordinal);
+            _expectedStateSourceId = normalizedExactSourceId;
+            _expectedStateSourceIdPrefix = normalizedSourceIdPrefix;
         }
 
-        RestartStateMonitor();
+        if (changed)
+        {
+            RestartStateMonitor();
+        }
+
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -411,10 +424,14 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
     public void Dispose()
     {
-        _keepaliveCts?.Cancel();
-        _keepaliveCts?.Dispose();
-        _monitorCts?.Cancel();
-        _monitorCts?.Dispose();
+        try
+        {
+            StopKeepaliveLoopAsync().GetAwaiter().GetResult();
+            StopStateMonitorAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+        }
 
         lock (_commandOutletSync)
         {
@@ -425,6 +442,8 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         {
             _configOutlet.Dispose();
         }
+
+        _monitorRestartGate.Dispose();
     }
 
     private void EnsureOpen()
@@ -436,64 +455,158 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     }
 
     private void RestartStateMonitor()
-    {
-        var previous = Interlocked.Exchange(ref _monitorCts, null);
-        if (previous is not null)
-        {
-            previous.Cancel();
-            previous.Dispose();
-        }
-
-        if (_commandOutletOpened || _configOutletOpened)
-        {
-            StartStateMonitor();
-        }
-    }
+        => _ = RestartStateMonitorAsync();
 
     private void StartStateMonitor()
     {
-        if (_monitorCts is not null)
-        {
-            return;
-        }
-
-        var monitorCts = new CancellationTokenSource();
-        _monitorCts = monitorCts;
-        string? exactSourceId;
-        string? sourceIdPrefix;
         lock (_settingsSync)
         {
-            exactSourceId = _expectedStateSourceId;
-            sourceIdPrefix = _expectedStateSourceIdPrefix;
+            if (_monitorTask is not null && !_monitorTask.IsCompleted)
+            {
+                return;
+            }
         }
 
-        var subscription = new LslMonitorSubscription(
-            DefaultStateStreamName,
-            DefaultStateStreamType,
-            0,
-            exactSourceId,
-            sourceIdPrefix);
-        var cancellationToken = monitorCts.Token;
+        _ = RestartStateMonitorAsync();
+    }
 
-        _ = Task.Run(async () =>
+    private async Task RestartStateMonitorAsync()
+    {
+        await _monitorRestartGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            try
+            await StopStateMonitorAsyncCore().ConfigureAwait(false);
+            if (!_commandOutletOpened && !_configOutletOpened)
             {
-                await foreach (var reading in _stateMonitor.MonitorAsync(subscription, cancellationToken))
+                return;
+            }
+
+            string? exactSourceId;
+            string? sourceIdPrefix;
+            lock (_settingsSync)
+            {
+                exactSourceId = _expectedStateSourceId;
+                sourceIdPrefix = _expectedStateSourceIdPrefix;
+            }
+
+            var subscription = new LslMonitorSubscription(
+                DefaultStateStreamName,
+                DefaultStateStreamType,
+                0,
+                exactSourceId,
+                sourceIdPrefix);
+            var monitorCts = new CancellationTokenSource();
+            var cancellationToken = monitorCts.Token;
+            Task? monitorTask = null;
+            monitorTask = Task.Run(async () =>
+            {
+                try
                 {
-                    if (reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase))
+                    await foreach (var reading in _stateMonitor.MonitorAsync(subscription, cancellationToken))
                     {
-                        ParseStateReading(reading);
+                        if (reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ParseStateReading(reading);
+                        }
                     }
                 }
-            }
-            catch (OperationCanceledException)
+                catch (OperationCanceledException)
+                {
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                finally
+                {
+                    lock (_settingsSync)
+                    {
+                        if (ReferenceEquals(_monitorTask, monitorTask))
+                        {
+                            _monitorTask = null;
+                        }
+
+                        if (ReferenceEquals(_monitorCts, monitorCts))
+                        {
+                            _monitorCts = null;
+                        }
+                    }
+                }
+            }, CancellationToken.None);
+
+            lock (_settingsSync)
             {
+                _monitorCts = monitorCts;
+                _monitorTask = monitorTask;
             }
-            catch (ObjectDisposedException)
+        }
+        finally
+        {
+            _monitorRestartGate.Release();
+        }
+    }
+
+    private async Task<bool> StopStateMonitorAsync()
+    {
+        await _monitorRestartGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await StopStateMonitorAsyncCore().ConfigureAwait(false);
+        }
+        finally
+        {
+            _monitorRestartGate.Release();
+        }
+    }
+
+    private async Task<bool> StopStateMonitorAsyncCore()
+    {
+        CancellationTokenSource? previousCts;
+        Task? previousTask;
+        lock (_settingsSync)
+        {
+            previousCts = _monitorCts;
+            previousTask = _monitorTask;
+            _monitorCts = null;
+            _monitorTask = null;
+        }
+
+        if (previousCts is null && previousTask is null)
+        {
+            return true;
+        }
+
+        previousCts?.Cancel();
+        try
+        {
+            if (previousTask is not null)
             {
+                var completed = await Task.WhenAny(previousTask, Task.Delay(MonitorShutdownTimeout)).ConfigureAwait(false);
+                if (!ReferenceEquals(completed, previousTask))
+                {
+                    return false;
+                }
+
+                await previousTask.ConfigureAwait(false);
             }
-        });
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            previousCts?.Dispose();
+        }
     }
 
     private void StartKeepaliveLoop()
@@ -520,6 +633,49 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             {
             }
         }, cancellationToken);
+    }
+
+    private async Task<bool> StopKeepaliveLoopAsync()
+    {
+        var keepaliveCts = Interlocked.Exchange(ref _keepaliveCts, null);
+        var keepaliveTask = Interlocked.Exchange(ref _keepaliveTask, null);
+        if (keepaliveCts is null && keepaliveTask is null)
+        {
+            return true;
+        }
+
+        keepaliveCts?.Cancel();
+        try
+        {
+            if (keepaliveTask is not null)
+            {
+                var completed = await Task.WhenAny(keepaliveTask, Task.Delay(MonitorShutdownTimeout)).ConfigureAwait(false);
+                if (!ReferenceEquals(completed, keepaliveTask))
+                {
+                    return false;
+                }
+
+                await keepaliveTask.ConfigureAwait(false);
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            keepaliveCts?.Dispose();
+        }
     }
 
     private void PublishKeepalives()

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
@@ -104,6 +105,37 @@ public sealed class BoolToStatusTextConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         => value is bool b && b ? "Connected" : "Disconnected";
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+public sealed class StatusDetailFormatterConverter : IValueConverter
+{
+    private static readonly Regex DetailSplitRegex = new(
+        @"(?:\s+\|\s+|;\s+|(?<=\.)\s+(?=[A-Z]))",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not string text || string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var lines = text
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SelectMany(line => DetailSplitRegex.Split(line))
+            .Select(segment => segment.Trim())
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToArray();
+
+        return lines.Length == 0
+            ? string.Empty
+            : string.Join(Environment.NewLine, lines);
+    }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotSupportedException();

@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.22.0`.
+`0.1.26.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,

@@ -26,7 +26,8 @@ public sealed record StudyClockAlignmentRunRequest(
     StudyClockAlignmentWindowKind WindowKind,
     TimeSpan Duration,
     TimeSpan ProbeInterval,
-    TimeSpan EchoGracePeriod);
+    TimeSpan EchoGracePeriod,
+    int FirstProbeSequence = 1);
 
 public sealed record StudyClockAlignmentSample(
     StudyClockAlignmentWindowKind WindowKind,

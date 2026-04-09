@@ -157,4 +157,80 @@ public sealed class StudyShellSnapshotPolicyTests
             currentCommittedAtUtc: commandIssuedAtUtc.AddSeconds(1),
             reportedTwinState));
     }
+
+    [Fact]
+    public void HasReportedParticipantSessionRuntimeConfig_RequiresExpectedSessionIdAndDatasetHash()
+    {
+        var reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["showcase_active_runtime_config_json"] =
+                "{\"study_session_id\":\"session-123\",\"study_session_dataset_hash\":\"hash-abc\",\"UseSphereDeformation\":true}"
+        };
+
+        Assert.True(StudyShellViewModel.HasReportedParticipantSessionRuntimeConfig(
+            reportedTwinState,
+            "session-123",
+            "hash-abc"));
+
+        Assert.False(StudyShellViewModel.HasReportedParticipantSessionRuntimeConfig(
+            reportedTwinState,
+            "session-999",
+            "hash-abc"));
+
+        Assert.False(StudyShellViewModel.HasReportedParticipantSessionRuntimeConfig(
+            reportedTwinState,
+            "session-123",
+            "hash-other"));
+    }
+
+    [Fact]
+    public void HasReportedParticipantSessionRuntimeConfig_AcceptsFreshFlatMirrorKeys()
+    {
+        var reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hotload.study_session_id"] = "session-123",
+            ["hotload.study_session_dataset_hash"] = "hash-abc"
+        };
+
+        Assert.True(StudyShellViewModel.HasReportedParticipantSessionRuntimeConfig(
+            reportedTwinState,
+            "session-123",
+            "hash-abc"));
+
+        Assert.False(StudyShellViewModel.HasReportedParticipantSessionRuntimeConfig(
+            reportedTwinState,
+            "session-999",
+            "hash-abc"));
+    }
+
+    [Fact]
+    public void HasFreshParticipantSessionRuntimeConfigBaseline_RequiresFreshSnapshotAndExpectedSessionMetadata()
+    {
+        var commandIssuedAtUtc = DateTimeOffset.UtcNow;
+        var reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hotload.showcase_active_runtime_config_json"] =
+                "{\"study_session_id\":\"session-123\",\"study_session_dataset_hash\":\"hash-abc\"}"
+        };
+
+        Assert.True(StudyShellViewModel.HasFreshParticipantSessionRuntimeConfigBaseline(
+            previousRevision: "10",
+            previousCommittedAtUtc: commandIssuedAtUtc.AddSeconds(-2),
+            commandIssuedAtUtc,
+            currentRevision: "11",
+            currentCommittedAtUtc: commandIssuedAtUtc.AddSeconds(1),
+            reportedTwinState,
+            expectedSessionId: "session-123",
+            expectedDatasetHash: "hash-abc"));
+
+        Assert.False(StudyShellViewModel.HasFreshParticipantSessionRuntimeConfigBaseline(
+            previousRevision: "10",
+            previousCommittedAtUtc: commandIssuedAtUtc.AddSeconds(-2),
+            commandIssuedAtUtc,
+            currentRevision: "11",
+            currentCommittedAtUtc: commandIssuedAtUtc.AddSeconds(1),
+            reportedTwinState,
+            expectedSessionId: "session-123",
+            expectedDatasetHash: "hash-other"));
+    }
 }

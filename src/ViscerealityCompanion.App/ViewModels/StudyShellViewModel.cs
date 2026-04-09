@@ -5,6 +5,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
@@ -28,6 +29,13 @@ internal sealed record PinnedStartupHotloadSyncResult(
     SussexControllerBreathingStartupHotloadPlan? ControllerPlan,
     bool AppliedToDevice);
 
+internal sealed record RecordingSampleSnapshot(
+    StudyDataRecordingSession Session,
+    IReadOnlyDictionary<string, string> TwinState,
+    DateTimeOffset RecordedAtUtc,
+    DateTimeOffset SourceTimestampUtc,
+    string QuestSelector);
+
 public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
     private const int WorkflowTabIndex = 0;
@@ -42,11 +50,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly bool SuppressClockAlignmentWindows =
         string.Equals(Environment.GetEnvironmentVariable("VC_SUPPRESS_ALIGNMENT_WINDOWS"), "1", StringComparison.OrdinalIgnoreCase)
         || string.Equals(Environment.GetEnvironmentVariable("VC_SUPPRESS_ALIGNMENT_WINDOWS"), "true", StringComparison.OrdinalIgnoreCase);
-    private static readonly string[] QuestScreenshotShellCaptureMethods = ["metacam", "screencap"];
+    private static readonly string[] QuestScreenshotShellCaptureMethods = ["screencap", "metacam"];
     private static readonly string[] QuestScreenshotRuntimeCaptureMethods = ["screencap", "metacam"];
     private const int WorkflowGuideValidationCaptureDurationSeconds = 20;
     private const int WorkflowClockAlignmentDurationSeconds = SussexClockAlignmentStreamContract.DefaultDurationSeconds;
     private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds;
+    private const int WorkflowClockAlignmentInitialBackgroundProbeDelaySeconds = 1;
     private const string TwinCommandStreamName = "quest_twin_commands";
     private const string TwinCommandStreamType = "quest.twin.command";
     private const string TwinStateStreamName = "quest_twin_state";
@@ -68,7 +77,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly TimeSpan BenchRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan DeviceSnapshotRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ProximityReadbackRefreshInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan RecordingSampleInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan WorkflowGuidePendingCommandWindow = TimeSpan.FromSeconds(15);
+    private const int ClockAlignmentConsistencyHistoryLimit = 6;
+    private const double ClockAlignmentConsistencyWarningMeanRoundTripSeconds = 0.08d;
+    private const double ClockAlignmentConsistencyFailureMeanRoundTripSeconds = 0.16d;
+    private const double ClockAlignmentConsistencyWarningSpanSeconds = 0.04d;
+    private const double ClockAlignmentConsistencyFailureSpanSeconds = 0.09d;
+    private const double ClockAlignmentConsistencyWarningProbeToProbeSeconds = 0.03d;
+    private const double ClockAlignmentConsistencyFailureProbeToProbeSeconds = 0.08d;
     private static readonly Regex CommandSequenceRegex = new(@"\bseq=(\d+)\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly StudyValueSection[] SectionCatalog =
     [
@@ -94,7 +111,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         new(10, "Test particle commands", "Use the companion controls to turn particles on and then off again. This is still recommended for bench confidence, but it does not block the Sussex flow."),
         new(11, "Try controller calibration", "Controller-volume breathing calibration is available here, but the current Sussex APK path is still unstable. Try it if useful, but it is not required before continuing."),
         new(12, "Run an optional 20 second validation capture", "Enter a temporary subject id, record a short validation run, let the start and end clock-alignment bursts plus sparse background probes run automatically, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
-        new(13, "Reset for the real participant", "Reset calibration, make sure particles are off, and close the guide so the main runtime tab can be used for the real participant later.")
+        new(13, "Reset for the real participant", "Reset calibration, make sure particles are off, then hand off into the dedicated experiment-session window for the real participant.")
     ];
     private static readonly string[] WorkflowGuideExpectedDeviceRecordingFiles =
     [
@@ -125,9 +142,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
     private readonly DispatcherTimer? _deviceSnapshotRefreshTimer;
+    private readonly DispatcherTimer? _recordingSampleTimer;
+    private CancellationTokenSource? _recordingSampleLoopCts;
+    private Task? _recordingSampleLoopTask;
     private Window? _twinEventsWindow;
     private Window? _workflowGuideWindow;
     private Window? _clockAlignmentWindow;
+    private Window? _experimentSessionWindow;
     private bool _initialized;
     private bool _twinRefreshPending;
     private bool _proximityRefreshPending;
@@ -264,7 +285,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private int _controllerValidationStalledUpdateCount;
     private OperationOutcomeKind _workflowCurrentStepLevel = OperationOutcomeKind.Warning;
     private string _workflowCurrentStepSummary = "Finish headset setup before starting the Sussex protocol.";
-    private string _workflowCurrentStepDetail = "Use the workflow tab as the operator-facing protocol and keep the legacy tabs for deeper inspection.";
+    private string _workflowCurrentStepDetail = "Use the Sequential Guide for the pre-session protocol, then move into Experiment Session for the live participant run. Keep the legacy tabs for tuning and deeper inspection.";
     private OperationOutcomeKind _workflowSetupLevel = OperationOutcomeKind.Warning;
     private string _workflowSetupSummary = "Headset setup still needs attention.";
     private string _workflowSetupDetail = "Connect over Wi-Fi ADB, confirm the Sussex build, and apply the pinned device profile.";
@@ -275,14 +296,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowBenchSummary = "Bench verification is waiting for the Sussex runtime.";
     private string _workflowBenchDetail = "Run particles, recenter, LSL, and controller calibration checks before participant handoff.";
     private OperationOutcomeKind _workflowHandoffLevel = OperationOutcomeKind.Warning;
-    private string _workflowHandoffSummary = "Participant handoff is not fully automated yet.";
-    private string _workflowHandoffDetail = "Reset Calibration is part of the Sussex shell contract, and the handoff should still end with the physical power button.";
+    private string _workflowHandoffSummary = "Participant handoff should finish in Experiment Session.";
+    private string _workflowHandoffDetail = "Reset Calibration is part of the Sussex shell contract. Finish the handoff, then move into Experiment Session; the actual between-hands sleep and wake path should still end with the physical power button.";
     private OperationOutcomeKind _workflowParticipantStartLevel = OperationOutcomeKind.Warning;
-    private string _workflowParticipantStartSummary = "Participant-run controls are staged behind the workflow checks.";
-    private string _workflowParticipantStartDetail = "Participant number entry, screenshot confirmation, and Start Experiment drive both the Windows recorder and the Quest-side backup recorder, including start/end clock-alignment bursts plus sparse background drift probes.";
+    private string _workflowParticipantStartSummary = "Experiment Session opens the live participant-run controls after the workflow checks pass.";
+    private string _workflowParticipantStartDetail = "Participant number entry, screenshot confirmation, and Start Recording in Experiment Session drive both the Windows recorder and the Quest-side backup recorder, including start/end clock-alignment bursts plus sparse background drift probes.";
     private OperationOutcomeKind _workflowParticipantEndLevel = OperationOutcomeKind.Warning;
-    private string _workflowParticipantEndSummary = "Participant-end controls wait for an active run.";
-    private string _workflowParticipantEndDetail = "End Experiment now closes the Quest-side backup recorder and the Windows recorder before the shell runs cleanup.";
+    private string _workflowParticipantEndSummary = "Stop Recording waits for an active participant run.";
+    private string _workflowParticipantEndDetail = "Stop Recording in Experiment Session closes the Quest-side backup recorder and the Windows recorder before the shell runs cleanup.";
     private string _workflowRuntimePendingSummary = "Current Sussex APK exposes recenter, calibration start, and particle toggles.";
     private string _workflowRuntimePendingDetail =
         @"Scene contract: C:\Users\tillh\source\repos\AstralKarateDojo\Assets\Scenes\SussexControllerStudy.unity. " +
@@ -295,7 +316,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private bool _participantHasExistingSessions;
     private OperationOutcomeKind _recordingLevel = OperationOutcomeKind.Preview;
     private string _recordingSummary = "Recorder idle.";
-    private string _recordingDetail = "Enter a participant number to arm the recorder for the next participant run.";
+    private string _recordingDetail = "Use the Experiment Session window to enter a participant number and arm the recorder for the next participant run.";
     private string _recorderStateLabel = "Idle";
     private string _recordingSessionLabel = "No active participant session.";
     private string _recordingFolderPath = string.Empty;
@@ -307,6 +328,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private Task? _upstreamLslMonitorTask;
     private CancellationTokenSource? _backgroundClockAlignmentCts;
     private Task? _backgroundClockAlignmentTask;
+    private int _nextClockAlignmentProbeSequence = 1;
     private bool _workflowGuideParticlesOnVerified;
     private bool _workflowGuideParticlesOffVerified;
     private string _latestDeviceRecordingSessionDir = string.Empty;
@@ -349,12 +371,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _clockAlignmentLevel = OperationOutcomeKind.Preview;
     private bool _clockAlignmentRunning;
     private string _clockAlignmentSummary = "Clock alignment has not run yet.";
-    private string _clockAlignmentDetail = "Start the participant run to capture the dedicated Sussex clock-alignment bursts and sparse background drift probes.";
+    private string _clockAlignmentDetail = "Use Start Recording in Experiment Session to capture the dedicated Sussex clock-alignment bursts and sparse background drift probes.";
     private double _clockAlignmentProgressPercent;
     private string _clockAlignmentProgressLabel = "No clock alignment is running yet.";
     private string _clockAlignmentProbeStatsLabel = "No probes sent yet.";
     private string _clockAlignmentOffsetStatsLabel = "Offset estimate n/a";
     private string _clockAlignmentRoundTripStatsLabel = "Round-trip estimate n/a";
+    private OperationOutcomeKind _clockAlignmentConsistencyLevel = OperationOutcomeKind.Preview;
+    private string _clockAlignmentConsistencySummary = "Full-loop timing consistency has not been sampled yet.";
+    private string _clockAlignmentConsistencyDetail = "Start Recording in Experiment Session to collect background clock-alignment probes and watch for unstable loop timing.";
+    private string _clockAlignmentConsistencyMetricsLabel = "No background RTT consistency samples yet.";
     private OperationOutcomeKind _validationClockAlignmentStartLevel = OperationOutcomeKind.Preview;
     private string _validationClockAlignmentStartSummary = "Queued until recording starts.";
     private string _validationClockAlignmentStartDetail = "The validation flow begins with a dedicated 10 second echo burst before data collection.";
@@ -376,6 +402,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private StudyTwinCommandRequest? _lastRecenterCommandRequest;
     private StudyTwinCommandRequest? _lastParticlesCommandRequest;
     private AutomaticBreathingRequest? _lastAutomaticBreathingRequest;
+    private readonly Queue<ClockAlignmentConsistencyProbeMetrics> _recentBackgroundClockAlignmentMetrics = new();
+    private string _lastRecordedRecenterConfirmationSignature = string.Empty;
+    private string _lastRecordedRecenterEffectSignature = string.Empty;
+    private string _lastRecordedParticlesConfirmationSignature = string.Empty;
+    private string _lastRecordedParticlesEffectSignature = string.Empty;
     private int _workflowGuideLastRenderedStepIndex = -1;
     private DateTimeOffset? _workflowGuideParticleStepStartedAtUtc;
     private string? _testSenderRestoreHeartbeatMode;
@@ -432,6 +463,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         };
         _deviceSnapshotRefreshTimer.Tick += OnDeviceSnapshotRefreshTimerTick;
 
+        _recordingSampleTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+        {
+            Interval = RecordingSampleInterval
+        };
+        _recordingSampleTimer.Tick += OnRecordingSampleTimerTick;
+
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
             lslBridge.ConfigureExpectedQuestStateSource(_study.App.PackageId);
@@ -464,14 +501,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ToggleAutomaticBreathingRunCommand = new AsyncRelayCommand(ToggleAutomaticBreathingRunAsync);
         StartExperimentCommand = new AsyncRelayCommand(StartExperimentAsync);
         EndExperimentCommand = new AsyncRelayCommand(EndExperimentAsync);
+        ToggleRecordingCommand = new AsyncRelayCommand(ToggleRecordingAsync);
         RecenterCommand = new AsyncRelayCommand(RecenterAsync);
         ParticlesOnCommand = new AsyncRelayCommand(ParticlesOnAsync);
         ParticlesOffCommand = new AsyncRelayCommand(ParticlesOffAsync);
+        ToggleParticlesCommand = new AsyncRelayCommand(ToggleParticlesAsync);
         OpenTwinEventsWindowCommand = new AsyncRelayCommand(OpenTwinEventsWindowAsync);
         OpenWorkflowGuideWindowCommand = new AsyncRelayCommand(OpenWorkflowGuideWindowAsync);
+        OpenExperimentSessionWindowCommand = new AsyncRelayCommand(OpenExperimentSessionWindowAsync);
         PreviousWorkflowGuideStepCommand = new AsyncRelayCommand(PreviousWorkflowGuideStepAsync);
         NextWorkflowGuideStepCommand = new AsyncRelayCommand(NextWorkflowGuideStepAsync);
         RunWorkflowValidationCaptureCommand = new AsyncRelayCommand(RunWorkflowValidationCaptureAsync);
+        OpenRecordingSessionFolderCommand = new AsyncRelayCommand(OpenRecordingSessionFolderAsync);
         OpenValidationCaptureLocalFolderCommand = new AsyncRelayCommand(OpenValidationCaptureLocalFolderAsync);
         OpenValidationCaptureDevicePullFolderCommand = new AsyncRelayCommand(OpenValidationCaptureDevicePullFolderAsync);
         OpenValidationCapturePdfCommand = new AsyncRelayCommand(OpenValidationCapturePdfAsync);
@@ -505,6 +546,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ApplyPinnedDeviceProfileCommand,
                 LaunchStudyAppCommand,
                 ToggleTestLslSenderCommand,
+                ToggleParticlesCommand,
                 ParticlesOnCommand,
                 ParticlesOffCommand,
                 StartBreathingCalibrationCommand,
@@ -1083,8 +1125,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string RecordingFolderPath
     {
         get => _recordingFolderPath;
-        private set => SetProperty(ref _recordingFolderPath, value);
+        private set
+        {
+            if (SetProperty(ref _recordingFolderPath, value))
+            {
+                OnPropertyChanged(nameof(CanOpenRecordingSessionFolder));
+            }
+        }
     }
+
+    public bool CanOpenRecordingSessionFolder
+        => !string.IsNullOrWhiteSpace(RecordingFolderPath)
+            && Directory.Exists(RecordingFolderPath);
 
     public string WorkflowRuntimePendingSummary
     {
@@ -1403,6 +1455,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _clockAlignmentRoundTripStatsLabel, value);
     }
 
+    public OperationOutcomeKind ClockAlignmentConsistencyLevel
+    {
+        get => _clockAlignmentConsistencyLevel;
+        private set => SetProperty(ref _clockAlignmentConsistencyLevel, value);
+    }
+
+    public string ClockAlignmentConsistencySummary
+    {
+        get => _clockAlignmentConsistencySummary;
+        private set => SetProperty(ref _clockAlignmentConsistencySummary, value);
+    }
+
+    public string ClockAlignmentConsistencyDetail
+    {
+        get => _clockAlignmentConsistencyDetail;
+        private set => SetProperty(ref _clockAlignmentConsistencyDetail, value);
+    }
+
+    public string ClockAlignmentConsistencyMetricsLabel
+    {
+        get => _clockAlignmentConsistencyMetricsLabel;
+        private set => SetProperty(ref _clockAlignmentConsistencyMetricsLabel, value);
+    }
+
     public bool CanOpenValidationCaptureLocalFolder
         => !string.IsNullOrWhiteSpace(ValidationCaptureLocalFolderPath)
             && Directory.Exists(ValidationCaptureLocalFolderPath);
@@ -1637,15 +1713,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _proximityActionLabel, value);
     }
 
+    public bool? IsProximityToggleState
+        => GetCurrentProximityEnabledState();
+
     public string HeadsetAwakeActionLabel
-        => _headsetStatus is { IsAwake: true, IsInWakeLimbo: false } && !IsHeadsetWakeBlockedByLockScreen()
+        => IsHeadsetAwakeToggleState
             ? "Sleep Headset"
             : "Wake Headset";
 
+    public bool IsHeadsetAwakeToggleState
+        => _headsetStatus is { IsAwake: true, IsInWakeLimbo: false } && !IsHeadsetWakeBlockedByLockScreen();
+
     public string StudyRuntimeActionLabel
-        => IsStudyRuntimeForeground()
+        => IsStudyRuntimeToggleState
             ? (_study.App.LaunchInKioskMode ? "Exit Kiosk Runtime" : "Stop Study Runtime")
             : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
+
+    public bool IsStudyRuntimeToggleState
+        => IsStudyRuntimeForeground();
 
     public string TestLslSenderSummary
     {
@@ -1670,6 +1755,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         get => _testLslSenderActionLabel;
         private set => SetProperty(ref _testLslSenderActionLabel, value);
     }
+
+    public bool IsTestLslSenderToggleState
+        => _testLslSignalService.IsRunning;
 
     public string LslRuntimeLibrarySummary
     {
@@ -1920,6 +2008,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? "Pause Automatic"
             : "Start Automatic";
 
+    public bool IsAutomaticBreathingRunToggleState
+        => IsAutomaticBreathingActiveFromTwinState() && IsAutomaticBreathingRunningFromTwinState();
+
+    public bool IsRecordingToggleState
+        => _activeRecordingSession is not null || _participantRunStopping || IsExperimentActive();
+
+    public string RecordingToggleActionLabel
+        => IsRecordingToggleState ? "Stop Recording" : "Start Recording";
+
+    public bool CanToggleRecording
+        => IsRecordingToggleState ? CanEndParticipantExperiment : CanStartParticipantExperiment;
+
     public bool CanStartExperiment
         => !string.IsNullOrWhiteSpace(_study.Controls.StartExperimentActionId);
 
@@ -1951,6 +2051,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public bool CanToggleParticles
         => !string.IsNullOrWhiteSpace(_study.Controls.ParticleVisibleOnActionId)
             && !string.IsNullOrWhiteSpace(_study.Controls.ParticleVisibleOffActionId);
+
+    public bool? IsParticlesToggleState
+        => GetCurrentReportedParticleVisibility();
+
+    public string ParticlesToggleActionLabel
+        => IsParticlesToggleState == true ? "Particles Off" : "Particles On";
 
     public bool CanToggleProximity
         => _hzdbService.IsAvailable
@@ -2048,14 +2154,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ToggleAutomaticBreathingRunCommand { get; }
     public AsyncRelayCommand StartExperimentCommand { get; }
     public AsyncRelayCommand EndExperimentCommand { get; }
+    public AsyncRelayCommand ToggleRecordingCommand { get; }
     public AsyncRelayCommand RecenterCommand { get; }
     public AsyncRelayCommand ParticlesOnCommand { get; }
     public AsyncRelayCommand ParticlesOffCommand { get; }
+    public AsyncRelayCommand ToggleParticlesCommand { get; }
     public AsyncRelayCommand OpenTwinEventsWindowCommand { get; }
     public AsyncRelayCommand OpenWorkflowGuideWindowCommand { get; }
+    public AsyncRelayCommand OpenExperimentSessionWindowCommand { get; }
     public AsyncRelayCommand PreviousWorkflowGuideStepCommand { get; }
     public AsyncRelayCommand NextWorkflowGuideStepCommand { get; }
     public AsyncRelayCommand RunWorkflowValidationCaptureCommand { get; }
+    public AsyncRelayCommand OpenRecordingSessionFolderCommand { get; }
     public AsyncRelayCommand OpenValidationCaptureLocalFolderCommand { get; }
     public AsyncRelayCommand OpenValidationCaptureDevicePullFolderCommand { get; }
     public AsyncRelayCommand OpenValidationCapturePdfCommand { get; }
@@ -2112,9 +2222,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _deviceSnapshotRefreshTimer.Stop();
         }
 
+        if (_recordingSampleTimer is not null)
+        {
+            _recordingSampleTimer.Tick -= OnRecordingSampleTimerTick;
+            _recordingSampleTimer.Stop();
+        }
+
+        StopRegularRecordingSamples();
+
         CloseTwinEventsWindow();
         CloseWorkflowGuideWindow();
         CloseClockAlignmentWindow();
+        CloseExperimentSessionWindow();
         _activeRecordingSession?.Dispose();
         _visualProfiles.Dispose();
         _controllerBreathingProfiles.Dispose();
@@ -3196,6 +3315,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }).ConfigureAwait(false);
     }
 
+    private Task ToggleRecordingAsync()
+        => IsRecordingToggleState
+            ? !CanEndParticipantExperiment
+                ? Task.CompletedTask
+                : EndExperimentAsync()
+            : !CanStartParticipantExperiment
+                ? Task.CompletedTask
+                : StartExperimentAsync();
+
     public async Task StartExperimentAsync()
     {
         var recordingSession = await TryBeginParticipantRecordingAsync().ConfigureAwait(false);
@@ -3204,6 +3332,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var metadataSnapshotGate = await DispatchAsync(CaptureTwinSnapshotGate).ConfigureAwait(false);
+        var metadataIssuedAtUtc = DateTimeOffset.UtcNow;
         var metadataOutcome = await PublishParticipantSessionMetadataAsync(recordingSession).ConfigureAwait(false);
         recordingSession.RecordEvent(
             "recording.device_metadata_publish",
@@ -3229,6 +3359,48 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         OperationOutcomeKind.Failure,
                         "Participant run did not start.",
                         $"The local recorder was created, but the Quest session metadata handoff failed: {metadataOutcome.Detail}"))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var metadataBaselineReady = await WaitForFreshParticipantSessionRuntimeConfigBaselineAsync(
+                metadataSnapshotGate,
+                metadataIssuedAtUtc,
+                recordingSession)
+            .ConfigureAwait(false);
+        var metadataConfirmationOutcome = metadataBaselineReady
+            ? new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Quest-side session metadata confirmed.",
+                "Quest published a fresh runtime-config snapshot containing the expected participant session id and dataset hash before recording started.")
+            : new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                "Quest-side session metadata did not confirm in time.",
+                $"The companion published session metadata for session `{recordingSession.SessionId}`, but no fresh runtime-config snapshot reported that session id plus dataset hash `{recordingSession.DatasetHash}` within {StartupRuntimeConfigBaselineTimeout.TotalSeconds:0} seconds. Start Recording was aborted to avoid mixing Windows data with stale Quest session metadata.");
+        recordingSession.RecordEvent(
+            "recording.device_metadata_confirmation",
+            BuildRecorderEventDetail(metadataConfirmationOutcome),
+            null,
+            metadataConfirmationOutcome.Kind.ToString());
+
+        if (!metadataBaselineReady)
+        {
+            await StopUpstreamLslMonitorAsync().ConfigureAwait(false);
+            await FinishParticipantRecordingAsync(
+                    recordingSession,
+                    DateTimeOffset.UtcNow,
+                    "recording.aborted",
+                    "Local recording closed because Quest session metadata never confirmed for the active participant session.",
+                    "failed",
+                    clearParticipantId: false)
+                .ConfigureAwait(false);
+
+            await ApplyOutcomeAsync(
+                    "Start Participant Run",
+                    new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        "Participant run did not start.",
+                        metadataConfirmationOutcome.Detail))
                 .ConfigureAwait(false);
             return;
         }
@@ -3281,6 +3453,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             null,
             deviceConfirmationOutcome.Kind.ToString());
 
+        var warmTransportOutcome = await _clockAlignmentService.StartWarmSessionAsync().ConfigureAwait(false);
+        recordingSession.RecordEvent(
+            "clock_alignment.transport_warmup",
+            BuildRecorderEventDetail(warmTransportOutcome),
+            null,
+            warmTransportOutcome.Kind.ToString());
+
         var clockAlignmentOutcome = await RunClockAlignmentAsync(
                 recordingSession,
                 StudyClockAlignmentWindowKind.StartBurst,
@@ -3306,6 +3485,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             [
                 ("Start Experiment", outcome),
                 ("Quest Recorder", deviceConfirmationOutcome),
+                ("Clock Alignment Warmup", warmTransportOutcome),
                 ("Clock Alignment (Start Burst)", clockAlignmentOutcome),
                 ("Passive Upstream LSL Monitor", upstreamMonitorOutcome)
             ],
@@ -3371,6 +3551,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             if (activeSession is null)
             {
                 cleanupPermitted = endOutcome.Kind != OperationOutcomeKind.Failure;
+                var warmTransportStopOutcome = await _clockAlignmentService.StopWarmSessionAsync().ConfigureAwait(false);
+                outcomes.Add(("Clock Alignment Warmup", warmTransportStopOutcome));
             }
             else
             {
@@ -3393,6 +3575,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     BuildRecorderEventDetail(upstreamMonitorStopOutcome),
                     null,
                     upstreamMonitorStopOutcome.Kind.ToString());
+
+                var warmTransportStopOutcome = await _clockAlignmentService.StopWarmSessionAsync().ConfigureAwait(false);
+                outcomes.Add(("Clock Alignment Warmup", warmTransportStopOutcome));
+                activeSession.RecordEvent(
+                    "clock_alignment.transport_cooldown",
+                    BuildRecorderEventDetail(warmTransportStopOutcome),
+                    null,
+                    warmTransportStopOutcome.Kind.ToString());
 
                 var closedAtUtc = DateTimeOffset.UtcNow;
                 await FinishParticipantRecordingAsync(
@@ -3441,6 +3631,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Ended the participant flow without an active local recording session."
                 : "Ended the participant flow, captured the matching end clock-alignment burst, waited for Quest recorder stop confirmation, closed the upstream monitor and local recording session, and only then ran shell cleanup.");
         await ApplyOutcomeAsync("End Participant Run", overallOutcome).ConfigureAwait(false);
+
+        if (activeSession is null)
+        {
+            await DispatchAsync(() =>
+            {
+                _participantRunStopping = false;
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+        }
     }
 
     private async Task RunWorkflowValidationCaptureAsync()
@@ -3896,6 +4096,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "Run the validation capture first so the Windows-side session folder exists.").ConfigureAwait(false);
     }
 
+    private async Task OpenRecordingSessionFolderAsync()
+    {
+        var folderPath = await DispatchAsync(() => RecordingFolderPath).ConfigureAwait(false);
+        await OpenValidationCaptureFolderAsync(
+            folderPath,
+            "Open Recording Session Folder",
+            "Recording session folder is not available yet.",
+            "Start or finish a participant run first so the Windows session folder exists.").ConfigureAwait(false);
+    }
+
     private async Task OpenValidationCaptureDevicePullFolderAsync()
     {
         var folderPath = await DispatchAsync(() => ValidationCaptureDevicePullFolderPath).ConfigureAwait(false);
@@ -4256,6 +4466,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public Task RecenterAsync()
         => SendStudyTwinCommandAsync(_study.Controls.RecenterCommandActionId, "Recenter");
 
+    private Task ToggleParticlesAsync()
+        => GetCurrentReportedParticleVisibility() == true
+            ? !CanToggleParticles
+                ? Task.CompletedTask
+                : ParticlesOffAsync()
+            : !CanToggleParticles
+                ? Task.CompletedTask
+                : ParticlesOnAsync();
+
     public async Task ParticlesOnAsync()
     {
         var outcome = await SendStudyTwinCommandCoreAsync(_study.Controls.ParticleVisibleOnActionId, "Particles On").ConfigureAwait(false);
@@ -4311,6 +4530,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() =>
             {
                 RememberCommandRequest(request);
+                TryRecordCommandRequestEvent(request, outcome);
                 UpdateRecenterCard();
                 UpdateParticlesCard();
                 RefreshFocusRows(forceRebuild: true);
@@ -4557,6 +4777,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             forceProximity: true,
             includeHostWifiStatus: false,
             forceInstalledAppStatusRefresh: false);
+    }
+
+    private void OnRecordingSampleTimerTick(object? sender, EventArgs e)
+    {
+        if (_activeRecordingSession is null)
+        {
+            _recordingSampleTimer?.Stop();
+            return;
+        }
+
+        var recordedAtUtc = DateTimeOffset.UtcNow;
+        TryRecordLiveTwinState(recordedAtUtc);
+        TryRecordActiveSessionCommandObservations(recordedAtUtc);
     }
 
     private async Task RefreshInstalledAppStatusAsync()
@@ -5372,20 +5605,31 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdateBenchRefreshTimerState();
         OnPropertyChanged(nameof(CanToggleHeadsetPower));
         OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
+        OnPropertyChanged(nameof(IsHeadsetAwakeToggleState));
         OnPropertyChanged(nameof(StudyRuntimeActionLabel));
+        OnPropertyChanged(nameof(IsStudyRuntimeToggleState));
         OnPropertyChanged(nameof(CanStartBreathingCalibration));
         OnPropertyChanged(nameof(CanResetBreathingCalibration));
         OnPropertyChanged(nameof(CanToggleAutomaticBreathingMode));
         OnPropertyChanged(nameof(CanToggleAutomaticBreathingRun));
+        OnPropertyChanged(nameof(IsAutomaticBreathingRunToggleState));
         OnPropertyChanged(nameof(CanStartExperiment));
         OnPropertyChanged(nameof(CanEndExperiment));
         OnPropertyChanged(nameof(CanStartParticipantExperiment));
         OnPropertyChanged(nameof(CanEndParticipantExperiment));
+        OnPropertyChanged(nameof(IsRecordingToggleState));
+        OnPropertyChanged(nameof(RecordingToggleActionLabel));
+        OnPropertyChanged(nameof(CanToggleRecording));
         OnPropertyChanged(nameof(CanRunWorkflowValidationCapture));
+        OnPropertyChanged(nameof(CanToggleParticles));
+        OnPropertyChanged(nameof(IsParticlesToggleState));
+        OnPropertyChanged(nameof(ParticlesToggleActionLabel));
         OnPropertyChanged(nameof(CanToggleProximity));
+        OnPropertyChanged(nameof(IsProximityToggleState));
         OnPropertyChanged(nameof(CanCaptureQuestScreenshot));
         OnPropertyChanged(nameof(CanOpenLastQuestScreenshot));
         OnPropertyChanged(nameof(CanToggleTestLslSender));
+        OnPropertyChanged(nameof(IsTestLslSenderToggleState));
         UpdateWorkflowStatus();
     }
 
@@ -5395,6 +5639,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(AutomaticBreathingDetail));
         OnPropertyChanged(nameof(AutomaticBreathingModeActionLabel));
         OnPropertyChanged(nameof(AutomaticBreathingRunActionLabel));
+        OnPropertyChanged(nameof(IsAutomaticBreathingRunToggleState));
     }
 
     private void RefreshLiveTwinState()
@@ -5462,7 +5707,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdatePinnedBuildStatus();
         RefreshAutomaticBreathingStateProperties();
         RefreshFocusRows();
-        TryRecordLiveTwinState(lslBridge.LastStateReceivedAt ?? DateTimeOffset.UtcNow);
+        TryRecordActiveSessionCommandObservations(lslBridge.LastStateReceivedAt ?? DateTimeOffset.UtcNow);
         UpdateWorkflowStatus();
     }
 
@@ -5555,7 +5800,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _activeRecordingSession = recordingSession;
             _lastCompletedRecordingFolderPath = recordingSession.SessionFolderPath;
             _participantIdDraft = normalizedParticipantId;
+            ResetRecordingTelemetryTracking();
             OnPropertyChanged(nameof(ParticipantIdDraft));
+            StartRegularRecordingSamples();
             UpdateParticipantSessionState();
             RefreshBenchToolsStatus();
         }).ConfigureAwait(false);
@@ -5571,6 +5818,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         string result,
         bool clearParticipantId)
     {
+        await DispatchAsync(() =>
+        {
+            if (ReferenceEquals(_activeRecordingSession, recordingSession))
+            {
+                _activeRecordingSession = null;
+            }
+
+            StopRegularRecordingSamples();
+        }).ConfigureAwait(false);
+
         try
         {
             recordingSession.RecordEvent(eventName, eventDetail, null, result, endedAtUtc);
@@ -5584,11 +5841,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         await DispatchAsync(() =>
         {
-            if (ReferenceEquals(_activeRecordingSession, recordingSession))
-            {
-                _activeRecordingSession = null;
-            }
-
             _lastCompletedRecordingFolderPath = recordingSession.SessionFolderPath;
             _participantRunStopping = false;
             if (clearParticipantId)
@@ -5770,6 +6022,32 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private async Task<OperationOutcome> PublishParticipantSessionMetadataAsync(StudyDataRecordingSession recordingSession)
     {
+        var runtimeConfigJson = await DispatchAsync(() =>
+        {
+            TryGetReportedStudyRuntimeConfigJson(_reportedTwinState, out var reportedRuntimeConfigJson);
+            return reportedRuntimeConfigJson;
+        }).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(runtimeConfigJson))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                "Quest-side session metadata publish blocked.",
+                "The live Sussex runtime has not yet reported showcase_active_runtime_config_json on quest_twin_state, so the participant session metadata cannot be merged into the active runtime config.");
+        }
+
+        string mergedRuntimeConfigJson;
+        try
+        {
+            mergedRuntimeConfigJson = BuildParticipantSessionRuntimeConfigJson(runtimeConfigJson, recordingSession);
+        }
+        catch (Exception exception)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                "Quest-side session metadata publish blocked.",
+                $"The companion could not merge participant session metadata into the active runtime config JSON: {exception.Message}");
+        }
+
         var stagedApkPath = await DispatchAsync(() => StagedApkPath).ConfigureAwait(false);
         var target = CreateStudyTarget(stagedApkPath);
         var profile = new RuntimeConfigProfile(
@@ -5782,6 +6060,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "Participant/session correlation metadata for mirrored Windows and Quest recording sessions.",
             [_study.App.PackageId],
             [
+                new RuntimeConfigEntry("showcase_active_runtime_config_json", mergedRuntimeConfigJson),
                 new RuntimeConfigEntry("study_session_study_id", _study.Id),
                 new RuntimeConfigEntry("study_session_study_label", _study.Label),
                 new RuntimeConfigEntry("study_session_participant_id", recordingSession.ParticipantId),
@@ -5797,6 +6076,32 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ]);
 
         return await _twinBridge.PublishRuntimeConfigAsync(profile, target).ConfigureAwait(false);
+    }
+
+    private string BuildParticipantSessionRuntimeConfigJson(
+        string baselineRuntimeConfigJson,
+        StudyDataRecordingSession recordingSession)
+    {
+        var rootNode = JsonNode.Parse(baselineRuntimeConfigJson)
+                       ?? throw new InvalidOperationException("The reported runtime config JSON was empty.");
+        if (rootNode is not JsonObject rootObject)
+        {
+            throw new InvalidOperationException("The reported runtime config JSON must be a JSON object.");
+        }
+
+        rootObject["study_session_study_id"] = _study.Id;
+        rootObject["study_session_study_label"] = _study.Label;
+        rootObject["study_session_participant_id"] = recordingSession.ParticipantId;
+        rootObject["study_session_id"] = recordingSession.SessionId;
+        rootObject["study_session_dataset_id"] = recordingSession.DatasetId;
+        rootObject["study_session_dataset_hash"] = recordingSession.DatasetHash;
+        rootObject["study_session_settings_hash"] = recordingSession.SettingsHash;
+        rootObject["study_session_environment_hash"] = recordingSession.EnvironmentHash;
+        rootObject["study_session_windows_machine_name"] = Environment.MachineName;
+        rootObject["study_session_device_profile_id"] = _study.DeviceProfile.Id;
+        rootObject["study_session_apk_sha256"] = _study.App.Sha256;
+        rootObject["study_session_started_at_utc"] = recordingSession.SessionStartedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
+        return rootObject.ToJsonString();
     }
 
     private TwinSnapshotGate CaptureTwinSnapshotGate()
@@ -5844,6 +6149,90 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                !string.IsNullOrWhiteSpace(hotloadRuntimeConfigJson);
     }
 
+    internal static bool HasReportedParticipantSessionRuntimeConfig(
+        IReadOnlyDictionary<string, string>? reportedTwinState,
+        string expectedSessionId,
+        string expectedDatasetHash)
+    {
+        if (string.IsNullOrWhiteSpace(expectedSessionId) || string.IsNullOrWhiteSpace(expectedDatasetHash))
+        {
+            return false;
+        }
+
+        if (HasReportedParticipantSessionMetadataFields(
+                reportedTwinState,
+                expectedSessionId,
+                expectedDatasetHash))
+        {
+            return true;
+        }
+
+        foreach (var runtimeConfigJson in EnumerateReportedStudyRuntimeConfigJson(reportedTwinState))
+        {
+            if (TryRuntimeConfigContainsSessionMetadata(runtimeConfigJson, expectedSessionId, expectedDatasetHash))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasReportedParticipantSessionMetadataFields(
+        IReadOnlyDictionary<string, string>? reportedTwinState,
+        string expectedSessionId,
+        string expectedDatasetHash)
+    {
+        if (reportedTwinState is null || reportedTwinState.Count == 0)
+        {
+            return false;
+        }
+
+        return KeysMatch(
+            reportedTwinState,
+            expectedSessionId,
+            expectedDatasetHash,
+            "hotload.study_session_id",
+            "hotload.study_session_dataset_hash") ||
+               KeysMatch(
+                   reportedTwinState,
+                   expectedSessionId,
+                   expectedDatasetHash,
+                   "study.session.id",
+                   "study.session.dataset_hash") ||
+               KeysMatch(
+                   reportedTwinState,
+                   expectedSessionId,
+                   expectedDatasetHash,
+                   "study_session_id",
+                   "study_session_dataset_hash");
+    }
+
+    private static bool KeysMatch(
+        IReadOnlyDictionary<string, string> reportedTwinState,
+        string expectedSessionId,
+        string expectedDatasetHash,
+        string sessionIdKey,
+        string datasetHashKey)
+        => reportedTwinState.TryGetValue(sessionIdKey, out var sessionId) &&
+           reportedTwinState.TryGetValue(datasetHashKey, out var datasetHash) &&
+           string.Equals(sessionId, expectedSessionId, StringComparison.Ordinal) &&
+           string.Equals(datasetHash, expectedDatasetHash, StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryGetReportedStudyRuntimeConfigJson(
+        IReadOnlyDictionary<string, string>? reportedTwinState,
+        out string runtimeConfigJson)
+    {
+        foreach (var candidate in EnumerateReportedStudyRuntimeConfigJson(reportedTwinState))
+        {
+            runtimeConfigJson = candidate;
+            return true;
+        }
+
+        runtimeConfigJson = string.Empty;
+        return false;
+    }
+
     internal static bool HasFreshRuntimeConfigTwinBaseline(
         string? previousRevision,
         DateTimeOffset? previousCommittedAtUtc,
@@ -5857,6 +6246,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                currentRevision,
                currentCommittedAtUtc) &&
            HasReportedStudyRuntimeConfigJson(reportedTwinState);
+
+    internal static bool HasFreshParticipantSessionRuntimeConfigBaseline(
+        string? previousRevision,
+        DateTimeOffset? previousCommittedAtUtc,
+        DateTimeOffset commandIssuedAtUtc,
+        string? currentRevision,
+        DateTimeOffset? currentCommittedAtUtc,
+        IReadOnlyDictionary<string, string>? reportedTwinState,
+        string expectedSessionId,
+        string expectedDatasetHash)
+        => HasFreshCommittedTwinSnapshot(
+               new TwinSnapshotGate(previousRevision, previousCommittedAtUtc),
+               commandIssuedAtUtc,
+               currentRevision,
+               currentCommittedAtUtc) &&
+           HasReportedParticipantSessionRuntimeConfig(
+               reportedTwinState,
+               expectedSessionId,
+               expectedDatasetHash);
 
     private async Task<bool> WaitForFreshRuntimeConfigBaselineAsync(
         TwinSnapshotGate snapshotGate,
@@ -5893,12 +6301,51 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return false;
     }
 
+    private async Task<bool> WaitForFreshParticipantSessionRuntimeConfigBaselineAsync(
+        TwinSnapshotGate snapshotGate,
+        DateTimeOffset commandIssuedAtUtc,
+        StudyDataRecordingSession recordingSession)
+    {
+        if (_twinBridge is not LslTwinModeBridge)
+        {
+            return false;
+        }
+
+        var timeoutAtUtc = DateTimeOffset.UtcNow + StartupRuntimeConfigBaselineTimeout;
+        while (DateTimeOffset.UtcNow < timeoutAtUtc)
+        {
+            var ready = await DispatchAsync(() =>
+            {
+                var bridge = _twinBridge as LslTwinModeBridge;
+                return HasFreshParticipantSessionRuntimeConfigBaseline(
+                    snapshotGate.Revision,
+                    snapshotGate.CommittedAtUtc,
+                    commandIssuedAtUtc,
+                    bridge?.LastCommittedSnapshotRevision,
+                    bridge?.LastCommittedSnapshotReceivedAt,
+                    _reportedTwinState,
+                    recordingSession.SessionId,
+                    recordingSession.DatasetHash);
+            }).ConfigureAwait(false);
+
+            if (ready)
+            {
+                return true;
+            }
+
+            await Task.Delay(StartupRuntimeConfigBaselinePollInterval).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
     private async Task<OperationOutcome> ConfirmDeviceRecordingSessionAsync(
         StudyDataRecordingSession recordingSession,
         TwinSnapshotGate snapshotGate,
         DateTimeOffset commandIssuedAtUtc)
     {
         var timeoutAtUtc = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(6);
+        (string? ReportedSessionId, string? ReportedDatasetHash, bool DeviceRecordingActive, string? DeviceSessionDir) lastObservedState = default;
         while (DateTimeOffset.UtcNow < timeoutAtUtc)
         {
             var confirmation = await DispatchAsync(() =>
@@ -5922,11 +6369,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     Matches: deviceRecordingActive &&
                              string.Equals(sessionId, recordingSession.SessionId, StringComparison.Ordinal) &&
                              string.Equals(datasetHash, recordingSession.DatasetHash, StringComparison.OrdinalIgnoreCase),
+                    ReportedSessionId: sessionId,
+                    ReportedDatasetHash: datasetHash,
+                    DeviceRecordingActive: deviceRecordingActive,
                     DeviceSessionDir: deviceSessionDir,
                     RecorderFaultActive: recorderFaultActive,
                     RecorderFaultDetail: recorderFaultDetail,
                     CurrentRevision: currentRevision);
             }).ConfigureAwait(false);
+
+            lastObservedState = (
+                confirmation.ReportedSessionId,
+                confirmation.ReportedDatasetHash,
+                confirmation.DeviceRecordingActive,
+                confirmation.DeviceSessionDir);
 
             if (confirmation.RecorderFaultActive)
             {
@@ -5961,7 +6417,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return new OperationOutcome(
             OperationOutcomeKind.Warning,
             "Participant run started, but Quest recorder confirmation is still missing.",
-            "The Start Experiment command succeeded, but no fresh committed quest_twin_state snapshot confirmed the expected session id/hash plus device-side recording activity within 6 seconds.");
+            BuildDeviceRecordingConfirmationTimeoutDetail(
+                "The Start Experiment command succeeded, but no fresh committed quest_twin_state snapshot confirmed the expected session id/hash plus device-side recording activity within 6 seconds.",
+                recordingSession.SessionId,
+                recordingSession.DatasetHash,
+                lastObservedState.ReportedSessionId,
+                lastObservedState.ReportedDatasetHash,
+                lastObservedState.DeviceRecordingActive,
+                lastObservedState.DeviceSessionDir));
     }
 
     private void StartUpstreamLslMonitor(StudyDataRecordingSession recordingSession)
@@ -5995,8 +6458,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     break;
                 }
 
-                if (!reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase) ||
-                    (reading.Value is null && string.IsNullOrWhiteSpace(reading.TextValue)))
+                if (string.IsNullOrWhiteSpace(reading.Status) &&
+                    string.IsNullOrWhiteSpace(reading.Detail) &&
+                    reading.Value is null &&
+                    string.IsNullOrWhiteSpace(reading.TextValue))
                 {
                     continue;
                 }
@@ -6109,7 +6574,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         try
         {
             var interval = TimeSpan.FromSeconds(WorkflowClockAlignmentBackgroundProbeIntervalSeconds);
-            var nextProbeDueAtUtc = DateTimeOffset.UtcNow + interval;
+            var nextProbeDueAtUtc = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(WorkflowClockAlignmentInitialBackgroundProbeDelaySeconds);
             while (!cancellationToken.IsCancellationRequested)
             {
                 var delay = nextProbeDueAtUtc - DateTimeOffset.UtcNow;
@@ -6220,6 +6685,107 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _upstreamLslMonitorTask = null;
     }
 
+    private void StartRegularRecordingSamples()
+    {
+        _recordingSampleTimer?.Stop();
+        StopRegularRecordingSamples();
+        if (_activeRecordingSession is null)
+        {
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _recordingSampleLoopCts = cts;
+        _recordingSampleLoopTask = Task.Run(() => RunRegularRecordingSampleLoopAsync(cts.Token), CancellationToken.None);
+    }
+
+    private void StopRegularRecordingSamples()
+    {
+        _recordingSampleTimer?.Stop();
+
+        var cts = _recordingSampleLoopCts;
+        _recordingSampleLoopCts = null;
+        _recordingSampleLoopTask = null;
+
+        if (cts is null)
+        {
+            return;
+        }
+
+        try
+        {
+            cts.Cancel();
+        }
+        finally
+        {
+            cts.Dispose();
+        }
+    }
+
+    private async Task RunRegularRecordingSampleLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await CaptureRegularRecordingSampleAsync(DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+
+            using var timer = new PeriodicTimer(RecordingSampleInterval);
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await CaptureRegularRecordingSampleAsync(DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task CaptureRegularRecordingSampleAsync(DateTimeOffset recordedAtUtc, CancellationToken cancellationToken)
+    {
+        RecordingSampleSnapshot? snapshot;
+        try
+        {
+            snapshot = await DispatchAsync(() => CaptureRegularRecordingSampleSnapshot(recordedAtUtc)).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (snapshot is null || cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        try
+        {
+            snapshot.Session.RecordTwinState(
+                snapshot.TwinState,
+                snapshot.RecordedAtUtc,
+                snapshot.QuestSelector,
+                snapshot.SourceTimestampUtc);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() => SetRecorderFault("Write live Sussex telemetry", exception)).ConfigureAwait(false);
+        }
+    }
+
+    private RecordingSampleSnapshot? CaptureRegularRecordingSampleSnapshot(DateTimeOffset recordedAtUtc)
+    {
+        if (_activeRecordingSession is null || _reportedTwinState.Count == 0)
+        {
+            return null;
+        }
+
+        TryRecordActiveSessionCommandObservations(recordedAtUtc);
+        return new RecordingSampleSnapshot(
+            _activeRecordingSession,
+            new Dictionary<string, string>(_reportedTwinState, StringComparer.OrdinalIgnoreCase),
+            recordedAtUtc,
+            (_twinBridge as LslTwinModeBridge)?.LastStateReceivedAt ?? recordedAtUtc,
+            ResolveHeadsetActionSelector());
+    }
+
     private async Task<OperationOutcome> RunClockAlignmentAsync(
         StudyDataRecordingSession recordingSession,
         StudyClockAlignmentWindowKind windowKind,
@@ -6228,13 +6794,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         TimeSpan? durationOverride = null,
         CancellationToken cancellationToken = default)
     {
+        var duration = durationOverride ?? TimeSpan.FromSeconds(WorkflowClockAlignmentDurationSeconds);
+        var probeInterval = TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds);
+        var firstProbeSequence = ReserveClockAlignmentProbeSequenceRange(duration, probeInterval);
+        var expectedProbeCount = GetExpectedClockAlignmentProbeCount(duration, probeInterval);
         var request = new StudyClockAlignmentRunRequest(
             recordingSession.SessionId,
             recordingSession.DatasetHash,
             windowKind,
-            durationOverride ?? TimeSpan.FromSeconds(WorkflowClockAlignmentDurationSeconds),
-            TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds),
-            TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultEchoGraceMilliseconds));
+            duration,
+            probeInterval,
+            TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultEchoGraceMilliseconds),
+            firstProbeSequence);
         var windowToken = BuildClockAlignmentWindowToken(windowKind);
         var windowLabel = BuildClockAlignmentWindowLabel(windowKind);
         var timeout = request.Duration + request.EchoGracePeriod + WorkflowClockAlignmentRunSafetyMargin;
@@ -6268,7 +6839,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         recordingSession.RecordEvent(
             $"clock_alignment.{windowToken}.started",
-            $"{windowLabel} started for {request.Duration.TotalSeconds:0.#} seconds.",
+            $"{windowLabel} started for {request.Duration.TotalSeconds:0.#} seconds using probe sequences {firstProbeSequence.ToString(CultureInfo.InvariantCulture)}-{(firstProbeSequence + expectedProbeCount - 1).ToString(CultureInfo.InvariantCulture)}.",
             null,
             "pending");
 
@@ -6399,6 +6970,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() =>
             {
                 ApplyClockAlignmentOutcome(windowKind, result);
+                UpdateClockAlignmentConsistencyTelemetry(windowKind, result);
                 UpdateParticipantSessionState();
                 RefreshBenchToolsStatus();
             }).ConfigureAwait(false);
@@ -6489,6 +7061,151 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private readonly record struct TwinSnapshotGate(string? Revision, DateTimeOffset? CommittedAtUtc);
 
+    private static string BuildDeviceRecordingConfirmationTimeoutDetail(
+        string baselineDetail,
+        string expectedSessionId,
+        string expectedDatasetHash,
+        string? reportedSessionId,
+        string? reportedDatasetHash,
+        bool deviceRecordingActive,
+        string? deviceSessionDir)
+    {
+        var detail = new StringBuilder(baselineDetail);
+        detail.Append(" Expected session_id=`");
+        detail.Append(expectedSessionId);
+        detail.Append("`, dataset_hash=`");
+        detail.Append(expectedDatasetHash);
+        detail.Append("`.");
+        detail.Append(" Latest reported device.active=");
+        detail.Append(deviceRecordingActive ? "true" : "false");
+        detail.Append(", session_id=`");
+        detail.Append(string.IsNullOrWhiteSpace(reportedSessionId) ? "n/a" : reportedSessionId);
+        detail.Append("`, dataset_hash=`");
+        detail.Append(string.IsNullOrWhiteSpace(reportedDatasetHash) ? "n/a" : reportedDatasetHash);
+        detail.Append("`.");
+
+        if (!string.IsNullOrWhiteSpace(deviceSessionDir))
+        {
+            detail.Append(" Latest device session dir: ");
+            detail.Append(deviceSessionDir);
+            detail.Append('.');
+        }
+
+        return detail.ToString();
+    }
+
+    private static IEnumerable<string> EnumerateReportedStudyRuntimeConfigJson(IReadOnlyDictionary<string, string>? reportedTwinState)
+    {
+        if (reportedTwinState is null || reportedTwinState.Count == 0)
+        {
+            yield break;
+        }
+
+        if (reportedTwinState.TryGetValue("showcase_active_runtime_config_json", out var directRuntimeConfigJson) &&
+            !string.IsNullOrWhiteSpace(directRuntimeConfigJson))
+        {
+            yield return directRuntimeConfigJson;
+        }
+
+        if (reportedTwinState.TryGetValue("hotload.showcase_active_runtime_config_json", out var hotloadRuntimeConfigJson) &&
+            !string.IsNullOrWhiteSpace(hotloadRuntimeConfigJson))
+        {
+            yield return hotloadRuntimeConfigJson;
+        }
+    }
+
+    private static bool TryRuntimeConfigContainsSessionMetadata(
+        string runtimeConfigJson,
+        string expectedSessionId,
+        string expectedDatasetHash)
+    {
+        try
+        {
+            var root = JsonNode.Parse(runtimeConfigJson);
+            if (root is null)
+            {
+                return false;
+            }
+
+            var sessionIdFound = false;
+            var datasetHashFound = false;
+            foreach (var node in EnumerateJsonNodes(root))
+            {
+                if (node is not JsonValue value ||
+                    !value.TryGetValue<string>(out var stringValue) ||
+                    string.IsNullOrWhiteSpace(stringValue))
+                {
+                    continue;
+                }
+
+                if (!sessionIdFound &&
+                    string.Equals(stringValue, expectedSessionId, StringComparison.Ordinal))
+                {
+                    sessionIdFound = true;
+                }
+
+                if (!datasetHashFound &&
+                    string.Equals(stringValue, expectedDatasetHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    datasetHashFound = true;
+                }
+
+                if (sessionIdFound && datasetHashFound)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (JsonException)
+        {
+            return runtimeConfigJson.Contains(expectedSessionId, StringComparison.Ordinal) &&
+                   runtimeConfigJson.Contains(expectedDatasetHash, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static IEnumerable<JsonNode> EnumerateJsonNodes(JsonNode node)
+    {
+        yield return node;
+
+        if (node is JsonObject obj)
+        {
+            foreach (var property in obj)
+            {
+                if (property.Value is null)
+                {
+                    continue;
+                }
+
+                foreach (var child in EnumerateJsonNodes(property.Value))
+                {
+                    yield return child;
+                }
+            }
+
+            yield break;
+        }
+
+        if (node is not JsonArray array)
+        {
+            yield break;
+        }
+
+        foreach (var childNode in array)
+        {
+            if (childNode is null)
+            {
+                continue;
+            }
+
+            foreach (var child in EnumerateJsonNodes(childNode))
+            {
+                yield return child;
+            }
+        }
+    }
+
     private void ResetClockAlignmentStateForRun(StudyClockAlignmentWindowKind windowKind, TimeSpan duration)
     {
         var label = BuildClockAlignmentWindowLabel(windowKind);
@@ -6574,18 +7291,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         var builder = new StringBuilder();
-        builder.Append("Recommended quest-minus-Windows offset ");
-        builder.Append(FormatClockAlignmentMilliseconds(recommendedOffset));
+        builder.Append("Quest-minus-Windows monotonic offset ");
+        builder.Append(FormatClockAlignmentOffset(recommendedOffset));
         if (summary.MedianQuestMinusWindowsClockSeconds is double medianOffset)
         {
             builder.Append(" | Median ");
-            builder.Append(FormatClockAlignmentMilliseconds(medianOffset));
+            builder.Append(FormatClockAlignmentOffset(medianOffset));
         }
 
         if (summary.MeanQuestMinusWindowsClockSeconds is double meanOffset)
         {
             builder.Append(" | Mean ");
-            builder.Append(FormatClockAlignmentMilliseconds(meanOffset));
+            builder.Append(FormatClockAlignmentOffset(meanOffset));
         }
 
         return builder.ToString();
@@ -6616,8 +7333,216 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return builder.ToString();
     }
 
+    private void UpdateClockAlignmentConsistencyTelemetry(StudyClockAlignmentWindowKind windowKind, StudyClockAlignmentRunResult result)
+    {
+        var latestMetrics = BuildClockAlignmentConsistencyProbeMetrics(result);
+        if (windowKind == StudyClockAlignmentWindowKind.BackgroundSparse)
+        {
+            if (_recentBackgroundClockAlignmentMetrics.Count >= ClockAlignmentConsistencyHistoryLimit)
+            {
+                _recentBackgroundClockAlignmentMetrics.Dequeue();
+            }
+
+            _recentBackgroundClockAlignmentMetrics.Enqueue(latestMetrics);
+        }
+
+        var metrics = _recentBackgroundClockAlignmentMetrics.Count > 0
+            ? _recentBackgroundClockAlignmentMetrics.ToArray()
+            : latestMetrics.EchoesReceived > 0
+                ? [latestMetrics]
+                : [];
+
+        if (metrics.Length == 0)
+        {
+            ClockAlignmentConsistencyLevel = result.Outcome.Kind == OperationOutcomeKind.Success
+                ? OperationOutcomeKind.Preview
+                : result.Outcome.Kind;
+            ClockAlignmentConsistencySummary = result.Outcome.Kind == OperationOutcomeKind.Success
+                ? "Full-loop timing consistency is waiting for echoed probes."
+                : result.Outcome.Summary;
+            ClockAlignmentConsistencyDetail = result.Outcome.Detail;
+            ClockAlignmentConsistencyMetricsLabel = "No echoed full-loop RTT samples yet.";
+            return;
+        }
+
+        var sourceLabel = _recentBackgroundClockAlignmentMetrics.Count > 0
+            ? $"{_recentBackgroundClockAlignmentMetrics.Count} recent background probe(s)"
+            : windowKind == StudyClockAlignmentWindowKind.StartBurst
+                ? "the start burst"
+                : "the latest alignment burst";
+        var steadyStateMeanRtts = metrics
+            .Where(metric => metric.SteadyStateMeanRoundTripSeconds.HasValue)
+            .Select(metric => metric.SteadyStateMeanRoundTripSeconds!.Value)
+            .ToArray();
+        var rawMeanRtts = metrics
+            .Where(metric => metric.RawMeanRoundTripSeconds.HasValue)
+            .Select(metric => metric.RawMeanRoundTripSeconds!.Value)
+            .ToArray();
+        var totalProbes = metrics.Sum(metric => metric.ProbesSent);
+        var totalEchoes = metrics.Sum(metric => metric.EchoesReceived);
+        var steadyStateMeanOfMeans = steadyStateMeanRtts.Length > 0 ? steadyStateMeanRtts.Average() : (double?)null;
+        var rawMeanOfMeans = rawMeanRtts.Length > 0 ? rawMeanRtts.Average() : (double?)null;
+        var worstWithinProbeSpan = metrics
+            .Where(metric => metric.SteadyStateSpanSeconds.HasValue)
+            .Select(metric => metric.SteadyStateSpanSeconds!.Value)
+            .DefaultIfEmpty(0d)
+            .Max();
+        var worstRawWithinProbeSpan = metrics
+            .Where(metric => metric.RawWithinProbeSpanSeconds.HasValue)
+            .Select(metric => metric.RawWithinProbeSpanSeconds!.Value)
+            .DefaultIfEmpty(0d)
+            .Max();
+        var probeToProbeMeanSpan = steadyStateMeanRtts.Length > 1 ? steadyStateMeanRtts.Max() - steadyStateMeanRtts.Min() : 0d;
+        var coldStartOverheadSeconds = metrics
+            .Where(metric => metric.RawMeanRoundTripSeconds.HasValue && metric.SteadyStateMeanRoundTripSeconds.HasValue)
+            .Select(metric => Math.Max(0d, metric.RawMeanRoundTripSeconds!.Value - metric.SteadyStateMeanRoundTripSeconds!.Value))
+            .DefaultIfEmpty(0d)
+            .Average();
+        var lowCoverage = totalEchoes <= 0 || totalEchoes < Math.Max(2, totalProbes / 2);
+
+        var level = lowCoverage
+            ? OperationOutcomeKind.Warning
+            : steadyStateMeanOfMeans is > ClockAlignmentConsistencyFailureMeanRoundTripSeconds
+              || worstWithinProbeSpan > ClockAlignmentConsistencyFailureSpanSeconds
+              || probeToProbeMeanSpan > ClockAlignmentConsistencyFailureProbeToProbeSeconds
+                ? OperationOutcomeKind.Failure
+                : steadyStateMeanOfMeans is > ClockAlignmentConsistencyWarningMeanRoundTripSeconds
+                  || worstWithinProbeSpan > ClockAlignmentConsistencyWarningSpanSeconds
+                  || probeToProbeMeanSpan > ClockAlignmentConsistencyWarningProbeToProbeSeconds
+                    ? OperationOutcomeKind.Warning
+                    : OperationOutcomeKind.Success;
+
+        ClockAlignmentConsistencyLevel = level;
+        ClockAlignmentConsistencySummary = level switch
+        {
+            OperationOutcomeKind.Success => "Full-loop RTT looks stable.",
+            OperationOutcomeKind.Failure => "Full-loop RTT looks unstable.",
+            _ => "Full-loop RTT needs attention."
+        };
+        ClockAlignmentConsistencyMetricsLabel =
+            $"{sourceLabel}: steady mean {(steadyStateMeanOfMeans is double steadyMean ? FormatClockAlignmentMilliseconds(steadyMean) : "n/a")} | " +
+            $"steady span {FormatClockAlignmentMilliseconds(worstWithinProbeSpan)} | " +
+            $"probe-to-probe span {FormatClockAlignmentMilliseconds(probeToProbeMeanSpan)}";
+        ClockAlignmentConsistencyDetail =
+            $"{sourceLabel} returned {totalEchoes} echo(es) from {totalProbes} sent probe(s). " +
+            $"Steady-state RTT {(steadyStateMeanOfMeans is double computedSteadyMean ? FormatClockAlignmentMilliseconds(computedSteadyMean) : "n/a")}. " +
+            $"Raw mean RTT {(rawMeanOfMeans is double computedRawMean ? FormatClockAlignmentMilliseconds(computedRawMean) : "n/a")}. " +
+            $"Worst steady-state within-probe RTT span {FormatClockAlignmentMilliseconds(worstWithinProbeSpan)}. " +
+            $"Worst raw within-probe RTT span {FormatClockAlignmentMilliseconds(worstRawWithinProbeSpan)}. " +
+            $"Probe-to-probe steady-state mean RTT span {FormatClockAlignmentMilliseconds(probeToProbeMeanSpan)}. " +
+            (coldStartOverheadSeconds > 0d
+                ? $"Average cold-start overhead above the steady-state band was {FormatClockAlignmentMilliseconds(coldStartOverheadSeconds)}. "
+                : string.Empty) +
+            (level switch
+            {
+                OperationOutcomeKind.Success => " The current Wi-Fi loop timing looks steady enough for session overlay work.",
+                OperationOutcomeKind.Failure => " The current Wi-Fi loop timing looks unstable enough to risk overlay drift or delayed command effects.",
+                _ => " Watch the network and headset connection path if this stays elevated across multiple probes."
+            });
+    }
+
     private static string FormatClockAlignmentMilliseconds(double seconds)
         => $"{seconds * 1000d:0.0} ms";
+
+    private static string FormatClockAlignmentOffset(double seconds)
+    {
+        var magnitude = TimeSpan.FromSeconds(Math.Abs(seconds));
+        var sign = seconds < 0d ? "-" : "+";
+        if (magnitude.TotalHours >= 1d)
+        {
+            return $"{sign}{Math.Floor(magnitude.TotalHours):0}h {magnitude.Minutes:00}m {magnitude.Seconds:00}.{magnitude.Milliseconds:000}s";
+        }
+
+        if (magnitude.TotalMinutes >= 1d)
+        {
+            return $"{sign}{magnitude.Minutes:0}m {magnitude.Seconds:00}.{magnitude.Milliseconds:000}s";
+        }
+
+        return FormatClockAlignmentMilliseconds(seconds);
+    }
+
+    private static ClockAlignmentConsistencyProbeMetrics BuildClockAlignmentConsistencyProbeMetrics(StudyClockAlignmentRunResult result)
+    {
+        if (result.Samples.Count == 0)
+        {
+            return new ClockAlignmentConsistencyProbeMetrics(
+                result.Summary.ProbesSent,
+                result.Summary.EchoesReceived,
+                null,
+                result.Summary.MeanRoundTripSeconds,
+                null,
+                BuildRawWithinProbeSpan(result.Summary));
+        }
+
+        var orderedByRoundTrip = result.Samples
+            .OrderBy(sample => sample.RoundTripSeconds)
+            .ToArray();
+        var steadyStateCount = Math.Max(1, (int)Math.Ceiling(orderedByRoundTrip.Length * 0.25d));
+        var steadyStateSamples = orderedByRoundTrip
+            .Take(steadyStateCount)
+            .ToArray();
+        var steadyStateMean = steadyStateSamples.Average(sample => sample.RoundTripSeconds);
+        var steadyStateSpan = steadyStateSamples.Length > 1
+            ? steadyStateSamples[^1].RoundTripSeconds - steadyStateSamples[0].RoundTripSeconds
+            : 0d;
+
+        return new ClockAlignmentConsistencyProbeMetrics(
+            result.Summary.ProbesSent,
+            result.Summary.EchoesReceived,
+            steadyStateMean,
+            result.Summary.MeanRoundTripSeconds,
+            steadyStateSpan,
+            BuildRawWithinProbeSpan(result.Summary));
+    }
+
+    private static double? BuildRawWithinProbeSpan(StudyClockAlignmentSummary summary)
+        => summary.MinRoundTripSeconds.HasValue && summary.MaxRoundTripSeconds.HasValue
+            ? summary.MaxRoundTripSeconds.Value - summary.MinRoundTripSeconds.Value
+            : null;
+
+    private sealed record ClockAlignmentConsistencyProbeMetrics(
+        int ProbesSent,
+        int EchoesReceived,
+        double? SteadyStateMeanRoundTripSeconds,
+        double? RawMeanRoundTripSeconds,
+        double? SteadyStateSpanSeconds,
+        double? RawWithinProbeSpanSeconds);
+
+    private int ReserveClockAlignmentProbeSequenceRange(TimeSpan duration, TimeSpan probeInterval)
+    {
+        var firstProbeSequence = Math.Max(1, _nextClockAlignmentProbeSequence);
+        _nextClockAlignmentProbeSequence = checked(firstProbeSequence + GetExpectedClockAlignmentProbeCount(duration, probeInterval));
+        return firstProbeSequence;
+    }
+
+    private static int GetExpectedClockAlignmentProbeCount(TimeSpan duration, TimeSpan probeInterval)
+    {
+        if (duration <= TimeSpan.Zero)
+        {
+            return 1;
+        }
+
+        if (probeInterval <= TimeSpan.Zero)
+        {
+            return 1;
+        }
+
+        return Math.Max(1, (int)Math.Ceiling(duration.TotalMilliseconds / probeInterval.TotalMilliseconds));
+    }
+
+    private void ResetRecordingTelemetryTracking()
+    {
+        _recentBackgroundClockAlignmentMetrics.Clear();
+        ClockAlignmentConsistencyLevel = OperationOutcomeKind.Preview;
+        ClockAlignmentConsistencySummary = "Full-loop timing consistency has not been sampled yet.";
+        ClockAlignmentConsistencyDetail = "Start a participant run to collect background clock-alignment probes and watch for unstable loop timing.";
+        ClockAlignmentConsistencyMetricsLabel = "No background RTT consistency samples yet.";
+        _lastRecordedRecenterConfirmationSignature = string.Empty;
+        _lastRecordedRecenterEffectSignature = string.Empty;
+        _lastRecordedParticlesConfirmationSignature = string.Empty;
+        _lastRecordedParticlesEffectSignature = string.Empty;
+        _nextClockAlignmentProbeSequence = 1;
+    }
 
     private void TryRecordLiveTwinState(DateTimeOffset recordedAtUtc)
     {
@@ -6628,12 +7553,171 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         try
         {
-            _activeRecordingSession.RecordTwinState(_reportedTwinState, recordedAtUtc, ResolveHeadsetActionSelector());
+            var sourceTimestampUtc = (_twinBridge as LslTwinModeBridge)?.LastStateReceivedAt ?? recordedAtUtc;
+            _activeRecordingSession.RecordTwinState(
+                _reportedTwinState,
+                recordedAtUtc,
+                ResolveHeadsetActionSelector(),
+                sourceTimestampUtc);
         }
         catch (Exception exception)
         {
             SetRecorderFault("Write live Sussex telemetry", exception);
         }
+    }
+
+    private void TryRecordActiveSessionCommandObservations(DateTimeOffset observedAtUtc)
+    {
+        if (_activeRecordingSession is null || _reportedTwinState.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            TryRecordRecenterCommandObservation(_activeRecordingSession, observedAtUtc);
+            TryRecordParticleCommandObservation(_activeRecordingSession, observedAtUtc);
+        }
+        catch (Exception exception)
+        {
+            SetRecorderFault("Write session command observation", exception);
+        }
+    }
+
+    private void TryRecordRecenterCommandObservation(StudyDataRecordingSession recordingSession, DateTimeOffset observedAtUtc)
+    {
+        var request = _lastRecenterCommandRequest;
+        if (request is null)
+        {
+            return;
+        }
+
+        var confirmation = CaptureCommandConfirmation(_study.Controls.RecenterCommandActionId);
+        if (IsCommandConfirmed(request, confirmation))
+        {
+            var confirmationSignature = BuildCommandObservationSignature(request, confirmation.Sequence, confirmation.TimestampRaw);
+            if (!string.Equals(confirmationSignature, _lastRecordedRecenterConfirmationSignature, StringComparison.Ordinal))
+            {
+                recordingSession.RecordEvent(
+                    "command.recenter.confirmed",
+                    BuildCommandTrackingDetail(request, confirmation, "recenter"),
+                    request.ActionId,
+                    "success",
+                    recordedAtUtc: observedAtUtc,
+                    sourceTimestampUtc: confirmation.Timestamp);
+                _lastRecordedRecenterConfirmationSignature = confirmationSignature;
+            }
+        }
+
+        var distance = ParseDouble(GetFirstValue(_study.Monitoring.RecenterDistanceKeys));
+        var effect = CaptureRecenterEffect(request, distance);
+        if (!effect.Observed)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_lastRecordedRecenterEffectSignature))
+        {
+            return;
+        }
+
+        var effectSourceTimestampUtc = effect.AnchorTimestamp ?? GetLatestTwinStateSourceTimestamp() ?? observedAtUtc;
+        var effectSignature = BuildCommandObservationSignature(
+            request,
+            confirmation.Sequence,
+            effect.AnchorTimestampRaw,
+            effect.AnchorUpdated ? "true" : "false",
+            effect.DistanceImproved ? "true" : "false");
+        recordingSession.RecordEvent(
+            "command.recenter.effect_observed",
+            BuildRecenterEffectDetail(effect),
+            request.ActionId,
+            "observed",
+            recordedAtUtc: observedAtUtc,
+            sourceTimestampUtc: effectSourceTimestampUtc);
+        _lastRecordedRecenterEffectSignature = effectSignature;
+    }
+
+    private void TryRecordParticleCommandObservation(StudyDataRecordingSession recordingSession, DateTimeOffset observedAtUtc)
+    {
+        var request = _lastParticlesCommandRequest;
+        if (request is null)
+        {
+            return;
+        }
+
+        var confirmation = CaptureCommandConfirmation(_study.Controls.ParticleVisibleOnActionId);
+        if (IsCommandConfirmed(request, confirmation))
+        {
+            var confirmationSignature = BuildCommandObservationSignature(request, confirmation.Sequence, confirmation.TimestampRaw);
+            if (!string.Equals(confirmationSignature, _lastRecordedParticlesConfirmationSignature, StringComparison.Ordinal))
+            {
+                recordingSession.RecordEvent(
+                    "command.particles.confirmed",
+                    BuildCommandTrackingDetail(request, confirmation, "particle visibility"),
+                    request.ActionId,
+                    "success",
+                    recordedAtUtc: observedAtUtc,
+                    sourceTimestampUtc: confirmation.Timestamp);
+                _lastRecordedParticlesConfirmationSignature = confirmationSignature;
+            }
+        }
+
+        var actualVisible = GetCurrentReportedParticleVisibility();
+        var effect = CaptureParticleVisibilityEffect(request, actualVisible);
+        if (!effect.Observed)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_lastRecordedParticlesEffectSignature))
+        {
+            return;
+        }
+
+        var effectSignature = BuildCommandObservationSignature(
+            request,
+            confirmation.Sequence,
+            confirmation.TimestampRaw,
+            effect.PreviousVisible?.ToString(),
+            effect.CurrentVisible?.ToString());
+        var effectSourceTimestampUtc = GetLatestTwinStateSourceTimestamp() ?? observedAtUtc;
+        if (string.Equals(effectSignature, _lastRecordedParticlesEffectSignature, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        recordingSession.RecordEvent(
+            "command.particles.effect_observed",
+            BuildParticleVisibilityEffectDetail(effect),
+            request.ActionId,
+            "observed",
+            recordedAtUtc: observedAtUtc,
+            sourceTimestampUtc: effectSourceTimestampUtc);
+        _lastRecordedParticlesEffectSignature = effectSignature;
+    }
+
+    private DateTimeOffset? GetLatestTwinStateSourceTimestamp()
+        => (_twinBridge as LslTwinModeBridge)?.LastStateReceivedAt;
+
+    private static string BuildCommandObservationSignature(
+        StudyTwinCommandRequest request,
+        int? confirmationSequence,
+        params string?[] values)
+    {
+        var builder = new StringBuilder()
+            .Append(request.ActionId)
+            .Append('|')
+            .Append(request.SentAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture))
+            .Append('|')
+            .Append(confirmationSequence?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
+
+        foreach (var value in values)
+        {
+            builder.Append('|').Append(value ?? string.Empty);
+        }
+
+        return builder.ToString();
     }
 
     private async Task TryArchiveQuestScreenshotAsync(string screenshotPath, DateTimeOffset capturedAtUtc)
@@ -6664,6 +7748,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void SetRecorderFault(string stage, Exception exception)
     {
         CancelExperimentTimingTasks();
+        StopRegularRecordingSamples();
         _lastCompletedRecordingFolderPath = _activeRecordingSession?.SessionFolderPath ?? _lastCompletedRecordingFolderPath;
         _activeRecordingSession?.Dispose();
         _activeRecordingSession = null;
@@ -6777,8 +7862,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Recorder armed with a duplicate-id warning."
                 : "Recorder armed for the next participant run.";
             RecordingDetail = ParticipantHasExistingSessions
-                ? $"{ParticipantExistingSessionsLabel} Starting the run will still create a new session folder."
-                : "Starting the participant run will create a timestamped session folder with settings, events, signals, and breathing trace files.";
+                ? $"{ParticipantExistingSessionsLabel} Starting the run from Experiment Session will still create a new session folder."
+                : "Starting the run from Experiment Session will create a timestamped session folder with settings, events, signals, and breathing trace files.";
             RecordingSessionLabel = string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath)
                 ? "No previous participant session completed in this shell instance."
                 : $"Last completed session: {_lastCompletedRecordingFolderPath}";
@@ -6789,7 +7874,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         RecorderStateLabel = "Idle";
         RecordingLevel = OperationOutcomeKind.Preview;
         RecordingSummary = "Recorder idle.";
-        RecordingDetail = "Enter a participant number to arm the recorder for the next participant run.";
+        RecordingDetail = "Open Experiment Session and enter a participant number to arm the recorder for the next participant run.";
         RecordingSessionLabel = string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath)
             ? "No participant session has been recorded from this shell instance yet."
             : $"Last completed session: {_lastCompletedRecordingFolderPath}";
@@ -6825,14 +7910,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         WorkflowGuideStepSummary = gate.Summary;
         WorkflowGuideStepDetail = gate.Detail;
         WorkflowGuideGateSummary = WorkflowGuideIsFinalStep
-            ? "Finish the cleanup below, then return to the main window."
+            ? "Finish the cleanup below, then open Experiment Session or return to the main window."
             : gate.Ready
                 ? "This step is ready. You can continue."
                 : stepIndex == 6
                     ? "This is a manual step. Continue once the operator has finished the boundary."
                     : "Finish this step before continuing.";
         WorkflowGuideGateDetail = WorkflowGuideIsFinalStep
-            ? "Reset calibration, make sure particles are off, then use Return To Main Window."
+            ? "Reset calibration, make sure particles are off, then open Experiment Session for the real participant or use Return To Main Window."
             : gate.Ready
                 ? "Use Next to move to the next operator step."
                 : stepIndex == 6
@@ -7030,7 +8115,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 "This step uses the dedicated validation card below rather than the generic action buttons."),
             _ => (
                 "Reset calibration and leave particles off.",
-                "Return to the main runtime tab with a clean participant-ready state.")
+                "Open Experiment Session or return to the main runtime tab with a clean participant-ready state.")
         };
     }
 
@@ -7121,7 +8206,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _ => RequireWifiAdbForWorkflowStep(new WorkflowGuideGateState(
                 OperationOutcomeKind.Preview,
                 "Final manual cleanup step.",
-                "Reset calibration, make sure particles are off, and then return to the main window so the real participant session can start from a clean state.",
+                "Reset calibration, make sure particles are off, and then open Experiment Session or return to the main window so the real participant session can start from a clean state.",
                 true))
         };
     }
@@ -7535,7 +8620,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _validationClockAlignmentBackgroundLevel = OperationOutcomeKind.Preview;
         _validationClockAlignmentBackgroundSummary = "Armed during recording.";
         _validationClockAlignmentBackgroundDetail =
-            $"A {WorkflowClockAlignmentSparseProbeDuration.TotalSeconds:0.#} second sparse drift probe will run every {WorkflowClockAlignmentBackgroundProbeIntervalSeconds} seconds during the {WorkflowGuideValidationCaptureDurationSeconds} second capture.";
+            $"The first {WorkflowClockAlignmentSparseProbeDuration.TotalSeconds:0.#} second sparse drift probe starts about {WorkflowClockAlignmentInitialBackgroundProbeDelaySeconds} second after recording begins, then repeats every {WorkflowClockAlignmentBackgroundProbeIntervalSeconds} seconds during the {WorkflowGuideValidationCaptureDurationSeconds} second capture.";
     }
 
     private void FinalizeValidationClockAlignmentBackgroundState()
@@ -7683,13 +8768,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             8 =>
             [
-                BuildWorkflowGuideActionItem(TestLslSenderActionLabel, ToggleTestLslSenderCommand, CanToggleTestLslSender),
+                BuildWorkflowGuideActionItem(TestLslSenderActionLabel, ToggleTestLslSenderCommand, CanToggleTestLslSender, stateIsOn: IsTestLslSenderToggleState),
                 BuildWorkflowGuideActionItem("Probe Connection", ProbeLslConnectionCommand, true, "Probing Connection...")
             ],
             9 =>
             [
-                BuildWorkflowGuideActionItem("Particles On", ParticlesOnCommand, CanToggleParticles, "Sending Particles On..."),
-                BuildWorkflowGuideActionItem("Particles Off", ParticlesOffCommand, CanToggleParticles, "Sending Particles Off...")
+                BuildWorkflowGuideActionItem(
+                    ParticlesToggleActionLabel,
+                    ToggleParticlesCommand,
+                    CanToggleParticles,
+                    IsParticlesToggleState == true ? "Sending Particles Off..." : "Sending Particles On...",
+                    stateIsOn: IsParticlesToggleState)
             ],
             10 =>
             [
@@ -7710,12 +8799,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         string label,
         AsyncRelayCommand command,
         bool isEnabled,
-        string? runningLabel = null)
+        string? runningLabel = null,
+        bool? stateIsOn = null)
         => new(
             command.IsRunning ? runningLabel ?? $"{label}..." : label,
             command,
             isEnabled && !command.IsRunning,
-            command.IsRunning);
+            command.IsRunning,
+            stateIsOn);
 
     private string BuildControllerWakeReminderSummary()
     {
@@ -8196,13 +9287,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : !canResetCalibration
                 ? "Calibration reset is still missing from the mirrored Sussex APK."
                 : controllerCalibrated
-                    ? "Reset calibration is available for participant handoff."
-                    : "Reset calibration is available; use it before the headset changes hands.";
+                    ? "Participant handoff is ready for Experiment Session."
+                    : "Reset calibration is available; use it before the headset changes hands, then move into Experiment Session.";
         WorkflowHandoffDetail =
             (canResetCalibration
                 ? "The shell can send Reset Calibration before particles-off handoff, so the experimenter's controller calibration cannot leak into the participant run. "
                 : "Reset Calibration is unavailable in the current Sussex shell metadata. ") +
-            "The handoff path should end with the physical power button, not a remote sleep/wake command.";
+            "After handoff, use the Experiment Session window for the real participant run. The handoff path should still end with the physical power button, not a remote sleep/wake command.";
 
         WorkflowParticipantStartLevel = !runtimeForeground
             ? OperationOutcomeKind.Preview
@@ -8216,21 +9307,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Participant run is active."
                 : participantStartReady
                     ? ParticipantHasExistingSessions
-                        ? "Participant start is ready, with a duplicate-id warning."
+                        ? "Experiment Session is ready, with a duplicate-id warning."
                         : participantScreenshotReady
-                            ? "Participant start is ready."
-                            : "Participant start is ready, but the participant view screenshot is still pending."
+                            ? "Experiment Session is ready for Start Recording."
+                            : "Experiment Session is ready, but the participant view screenshot is still pending."
                     : canStartExperiment
-                        ? "Participant start is waiting for participant metadata or final visual checks."
+                        ? "Experiment Session is waiting for participant metadata or final visual checks."
                         : "Participant-start controls are still pending in the companion."
             : "Participant-start controls come after kiosk and bench verification.";
         WorkflowParticipantStartDetail =
             $"{ParticipantEntrySummary} {ParticipantEntryDetail} " +
             (canStartExperiment
                     ? participantScreenshotReady
-                    ? "The participant view screenshot has been captured for this handoff, and Start Experiment will publish the shared dataset/session ids to Quest before recording begins."
-                    : "Capture one Quest screenshot after wake and recenter so the operator has a visual double-check before starting."
-                : "Start Experiment is unavailable in the current Sussex shell metadata.");
+                    ? "The participant view screenshot has been captured for this handoff, and Start Recording in Experiment Session will publish the shared dataset and session ids to Quest before recording begins."
+                    : "Capture one Quest screenshot after wake and recenter so the operator has a visual double-check before using Start Recording."
+                : "Start Recording is unavailable because the Start Experiment command is missing from the current Sussex shell metadata.");
 
         WorkflowParticipantEndLevel = recordingActive || experimentActive || _participantRunStopping
             ? canEndExperiment
@@ -8241,14 +9332,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? _participantRunStopping
                 ? "Participant wrap-up is in progress."
                 : canEndExperiment
-                    ? "Participant end is ready when the run is complete."
-                    : "Participant-end cleanup is blocked because End Experiment is unavailable."
+                    ? "Stop Recording is ready when the run is complete."
+                    : "Participant-end cleanup is blocked because Stop Recording cannot reach End Experiment."
             : "Participant-end controls come after a participant run has started.";
         WorkflowParticipantEndDetail =
             $"{RecordingSummary} {RecordingDetail} " +
             (canEndExperiment
-                ? "End Experiment now stops the Quest-side participant recorder and the local Windows recorder, then runs reset calibration and particles off."
-                : "End Experiment is unavailable in the current Sussex shell metadata.");
+                ? "Stop Recording now stops the Quest-side participant recorder and the local Windows recorder, then runs reset calibration and particles off."
+                : "Stop Recording is unavailable because End Experiment is missing from the current Sussex shell metadata.");
 
         WorkflowRuntimePendingSummary = CanStartBreathingCalibration && canResetCalibration && canStartExperiment && canEndExperiment
             ? "Current Sussex APK metadata exposes recenter, calibration start/reset, experiment start/end, and particle toggles."
@@ -8298,14 +9389,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (recordingActive || experimentActive || _participantRunStopping)
         {
             WorkflowCurrentStepLevel = WorkflowParticipantEndLevel;
-            WorkflowCurrentStepSummary = "6. Participant wrap-up is the next operator step.";
+            WorkflowCurrentStepSummary = "6. Participant wrap-up in Experiment Session is the next operator step.";
             WorkflowCurrentStepDetail = WorkflowParticipantEndDetail;
             UpdateWorkflowGuideState();
             return;
         }
 
         WorkflowCurrentStepLevel = WorkflowParticipantStartLevel;
-        WorkflowCurrentStepSummary = "5. Participant start is the next operator step.";
+        WorkflowCurrentStepSummary = "5. Participant start in Experiment Session is the next operator step.";
         WorkflowCurrentStepDetail = WorkflowParticipantStartDetail;
         UpdateWorkflowGuideState();
     }
@@ -10208,12 +11299,45 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (string.Equals(request.ActionId, _study.Controls.RecenterCommandActionId, StringComparison.OrdinalIgnoreCase))
         {
             _lastRecenterCommandRequest = request;
+            _lastRecordedRecenterConfirmationSignature = string.Empty;
+            _lastRecordedRecenterEffectSignature = string.Empty;
             return;
         }
 
         if (MatchesParticleActionId(request.ActionId))
         {
             _lastParticlesCommandRequest = request;
+            _lastRecordedParticlesConfirmationSignature = string.Empty;
+            _lastRecordedParticlesEffectSignature = string.Empty;
+        }
+    }
+
+    private void TryRecordCommandRequestEvent(StudyTwinCommandRequest request, OperationOutcome outcome)
+    {
+        if (_activeRecordingSession is null)
+        {
+            return;
+        }
+
+        if (string.Equals(request.ActionId, _study.Controls.StartExperimentActionId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(request.ActionId, _study.Controls.EndExperimentActionId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        try
+        {
+            _activeRecordingSession.RecordEvent(
+                "command.requested",
+                $"Companion requested {request.Label} {FormatCommandSequence(request.Sequence)}. {BuildRecorderEventDetail(outcome)}",
+                request.ActionId,
+                outcome.Kind.ToString().ToLowerInvariant(),
+                recordedAtUtc: request.SentAtUtc,
+                sourceTimestampUtc: request.SentAtUtc);
+        }
+        catch (Exception exception)
+        {
+            SetRecorderFault("Write command request event", exception);
         }
     }
 
@@ -10259,6 +11383,28 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return requestedVisible.HasValue
             ? visibility
             : renderOutputEnabled ?? visibility;
+    }
+
+    private bool? GetCurrentProximityEnabledState()
+    {
+        var selector = !string.IsNullOrWhiteSpace(_liveProximitySelector)
+            ? _liveProximitySelector
+            : ResolveHzdbSelector();
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return null;
+        }
+
+        var liveStatus = string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
+            ? _liveProximityStatus
+            : null;
+        if (liveStatus?.Available == true)
+        {
+            return !liveStatus.HoldActive;
+        }
+
+        var tracked = _appSessionState.GetTrackedProximity(selector);
+        return tracked.Known ? tracked.ExpectedEnabled : null;
     }
 
     private StudyTwinCommandConfirmation CaptureCommandConfirmation(string actionId)
@@ -10803,6 +11949,59 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _workflowGuideWindow = null;
     }
 
+    private async Task OpenExperimentSessionWindowAsync()
+    {
+        await DispatchAsync(() =>
+        {
+            if (_experimentSessionWindow is { IsLoaded: true })
+            {
+                if (_experimentSessionWindow.WindowState == WindowState.Minimized)
+                {
+                    _experimentSessionWindow.WindowState = WindowState.Normal;
+                }
+
+                _experimentSessionWindow.Activate();
+                return;
+            }
+
+            var owner = Application.Current?.Windows
+                .OfType<Window>()
+                .FirstOrDefault(window => window.IsActive)
+                ?? _workflowGuideWindow
+                ?? Application.Current?.MainWindow;
+
+            var window = new StudyExperimentSessionWindow(this)
+            {
+                Owner = owner
+            };
+            window.Closed += OnExperimentSessionWindowClosed;
+            _experimentSessionWindow = window;
+            window.Show();
+            window.Activate();
+        }).ConfigureAwait(false);
+    }
+
+    private void OnExperimentSessionWindowClosed(object? sender, EventArgs e)
+    {
+        if (_experimentSessionWindow is not null)
+        {
+            _experimentSessionWindow.Closed -= OnExperimentSessionWindowClosed;
+            _experimentSessionWindow = null;
+        }
+    }
+
+    private void CloseExperimentSessionWindow()
+    {
+        if (_experimentSessionWindow is null)
+        {
+            return;
+        }
+
+        _experimentSessionWindow.Closed -= OnExperimentSessionWindowClosed;
+        _experimentSessionWindow.Close();
+        _experimentSessionWindow = null;
+    }
+
     private void OpenClockAlignmentWindow()
     {
         if (_clockAlignmentWindow is { IsLoaded: true })
@@ -10995,13 +12194,20 @@ public sealed class WorkflowGuideActionItem : ObservableObject
     private AsyncRelayCommand _command;
     private bool _isEnabled;
     private bool _isRunning;
+    private bool? _stateIsOn;
 
-    public WorkflowGuideActionItem(string label, AsyncRelayCommand command, bool isEnabled, bool isRunning)
+    public WorkflowGuideActionItem(
+        string label,
+        AsyncRelayCommand command,
+        bool isEnabled,
+        bool isRunning,
+        bool? stateIsOn)
     {
         _label = label;
         _command = command;
         _isEnabled = isEnabled;
         _isRunning = isRunning;
+        _stateIsOn = stateIsOn;
     }
 
     public string Label
@@ -11028,12 +12234,19 @@ public sealed class WorkflowGuideActionItem : ObservableObject
         private set => SetProperty(ref _isRunning, value);
     }
 
+    public bool? StateIsOn
+    {
+        get => _stateIsOn;
+        private set => SetProperty(ref _stateIsOn, value);
+    }
+
     public void UpdateFrom(WorkflowGuideActionItem source)
     {
         Label = source.Label;
         Command = source.Command;
         IsEnabled = source.IsEnabled;
         IsRunning = source.IsRunning;
+        StateIsOn = source.StateIsOn;
     }
 }
 

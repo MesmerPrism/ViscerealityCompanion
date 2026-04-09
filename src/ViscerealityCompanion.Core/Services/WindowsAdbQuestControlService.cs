@@ -36,6 +36,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     private static readonly TimeSpan KioskVerificationPollInterval = TimeSpan.FromMilliseconds(500);
     private const int WakePowerRecoveryPollCount = 6;
     private const int KioskVerificationPollCount = 6;
+    private const int KioskStableForegroundConfirmationCount = 2;
 
     private readonly string _adbPath;
     private readonly Lock _sync = new();
@@ -455,6 +456,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         }
 
         var applied = new List<string>();
+        var advisoryMismatches = new List<string>();
 
         foreach (var pair in profile.Properties)
         {
@@ -467,15 +469,34 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             var status = await QueryDeviceProfilePropertyStatusAsync(selector, pair.Key, pair.Value, cancellationToken).ConfigureAwait(false);
             if (!status.Matches)
             {
-                return MergeWakeWarning(
-                    new OperationOutcome(
-                        OperationOutcomeKind.Warning,
-                        $"Device profile partially applied: {profile.Label}.",
-                        $"Expected {pair.Key}={pair.Value} but Quest reported `{status.ReportedValue}`."),
-                    wakeOutcome);
+                var reportedValue = string.IsNullOrWhiteSpace(status.ReportedValue)
+                    ? "(blank)"
+                    : status.ReportedValue;
+                if (status.BlocksActivation)
+                {
+                    return MergeWakeWarning(
+                        new OperationOutcome(
+                            OperationOutcomeKind.Warning,
+                            $"Device profile partially applied: {profile.Label}.",
+                            $"Expected {pair.Key}={pair.Value} but Quest reported `{reportedValue}`."),
+                        wakeOutcome);
+                }
+
+                advisoryMismatches.Add($"{FormatDeviceProfilePropertyLabel(pair.Key)} expected {pair.Value} but Quest reported `{reportedValue}`.");
             }
 
-            applied.Add($"{FormatDeviceProfilePropertyLabel(pair.Key)}={status.ReportedValue}");
+            applied.Add($"{FormatDeviceProfilePropertyLabel(pair.Key)}={(string.IsNullOrWhiteSpace(status.ReportedValue) ? "(blank)" : status.ReportedValue)}");
+        }
+
+        if (advisoryMismatches.Count > 0)
+        {
+            return MergeWakeWarning(
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    $"Applied device profile {profile.Label} with advisory warnings.",
+                    $"{string.Join("; ", applied)} Advisory-only mismatches: {string.Join(" ", advisoryMismatches)}",
+                    Items: applied.Concat(advisoryMismatches).ToArray()),
+                wakeOutcome);
         }
 
         return MergeWakeWarning(
@@ -605,7 +626,18 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             detailParts.Add(launchOutcome.Detail);
         }
 
-        await Task.Delay(KioskVerificationPollInterval, cancellationToken).ConfigureAwait(false);
+        var settleVerification = await VerifySettledForegroundAsync(selector, target.PackageId, cancellationToken).ConfigureAwait(false);
+        if (!settleVerification.Succeeded)
+        {
+            detailParts.Add(settleVerification.Detail);
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"Launch completed for {target.Label}, but kiosk mode was not confirmed.",
+                string.Join(" ", detailParts),
+                PackageId: target.PackageId);
+        }
+
+        detailParts.Add(settleVerification.Detail);
         var taskId = await ResolveRecentTaskIdAsync(selector, target.PackageId, cancellationToken).ConfigureAwait(false);
         if (!taskId.HasValue)
         {
@@ -1348,7 +1380,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 key,
                 expectedValue,
                 reported,
-                expectedLevel.HasValue && mediaVolume.Level == expectedLevel);
+                expectedLevel.HasValue && mediaVolume.Level == expectedLevel,
+                BlocksActivation: false);
         }
 
         if (string.Equals(key, ProfileHeadsetBatteryMinimumKey, StringComparison.OrdinalIgnoreCase))
@@ -2177,21 +2210,28 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         string packageId,
         CancellationToken cancellationToken)
     {
+        var satisfiedPolls = 0;
+        KioskForegroundEvidence? lastEvidence = null;
+
         for (var poll = 0; poll < KioskVerificationPollCount; poll++)
         {
             var activitiesOutput = await RunShellAsync(selector, "dumpsys activity activities", cancellationToken).ConfigureAwait(false);
             if (activitiesOutput.ExitCode == 0)
             {
-                var hasPinnedState = ContainsActivityMarker(activitiesOutput.StdOut, "mLockTaskModeState=", "PINNED");
-                var hasResumedTarget = ContainsActivityMarker(activitiesOutput.StdOut, "ResumedActivity:", packageId);
-                var hasFocusedTarget = ContainsActivityMarker(activitiesOutput.StdOut, "mCurrentFocus=", packageId);
-                var hasOpaqueTarget = ContainsActivityMarker(activitiesOutput.StdOut, "mTopFullscreenOpaqueWindowState=", packageId);
-
-                if (hasPinnedState && hasResumedTarget && hasFocusedTarget && hasOpaqueTarget)
+                lastEvidence = ParseKioskForegroundEvidence(activitiesOutput.StdOut);
+                if (IsPinnedForegroundForPackage(lastEvidence, packageId))
                 {
-                    return new ForegroundVerification(
-                        true,
-                        $"Quest reported {packageId} as resumed, focused, top-opaque, and PINNED after task-lock poll {poll + 1}.");
+                    satisfiedPolls++;
+                    if (satisfiedPolls >= KioskStableForegroundConfirmationCount)
+                    {
+                        return new ForegroundVerification(
+                            true,
+                            $"Quest reported {packageId} as resumed, focused, top-opaque, and PINNED across {KioskStableForegroundConfirmationCount} consecutive task-lock polls. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
+                    }
+                }
+                else
+                {
+                    satisfiedPolls = 0;
                 }
             }
 
@@ -2200,7 +2240,45 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         return new ForegroundVerification(
             false,
-            $"Quest did not report {packageId} as resumed, focused, top-opaque, and PINNED within {KioskVerificationPollCount} task-lock polls.");
+            $"Quest did not report {packageId} as resumed, focused, top-opaque, and PINNED across {KioskStableForegroundConfirmationCount} consecutive task-lock polls within {KioskVerificationPollCount} attempts. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
+    }
+
+    private async Task<ForegroundVerification> VerifySettledForegroundAsync(
+        string selector,
+        string packageId,
+        CancellationToken cancellationToken)
+    {
+        var satisfiedPolls = 0;
+        KioskForegroundEvidence? lastEvidence = null;
+
+        for (var poll = 0; poll < KioskVerificationPollCount; poll++)
+        {
+            var activitiesOutput = await RunShellAsync(selector, "dumpsys activity activities", cancellationToken).ConfigureAwait(false);
+            if (activitiesOutput.ExitCode == 0)
+            {
+                lastEvidence = ParseKioskForegroundEvidence(activitiesOutput.StdOut);
+                if (IsSettledForegroundForPackage(lastEvidence, packageId))
+                {
+                    satisfiedPolls++;
+                    if (satisfiedPolls >= KioskStableForegroundConfirmationCount)
+                    {
+                        return new ForegroundVerification(
+                            true,
+                            $"Quest kept {packageId} as the settled resumed/focused/top-opaque foreground across {KioskStableForegroundConfirmationCount} consecutive pre-pin polls. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
+                    }
+                }
+                else
+                {
+                    satisfiedPolls = 0;
+                }
+            }
+
+            await Task.Delay(KioskVerificationPollInterval, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new ForegroundVerification(
+            false,
+            $"Quest did not keep {packageId} as the settled resumed/focused/top-opaque foreground across {KioskStableForegroundConfirmationCount} consecutive pre-pin polls within {KioskVerificationPollCount} attempts. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
     }
 
     private async Task<ForegroundVerification> VerifyHomeForegroundAsync(
@@ -2208,26 +2286,28 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         string targetPackageId,
         CancellationToken cancellationToken)
     {
+        var satisfiedPolls = 0;
+        KioskForegroundEvidence? lastEvidence = null;
+
         for (var poll = 0; poll < KioskVerificationPollCount; poll++)
         {
             var activitiesOutput = await RunShellAsync(selector, "dumpsys activity activities", cancellationToken).ConfigureAwait(false);
             if (activitiesOutput.ExitCode == 0)
             {
-                var snapshot = AdbShellSupport.ParseForegroundSnapshot(activitiesOutput.StdOut);
-                var lockTaskPinned = ContainsActivityMarker(activitiesOutput.StdOut, "mLockTaskModeState=", "PINNED");
-                var hasHomeFocus = ContainsActivityMarker(activitiesOutput.StdOut, "mCurrentFocus=", QuestHomePackage);
-                var hasHomeVisible = ContainsActivityMarker(activitiesOutput.StdOut, "HomeActivity", QuestHomePackage);
-                var hasHomeTopOpaque =
-                    ContainsActivityMarker(activitiesOutput.StdOut, "mTopFullscreenOpaqueWindowState=", QuestHomePackage) ||
-                    ContainsActivityMarker(activitiesOutput.StdOut, "mTopFullscreenOpaqueWindowState=", QuestSystemUxPackage) ||
-                    ContainsActivityMarker(activitiesOutput.StdOut, "ResumedActivity:", $"{QuestSystemUxPackage}/com.oculus.panelapp.virtualobjects.{QuestVirtualObjectsActivity}");
-                var targetStillForeground = string.Equals(snapshot?.PackageId, targetPackageId, StringComparison.OrdinalIgnoreCase);
-
-                if (!lockTaskPinned && hasHomeFocus && hasHomeVisible && hasHomeTopOpaque && !targetStillForeground)
+                lastEvidence = ParseKioskForegroundEvidence(activitiesOutput.StdOut);
+                if (IsHomeForegroundAfterExit(lastEvidence, targetPackageId))
                 {
-                    return new ForegroundVerification(
-                        true,
-                        $"Quest reported Home foreground ownership and no pinned {targetPackageId} task after kiosk-exit poll {poll + 1}.");
+                    satisfiedPolls++;
+                    if (satisfiedPolls >= KioskStableForegroundConfirmationCount)
+                    {
+                        return new ForegroundVerification(
+                            true,
+                            $"Quest reported Home-side shell foreground ownership with no pinned {targetPackageId} task across {KioskStableForegroundConfirmationCount} consecutive kiosk-exit polls. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
+                    }
+                }
+                else
+                {
+                    satisfiedPolls = 0;
                 }
             }
 
@@ -2236,15 +2316,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         return new ForegroundVerification(
             false,
-            $"Quest did not report a clean Home-side foreground after exiting kiosk mode within {KioskVerificationPollCount} polls.");
+            $"Quest did not report a clean Home-side foreground after exiting kiosk mode across {KioskStableForegroundConfirmationCount} consecutive polls within {KioskVerificationPollCount} attempts. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
     }
-
-    private static bool ContainsActivityMarker(string output, string marker, string expectedFragment)
-        => output
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Any(line =>
-                line.Contains(marker, StringComparison.OrdinalIgnoreCase) &&
-                line.Contains(expectedFragment, StringComparison.OrdinalIgnoreCase));
 
     private async Task<AdbCommandResult> RunShellAsync(string selector, string command, CancellationToken cancellationToken)
         => await RunAdbAsync(["-s", selector, "shell", command], cancellationToken).ConfigureAwait(false);
@@ -2866,6 +2939,113 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
            !launch.CombinedOutput.Contains("Error:", StringComparison.OrdinalIgnoreCase) &&
            !launch.CombinedOutput.Contains("monkey aborted", StringComparison.OrdinalIgnoreCase);
 
+    internal static KioskForegroundEvidence ParseKioskForegroundEvidence(string output)
+        => new(
+            AdbShellSupport.ParseForegroundSnapshot(output),
+            AdbShellSupport.ParseResumedActivityComponent(output) ?? string.Empty,
+            AdbShellSupport.ParseCurrentFocusComponent(output) ?? string.Empty,
+            AdbShellSupport.ParseFocusedWindowComponent(output) ?? string.Empty,
+            AdbShellSupport.ParseTopFullscreenOpaqueComponent(output) ?? string.Empty,
+            AdbShellSupport.ParseLockTaskModeState(output));
+
+    internal static bool IsSettledForegroundForPackage(KioskForegroundEvidence evidence, string packageId)
+    {
+        if (string.IsNullOrWhiteSpace(packageId) || evidence.Snapshot is null)
+        {
+            return false;
+        }
+
+        var opaqueComponent = ResolveOpaqueForegroundComponent(evidence);
+        return ComponentMatchesPackage(evidence.Snapshot.PrimaryComponent, packageId) &&
+               ComponentMatchesPackage(evidence.ResumedComponent, packageId) &&
+               ComponentMatchesPackage(evidence.CurrentFocusComponent, packageId) &&
+               ComponentMatchesPackage(opaqueComponent, packageId) &&
+               !IsVisibleWakeBlockingOverlayComponent(evidence.Snapshot.PrimaryComponent);
+    }
+
+    internal static bool IsPinnedForegroundForPackage(KioskForegroundEvidence evidence, string packageId)
+        => string.Equals(evidence.LockTaskModeState, "PINNED", StringComparison.OrdinalIgnoreCase) &&
+           IsSettledForegroundForPackage(evidence, packageId);
+
+    internal static bool IsHomeForegroundAfterExit(KioskForegroundEvidence evidence, string targetPackageId)
+    {
+        if (string.Equals(evidence.LockTaskModeState, "PINNED", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var primaryComponent = evidence.Snapshot?.PrimaryComponent;
+        var opaqueComponent = ResolveOpaqueForegroundComponent(evidence);
+        if (ComponentMatchesPackage(primaryComponent, targetPackageId) ||
+            ComponentMatchesPackage(evidence.ResumedComponent, targetPackageId) ||
+            ComponentMatchesPackage(evidence.CurrentFocusComponent, targetPackageId) ||
+            ComponentMatchesPackage(opaqueComponent, targetPackageId))
+        {
+            return false;
+        }
+
+        return IsHomeLikeForegroundComponent(primaryComponent) ||
+               IsHomeLikeForegroundComponent(evidence.ResumedComponent) ||
+               IsHomeLikeForegroundComponent(evidence.CurrentFocusComponent) ||
+               IsHomeLikeForegroundComponent(opaqueComponent);
+    }
+
+    internal static string DescribeKioskForegroundEvidence(KioskForegroundEvidence? evidence)
+    {
+        if (evidence is null)
+        {
+            return "No foreground evidence was parsed.";
+        }
+
+        var parts = new List<string>(6);
+        if (!string.IsNullOrWhiteSpace(evidence.Snapshot?.PrimaryComponent))
+        {
+            parts.Add($"primary {evidence.Snapshot.PrimaryComponent}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(evidence.ResumedComponent))
+        {
+            parts.Add($"resumed {evidence.ResumedComponent}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(evidence.CurrentFocusComponent))
+        {
+            parts.Add($"focus {evidence.CurrentFocusComponent}");
+        }
+
+        var opaqueComponent = ResolveOpaqueForegroundComponent(evidence);
+        if (!string.IsNullOrWhiteSpace(opaqueComponent))
+        {
+            parts.Add($"opaque {opaqueComponent}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(evidence.LockTaskModeState))
+        {
+            parts.Add($"lockTask {evidence.LockTaskModeState}");
+        }
+
+        return parts.Count == 0 ? "No foreground evidence was parsed." : string.Join("; ", parts) + ".";
+    }
+
+    private static bool IsHomeLikeForegroundComponent(string? component)
+        => !string.IsNullOrWhiteSpace(component) &&
+           ((component.Contains(QuestHomePackage, StringComparison.OrdinalIgnoreCase) &&
+             !component.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase)) ||
+            (component.Contains(QuestQuickSettingsPackage, StringComparison.OrdinalIgnoreCase) &&
+             component.Contains(QuestQuickSettingsActivity, StringComparison.OrdinalIgnoreCase)) ||
+            component.Contains(QuestSystemUxPackage, StringComparison.OrdinalIgnoreCase));
+
+    private static bool ComponentMatchesPackage(string? component, string packageId)
+        => !string.IsNullOrWhiteSpace(component) &&
+           !string.IsNullOrWhiteSpace(packageId) &&
+           (string.Equals(component, packageId, StringComparison.OrdinalIgnoreCase) ||
+            component.StartsWith($"{packageId}/", StringComparison.OrdinalIgnoreCase));
+
+    private static string ResolveOpaqueForegroundComponent(KioskForegroundEvidence evidence)
+        => !string.IsNullOrWhiteSpace(evidence.TopOpaqueComponent)
+            ? evidence.TopOpaqueComponent
+            : evidence.FocusedWindowComponent;
+
     internal static bool IsWakeFailure(OperationOutcome? wakeOutcome)
         => wakeOutcome?.Kind == OperationOutcomeKind.Failure;
 
@@ -2944,6 +3124,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         string Detail);
 
     private sealed record QuestWakeResumeTarget(string PackageId, string? Component);
+
+    internal sealed record KioskForegroundEvidence(
+        AdbShellSupport.ForegroundAppSnapshot? Snapshot,
+        string ResumedComponent,
+        string CurrentFocusComponent,
+        string FocusedWindowComponent,
+        string TopOpaqueComponent,
+        string LockTaskModeState);
 
     private sealed record ForegroundVerification(bool Succeeded, string Detail);
 

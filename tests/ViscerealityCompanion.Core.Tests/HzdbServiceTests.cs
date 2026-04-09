@@ -149,4 +149,15 @@ public sealed class HzdbServiceTests
 
         Assert.Null(resolved);
     }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("screencap", true)]
+    [InlineData(" Screencap ", true)]
+    [InlineData("metacam", false)]
+    public void ShouldPreferAdbScreenshot_matches_expected_methods(string? method, bool expected)
+    {
+        Assert.Equal(expected, WindowsHzdbService.ShouldPreferAdbScreenshot(method));
+    }
 }

@@ -12,6 +12,26 @@ nav_order: 80
 The `viscereality` CLI mirrors the WPF desktop app's capabilities for
 scripting, automation, and headless operation.
 
+## Sussex Workflow Split
+
+For the Sussex study workflow there is now a deliberate split between CLI and
+GUI surfaces:
+
+- CLI:
+  - deterministic setup, install, launch, status, and profile operations
+  - machine-readable inspection with `--json`
+- `Sequential Guide` window:
+  - one pre-session verification pass directly before a real participant
+- `Experiment Session` window:
+  - the live participant-run surface for participant id entry, `Start
+    Recording`, `Stop Recording`, live telemetry, clock/network consistency,
+    recenter, particle toggles, screenshots, and quick access to the session
+    folder
+
+The CLI currently mirrors the setup and profile side of Sussex. It does not
+yet replace the participant-run `Start Recording` / `Stop Recording` flow in
+the `Experiment Session` window.
+
 ## Running
 
 ```powershell
@@ -74,6 +94,43 @@ Options:
 
 - `--root <path>` — catalog root directory (auto-detected if omitted)
 
+### Study Shells
+
+| Command | Description |
+|---------|-------------|
+| `study list` | List available pinned study shells |
+| `study install <study>` | Install the pinned study APK |
+| `study apply-profile <study>` | Apply the pinned study device profile |
+| `study launch <study>` | Launch the pinned study runtime using the study kiosk policy |
+| `study stop <study>` | Stop the pinned study runtime using the study kiosk-exit policy |
+| `study status <study>` | Compare current headset state against the pinned study baseline |
+
+For Sussex, the study id is currently `sussex-university`.
+
+### Sussex Profiles
+
+The Sussex profile commands mirror the GUI profile tabs and are the preferred
+agentic path for repeatable tuning work:
+
+- `sussex visual ...`
+- `sussex controller ...`
+
+Common subcommands on both surfaces are:
+
+- `list`
+- `fields`
+- `show <profile>`
+- `create`
+- `update <profile>`
+- `delete <profile>`
+- `import <path>`
+- `export <profile> <path>`
+- `set-startup <profile>`
+- `clear-startup`
+- `apply-live <profile>`
+
+Use `--json` whenever an agent needs stable machine-readable output.
+
 ### Utilities
 
 | Command | Description |
@@ -103,3 +160,24 @@ viscereality launch com.Viscereality.SussexExperiment
 viscereality twin send twin-start
 viscereality monitor --stream quest_monitor --type quest.telemetry
 ```
+
+## Example Sussex Agent Workflow
+
+```powershell
+viscereality study status sussex-university
+viscereality study install sussex-university
+viscereality study apply-profile sussex-university
+viscereality study launch sussex-university
+viscereality sussex visual fields --json
+viscereality sussex visual apply-live "<profile>" --json
+viscereality sussex controller apply-live "<profile>" --json
+```
+
+After that deterministic CLI setup:
+
+1. Open the Sussex `Sequential Guide` in the desktop app and complete the
+   pre-session checks.
+2. Use the guide's final handoff or the Home screen button to open
+   `Experiment Session`.
+3. Run the real participant session from that window with `Start Recording`
+   and `Stop Recording`.

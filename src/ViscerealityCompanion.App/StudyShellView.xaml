@@ -12,6 +12,7 @@
         <local:OutcomeKindToSoftBrushConverter x:Key="OutcomeKindToSoftBrush" />
         <local:BatteryToBrushConverter x:Key="BatteryToBrush" />
         <local:LogLevelToBrushConverter x:Key="LogLevelToBrush" />
+        <local:StatusDetailFormatterConverter x:Key="StatusDetailFormatter" />
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
 
         <Style x:Key="InfoLabelStyle" TargetType="TextBlock">
@@ -228,7 +229,7 @@
                                     BorderBrush="{Binding LslLevel, Converter={StaticResource OutcomeKindToBrush}}">
                                 <StackPanel>
                                     <TextBlock Text="During session" Style="{StaticResource InfoLabelStyle}" />
-                                    <TextBlock Text="Monitor live breathing, coherence, particles, position, and LSL timing while the participant is in the headset."
+                                    <TextBlock Text="Monitor live breathing, coherence, particles, position, and LSL timing here, but use the dedicated Experiment Session pop-out for the actual participant run."
                                                Style="{StaticResource CompactCaptionStyle}" />
                                     <TextBlock Text="{Binding LslSummary}"
                                                FontWeight="Bold"
@@ -247,16 +248,19 @@
                                     BorderBrush="{Binding WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}">
                                 <StackPanel>
                                     <TextBlock Text="Sequential guide" Style="{StaticResource InfoLabelStyle}" />
-                                    <TextBlock Text="Step-by-step guided walkthrough of the full Sussex session protocol, from setup through participant end."
+                                    <TextBlock Text="Run this directly before the live session: setup, Wi-Fi handoff, kiosk launch, LSL checks, optional validation capture, then hand off into Experiment Session."
                                                Style="{StaticResource CompactCaptionStyle}" />
                                     <TextBlock Text="{Binding WorkflowCurrentStepSummary}"
                                                FontWeight="Bold"
                                                Foreground="{Binding WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                TextWrapping="Wrap"
                                                Margin="0,8,0,0" />
-                                    <Button Content="Open Sequential Guide"
-                                            Command="{Binding OpenWorkflowGuideWindowCommand}"
-                                            Margin="0,8,0,0" />
+                                    <WrapPanel Margin="0,8,0,0">
+                                        <Button Content="Open Sequential Guide"
+                                                Command="{Binding OpenWorkflowGuideWindowCommand}" />
+                                        <Button Content="Open Experiment Session"
+                                                Command="{Binding OpenExperimentSessionWindowCommand}" />
+                                    </WrapPanel>
                                 </StackPanel>
                             </Border>
 
@@ -558,23 +562,14 @@
                                                        Foreground="{Binding ConnectionTransportLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                        Style="{StaticResource CompactCaptionStyle}"
                                                        Margin="0,8,0,0" />
-                                            <TextBlock Text="{Binding ConnectionTransportDetail}"
-                                                       Style="{StaticResource CompactCaptionStyle}"
-                                                       Margin="0,4,0,0" />
                                             <TextBlock Text="{Binding HeadsetWifiSummary}"
                                                        Style="{StaticResource CompactCaptionStyle}"
                                                        Margin="0,6,0,0" />
-                                            <TextBlock Text="{Binding HostWifiSummary}"
-                                                       Style="{StaticResource CompactCaptionStyle}"
-                                                       Margin="0,2,0,0" />
                                             <TextBlock Text="{Binding WifiNetworkMatchSummary}"
                                                        FontWeight="SemiBold"
                                                        Foreground="{Binding WifiNetworkMatchLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                        Style="{StaticResource CompactCaptionStyle}"
                                                        Margin="0,2,0,0" />
-                                            <TextBlock Text="{Binding DeviceSnapshotTimestampLabel}"
-                                                       Style="{StaticResource CompactCaptionStyle}"
-                                                       Margin="0,6,0,0" />
                                             <TextBlock Text="Quest endpoint" Style="{StaticResource InfoLabelStyle}" Margin="0,10,0,6" />
                                             <TextBox Text="{Binding EndpointDraft, UpdateSourceTrigger=PropertyChanged}" />
                                             <WrapPanel Margin="0,8,0,0">
@@ -586,11 +581,27 @@
                                             </WrapPanel>
                                             <Expander Style="{StaticResource CompactStatusExpanderStyle}">
                                                 <Expander.Header>
-                                                    <TextBlock Text="Details" Style="{StaticResource InfoLabelStyle}" Margin="0" />
+                                                    <TextBlock Text="Connection details" Style="{StaticResource InfoLabelStyle}" Margin="0" />
                                                 </Expander.Header>
-                                                <TextBlock Text="{Binding QuestStatusDetail}"
-                                                           Style="{StaticResource CompactCaptionStyle}"
-                                                           Margin="0,6,0,0" />
+                                                <StackPanel Margin="0,6,0,0">
+                                                    <TextBlock Text="Transport" Style="{StaticResource InfoLabelStyle}" Margin="0" />
+                                                    <TextBlock Text="{Binding ConnectionTransportDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,4,0,0" />
+                                                    <TextBlock Text="Network" Style="{StaticResource InfoLabelStyle}" Margin="0,8,0,0" />
+                                                    <TextBlock Text="{Binding HeadsetWifiSummary, Converter={StaticResource StatusDetailFormatter}}"
+                                                               Style="{StaticResource CompactCaptionStyle}" />
+                                                    <TextBlock Text="{Binding HostWifiSummary, Converter={StaticResource StatusDetailFormatter}}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,4,0,0" />
+                                                    <TextBlock Text="{Binding DeviceSnapshotTimestampLabel, Converter={StaticResource StatusDetailFormatter}}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,4,0,0" />
+                                                    <TextBlock Text="Quest state" Style="{StaticResource InfoLabelStyle}" Margin="0,8,0,0" />
+                                                    <TextBlock Text="{Binding QuestStatusDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,4,0,0" />
+                                                </StackPanel>
                                             </Expander>
                                         </StackPanel>
                                     </Border>
@@ -619,7 +630,10 @@
                                                         Command="{Binding BrowseApkCommand}"
                                                         Visibility="{Binding CanChooseStudyApk, Converter={StaticResource BoolToVisibility}}" />
                                                 <Button Content="{Binding StudyApkInstallButtonLabel}" Command="{Binding InstallStudyAppCommand}" />
-                                                <Button Content="{Binding StudyRuntimeActionLabel}" Command="{Binding ToggleStudyRuntimeCommand}" />
+                                                <Button Content="{Binding StudyRuntimeActionLabel}"
+                                                        Command="{Binding ToggleStudyRuntimeCommand}"
+                                                        Style="{StaticResource StateActionButtonStyle}"
+                                                        Tag="{Binding IsStudyRuntimeToggleState}" />
                                             </WrapPanel>
                                             <Expander Style="{StaticResource CompactStatusExpanderStyle}">
                                                 <Expander.Header>
@@ -720,6 +734,8 @@
                                                                Margin="0,6,0,0" />
                                                     <Button Content="{Binding ProximityActionLabel}"
                                                             Command="{Binding ToggleProximityCommand}"
+                                                            Style="{StaticResource StateActionButtonStyle}"
+                                                            Tag="{Binding IsProximityToggleState}"
                                                             IsEnabled="{Binding CanToggleProximity}"
                                                             Margin="0,10,0,0" />
                                                 </StackPanel>
@@ -791,6 +807,8 @@
                                                                TextWrapping="Wrap" />
                                                     <Button Content="{Binding TestLslSenderActionLabel}"
                                                             Command="{Binding ToggleTestLslSenderCommand}"
+                                                            Style="{StaticResource StateActionButtonStyle}"
+                                                            Tag="{Binding IsTestLslSenderToggleState}"
                                                             IsEnabled="{Binding CanToggleTestLslSender}"
                                                             Margin="0,10,0,0" />
                                                 </StackPanel>
@@ -827,15 +845,12 @@
                                                Foreground="{Binding ParticlesLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                TextWrapping="Wrap" />
                                     <TextBlock Text="{Binding ParticlesDetail}" Style="{StaticResource CompactCaptionStyle}" Margin="0,6,0,0" />
-                                    <WrapPanel Margin="0,12,0,0">
-                                        <Button Content="Particles On"
-                                                Command="{Binding ParticlesOnCommand}"
-                                                IsEnabled="{Binding CanToggleParticles}"
-                                                FontWeight="Bold" />
-                                        <Button Content="Particles Off"
-                                                Command="{Binding ParticlesOffCommand}"
-                                                IsEnabled="{Binding CanToggleParticles}" />
-                                    </WrapPanel>
+                                    <Button Content="{Binding ParticlesToggleActionLabel}"
+                                            Command="{Binding ToggleParticlesCommand}"
+                                            IsEnabled="{Binding CanToggleParticles}"
+                                            Style="{StaticResource StateActionButtonStyle}"
+                                            Tag="{Binding IsParticlesToggleState}"
+                                            Margin="0,12,0,0" />
                                 </StackPanel>
                             </Border>
 
@@ -925,6 +940,8 @@
                                                         IsEnabled="{Binding CanToggleAutomaticBreathingMode}" />
                                                 <Button Content="{Binding AutomaticBreathingRunActionLabel}"
                                                         Command="{Binding ToggleAutomaticBreathingRunCommand}"
+                                                        Style="{StaticResource StateActionButtonStyle}"
+                                                        Tag="{Binding IsAutomaticBreathingRunToggleState}"
                                                         IsEnabled="{Binding CanToggleAutomaticBreathingRun}" />
                                             </WrapPanel>
                                         </StackPanel>

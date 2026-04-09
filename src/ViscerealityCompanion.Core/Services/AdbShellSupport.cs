@@ -43,6 +43,26 @@ internal static partial class AdbShellSupport
     public static string? ParseForegroundComponent(string output)
         => ParseForegroundSnapshot(output)?.PrimaryComponent;
 
+    public static string? ParseResumedActivityComponent(string output)
+        => TryParseComponent(output, PrimaryForegroundPattern1());
+
+    public static string? ParseCurrentFocusComponent(string output)
+        => TryParseComponent(output, PrimaryForegroundPattern2()) ??
+           TryParsePackageOnlyComponent(output, PrimaryForegroundPattern7());
+
+    public static string? ParseFocusedWindowComponent(string output)
+        => TryParseComponent(output, PrimaryForegroundPattern4());
+
+    public static string? ParseTopFullscreenOpaqueComponent(string output)
+        => TryParseComponent(output, PrimaryForegroundPattern6()) ??
+           TryParseComponent(output, PrimaryForegroundPattern5());
+
+    public static string ParseLockTaskModeState(string output)
+    {
+        var match = LockTaskModeStatePattern().Match(output);
+        return match.Success ? match.Groups["state"].Value : string.Empty;
+    }
+
     public static ForegroundAppSnapshot? ParseForegroundSnapshot(string output)
     {
         var primaryComponent = ParsePrimaryForegroundComponent(output);
@@ -183,7 +203,7 @@ internal static partial class AdbShellSupport
     public static string Collapse(string value)
         => string.Join(" ", value.Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
 
-    [GeneratedRegex(@"(?:ResumedActivity:|Resumed:\s+ActivityRecord\{[^}]*\s)(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"(?:ResumedActivity:\s*(?:ActivityRecord\{[^}]*\s)?|Resumed:\s+ActivityRecord\{[^}]*\s)(?<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
     private static partial Regex PrimaryForegroundPattern1();
 
     [GeneratedRegex(@"mCurrentFocus=Window\{[^}]*\s(?<package>[A-Za-z0-9_\.]+)/(?<activity>[A-Za-z0-9_\.$]+)", RegexOptions.Compiled)]
@@ -228,6 +248,9 @@ internal static partial class AdbShellSupport
     [GeneratedRegex(@"\bmActivityComponent=(?<component>[^\s]+)", RegexOptions.Compiled)]
     private static partial Regex RecentTaskComponentPattern();
 
+    [GeneratedRegex(@"mLockTaskModeState=(?<state>[A-Z_]+)", RegexOptions.Compiled)]
+    private static partial Regex LockTaskModeStatePattern();
+
     private static IReadOnlyList<Regex> PrimaryForegroundPatterns()
         => [
             PrimaryForegroundPattern1(),
@@ -259,6 +282,31 @@ internal static partial class AdbShellSupport
         => string.IsNullOrWhiteSpace(activityName)
             ? packageId
             : $"{packageId}/{activityName}";
+
+    private static string? TryParseComponent(string output, Regex pattern)
+    {
+        var match = pattern.Match(output);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var packageId = match.Groups["package"].Value;
+        var activityName = match.Groups["activity"].Value;
+        return BuildComponent(packageId, activityName);
+    }
+
+    private static string? TryParsePackageOnlyComponent(string output, Regex pattern)
+    {
+        var match = pattern.Match(output);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var packageId = match.Groups["package"].Value;
+        return BuildComponent(packageId, string.Empty);
+    }
 
     private static bool TryResolveTaskId(RecentTaskCandidate? candidate, string packageId, out int taskId)
     {

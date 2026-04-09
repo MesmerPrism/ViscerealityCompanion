@@ -46,13 +46,35 @@ public sealed class WindowsHzdbService : IHzdbService
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);
 
-        var methodArg = string.IsNullOrWhiteSpace(method)
-            ? string.Empty
-            : $" --method \"{method}\"";
-        var result = await RunAsync($"capture screenshot --device \"{deviceSerial}\"{methodArg} -o \"{outputPath}\"", cancellationToken).ConfigureAwait(false);
-        return result.ExitCode == 0
-            ? Outcome(OperationOutcomeKind.Success, "Screenshot captured.", result.StdOut)
-            : Outcome(OperationOutcomeKind.Failure, "Screenshot capture failed.", result.Combined);
+        var normalizedMethod = NormalizeScreenshotMethod(method);
+        if (ShouldPreferAdbScreenshot(normalizedMethod))
+        {
+            var adbOutcome = await CaptureScreenshotViaAdbAsync(deviceSerial, outputPath, cancellationToken).ConfigureAwait(false);
+            if (adbOutcome.Kind == OperationOutcomeKind.Success)
+            {
+                return adbOutcome;
+            }
+
+            var hzdbOutcome = await CaptureScreenshotViaHzdbAsync(
+                    deviceSerial,
+                    outputPath,
+                    string.IsNullOrWhiteSpace(normalizedMethod) ? "screencap" : normalizedMethod,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return hzdbOutcome.Kind == OperationOutcomeKind.Success
+                ? hzdbOutcome with
+                {
+                    Detail = string.IsNullOrWhiteSpace(adbOutcome.Detail)
+                        ? hzdbOutcome.Detail
+                        : $"{adbOutcome.Detail} Fell back to hzdb screenshot capture and succeeded."
+                }
+                : Outcome(
+                    OperationOutcomeKind.Failure,
+                    "Screenshot capture failed.",
+                    $"{adbOutcome.Detail}\n{hzdbOutcome.Detail}".Trim());
+        }
+
+        return await CaptureScreenshotViaHzdbAsync(deviceSerial, outputPath, normalizedMethod, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default)
@@ -188,6 +210,10 @@ public sealed class WindowsHzdbService : IHzdbService
     internal static string? ResolveNpxCommandPath()
         => ResolveNpxCommandPath(EnumerateNpxCommandCandidates(), File.Exists);
 
+    internal static bool ShouldPreferAdbScreenshot(string? method)
+        => string.IsNullOrWhiteSpace(method) ||
+           string.Equals(method.Trim().Trim('"'), "screencap", StringComparison.OrdinalIgnoreCase);
+
     internal static string? ResolveNpxCommandPath(IEnumerable<string?> candidatePaths, Func<string, bool> fileExists)
     {
         ArgumentNullException.ThrowIfNull(candidatePaths);
@@ -287,6 +313,25 @@ public sealed class WindowsHzdbService : IHzdbService
         return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
     }
 
+    private async Task<OperationOutcome> CaptureScreenshotViaHzdbAsync(
+        string deviceSerial,
+        string outputPath,
+        string? method,
+        CancellationToken cancellationToken)
+    {
+        var methodArg = string.IsNullOrWhiteSpace(method)
+            ? string.Empty
+            : $" --method \"{method}\"";
+        var result = await RunAsync($"capture screenshot --device \"{deviceSerial}\"{methodArg} -o \"{outputPath}\"", cancellationToken).ConfigureAwait(false);
+        if (result.ExitCode == 0 && File.Exists(outputPath))
+        {
+            return Outcome(OperationOutcomeKind.Success, "Screenshot captured.", result.StdOut);
+        }
+
+        TryDelete(outputPath);
+        return Outcome(OperationOutcomeKind.Failure, "Screenshot capture failed.", result.Combined);
+    }
+
     private ProcessStartInfo CreateProcessStartInfo(string arguments)
     {
         var npxCommandPath = _npxCommandPath.Value;
@@ -329,6 +374,77 @@ public sealed class WindowsHzdbService : IHzdbService
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
         return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
+    }
+
+    private static async Task<OperationOutcome> CaptureScreenshotViaAdbAsync(
+        string deviceSerial,
+        string outputPath,
+        CancellationToken cancellationToken)
+    {
+        var adbPath = AdbExecutableLocator.TryLocate();
+        if (string.IsNullOrWhiteSpace(adbPath))
+        {
+            return Outcome(
+                OperationOutcomeKind.Failure,
+                "Screenshot capture failed.",
+                "adb.exe could not be located for raw Quest screencap capture.");
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = adbPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in new[] { "-s", deviceSerial, "exec-out", "screencap", "-p" })
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+
+        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        try
+        {
+            await using var outputStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            await process.StandardOutput.BaseStream.CopyToAsync(outputStream, cancellationToken).ConfigureAwait(false);
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+            var stderr = (await stderrTask.ConfigureAwait(false)).Trim();
+            var fileInfo = new FileInfo(outputPath);
+            if (process.ExitCode == 0 && fileInfo.Exists && fileInfo.Length > 0)
+            {
+                return new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    "Screenshot captured.",
+                    $"Captured a raw Quest frame through adb exec-out screencap -p to {outputPath}.",
+                    Items: [outputPath]);
+            }
+
+            TryDelete(outputPath);
+            return Outcome(
+                OperationOutcomeKind.Failure,
+                "Screenshot capture failed.",
+                string.IsNullOrWhiteSpace(stderr)
+                    ? "adb exec-out screencap -p did not return a usable PNG."
+                    : stderr);
+        }
+        catch (OperationCanceledException)
+        {
+            TryDelete(outputPath);
+            TryKill(process);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            TryDelete(outputPath);
+            return Outcome(
+                OperationOutcomeKind.Failure,
+                "Screenshot capture failed.",
+                $"adb exec-out screencap -p failed: {exception.Message}");
+        }
     }
 
     private static async Task<OperationOutcome> CapturePerfTraceViaAdbFallbackAsync(
@@ -477,6 +593,16 @@ public sealed class WindowsHzdbService : IHzdbService
         {
             return null;
         }
+    }
+
+    private static string? NormalizeScreenshotMethod(string? method)
+    {
+        if (string.IsNullOrWhiteSpace(method))
+        {
+            return null;
+        }
+
+        return method.Trim().Trim('"');
     }
 
     private static void TryKill(Process process)

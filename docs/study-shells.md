@@ -222,13 +222,20 @@ the local writable profile library. They can be selected, applied, exported,
 and pinned for launch, but editing them requires copying them into the runtime
 draft and saving that draft as a new local profile.
 
-The workflow is intentionally split into three separate surfaces plus the
+The workflow is intentionally split into four separate surfaces plus the
 orientation-first Sussex home view:
 
 - the Home tab:
   - this is the operator landing page
   - it summarizes pre-session state, live-session state, and the current
     sequential-guide step before the operator dives deeper
+- the Experiment Session window:
+  - this is the dedicated live participant-run surface after the sequential
+    guide has passed
+  - it keeps participant entry, `Start Recording`, `Stop Recording`, live
+    telemetry, clock/network consistency, recenter, particle toggles,
+    screenshot capture, and the condensed operator log on one low-distraction
+    popout
 - one saved launch profile:
   - this is the pinned saved profile the shell stages to the device-side
     startup CSV before Sussex launches
@@ -270,14 +277,23 @@ The packaged Sussex shell now exposes two agent-facing control modes:
 - CLI-driving for deterministic profile edits, startup/default changes, and
   machine-readable inspection
 
-For GUI-driving, use real UI interactions: select the relevant Sussex tab,
-focus the editable cell or toggle, type or toggle through UI Automation /
-keyboard input, then invoke the matching button. For deterministic profile
-authoring and startup/default changes, prefer the CLI.
+For GUI-driving, use real UI interactions: select the relevant Sussex tab or
+popout window, focus the editable cell or toggle, type or toggle through UI
+Automation / keyboard input, then invoke the matching button. For deterministic
+profile authoring and startup/default changes, prefer the CLI.
 
 For automation, prefer the CLI. It now uses the same persisted profile JSON
 files, startup/default state, apply-state tracking, and device-side hotload
-sync rules as the GUI.
+sync rules as the GUI. The intended agentic Sussex workflow is:
+
+1. CLI for deterministic setup, launch, and profile work.
+2. GUI `Sequential Guide` once directly before the participant.
+3. GUI `Experiment Session` window for the live participant run and recording.
+
+Do not invent ad hoc CLI replacements for the live participant recorder flow.
+The current CLI parity stops at setup/runtime control and profile automation;
+the real participant run is intentionally driven from the `Experiment Session`
+window.
 
 The agent-readable field catalogs are:
 
@@ -349,7 +365,7 @@ window that walks the operator through the fixed Sussex protocol step by step:
 - LSL and particle verification
 - optional controller calibration
 - 20 second validation capture with inline timing alignment, local and pulled Quest output folders, and a generated PDF review report
-- reset-to-ready handoff back to the main shell
+- reset-to-ready handoff into the dedicated `Experiment Session` window or back to the main shell
 
 At the LSL step, the guide now exposes `Probe Connection`. That button does not
 sniff raw LSL packets directly from Android. Instead, it combines the current
@@ -391,15 +407,19 @@ That readback is intentionally driven by the dedicated Sussex automatic-cycle
 telemetry (`study.breathing.value01` plus `routing.automatic_breathing.running`)
 instead of inferring state from `routing.adaptive_pacer.enabled`.
 
-That same `During session` surface now keeps the other live-session controls in
-one place:
+The dedicated `Experiment Session` window now keeps the other live-session
+controls in one place during the participant run:
 
 - live particles and performance status
 - breathing-driver and coherence state
 - recenter status and fresh Quest screenshot capture
-- LSL clock alignment and live LSL inlet status
+- clock/network consistency plus the latest clock-alignment status
 - the collapsible operator log for deeper troubleshooting without taking over
   the main live-monitoring layout
+
+The embedded `During session` surface remains available when the operator wants
+broader shell context or deeper inspection, but the popout is now the preferred
+live-run window.
 
 The Sussex shell now uses the bundled APK path from the app payload on
 startup, so packaged Windows installs do not depend on a machine-local Astral

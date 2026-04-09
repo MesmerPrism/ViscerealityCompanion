@@ -64,6 +64,26 @@ cross-project patterns, or central-bureau maintenance, use
 - If a GUI validation run appears stuck, check
   `%LOCALAPPDATA%\\ViscerealityCompanion\\logs` and the active
   `artifacts/verify/...` folder before retrying.
+- On the current HorizonOS build, do not treat `viscereality study launch
+  sussex-university`, kiosk entry, or shell-owned process state as proof that
+  Sussex is visibly foregrounded. The app can launch, trigger a permission /
+  task-lock transition, and bounce back to Home.
+- For live Sussex validation, require both:
+  - foreground confirmation from `viscereality status` or an equivalent ADB
+    foreground-app check showing
+    `com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity`
+  - a fresh Quest screenshot captured after launch, preferably with
+    `viscereality hzdb screenshot --method screencap` or the equivalent direct
+    `hzdb` command, showing the Sussex scene rather than passthrough / Home
+- If repeated screenshots are byte-identical, do not assume the screenshot path
+  is frozen. First decide whether the visible headset scene itself is actually
+  unchanged. If the screenshot still shows Home or passthrough while the shell
+  claims Sussex is active, trust the screenshot and treat the launch as failed.
+- If the kiosk launch path bounces back to Home, prefer an explicit non-kiosk
+  launch for off-face validation:
+  `adb shell am start -n com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity`
+  After that, refresh the companion snapshot before using `Sequential Guide` or
+  `Experiment Session`.
 - Do not call `Exit Kiosk Runtime`, `viscereality study stop
   sussex-university`, or any equivalent Sussex APK quit path while the headset
   is off-face or while the visible headset scene is unconfirmed. On this
@@ -71,6 +91,10 @@ cross-project patterns, or central-bureau maintenance, use
   SensorLock / passthrough limbo even when shell ownership looks home-like.
 - For off-face automation and functionality tests, quitting the Sussex APK is
   optional and should normally be skipped.
+- Recent Meta OS updates on this machine appear to have weakened true kiosk
+  lock. Off-face stop / restart is now less risky than older builds, but it is
+  still not a validation signal by itself. If an agent restarts Sussex
+  off-face, immediately re-check both foreground state and a fresh screenshot.
 - If Sussex really must be exited, ask the user to wear the headset and quit it
   from a visible on-head state, then confirm the resulting Home-side scene with
   `Capture Quest Screenshot` or an equivalent metacam capture.
@@ -213,6 +237,19 @@ surfaces:
 1. GUI-driving
    - Use this when the task depends on rendered state, visual validation,
      screenshot confirmation, or user-facing layout/tooltip placement.
+   - The Sussex GUI is intentionally split by session phase:
+     - `Open Sequential Guide` is the pre-session checklist. Use it once
+       directly before a participant to verify transport, APK/profile state,
+       LSL connectivity, particle commands, and the optional 20 second
+       validation capture.
+     - `Open Experiment Session` is the live participant-run surface. Use it
+       after the guide has passed. It owns participant-id entry, `Start
+       Recording`, `Stop Recording`, `Open Session Folder`, live telemetry,
+       clock/network consistency, recenter, particle toggles, screenshots, and
+       the condensed operator log.
+     - The main Sussex shell remains the broader tuning and inspection surface
+       for profile editing, diagnostics, and deeper runtime review before the
+       study setup is locked.
    - Example: verify that the pinned startup profile appears in the `Visual
      Profiles` table, or confirm that a tooltip is attached to the right row.
    - Use real UI interactions: activate the tab, focus the control, type or
@@ -221,9 +258,13 @@ surfaces:
      scripting GUI behavior.
 2. CLI-driving
    - Prefer this for deterministic state changes, profile creation, profile
-     edits, startup/default changes, and machine-readable inspection.
+     edits, startup/default changes, APK/profile staging, and machine-readable
+     inspection.
    - Example: create a new profile, halve `particle_size_min` and
      `particle_size_max`, save it, pin it for next launch, or export it.
+   - The CLI is not yet the preferred live participant-run surface. Do not
+     invent ad hoc CLI replacements for the session recorder flow when the task
+     is to run a real participant session; use the `Experiment Session` window.
 
 When an action exists in both places, the CLI is the preferred automation path.
 It uses the same persisted profile JSON files, the same startup/apply state
@@ -232,6 +273,12 @@ template schemas, and the same hotload/twin publish channels as the GUI.
 Current exception: Sussex kiosk exit / `study stop` cleanup is not a preferred
 off-face automation path on this machine. Treat runtime exit as a user-worn
 operator action unless the user explicitly wants to take that risk.
+
+For the full Sussex agentic operator workflow, prefer this order:
+
+1. CLI for repeatable setup, install/launch, and profile work.
+2. GUI `Sequential Guide` once directly before the real session.
+3. GUI `Experiment Session` window for the live participant run and recording.
 
 ## Sussex CLI Parity
 
@@ -276,6 +323,15 @@ Important parity rules:
   - Do not use it as unattended cleanup while the headset is off-face.
   - If exit matters, ask the user to quit Sussex while wearing the headset.
   - For functionality tests, leaving the Sussex runtime running is acceptable.
+
+Current CLI parity stops at setup, runtime control, and profile management. The
+real participant-run recorder flow is intentionally GUI-first:
+
+- use the CLI for `study install`, `study apply-profile`, `study launch`,
+  `study status`, and Sussex profile authoring/apply work
+- use the `Sequential Guide` for the final pre-session verification pass
+- use the `Experiment Session` window for `Start Recording`, `Stop Recording`,
+  live telemetry monitoring, and in-session command tools
 
 ## Sussex Profile Recipes
 

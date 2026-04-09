@@ -444,4 +444,78 @@ public sealed class WindowsAdbQuestControlServiceTests
         Assert.Contains(wakeOutcome.Summary, merged.Detail);
         Assert.Contains(stopOutcome.Detail, merged.Detail);
     }
+
+    [Fact]
+    public void ParseKioskForegroundEvidence_detects_clear_activity_as_real_pinned_foreground()
+    {
+        const string output = """
+            topResumedActivity=ActivityRecord{c61340f u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity t8083}
+            ResumedActivity: ActivityRecord{e5cc2d7 u0 com.oculus.os.clearactivity/.ClearActivity t8085}
+            mCurrentFocus=Window{39d1619 u0 com.oculus.os.clearactivity/com.oculus.os.clearactivity.ClearActivity}
+            mFocusedApp=ActivityRecord{e5cc2d7 u0 com.oculus.os.clearactivity/.ClearActivity t8085}
+            mTopFullscreenOpaqueWindowState=Window{39d1619 u0 com.oculus.os.clearactivity/com.oculus.os.clearactivity.ClearActivity}
+            mLockTaskModeState=PINNED
+            """;
+
+        var evidence = WindowsAdbQuestControlService.ParseKioskForegroundEvidence(output);
+
+        Assert.NotNull(evidence.Snapshot);
+        Assert.Equal("com.oculus.os.clearactivity/.ClearActivity", evidence.Snapshot!.PrimaryComponent);
+        Assert.Equal("com.oculus.os.clearactivity/.ClearActivity", evidence.ResumedComponent);
+        Assert.Equal("com.oculus.os.clearactivity/com.oculus.os.clearactivity.ClearActivity", evidence.CurrentFocusComponent);
+        Assert.Equal("com.oculus.os.clearactivity/com.oculus.os.clearactivity.ClearActivity", evidence.TopOpaqueComponent);
+        Assert.Equal("PINNED", evidence.LockTaskModeState);
+        Assert.False(WindowsAdbQuestControlService.IsPinnedForegroundForPackage(evidence, "com.Viscereality.SussexExperiment"));
+    }
+
+    [Fact]
+    public void IsPinnedForegroundForPackage_accepts_stable_target_pin()
+    {
+        const string output = """
+            topResumedActivity=ActivityRecord{e631854 u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity t8086}
+            ResumedActivity: ActivityRecord{e631854 u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity t8086}
+            mCurrentFocus=Window{c420b05 u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity}
+            mFocusedApp=ActivityRecord{e631854 u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity t8086}
+            mFocusedWindow=Window{c420b05 u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity}
+            mTopFullscreenOpaqueWindowState=Window{c420b05 u0 com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity}
+            mLockTaskModeState=PINNED
+            """;
+
+        var evidence = WindowsAdbQuestControlService.ParseKioskForegroundEvidence(output);
+
+        Assert.True(WindowsAdbQuestControlService.IsSettledForegroundForPackage(evidence, "com.Viscereality.SussexExperiment"));
+        Assert.True(WindowsAdbQuestControlService.IsPinnedForegroundForPackage(evidence, "com.Viscereality.SussexExperiment"));
+    }
+
+    [Fact]
+    public void IsHomeForegroundAfterExit_accepts_home_shell_foreground()
+    {
+        const string output = """
+            ResumedActivity: ActivityRecord{8d9f77c u0 com.oculus.vrshell/.HomeActivity t7929}
+            mCurrentFocus=Window{5724ad1 u0 com.oculus.vrshell/com.oculus.vrshell.HomeActivity}
+            mFocusedWindow=Window{5724ad1 u0 com.oculus.vrshell/com.oculus.vrshell.HomeActivity}
+            mTopFullscreenOpaqueWindowState=Window{5724ad1 u0 com.oculus.vrshell/com.oculus.vrshell.HomeActivity}
+            mLockTaskModeState=NONE
+            """;
+
+        var evidence = WindowsAdbQuestControlService.ParseKioskForegroundEvidence(output);
+
+        Assert.True(WindowsAdbQuestControlService.IsHomeForegroundAfterExit(evidence, "com.Viscereality.SussexExperiment"));
+    }
+
+    [Fact]
+    public void IsHomeForegroundAfterExit_accepts_systemux_virtual_objects_foreground()
+    {
+        const string output = """
+            ResumedActivity: ActivityRecord{12345 u0 com.oculus.systemux/com.oculus.panelapp.virtualobjects.VirtualObjectsActivity t7931}
+            mCurrentFocus=Window{67890 u0 com.oculus.systemux/com.oculus.panelapp.virtualobjects.VirtualObjectsActivity}
+            mFocusedWindow=Window{67890 u0 com.oculus.systemux/com.oculus.panelapp.virtualobjects.VirtualObjectsActivity}
+            mTopFullscreenOpaqueWindowState=Window{67890 u0 com.oculus.systemux/com.oculus.panelapp.virtualobjects.VirtualObjectsActivity}
+            mLockTaskModeState=NONE
+            """;
+
+        var evidence = WindowsAdbQuestControlService.ParseKioskForegroundEvidence(output);
+
+        Assert.True(WindowsAdbQuestControlService.IsHomeForegroundAfterExit(evidence, "com.Viscereality.SussexExperiment"));
+    }
 }

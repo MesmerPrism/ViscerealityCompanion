@@ -46,6 +46,9 @@ public sealed class StudyDataRecorderService
         new("breathing", "breathing.value01", "unit01", ["study.breathing.value01", "signal01.breathing_controller", "tracker.breathing.controller.volume01"]),
         new("breathing", "sphere_radius.progress01", "unit01", ["study.radius.sphere.progress01"]),
         new("breathing", "sphere_radius.raw", "units", ["study.radius.sphere.raw"]),
+        new("performance", "performance.fps", "hz", ["study.performance.fps"]),
+        new("performance", "performance.frame_ms", "milliseconds", ["study.performance.frame_ms"]),
+        new("performance", "performance.refresh_hz", "hz", ["study.performance.refresh_hz"]),
         new("lsl", "lsl.sample_count", "count", ["study.lsl.received_sample_count"]),
         new("lsl", "lsl.latest_timestamp_seconds", "seconds", ["study.lsl.latest_timestamp"]),
         new("session", "session.state", string.Empty, ["study.session.state_label"]),
@@ -262,11 +265,9 @@ public sealed class StudyDataRecordingSession : IDisposable
     private readonly StreamWriter _clockAlignmentWriter;
     private readonly StreamWriter _upstreamLslMonitorWriter;
     private readonly string _sessionConditionsJson;
-    private readonly Dictionary<string, string> _lastSignalValues = new(StringComparer.OrdinalIgnoreCase);
     private const int UpstreamLslMonitorSettingsPersistInterval = 25;
 
     private bool _disposed;
-    private string _lastBreathingSignature = string.Empty;
     private StudyDataRecordingSettingsDocument _settings;
 
     internal StudyDataRecordingSession(
@@ -297,7 +298,7 @@ public sealed class StudyDataRecordingSession : IDisposable
         _clockAlignmentWriter = CreateWriter(ClockAlignmentCsvPath, encoding);
         _upstreamLslMonitorWriter = CreateWriter(UpstreamLslMonitorCsvPath, encoding);
 
-        QueueWriteLine(_eventsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,event_name,event_detail,command_action_id,result");
+        QueueWriteLine(_eventsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,event_name,event_detail,command_action_id,result");
         QueueWriteLine(_signalsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,lsl_timestamp_seconds,source,signal_group,signal_name,value_numeric,value_text,unit,sequence,quest_selector");
         QueueWriteLine(_breathingWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,breath_volume01,sphere_radius_progress01,sphere_radius_raw,controller_calibrated");
         QueueWriteLine(_clockAlignmentWriter, "participant_id,session_id,dataset_id,window_kind,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
@@ -388,7 +389,8 @@ public sealed class StudyDataRecordingSession : IDisposable
         string eventDetail,
         string? commandActionId,
         string result,
-        DateTimeOffset? recordedAtUtc = null)
+        DateTimeOffset? recordedAtUtc = null,
+        DateTimeOffset? sourceTimestampUtc = null)
     {
         lock (_sync)
         {
@@ -403,6 +405,7 @@ public sealed class StudyDataRecordingSession : IDisposable
                     Csv(SessionId),
                     Csv(DatasetId),
                     Csv(timestamp.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
+                    Csv(sourceTimestampUtc?.UtcDateTime.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty),
                     Csv(eventName),
                     Csv(eventDetail),
                     Csv(commandActionId ?? string.Empty),
@@ -413,7 +416,8 @@ public sealed class StudyDataRecordingSession : IDisposable
     public void RecordTwinState(
         IReadOnlyDictionary<string, string> twinState,
         DateTimeOffset recordedAtUtc,
-        string questSelector)
+        string questSelector,
+        DateTimeOffset? sourceTimestampUtc = null)
     {
         if (twinState.Count == 0)
         {
@@ -433,18 +437,9 @@ public sealed class StudyDataRecordingSession : IDisposable
 
             foreach (var spec in StudyDataRecorderService.SignalSpecs)
             {
-                if (!TryGetFirstValue(twinState, spec.Keys, out var rawValue))
-                {
-                    continue;
-                }
-
-                if (_lastSignalValues.TryGetValue(spec.Name, out var previousValue) &&
-                    string.Equals(previousValue, rawValue, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                _lastSignalValues[spec.Name] = rawValue;
+                var rawValue = TryGetFirstValue(twinState, spec.Keys, out var resolvedValue)
+                    ? resolvedValue
+                    : string.Empty;
                 var (numericValue, textValue) = SplitValue(rawValue);
                 QueueWriteLine(
                     _signalsWriter,
@@ -454,7 +449,7 @@ public sealed class StudyDataRecordingSession : IDisposable
                         Csv(SessionId),
                         Csv(DatasetId),
                         Csv(recordedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
-                        Csv(string.Empty),
+                        Csv(sourceTimestampUtc?.UtcDateTime.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty),
                         Csv(lslTimestamp),
                         Csv("quest_twin_state"),
                         Csv(spec.Group),
@@ -478,14 +473,6 @@ public sealed class StudyDataRecordingSession : IDisposable
             var controllerCalibrated = TryGetFirstValue(twinState, ControllerCalibratedKeys, out var controllerCalibratedRaw)
                 ? controllerCalibratedRaw
                 : string.Empty;
-
-            var signature = string.Join("|", breathingVolume, sphereProgress, sphereRaw, controllerCalibrated);
-            if (string.Equals(signature, _lastBreathingSignature, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _lastBreathingSignature = signature;
             QueueWriteLine(
                 _breathingWriter,
                 string.Join(
@@ -494,7 +481,7 @@ public sealed class StudyDataRecordingSession : IDisposable
                     Csv(SessionId),
                     Csv(DatasetId),
                     Csv(recordedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
-                    Csv(string.Empty),
+                    Csv(sourceTimestampUtc?.UtcDateTime.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty),
                     Csv(breathingVolume),
                     Csv(sphereProgress),
                     Csv(sphereRaw),

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.Core.Services;
@@ -8,6 +9,10 @@ namespace ViscerealityCompanion.Core.Services;
 public interface IStudyClockAlignmentService : IDisposable
 {
     LslRuntimeState RuntimeState { get; }
+
+    Task<OperationOutcome> StartWarmSessionAsync(CancellationToken cancellationToken = default);
+
+    Task<OperationOutcome> StopWarmSessionAsync(CancellationToken cancellationToken = default);
 
     Task<StudyClockAlignmentRunResult> RunAsync(
         StudyClockAlignmentRunRequest request,
@@ -21,10 +26,16 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
     private const int OutletChunkSize = 1;
     private const int OutletMaxBufferedSeconds = 2;
     private static readonly TimeSpan MonitorShutdownTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan MonitorReadyTimeout = TimeSpan.FromSeconds(2.5);
+    private static readonly TimeSpan WarmPulseInterval = TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds);
     private readonly ILslMonitorService _monitorService;
+    private readonly EchoMonitorSession _echoMonitor;
     private readonly Lock _sync = new();
     private nint _streamInfo;
     private nint _outlet;
+    private CancellationTokenSource? _warmPulseCts;
+    private Task? _warmPulseTask;
+    private int _nextWarmPulseSequence;
 
     public WindowsStudyClockAlignmentService()
         : this(null)
@@ -34,10 +45,80 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
     internal WindowsStudyClockAlignmentService(ILslMonitorService? monitorService)
     {
         _monitorService = monitorService ?? LslMonitorServiceFactory.CreateDefault();
+        _echoMonitor = new EchoMonitorSession(_monitorService);
         RuntimeState = NativeMethods.GetRuntimeState();
     }
 
     public LslRuntimeState RuntimeState { get; }
+
+    public async Task<OperationOutcome> StartWarmSessionAsync(CancellationToken cancellationToken = default)
+    {
+        if (!RuntimeState.Available)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Clock alignment warmup unavailable.",
+                RuntimeState.Detail);
+        }
+
+        if (!TryEnsureProbeOutlet(out var outletOutcome))
+        {
+            return outletOutcome with
+            {
+                Summary = "Clock alignment warmup could not open the probe stream."
+            };
+        }
+
+        EchoMonitorState monitorState;
+        try
+        {
+            monitorState = await _echoMonitor.EnsureRunningAsync(MonitorReadyTimeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Clock alignment warmup could not start the echo monitor.",
+                exception.Message);
+        }
+
+        EnsureWarmPulseRunning();
+        TryPushWarmPulseSample();
+
+        return monitorState switch
+        {
+            { Connected: true } => new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Clock alignment warmup active.",
+                $"Reusing {SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType} and keeping the Quest echo path warm with unique keepalive probes every {WarmPulseInterval.TotalMilliseconds:0} ms during the participant session."),
+            { ReadyTimedOut: true } => new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Clock alignment warmup is still waiting for the echo monitor.",
+                $"The probe outlet is active and unique keepalive probes are running every {WarmPulseInterval.TotalMilliseconds:0} ms, but the echo inlet did not report ready within {MonitorReadyTimeout.TotalSeconds:0.#} seconds."),
+            _ => new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Clock alignment warmup active.",
+                $"The probe outlet is active and unique keepalive probes are running every {WarmPulseInterval.TotalMilliseconds:0} ms for {SussexClockAlignmentStreamContract.EchoStreamName} / {SussexClockAlignmentStreamContract.EchoStreamType}.")
+        };
+    }
+
+    public async Task<OperationOutcome> StopWarmSessionAsync(CancellationToken cancellationToken = default)
+    {
+        var warmPulseStopped = await StopWarmPulseAsync(cancellationToken).ConfigureAwait(false);
+        var monitorStopped = await _echoMonitor.StopAsync(MonitorShutdownTimeout, cancellationToken).ConfigureAwait(false);
+        CloseProbeOutlet();
+        Interlocked.Exchange(ref _nextWarmPulseSequence, 0);
+
+        return warmPulseStopped && monitorStopped
+            ? new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Clock alignment warmup stopped.",
+                "Stopped the session-scoped warm clock-alignment transport and closed the probe outlet.")
+            : new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Clock alignment warmup stop timed out.",
+                $"The session-scoped warm transport did not stop cleanly within {MonitorShutdownTimeout.TotalSeconds:0.#} seconds. The clock-alignment path was still asked to close.");
+    }
 
     public async Task<StudyClockAlignmentRunResult> RunAsync(
         StudyClockAlignmentRunRequest request,
@@ -66,179 +147,163 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 []);
         }
 
-        if (!TryOpenProbeOutlet(out var openOutcome))
-        {
-            return new StudyClockAlignmentRunResult(openOutcome, BuildSummary([], probesSent: 0), []);
-        }
-
         var probesSent = 0;
         var echoesReceived = 0;
         var pending = new ConcurrentDictionary<int, PendingProbe>();
         var receivedSamples = new ConcurrentQueue<StudyClockAlignmentSample>();
-        var monitorShutdownTimedOut = false;
-        var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var monitorTask = Task.Run(
-            async () =>
+        var mismatchedEchoes = new ConcurrentQueue<EchoSessionMismatch>();
+        var monitorReadyTimedOut = false;
+        var monitorConnected = false;
+        using var echoSubscription = _echoMonitor.Subscribe(reading =>
+        {
+            var sessionMatches = string.Equals(reading.Payload.SessionId, request.SessionId, StringComparison.Ordinal);
+            var datasetMatches = string.Equals(reading.Payload.DatasetHash, request.DatasetHash, StringComparison.OrdinalIgnoreCase);
+            if (!sessionMatches || !datasetMatches)
             {
-                var subscription = new LslMonitorSubscription(
-                    SussexClockAlignmentStreamContract.EchoStreamName,
-                    SussexClockAlignmentStreamContract.EchoStreamType,
-                    0);
+                mismatchedEchoes.Enqueue(new EchoSessionMismatch(
+                    reading.Payload.Sequence,
+                    reading.Payload.SessionId,
+                    reading.Payload.DatasetHash));
+                return;
+            }
 
-                try
-                {
-                    await foreach (var reading in _monitorService.MonitorAsync(subscription, monitorCts.Token).ConfigureAwait(false))
-                    {
-                        if (!reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase) ||
-                            reading.ChannelFormat != LslChannelFormat.String ||
-                            string.IsNullOrWhiteSpace(reading.TextValue))
-                        {
-                            continue;
-                        }
+            if (!pending.TryRemove(reading.Payload.Sequence, out var probe))
+            {
+                return;
+            }
 
-                        if (!TryParseEchoPayload(reading.TextValue, out var payload) ||
-                            !string.Equals(payload.SessionId, request.SessionId, StringComparison.Ordinal) ||
-                            !string.Equals(payload.DatasetHash, request.DatasetHash, StringComparison.OrdinalIgnoreCase) ||
-                            !pending.TryRemove(payload.Sequence, out var probe))
-                        {
-                            continue;
-                        }
+            var echoReceivedLocalClockSeconds = reading.ObservedLocalClockSeconds ?? NativeMethods.LocalClock();
+            var questEchoLocalClockSeconds = reading.Payload.QuestEchoLocalClockSeconds > 0d
+                ? reading.Payload.QuestEchoLocalClockSeconds
+                : reading.SampleTimestampSeconds ?? 0d;
+            if (questEchoLocalClockSeconds <= 0d)
+            {
+                questEchoLocalClockSeconds = reading.Payload.QuestReceiveLocalClockSeconds;
+            }
 
-                        var echoReceivedLocalClockSeconds = reading.ObservedLocalClockSeconds ?? NativeMethods.LocalClock();
-                        var questEchoLocalClockSeconds = payload.QuestEchoLocalClockSeconds > 0d
-                            ? payload.QuestEchoLocalClockSeconds
-                            : reading.SampleTimestampSeconds ?? 0d;
-                        if (questEchoLocalClockSeconds <= 0d)
-                        {
-                            questEchoLocalClockSeconds = payload.QuestReceiveLocalClockSeconds;
-                        }
+            var questMinusWindowsClockSeconds =
+                ((reading.Payload.QuestReceiveLocalClockSeconds - probe.SentLocalClockSeconds) +
+                 (questEchoLocalClockSeconds - echoReceivedLocalClockSeconds)) / 2d;
+            var roundTripSeconds =
+                (echoReceivedLocalClockSeconds - probe.SentLocalClockSeconds) -
+                (questEchoLocalClockSeconds - reading.Payload.QuestReceiveLocalClockSeconds);
 
-                        var questMinusWindowsClockSeconds =
-                            ((payload.QuestReceiveLocalClockSeconds - probe.SentLocalClockSeconds) +
-                             (questEchoLocalClockSeconds - echoReceivedLocalClockSeconds)) / 2d;
-                        var roundTripSeconds =
-                            (echoReceivedLocalClockSeconds - probe.SentLocalClockSeconds) -
-                            (questEchoLocalClockSeconds - payload.QuestReceiveLocalClockSeconds);
+            var sample = new StudyClockAlignmentSample(
+                request.WindowKind,
+                reading.Payload.Sequence,
+                probe.SentAtUtc,
+                probe.SentLocalClockSeconds,
+                reading.Timestamp,
+                echoReceivedLocalClockSeconds,
+                reading.SampleTimestampSeconds,
+                reading.Payload.QuestReceivedAtUtc,
+                reading.Payload.QuestReceiveLocalClockSeconds,
+                questEchoLocalClockSeconds,
+                questMinusWindowsClockSeconds,
+                roundTripSeconds);
+            receivedSamples.Enqueue(sample);
+            var currentEchoCount = Interlocked.Increment(ref echoesReceived);
 
-                        var sample = new StudyClockAlignmentSample(
-                            request.WindowKind,
-                            payload.Sequence,
-                            probe.SentAtUtc,
-                            probe.SentLocalClockSeconds,
-                            reading.Timestamp,
-                            echoReceivedLocalClockSeconds,
-                            reading.SampleTimestampSeconds,
-                            payload.QuestReceivedAtUtc,
-                            payload.QuestReceiveLocalClockSeconds,
-                            questEchoLocalClockSeconds,
-                            questMinusWindowsClockSeconds,
-                            roundTripSeconds);
-                        receivedSamples.Enqueue(sample);
-                        echoesReceived = receivedSamples.Count;
+            progress?.Report(BuildProgress(
+                request,
+                Volatile.Read(ref probesSent),
+                currentEchoCount,
+                "Clock alignment is receiving Quest echoes.",
+                $"Echo {reading.Payload.Sequence} received. RTT {roundTripSeconds * 1000d:0.0} ms, quest-minus-Windows offset {questMinusWindowsClockSeconds * 1000d:0.0} ms."));
+        });
 
-                        progress?.Report(BuildProgress(
-                            request,
-                            probesSent,
-                            echoesReceived,
-                            "Clock alignment is receiving Quest echoes.",
-                            $"Echo {payload.Sequence} received. RTT {roundTripSeconds * 1000d:0.0} ms, quest-minus-Windows offset {questMinusWindowsClockSeconds * 1000d:0.0} ms."));
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            },
-            monitorCts.Token);
+        if (!TryEnsureProbeOutlet(out var openOutcome))
+        {
+            return new StudyClockAlignmentRunResult(openOutcome, BuildSummary([], probesSent: 0), []);
+        }
+
+        progress?.Report(BuildProgress(
+            request,
+            probesSent,
+            echoesReceived,
+            "Clock alignment is starting.",
+            $"Opening {SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType} and waiting for Quest echoes."));
 
         try
         {
-            progress?.Report(BuildProgress(
-                request,
-                probesSent,
-                echoesReceived,
-                "Clock alignment is starting.",
-                $"Opening {SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType} and waiting for Quest echoes."));
+            var monitorState = await _echoMonitor.EnsureRunningAsync(MonitorReadyTimeout, cancellationToken).ConfigureAwait(false);
+            monitorConnected = monitorState.Connected;
+            monitorReadyTimedOut = monitorState.ReadyTimedOut;
+        }
+        catch (Exception exception)
+        {
+            return new StudyClockAlignmentRunResult(
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Clock alignment could not start the echo monitor.",
+                    exception.Message),
+                BuildSummary([], probesSent: 0),
+                []);
+        }
 
-            var deadline = DateTimeOffset.UtcNow + request.Duration;
-            var sequence = 0;
+        progress?.Report(BuildProgress(
+            request,
+            probesSent,
+            echoesReceived,
+            monitorConnected
+                ? "Clock alignment echo monitor connected."
+                : "Clock alignment is still waiting for the echo monitor.",
+            monitorConnected
+                ? $"Echo inlet for {SussexClockAlignmentStreamContract.EchoStreamName} is ready. Sending probes now."
+                : $"Echo inlet did not report ready within {MonitorReadyTimeout.TotalSeconds:0.#} seconds. Sending probes anyway so the Sussex flow can continue."));
 
-            while (DateTimeOffset.UtcNow < deadline)
+        var probeScheduleOffsets = BuildProbeScheduleOffsets(request.Duration, request.ProbeInterval);
+        var probeScheduleStartUtc = DateTimeOffset.UtcNow;
+        var sequence = request.FirstProbeSequence - 1;
+
+        foreach (var probeOffset in probeScheduleOffsets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var scheduledProbeAtUtc = probeScheduleStartUtc + probeOffset;
+            var delay = scheduledProbeAtUtc - DateTimeOffset.UtcNow;
+            if (delay > TimeSpan.Zero)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                sequence++;
-                var sentAtUtc = DateTimeOffset.UtcNow;
-                var sentLocalClockSeconds = NativeMethods.LocalClock();
-                pending[sequence] = new PendingProbe(sequence, sentAtUtc, sentLocalClockSeconds);
-                NativeMethods.PushFloatSample(_outlet, [sequence], sentLocalClockSeconds);
-                probesSent = sequence;
-
-                progress?.Report(BuildProgress(
-                    request,
-                    probesSent,
-                    echoesReceived,
-                    "Clock alignment is probing both clocks.",
-                    $"Sent probe {sequence}. Collecting RTT/offset samples for {request.Duration.TotalSeconds:0} seconds."));
-
-                var remaining = deadline - DateTimeOffset.UtcNow;
-                if (remaining <= TimeSpan.Zero)
-                {
-                    break;
-                }
-
-                var delay = remaining < request.ProbeInterval ? remaining : request.ProbeInterval;
                 await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
 
+            sequence++;
+            var sentAtUtc = DateTimeOffset.UtcNow;
+            var sentLocalClockSeconds = NativeMethods.LocalClock();
+            pending[sequence] = new PendingProbe(sequence, sentAtUtc, sentLocalClockSeconds);
+            if (!TryPushProbeSample(sequence, sentLocalClockSeconds))
+            {
+                pending.TryRemove(sequence, out _);
+                var failedSummary = BuildSummary(receivedSamples.OrderBy(sample => sample.ProbeSequence).ToArray(), probesSent);
+                return new StudyClockAlignmentRunResult(
+                    new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Clock alignment could not push a probe sample.",
+                        NativeMethods.GetLastError()),
+                    failedSummary,
+                    receivedSamples.OrderBy(sample => sample.ProbeSequence).ToArray());
+            }
+
+            Interlocked.Increment(ref probesSent);
+
             progress?.Report(BuildProgress(
                 request,
-                probesSent,
-                echoesReceived,
-                "Clock alignment is waiting for the last Quest echoes.",
-                $"Probe window finished. Waiting up to {request.EchoGracePeriod.TotalSeconds:0.0} seconds for delayed echoes."));
-
-            if (request.EchoGracePeriod > TimeSpan.Zero)
-            {
-                await Task.Delay(request.EchoGracePeriod, cancellationToken).ConfigureAwait(false);
-            }
+                Volatile.Read(ref probesSent),
+                Volatile.Read(ref echoesReceived),
+                "Clock alignment is probing both clocks.",
+                $"Sent probe {sequence}. Collecting RTT/offset samples for {request.Duration.TotalSeconds:0} seconds."));
         }
-        finally
+
+        progress?.Report(BuildProgress(
+            request,
+            Volatile.Read(ref probesSent),
+            Volatile.Read(ref echoesReceived),
+            "Clock alignment is waiting for the last Quest echoes.",
+            $"Probe window finished. Waiting up to {request.EchoGracePeriod.TotalSeconds:0.0} seconds for delayed echoes."));
+
+        if (request.EchoGracePeriod > TimeSpan.Zero)
         {
-            monitorCts.Cancel();
-            try
-            {
-                var completedTask = await Task.WhenAny(
-                        monitorTask,
-                        Task.Delay(MonitorShutdownTimeout, CancellationToken.None))
-                    .ConfigureAwait(false);
-
-                if (ReferenceEquals(completedTask, monitorTask))
-                {
-                    await monitorTask.ConfigureAwait(false);
-                    monitorCts.Dispose();
-                }
-                else
-                {
-                    monitorShutdownTimedOut = true;
-                    _ = monitorTask.ContinueWith(
-                        static (_, state) => ((CancellationTokenSource)state!).Dispose(),
-                        monitorCts,
-                        CancellationToken.None,
-                        TaskContinuationOptions.ExecuteSynchronously,
-                        TaskScheduler.Default);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                monitorCts.Dispose();
-            }
-            catch
-            {
-                monitorCts.Dispose();
-                throw;
-            }
-
-            CloseProbeOutlet();
+            await Task.Delay(request.EchoGracePeriod, cancellationToken).ConfigureAwait(false);
         }
 
         var orderedSamples = receivedSamples
@@ -246,23 +311,37 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             .ToArray();
         var summary = BuildSummary(orderedSamples, probesSent);
         var outcome = BuildOutcome(summary);
-        if (monitorShutdownTimedOut)
+        var mismatchDiagnostic = BuildMismatchDiagnosticDetail(
+            mismatchedEchoes,
+            request.SessionId,
+            request.DatasetHash);
+        if (!string.IsNullOrWhiteSpace(mismatchDiagnostic))
         {
-            outcome = new OperationOutcome(
-                OperationOutcomeKind.Warning,
-                "Clock alignment completed, but the echo monitor took too long to unwind.",
-                string.Join(
+            outcome = outcome with
+            {
+                Detail = string.IsNullOrWhiteSpace(outcome.Detail)
+                    ? mismatchDiagnostic
+                    : $"{outcome.Detail} {mismatchDiagnostic}"
+            };
+        }
+
+        if (monitorReadyTimedOut)
+        {
+            outcome = outcome with
+            {
+                Detail = string.Join(
                     " ",
                     new[]
                     {
                         outcome.Detail,
-                        $"The companion stopped waiting after {MonitorShutdownTimeout.TotalSeconds:0} seconds so the Sussex workflow would not hang."
-                    }.Where(value => !string.IsNullOrWhiteSpace(value))));
+                        $"The echo inlet took longer than {MonitorReadyTimeout.TotalSeconds:0.#} seconds to report ready, so this run may include startup transport overhead."
+                    }.Where(value => !string.IsNullOrWhiteSpace(value)))
+            };
         }
 
         progress?.Report(BuildProgress(
             request,
-            probesSent,
+            Volatile.Read(ref probesSent),
             orderedSamples.Length,
             outcome.Summary,
             outcome.Detail));
@@ -272,7 +351,15 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
 
     public void Dispose()
     {
-        CloseProbeOutlet();
+        try
+        {
+            StopWarmSessionAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            _echoMonitor.Dispose();
+            CloseProbeOutlet();
+        }
     }
 
     private static OperationOutcome BuildOutcome(StudyClockAlignmentSummary summary)
@@ -321,6 +408,33 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         return detail;
     }
 
+    private static string BuildMismatchDiagnosticDetail(
+        ConcurrentQueue<EchoSessionMismatch> mismatchedEchoes,
+        string expectedSessionId,
+        string expectedDatasetHash)
+    {
+        if (mismatchedEchoes.IsEmpty)
+        {
+            return string.Empty;
+        }
+
+        var mismatches = mismatchedEchoes.ToArray();
+        var latest = mismatches[^1];
+        var detail = new StringBuilder();
+        detail.Append("Ignored ");
+        detail.Append(mismatches.Length.ToString(CultureInfo.InvariantCulture));
+        detail.Append(" echoed probe(s) because the Quest reported session_id=`");
+        detail.Append(string.IsNullOrWhiteSpace(latest.ReportedSessionId) ? "n/a" : latest.ReportedSessionId);
+        detail.Append("`, dataset_hash=`");
+        detail.Append(string.IsNullOrWhiteSpace(latest.ReportedDatasetHash) ? "n/a" : latest.ReportedDatasetHash);
+        detail.Append("` instead of the active Windows session_id=`");
+        detail.Append(expectedSessionId);
+        detail.Append("`, dataset_hash=`");
+        detail.Append(expectedDatasetHash);
+        detail.Append("`. This usually means the Quest recorder is still advertising stale participant-session metadata.");
+        return detail.ToString();
+    }
+
     private static StudyClockAlignmentProgress BuildProgress(
         StudyClockAlignmentRunRequest request,
         int probesSent,
@@ -328,11 +442,42 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         string summary,
         string detail)
     {
-        var expectedProbeCount = request.ProbeInterval <= TimeSpan.Zero
-            ? 1d
-            : Math.Max(1d, Math.Ceiling(request.Duration.TotalMilliseconds / request.ProbeInterval.TotalMilliseconds));
-        var percentComplete = Math.Clamp(probesSent / expectedProbeCount * 100d, 0d, 100d);
+        var expectedProbeCount = GetExpectedProbeCount(request.Duration, request.ProbeInterval);
+        var percentComplete = Math.Clamp((double)probesSent / expectedProbeCount * 100d, 0d, 100d);
         return new StudyClockAlignmentProgress(percentComplete, probesSent, echoesReceived, summary, detail);
+    }
+
+    internal static int GetExpectedProbeCount(TimeSpan duration, TimeSpan probeInterval)
+    {
+        if (probeInterval <= TimeSpan.Zero)
+        {
+            return 1;
+        }
+
+        return Math.Max(1, (int)Math.Ceiling(duration.TotalMilliseconds / probeInterval.TotalMilliseconds));
+    }
+
+    internal static IReadOnlyList<TimeSpan> BuildProbeScheduleOffsets(TimeSpan duration, TimeSpan probeInterval)
+    {
+        var count = GetExpectedProbeCount(duration, probeInterval);
+        if (count <= 0)
+        {
+            return [];
+        }
+
+        var offsets = new TimeSpan[count];
+        if (probeInterval <= TimeSpan.Zero)
+        {
+            offsets[0] = TimeSpan.Zero;
+            return offsets;
+        }
+
+        for (var index = 0; index < offsets.Length; index++)
+        {
+            offsets[index] = TimeSpan.FromTicks(probeInterval.Ticks * index);
+        }
+
+        return offsets;
     }
 
     private static StudyClockAlignmentSummary BuildSummary(IReadOnlyList<StudyClockAlignmentSample> samples, int probesSent)
@@ -377,11 +522,18 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             : values[mid];
     }
 
-    private bool TryOpenProbeOutlet(out OperationOutcome outcome)
+    private bool TryEnsureProbeOutlet(out OperationOutcome outcome)
     {
         lock (_sync)
         {
-            CloseProbeOutlet();
+            if (_outlet != nint.Zero && _streamInfo != nint.Zero)
+            {
+                outcome = new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    "Clock alignment probe stream active.",
+                    $"Reusing {SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType}.");
+                return true;
+            }
 
             _streamInfo = NativeMethods.CreateStreamInfo(
                 SussexClockAlignmentStreamContract.ProbeStreamName,
@@ -426,16 +578,121 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
 
     private void CloseProbeOutlet()
     {
-        if (_outlet != nint.Zero)
+        lock (_sync)
         {
-            NativeMethods.DestroyOutlet(_outlet);
-            _outlet = nint.Zero;
+            if (_outlet != nint.Zero)
+            {
+                NativeMethods.DestroyOutlet(_outlet);
+                _outlet = nint.Zero;
+            }
+
+            if (_streamInfo != nint.Zero)
+            {
+                NativeMethods.DestroyStreamInfo(_streamInfo);
+                _streamInfo = nint.Zero;
+            }
+        }
+    }
+
+    private void EnsureWarmPulseRunning()
+    {
+        lock (_sync)
+        {
+            if (_warmPulseTask is not null && !_warmPulseTask.IsCompleted)
+            {
+                return;
+            }
+
+            _warmPulseCts?.Cancel();
+            _warmPulseCts?.Dispose();
+            _warmPulseCts = new CancellationTokenSource();
+            var token = _warmPulseCts.Token;
+            _warmPulseTask = Task.Run(() => RunWarmPulseLoopAsync(token), CancellationToken.None);
+            _ = _warmPulseTask.ContinueWith(
+                static task => _ = task.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+    }
+
+    private async Task<bool> StopWarmPulseAsync(CancellationToken cancellationToken)
+    {
+        CancellationTokenSource? cts;
+        Task? task;
+        lock (_sync)
+        {
+            cts = _warmPulseCts;
+            task = _warmPulseTask;
+            _warmPulseCts = null;
+            _warmPulseTask = null;
         }
 
-        if (_streamInfo != nint.Zero)
+        if (cts is null && task is null)
         {
-            NativeMethods.DestroyStreamInfo(_streamInfo);
-            _streamInfo = nint.Zero;
+            return true;
+        }
+
+        cts?.Cancel();
+        try
+        {
+            if (task is not null)
+            {
+                var completedTask = await Task.WhenAny(task, Task.Delay(MonitorShutdownTimeout, cancellationToken)).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!ReferenceEquals(completedTask, task))
+                {
+                    return false;
+                }
+
+                await task.ConfigureAwait(false);
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            cts?.Dispose();
+        }
+    }
+
+    private async Task RunWarmPulseLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                TryPushWarmPulseSample();
+                await Task.Delay(WarmPulseInterval, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void TryPushWarmPulseSample()
+        => TryPushProbeSample(Interlocked.Decrement(ref _nextWarmPulseSequence), NativeMethods.LocalClock());
+
+    private bool TryPushProbeSample(float sequence, double timestampSeconds)
+    {
+        lock (_sync)
+        {
+            if (_outlet == nint.Zero)
+            {
+                return false;
+            }
+
+            NativeMethods.PushFloatSample(_outlet, [sequence], timestampSeconds);
+            return true;
         }
     }
 
@@ -501,6 +758,11 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         DateTimeOffset SentAtUtc,
         double SentLocalClockSeconds);
 
+    private readonly record struct EchoSessionMismatch(
+        int Sequence,
+        string ReportedSessionId,
+        string ReportedDatasetHash);
+
     private readonly record struct EchoPayload(
         int Sequence,
         double QuestReceiveLocalClockSeconds,
@@ -508,6 +770,252 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         string QuestReceivedAtUtc,
         string SessionId,
         string DatasetHash);
+
+    private sealed class EchoMonitorSession : IDisposable
+    {
+        private readonly ILslMonitorService _monitorService;
+        private readonly Lock _sync = new();
+        private CancellationTokenSource? _monitorCts;
+        private Task? _monitorTask;
+        private TaskCompletionSource<bool>? _monitorReady;
+        private Action<EchoMonitorReading>? _echoReceived;
+        private bool _monitorConnected;
+
+        public EchoMonitorSession(ILslMonitorService monitorService)
+        {
+            _monitorService = monitorService;
+        }
+
+        public async Task<EchoMonitorState> EnsureRunningAsync(TimeSpan readyTimeout, CancellationToken cancellationToken)
+        {
+            Task<bool> readyTask;
+            lock (_sync)
+            {
+                EnsureMonitorStarted_NoLock();
+                if (_monitorConnected)
+                {
+                    return new EchoMonitorState(Connected: true, ReadyTimedOut: false);
+                }
+
+                readyTask = _monitorReady!.Task;
+            }
+
+            if (readyTask.IsCompleted)
+            {
+                return new EchoMonitorState(Connected: await readyTask.ConfigureAwait(false), ReadyTimedOut: false);
+            }
+
+            var completedTask = await Task.WhenAny(
+                    readyTask,
+                    Task.Delay(readyTimeout, cancellationToken))
+                .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return ReferenceEquals(completedTask, readyTask)
+                ? new EchoMonitorState(Connected: await readyTask.ConfigureAwait(false), ReadyTimedOut: false)
+                : new EchoMonitorState(Connected: false, ReadyTimedOut: true);
+        }
+
+        public IDisposable Subscribe(Action<EchoMonitorReading> handler)
+        {
+            lock (_sync)
+            {
+                _echoReceived += handler;
+            }
+
+            return new EchoMonitorSubscription(this, handler);
+        }
+
+        public async Task<bool> StopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+        {
+            CancellationTokenSource? cts;
+            Task? task;
+            lock (_sync)
+            {
+                _echoReceived = null;
+                cts = _monitorCts;
+                task = _monitorTask;
+                _monitorCts = null;
+                _monitorTask = null;
+                _monitorReady = null;
+                _monitorConnected = false;
+            }
+
+            if (cts is null && task is null)
+            {
+                return true;
+            }
+
+            cts?.Cancel();
+            try
+            {
+                if (task is not null)
+                {
+                    var completedTask = await Task.WhenAny(task, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!ReferenceEquals(completedTask, task))
+                    {
+                        return false;
+                    }
+
+                    await task.ConfigureAwait(false);
+                }
+
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                cts?.Dispose();
+            }
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                _ = StopAsync(MonitorShutdownTimeout).GetAwaiter().GetResult();
+            }
+            catch
+            {
+            }
+        }
+
+        private void EnsureMonitorStarted_NoLock()
+        {
+            if (_monitorTask is not null && !_monitorTask.IsCompleted)
+            {
+                return;
+            }
+
+            _monitorCts?.Cancel();
+            _monitorCts?.Dispose();
+            _monitorCts = new CancellationTokenSource();
+            _monitorReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _monitorConnected = false;
+
+            var token = _monitorCts.Token;
+            _monitorTask = Task.Run(() => MonitorAsync(token), CancellationToken.None);
+            _ = _monitorTask.ContinueWith(
+                static task => _ = task.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        private async Task MonitorAsync(CancellationToken cancellationToken)
+        {
+            var subscription = new LslMonitorSubscription(
+                SussexClockAlignmentStreamContract.EchoStreamName,
+                SussexClockAlignmentStreamContract.EchoStreamType,
+                0);
+
+            try
+            {
+                await foreach (var reading in _monitorService.MonitorAsync(subscription, cancellationToken).ConfigureAwait(false))
+                {
+                    if (!_monitorConnected &&
+                        (reading.Status.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+                         reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        lock (_sync)
+                        {
+                            _monitorConnected = true;
+                            _monitorReady?.TrySetResult(true);
+                        }
+                    }
+
+                    if (!reading.Status.Contains("Streaming", StringComparison.OrdinalIgnoreCase) ||
+                        reading.ChannelFormat != LslChannelFormat.String ||
+                        string.IsNullOrWhiteSpace(reading.TextValue) ||
+                        !TryParseEchoPayload(reading.TextValue, out var payload))
+                    {
+                        continue;
+                    }
+
+                    Action<EchoMonitorReading>? subscribers;
+                    lock (_sync)
+                    {
+                        subscribers = _echoReceived;
+                    }
+
+                    subscribers?.Invoke(new EchoMonitorReading(
+                        payload,
+                        reading.Timestamp,
+                        reading.SampleTimestampSeconds,
+                        reading.ObservedLocalClockSeconds));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                lock (_sync)
+                {
+                    _monitorReady?.TrySetResult(_monitorConnected);
+                }
+            }
+            catch (Exception exception)
+            {
+                lock (_sync)
+                {
+                    _monitorReady?.TrySetException(exception);
+                }
+
+                throw;
+            }
+            finally
+            {
+                lock (_sync)
+                {
+                    _monitorReady?.TrySetResult(_monitorConnected);
+                }
+            }
+        }
+
+        private void Unsubscribe(Action<EchoMonitorReading> handler)
+        {
+            lock (_sync)
+            {
+                _echoReceived -= handler;
+            }
+        }
+
+        private sealed class EchoMonitorSubscription : IDisposable
+        {
+            private readonly EchoMonitorSession _owner;
+            private readonly Action<EchoMonitorReading> _handler;
+            private int _disposed;
+
+            public EchoMonitorSubscription(EchoMonitorSession owner, Action<EchoMonitorReading> handler)
+            {
+                _owner = owner;
+                _handler = handler;
+            }
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                {
+                    return;
+                }
+
+                _owner.Unsubscribe(_handler);
+            }
+        }
+    }
+
+    private readonly record struct EchoMonitorState(bool Connected, bool ReadyTimedOut);
+    private readonly record struct EchoMonitorReading(
+        EchoPayload Payload,
+        DateTimeOffset Timestamp,
+        double? SampleTimestampSeconds,
+        double? ObservedLocalClockSeconds);
 
     private static class NativeMethods
     {
@@ -634,6 +1142,20 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
 public sealed class PreviewStudyClockAlignmentService : IStudyClockAlignmentService
 {
     public LslRuntimeState RuntimeState { get; } = new(false, "Clock alignment is unavailable in preview mode.");
+
+    public Task<OperationOutcome> StartWarmSessionAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(
+            new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "Clock alignment warmup preview only.",
+                "Preview mode does not keep a native Sussex clock-alignment transport warm."));
+
+    public Task<OperationOutcome> StopWarmSessionAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(
+            new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "Clock alignment warmup preview only.",
+                "Preview mode does not keep a native Sussex clock-alignment transport warm."));
 
     public Task<StudyClockAlignmentRunResult> RunAsync(
         StudyClockAlignmentRunRequest request,

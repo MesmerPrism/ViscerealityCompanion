@@ -202,6 +202,186 @@ public sealed class ValidationCaptureRegressionTests
         Assert.Equal("Quest echoed background probes.", GetFieldValue<string>(viewModel, "_validationClockAlignmentBackgroundDetail"));
     }
 
+    [Fact]
+    public void ReserveClockAlignmentProbeSequenceRange_UsesNonOverlappingSessionRanges()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        var method = GetPrivateMethod("ReserveClockAlignmentProbeSequenceRange");
+
+        var startBurstFirst = (int)(method.Invoke(viewModel, [TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(250)]) ?? 0);
+        var backgroundFirst = (int)(method.Invoke(viewModel, [TimeSpan.FromSeconds(2.5), TimeSpan.FromMilliseconds(250)]) ?? 0);
+        var endBurstFirst = (int)(method.Invoke(viewModel, [TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(250)]) ?? 0);
+
+        Assert.Equal(1, startBurstFirst);
+        Assert.Equal(41, backgroundFirst);
+        Assert.Equal(51, endBurstFirst);
+    }
+
+    [Fact]
+    public void RecenterCommandObservation_RecordsEffectOnlyOncePerRequest()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"viscereality-recenter-regression-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var recorderService = new StudyDataRecorderService(tempRoot);
+            using var session = recorderService.StartSession(new StudyDataRecordingStartRequest(
+                "sussex-university",
+                "Sussex University",
+                "regression",
+                "session-recenter",
+                "dataset",
+                "dataset-hash",
+                "settings-hash",
+                "environment-hash",
+                DateTimeOffset.UtcNow,
+                "com.Viscereality.SussexExperiment",
+                "apk-hash",
+                "0.0.0",
+                "component",
+                "14",
+                "build",
+                "display",
+                "profile",
+                "Profile",
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                "HRV_Biofeedback",
+                "HRV",
+                0.2d,
+                "runtime-hash",
+                "profile-id",
+                "1",
+                "channel",
+                Environment.MachineName,
+                "selector",
+                "{\"SchemaVersion\":\"sussex-session-conditions-v1\"}"));
+
+            var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+            SetPrivateField(viewModel, "_study", CreateMinimalStudyDefinition());
+            SetPrivateField(
+                viewModel,
+                "_reportedTwinState",
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["study.recenter.last_anchor_recorded_at_utc"] = "2026-04-09T11:00:00.0000000Z",
+                    ["study.recenter.distance_units"] = "0.100"
+                });
+            SetPrivateField(
+                viewModel,
+                "_lastRecenterCommandRequest",
+                CreateStudyTwinCommandRequest(
+                    "recenter",
+                    "Recenter",
+                    sentAtUtc: new DateTimeOffset(2026, 4, 9, 10, 59, 58, TimeSpan.Zero),
+                    previousAnchorTimestampRaw: "2026-04-09T10:59:00.0000000Z",
+                    previousDistance: 1.0d));
+
+            var method = GetPrivateMethod("TryRecordRecenterCommandObservation");
+            method.Invoke(viewModel, [session, new DateTimeOffset(2026, 4, 9, 11, 0, 1, TimeSpan.Zero)]);
+
+            var twinState = GetFieldValue<IReadOnlyDictionary<string, string>>(viewModel, "_reportedTwinState");
+            ((Dictionary<string, string>)twinState)["study.recenter.distance_units"] = "0.050";
+            method.Invoke(viewModel, [session, new DateTimeOffset(2026, 4, 9, 11, 0, 2, TimeSpan.Zero)]);
+
+            session.Complete(DateTimeOffset.UtcNow);
+
+            var effectEvents = File.ReadAllLines(session.EventsCsvPath)
+                .Count(line => line.Contains("command.recenter.effect_observed", StringComparison.Ordinal));
+            Assert.Equal(1, effectEvents);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task MonitorUpstreamLslAsync_PersistsStatusRowsEvenWithoutStreamingSamples()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"viscereality-upstream-status-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var recorderService = new StudyDataRecorderService(tempRoot);
+            using var session = recorderService.StartSession(new StudyDataRecordingStartRequest(
+                "sussex-university",
+                "Sussex University",
+                "regression",
+                "session-upstream",
+                "dataset",
+                "dataset-hash",
+                "settings-hash",
+                "environment-hash",
+                DateTimeOffset.UtcNow,
+                "com.Viscereality.SussexExperiment",
+                "apk-hash",
+                "0.0.0",
+                "component",
+                "14",
+                "build",
+                "display",
+                "profile",
+                "Profile",
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                "HRV_Biofeedback",
+                "HRV",
+                0.2d,
+                "runtime-hash",
+                "profile-id",
+                "1",
+                "channel",
+                Environment.MachineName,
+                "selector",
+                "{\"SchemaVersion\":\"sussex-session-conditions-v1\"}"));
+
+            var monitor = new FakeMonitorService();
+            monitor.EnqueueReading(new LslMonitorReading(
+                "LSL stream not found.",
+                "No visible stream matched HRV_Biofeedback / HRV.",
+                null,
+                0f,
+                DateTimeOffset.UtcNow));
+
+            var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+            SetPrivateField(viewModel, "_upstreamLslMonitorService", monitor);
+            var method = GetPrivateMethod("MonitorUpstreamLslAsync");
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+            var task = (Task)method.Invoke(viewModel, [session, cts.Token])!;
+            await task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            session.Complete(DateTimeOffset.UtcNow);
+
+            var lines = File.ReadAllLines(session.UpstreamLslMonitorCsvPath);
+            Assert.Equal(2, lines.Length);
+            Assert.Contains("LSL stream not found.", lines[1], StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     private static MethodInfo GetPrivateMethod(string name)
         => typeof(StudyShellViewModel).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
            ?? throw new InvalidOperationException($"Could not find {name} on {nameof(StudyShellViewModel)}.");
@@ -239,6 +419,87 @@ public sealed class ValidationCaptureRegressionTests
                    culture: null)
                ?? throw new InvalidOperationException("Could not create AutomaticBreathingRequest.");
     }
+
+    private static object CreateStudyTwinCommandRequest(
+        string actionId,
+        string label,
+        DateTimeOffset sentAtUtc,
+        string previousAnchorTimestampRaw,
+        double previousDistance)
+    {
+        var type = typeof(StudyShellViewModel).Assembly.GetType("ViscerealityCompanion.App.ViewModels.StudyTwinCommandRequest")
+                   ?? throw new InvalidOperationException("Could not resolve StudyTwinCommandRequest.");
+        return Activator.CreateInstance(
+                   type,
+                   BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                   binder: null,
+                   args:
+                   [
+                       actionId,
+                       label,
+                       null,
+                       7,
+                       sentAtUtc,
+                       null,
+                       null,
+                       previousAnchorTimestampRaw,
+                       previousDistance,
+                       null
+                   ],
+                   culture: null)
+               ?? throw new InvalidOperationException("Could not create StudyTwinCommandRequest.");
+    }
+
+    private static StudyShellDefinition CreateMinimalStudyDefinition()
+        => new(
+            "sussex-university",
+            "Sussex University",
+            "University of Sussex",
+            "Regression test shell",
+            new StudyPinnedApp(
+                "Sussex Experiment APK",
+                "com.Viscereality.SussexExperiment",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                false,
+                true),
+            new StudyPinnedDeviceProfile(
+                "profile",
+                "Profile",
+                "Profile",
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
+            new StudyMonitoringProfile(
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                "HRV_Biofeedback",
+                "HRV",
+                0.2d,
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                ["study.recenter.distance_units"],
+                Array.Empty<string>()),
+            new StudyControlProfile(
+                "recenter",
+                "particles.on",
+                "particles.off"));
 
     private sealed class BlockingStartupMonitorService : ILslMonitorService
     {

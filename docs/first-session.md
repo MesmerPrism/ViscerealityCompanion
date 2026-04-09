@@ -71,6 +71,20 @@ which refreshes the ADB-backed headset snapshot and then reports the Quest inlet
 target, the currently connected inlet stream, and whether fresh
 `quest_twin_state / quest.twin.state` frames are making it back to Windows.
 
+When the guide reaches the final reset-and-handoff step, use `Open Experiment
+Session Window` for the real participant. That dedicated popout is now the
+preferred low-distraction live-run surface:
+
+- enter the participant id there
+- use `Start Recording` and `Stop Recording` there
+- watch the recording state, breathing/coherence telemetry, and clock/network
+  consistency there
+- keep recenter, particles on/off, and Quest screenshot available there as
+  secondary tools
+
+The broader Sussex shell still remains the tuning and profile-editing surface
+before the study setup is locked in.
+
 ## 3. Install The Study Build
 
 **WPF App:** In a study shell, click **Install Sussex APK**. In the Sussex
@@ -184,11 +198,12 @@ viscereality twin send twin-pause
 - the dedicated Sussex package is meant to reduce researcher mistakes by hiding the broader operator tabs
 - the bundled APK and study device profile should already match each other
 - the `Sequential Sussex Guide` is now the preferred onboarding surface for first-time setup and bench verification
+- the `Experiment Session` window is now the preferred live participant-run surface after the guide handoff; the embedded shell tabs remain for broader tuning and inspection
 - the top status cards should be treated as the main pre-session checklist
 - controller breathing calibration is still exposed in the guide, but it is currently optional until the Sussex runtime calibration path is stabilized
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 - if the headset is already awake, normal Sussex command buttons should now react faster because the app no longer forces a full pre-send snapshot refresh before every command
-- the `During session` tab now keeps Quest screenshot capture and LSL clock alignment alongside the live monitoring cards instead of splitting them into separate operator surfaces
+- the `Experiment Session` window now keeps Quest screenshot capture, LSL clock-alignment consistency, and the live participant-run controls on one focused operator surface
 
 ## Catalog Discovery
 

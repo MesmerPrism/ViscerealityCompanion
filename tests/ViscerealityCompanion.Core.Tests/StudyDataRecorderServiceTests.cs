@@ -79,8 +79,16 @@ public sealed class StudyDataRecorderServiceTests
                 ["study.session.run_index"] = "3"
             };
 
-            session.RecordTwinState(twinState, startedAtUtc.AddSeconds(2), "192.168.1.8:5555");
-            session.RecordTwinState(twinState, startedAtUtc.AddSeconds(3), "192.168.1.8:5555");
+            session.RecordTwinState(
+                twinState,
+                startedAtUtc.AddSeconds(2),
+                "192.168.1.8:5555",
+                startedAtUtc.AddSeconds(1.8));
+            session.RecordTwinState(
+                twinState,
+                startedAtUtc.AddSeconds(3),
+                "192.168.1.8:5555",
+                startedAtUtc.AddSeconds(2.8));
             session.RecordClockAlignmentSample(new StudyClockAlignmentSample(
                 StudyClockAlignmentWindowKind.StartBurst,
                 7,
@@ -126,24 +134,27 @@ public sealed class StudyDataRecorderServiceTests
 
             var eventLines = File.ReadAllLines(session.EventsCsvPath);
             Assert.Equal(2, eventLines.Length);
+            Assert.Contains("source_timestamp_utc", eventLines[0], StringComparison.Ordinal);
             Assert.Contains("recording.started", eventLines[1], StringComparison.Ordinal);
             Assert.Contains("sussex-university__P007__session-20260329T123456Z", eventLines[1], StringComparison.Ordinal);
 
             var signalLines = File.ReadAllLines(session.SignalsCsvPath);
             Assert.True(signalLines.Length > 5);
-            Assert.Equal(signalLines.Distinct(StringComparer.Ordinal).Count(), signalLines.Length);
-            Assert.Contains("headset.position.x", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
-            Assert.Contains("breathing.value01", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
+            Assert.Equal(2, signalLines.Count(line => line.Contains("headset.position.x", StringComparison.Ordinal)));
+            Assert.Equal(2, signalLines.Count(line => line.Contains("breathing.value01", StringComparison.Ordinal)));
+            Assert.Contains("2026-03-29T12:34:57.8000000Z", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
             Assert.DoesNotContain("pacer_radius.progress01", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
 
             var breathingLines = File.ReadAllLines(session.BreathingCsvPath);
-            Assert.Equal(2, breathingLines.Length);
-            Assert.Equal(breathingLines.Distinct(StringComparer.Ordinal).Count(), breathingLines.Length);
+            Assert.Equal(3, breathingLines.Length);
             Assert.Contains("controller_calibrated", breathingLines[0], StringComparison.Ordinal);
             Assert.DoesNotContain("controller_active", breathingLines[0], StringComparison.Ordinal);
             Assert.Contains("0.58", breathingLines[1], StringComparison.Ordinal);
             Assert.Contains("1.75", breathingLines[1], StringComparison.Ordinal);
+            Assert.Contains("2026-03-29T12:34:57.8000000Z", breathingLines[1], StringComparison.Ordinal);
             Assert.EndsWith(",true", breathingLines[1], StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("0.58", breathingLines[2], StringComparison.Ordinal);
+            Assert.Contains("1.75", breathingLines[2], StringComparison.Ordinal);
 
             var clockAlignmentLines = File.ReadAllLines(session.ClockAlignmentCsvPath);
             Assert.Equal(2, clockAlignmentLines.Length);
