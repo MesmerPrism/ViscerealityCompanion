@@ -93,7 +93,15 @@ public class LslStreamingTests
 
         using var bridge = new LslTwinModeBridge(commandOutlet, configOutlet, stateMonitor);
         bridge.Open();
-        await Task.Delay(300); // Wait for monitor to process
+        await WaitForConditionAsync(
+            () =>
+                bridge.ReportedSettings.TryGetValue("breathing_modulate_particle_speed", out var speed) &&
+                string.Equals(speed, "0.6", StringComparison.Ordinal) &&
+                bridge.ReportedSettings.TryGetValue("breathing_modulate_size_pulse", out var pulse) &&
+                string.Equals(pulse, "0.4", StringComparison.Ordinal) &&
+                bridge.ReportedSettings.TryGetValue("sphere_radius_progress", out var sphere) &&
+                string.Equals(sphere, "1.0", StringComparison.Ordinal),
+            TimeSpan.FromSeconds(5));
 
         // Publish requested config
         var profile = new RuntimeConfigProfile(
@@ -180,5 +188,21 @@ public class LslStreamingTests
         }
 
         Assert.Equal("twin-stop", commandOutlet.LastPublishedCommand);
+    }
+
+    private static async Task WaitForConditionAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        Assert.True(condition(), "Timed out waiting for the expected LSL bridge state.");
     }
 }
