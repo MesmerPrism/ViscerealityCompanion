@@ -152,6 +152,11 @@ public sealed class StudyShellViewProfileButtonsTests
                     ?? throw new InvalidOperationException("Could not resolve the size mode toggle provider.");
                 sizeModeProvider.Toggle();
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                view.UpdateLayout();
+
+                await WaitForConditionAsync(
+                    () => visualSaveSelectedButton.IsEnabled,
+                    TimeSpan.FromSeconds(10));
 
                 visualSaveSelectedButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualSaveSelectedButton));
 
@@ -161,6 +166,9 @@ public sealed class StudyShellViewProfileButtonsTests
                     TimeSpan.FromSeconds(10));
                 Assert.False(visualWorkspace.HasUnsavedDraftChanges);
 
+                await WaitForConditionAsync(
+                    () => visualSaveButton.IsEnabled,
+                    TimeSpan.FromSeconds(10));
                 visualSaveButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualSaveButton));
 
                 await WaitForConditionAsync(
@@ -216,6 +224,10 @@ public sealed class StudyShellViewProfileButtonsTests
                 visualEditor.Focus();
                 visualEditor.Text = 0.81d.ToString("0.###", CultureInfo.CurrentCulture);
                 CommitTextBoxEdit(visualEditor);
+                view.UpdateLayout();
+                await WaitForConditionAsync(
+                    () => visualApplyButton.IsEnabled,
+                    TimeSpan.FromSeconds(10));
                 visualApplyButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, visualApplyButton));
 
                 await WaitForConditionAsync(
@@ -243,6 +255,10 @@ public sealed class StudyShellViewProfileButtonsTests
 
                 controllerField.Value = 7d;
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                view.UpdateLayout();
+                await WaitForConditionAsync(
+                    () => controllerSaveButton.IsEnabled,
+                    TimeSpan.FromSeconds(10));
                 controllerSaveButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, controllerSaveButton));
 
                 await WaitForConditionAsync(
@@ -256,6 +272,10 @@ public sealed class StudyShellViewProfileButtonsTests
 
                 controllerField.Value = 11d;
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                view.UpdateLayout();
+                await WaitForConditionAsync(
+                    () => controllerApplyButton.IsEnabled,
+                    TimeSpan.FromSeconds(10));
                 controllerApplyButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, controllerApplyButton));
 
                 await WaitForConditionAsync(
