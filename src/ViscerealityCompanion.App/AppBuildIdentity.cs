@@ -1,17 +1,23 @@
 using System.Diagnostics;
+using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace ViscerealityCompanion.App;
 
 internal static class AppBuildIdentity
 {
+    private static readonly Regex WindowsAppsPackageDirectoryPattern = new(
+        @"^(?<name>.+?)_(?<version>\d+\.\d+\.\d+\.\d+)_[^_]+__.+$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     private static readonly Lazy<AppBuildStamp> CurrentLazy = new(ResolveCurrent);
 
     public static AppBuildStamp Current => CurrentLazy.Value;
 
     private static AppBuildStamp ResolveCurrent()
     {
-        var packagedIdentity = TryReadPackagedIdentity();
+        var processPath = Environment.ProcessPath ?? string.Empty;
+        var packagedIdentity = TryReadPackagedIdentity() ?? TryReadPackagedIdentityFromProcessPath(processPath);
         if (packagedIdentity is not null)
         {
             return new AppBuildStamp(
@@ -21,7 +27,6 @@ internal static class AppBuildIdentity
                 IsPackaged: true);
         }
 
-        var processPath = Environment.ProcessPath ?? string.Empty;
         var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
         var informationalVersion = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? string.Empty;
         var assemblyVersion = assembly.GetName().Version?.ToString() ?? string.Empty;
@@ -45,6 +50,9 @@ internal static class AppBuildIdentity
             string.IsNullOrWhiteSpace(bestVersion) ? "unpackaged" : bestVersion,
             IsPackaged: false);
     }
+
+    internal static string? TryReadPackagedVersionFromProcessPath(string? processPath)
+        => TryReadPackagedIdentityFromProcessPath(processPath)?.Version;
 
     private static PackagedIdentity? TryReadPackagedIdentity()
     {
@@ -85,6 +93,40 @@ internal static class AppBuildIdentity
         {
             return null;
         }
+    }
+
+    private static PackagedIdentity? TryReadPackagedIdentityFromProcessPath(string? processPath)
+    {
+        if (string.IsNullOrWhiteSpace(processPath) ||
+            processPath.IndexOf("WindowsApps", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return null;
+        }
+
+        DirectoryInfo? directory;
+        try
+        {
+            directory = new FileInfo(processPath).Directory;
+        }
+        catch
+        {
+            return null;
+        }
+
+        while (directory is not null)
+        {
+            var match = WindowsAppsPackageDirectoryPattern.Match(directory.Name);
+            if (match.Success)
+            {
+                return new PackagedIdentity(
+                    match.Groups["name"].Value,
+                    match.Groups["version"].Value);
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
     }
 
     private static bool LooksLikePlaceholderVersion(string version)
