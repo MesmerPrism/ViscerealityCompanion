@@ -26,11 +26,13 @@ GUI surfaces:
   - the live participant-run surface for participant id entry, `Start
     Recording`, `Stop Recording`, live telemetry, clock/network consistency,
     recenter, particle toggles, screenshots, and quick access to the session
-    folder
+    folder, pulled Quest backup, and session review PDF
 
 The CLI currently mirrors the setup and profile side of Sussex. It does not
 yet replace the participant-run `Start Recording` / `Stop Recording` flow in
-the `Experiment Session` window.
+the `Experiment Session` window. After `Stop Recording`, the GUI now pulls the
+Quest backup into `device-session-pull` and generates `session_review_report.pdf`
+inside the same participant session folder.
 
 ## Running
 
@@ -141,6 +143,18 @@ Use `--json` whenever an agent needs stable machine-readable output.
 | `utility list` | List installed packages |
 | `utility reboot` | Reboot Quest |
 
+### hzdb
+
+| Command | Description |
+|---------|-------------|
+| `hzdb screenshot` | Capture a Quest screenshot |
+| `hzdb perf` | Capture a Perfetto trace |
+| `hzdb proximity <enable|disable>` | Control the proximity sensor |
+| `hzdb wake` | Wake the Quest |
+| `hzdb info` | Read detailed device info |
+| `hzdb ls <path>` | List files under a Quest path |
+| `hzdb pull <remote-path> <local-path>` | Pull one Quest file to Windows |
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -181,3 +195,11 @@ After that deterministic CLI setup:
    `Experiment Session`.
 3. Run the real participant session from that window with `Start Recording`
    and `Stop Recording`.
+4. After `Stop Recording`, use the same window to open:
+   - the Windows session folder
+   - the pulled Quest backup folder
+   - the generated `session_review_report.pdf`
+
+If you need a CLI-only recovery path for Quest-side files after the run, use
+`hzdb ls` plus `hzdb pull` against the recorded `study.recording.device.session_dir`
+or the `session_snapshot.json` entry in the Windows session folder.

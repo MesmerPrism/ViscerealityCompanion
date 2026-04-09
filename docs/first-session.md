@@ -81,6 +81,9 @@ preferred low-distraction live-run surface:
   consistency there
 - keep recenter, particles on/off, and Quest screenshot available there as
   secondary tools
+- after `Stop Recording`, use that same window to open the Windows session
+  folder, the pulled Quest backup folder, and the generated
+  `session_review_report.pdf`
 
 The broader Sussex shell still remains the tuning and profile-editing surface
 before the study setup is locked in.
@@ -204,6 +207,7 @@ viscereality twin send twin-pause
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 - if the headset is already awake, normal Sussex command buttons should now react faster because the app no longer forces a full pre-send snapshot refresh before every command
 - the `Experiment Session` window now keeps Quest screenshot capture, LSL clock-alignment consistency, and the live participant-run controls on one focused operator surface
+- normal participant runs now also pull the Quest-side backup into `device-session-pull` and generate `session_review_report.pdf` after `Stop Recording`
 
 ## Catalog Discovery
 

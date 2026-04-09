@@ -244,9 +244,9 @@ surfaces:
        validation capture.
      - `Open Experiment Session` is the live participant-run surface. Use it
        after the guide has passed. It owns participant-id entry, `Start
-       Recording`, `Stop Recording`, `Open Session Folder`, live telemetry,
-       clock/network consistency, recenter, particle toggles, screenshots, and
-       the condensed operator log.
+       Recording`, `Stop Recording`, `Open Session Folder`, `Open Quest
+       Backup`, `Open Session PDF`, live telemetry, clock/network consistency,
+       recenter, particle toggles, screenshots, and the condensed operator log.
      - The main Sussex shell remains the broader tuning and inspection surface
        for profile editing, diagnostics, and deeper runtime review before the
        study setup is locked.
@@ -331,7 +331,11 @@ real participant-run recorder flow is intentionally GUI-first:
   `study status`, and Sussex profile authoring/apply work
 - use the `Sequential Guide` for the final pre-session verification pass
 - use the `Experiment Session` window for `Start Recording`, `Stop Recording`,
-  live telemetry monitoring, and in-session command tools
+  live telemetry monitoring, pulled Quest backups, session review PDFs, and
+  in-session command tools
+- use `viscereality hzdb ls ...` and `viscereality hzdb pull ...` only as
+  recovery or inspection helpers when you need to inspect Quest-side files
+  directly after a run
 
 ## Sussex Profile Recipes
 

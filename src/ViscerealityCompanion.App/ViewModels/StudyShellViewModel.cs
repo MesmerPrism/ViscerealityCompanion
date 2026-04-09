@@ -62,6 +62,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const string TwinStateStreamType = "quest.twin.state";
     private const string TwinConfigStreamName = "quest_hotload_config";
     private const string TwinConfigStreamType = "quest.config";
+    private const string ParticipantSessionReviewPdfFileName = "session_review_report.pdf";
     private static readonly TimeSpan WorkflowClockAlignmentSparseProbeDuration = TimeSpan.FromSeconds(2.5);
     private static readonly TimeSpan WorkflowClockAlignmentRunSafetyMargin = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan WorkflowClockAlignmentStopTimeout = TimeSpan.FromSeconds(8);
@@ -320,7 +321,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _recorderStateLabel = "Idle";
     private string _recordingSessionLabel = "No active participant session.";
     private string _recordingFolderPath = string.Empty;
+    private string _recordingDevicePullFolderPath = string.Empty;
+    private string _recordingPdfPath = string.Empty;
     private string _lastCompletedRecordingFolderPath = string.Empty;
+    private string _lastCompletedRecordingDevicePullFolderPath = string.Empty;
+    private string _lastCompletedRecordingPdfPath = string.Empty;
     private bool _participantRunStopping;
     private string _recorderFaultDetail = string.Empty;
     private StudyDataRecordingSession? _activeRecordingSession;
@@ -513,6 +518,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         NextWorkflowGuideStepCommand = new AsyncRelayCommand(NextWorkflowGuideStepAsync);
         RunWorkflowValidationCaptureCommand = new AsyncRelayCommand(RunWorkflowValidationCaptureAsync);
         OpenRecordingSessionFolderCommand = new AsyncRelayCommand(OpenRecordingSessionFolderAsync);
+        OpenRecordingSessionDevicePullFolderCommand = new AsyncRelayCommand(OpenRecordingSessionDevicePullFolderAsync);
+        OpenRecordingSessionPdfCommand = new AsyncRelayCommand(OpenRecordingSessionPdfAsync);
         OpenValidationCaptureLocalFolderCommand = new AsyncRelayCommand(OpenValidationCaptureLocalFolderAsync);
         OpenValidationCaptureDevicePullFolderCommand = new AsyncRelayCommand(OpenValidationCaptureDevicePullFolderAsync);
         OpenValidationCapturePdfCommand = new AsyncRelayCommand(OpenValidationCapturePdfAsync);
@@ -530,6 +537,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string StudyPartner => _study.Partner;
     public string StudyDescription => _study.Description;
     public string PinnedPackageId => _study.App.PackageId;
+    public string PublishedBuildSummary => AppBuildIdentity.Current.Summary;
+    public string PublishedBuildDetail => AppBuildIdentity.Current.Detail;
+    public string ExperimentSessionWindowTitle => $"Sussex Experiment Session ({AppBuildIdentity.Current.ShortId})";
     public SussexVisualProfilesWorkspaceViewModel VisualProfiles => _visualProfiles;
     public SussexControllerBreathingProfilesWorkspaceViewModel ControllerBreathingProfiles => _controllerBreathingProfiles;
 
@@ -1134,9 +1144,41 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    public string RecordingDevicePullFolderPath
+    {
+        get => _recordingDevicePullFolderPath;
+        private set
+        {
+            if (SetProperty(ref _recordingDevicePullFolderPath, value))
+            {
+                OnPropertyChanged(nameof(CanOpenRecordingSessionDevicePullFolder));
+            }
+        }
+    }
+
+    public string RecordingPdfPath
+    {
+        get => _recordingPdfPath;
+        private set
+        {
+            if (SetProperty(ref _recordingPdfPath, value))
+            {
+                OnPropertyChanged(nameof(CanOpenRecordingSessionPdf));
+            }
+        }
+    }
+
     public bool CanOpenRecordingSessionFolder
         => !string.IsNullOrWhiteSpace(RecordingFolderPath)
             && Directory.Exists(RecordingFolderPath);
+
+    public bool CanOpenRecordingSessionDevicePullFolder
+        => !string.IsNullOrWhiteSpace(RecordingDevicePullFolderPath)
+            && Directory.Exists(RecordingDevicePullFolderPath);
+
+    public bool CanOpenRecordingSessionPdf
+        => !string.IsNullOrWhiteSpace(RecordingPdfPath)
+            && File.Exists(RecordingPdfPath);
 
     public string WorkflowRuntimePendingSummary
     {
@@ -2166,6 +2208,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand NextWorkflowGuideStepCommand { get; }
     public AsyncRelayCommand RunWorkflowValidationCaptureCommand { get; }
     public AsyncRelayCommand OpenRecordingSessionFolderCommand { get; }
+    public AsyncRelayCommand OpenRecordingSessionDevicePullFolderCommand { get; }
+    public AsyncRelayCommand OpenRecordingSessionPdfCommand { get; }
     public AsyncRelayCommand OpenValidationCaptureLocalFolderCommand { get; }
     public AsyncRelayCommand OpenValidationCaptureDevicePullFolderCommand { get; }
     public AsyncRelayCommand OpenValidationCapturePdfCommand { get; }
@@ -3350,7 +3394,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     "recording.aborted",
                     "Local recording closed because Quest session metadata could not be published.",
                     "failed",
-                    clearParticipantId: false)
+                    clearParticipantId: false,
+                    pullQuestArtifacts: false,
+                    remoteSessionDir: string.Empty,
+                    generateSessionReviewPdf: false)
                 .ConfigureAwait(false);
 
             await ApplyOutcomeAsync(
@@ -3392,7 +3439,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     "recording.aborted",
                     "Local recording closed because Quest session metadata never confirmed for the active participant session.",
                     "failed",
-                    clearParticipantId: false)
+                    clearParticipantId: false,
+                    pullQuestArtifacts: false,
+                    remoteSessionDir: string.Empty,
+                    generateSessionReviewPdf: false)
                 .ConfigureAwait(false);
 
             await ApplyOutcomeAsync(
@@ -3429,7 +3479,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     "recording.aborted",
                     "Local recording closed because Start Experiment failed.",
                     "failed",
-                    clearParticipantId: false)
+                    clearParticipantId: false,
+                    pullQuestArtifacts: false,
+                    remoteSessionDir: string.Empty,
+                    generateSessionReviewPdf: false)
                 .ConfigureAwait(false);
 
             await ApplyOutcomeAsync(
@@ -3584,6 +3637,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     null,
                     warmTransportStopOutcome.Kind.ToString());
 
+                var remoteSessionDir = await DispatchAsync(() =>
+                        GetFirstValue("study.recording.device.session_dir") ?? _latestDeviceRecordingSessionDir)
+                    .ConfigureAwait(false);
                 var closedAtUtc = DateTimeOffset.UtcNow;
                 await FinishParticipantRecordingAsync(
                         activeSession,
@@ -3591,7 +3647,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         "recording.stopped",
                         "Participant recording closed from the Sussex workflow shell before cleanup commands.",
                         deviceStopOutcome.Kind == OperationOutcomeKind.Success ? "completed" : "warning",
-                        clearParticipantId: true)
+                        clearParticipantId: true,
+                        pullQuestArtifacts: true,
+                        remoteSessionDir: remoteSessionDir ?? string.Empty,
+                        generateSessionReviewPdf: !ValidationCaptureRunning)
                     .ConfigureAwait(false);
 
                 cleanupPermitted = endOutcome.Kind != OperationOutcomeKind.Failure;
@@ -4106,6 +4165,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "Start or finish a participant run first so the Windows session folder exists.").ConfigureAwait(false);
     }
 
+    private async Task OpenRecordingSessionDevicePullFolderAsync()
+    {
+        var folderPath = await DispatchAsync(() => RecordingDevicePullFolderPath).ConfigureAwait(false);
+        await OpenValidationCaptureFolderAsync(
+            folderPath,
+            "Open Recording Quest Backup",
+            "Recording Quest backup folder is not available yet.",
+            "Finish a participant run first so the pulled Quest backup folder exists.").ConfigureAwait(false);
+    }
+
     private async Task OpenValidationCaptureDevicePullFolderAsync()
     {
         var folderPath = await DispatchAsync(() => ValidationCaptureDevicePullFolderPath).ConfigureAwait(false);
@@ -4124,6 +4193,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "Open Validation PDF",
             "Validation PDF is not available yet.",
             "Finish the validation capture first so the formatted PDF preview can be generated.").ConfigureAwait(false);
+    }
+
+    private async Task OpenRecordingSessionPdfAsync()
+    {
+        var pdfPath = await DispatchAsync(() => RecordingPdfPath).ConfigureAwait(false);
+        await OpenValidationCaptureFileAsync(
+            pdfPath,
+            "Open Recording Session PDF",
+            "Recording session PDF is not available yet.",
+            "Finish a participant run first so the formatted session review PDF can be generated.").ConfigureAwait(false);
     }
 
     private async Task OpenValidationCaptureFolderAsync(string folderPath, string actionLabel, string unavailableSummary, string unavailableDetail)
@@ -4194,14 +4273,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task<OperationOutcome> GenerateValidationCapturePdfAsync(string localSessionFolderPath)
+    private Task<OperationOutcome> GenerateValidationCapturePdfAsync(string localSessionFolderPath)
+        => GenerateSessionReviewPdfAsync(localSessionFolderPath, "validation_capture_preview.pdf");
+
+    private async Task<OperationOutcome> GenerateSessionReviewPdfAsync(string localSessionFolderPath, string outputPdfFileName)
     {
         if (string.IsNullOrWhiteSpace(localSessionFolderPath) || !Directory.Exists(localSessionFolderPath))
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Validation PDF could not be generated.",
-                "The Windows validation session folder is missing.");
+                "Session review PDF could not be generated.",
+                "The Windows session folder is missing.");
         }
 
         var scriptPath = TryResolveValidationCapturePdfScriptPath();
@@ -4209,11 +4291,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Validation PDF generator is missing.",
-                "The companion could not find the bundled Sussex validation PDF generator script.");
+                "Session review PDF generator is missing.",
+                "The companion could not find the bundled Sussex session-review PDF generator script.");
         }
 
-        var outputPdfPath = Path.Combine(localSessionFolderPath, "validation_capture_preview.pdf");
+        var outputPdfPath = Path.Combine(localSessionFolderPath, outputPdfFileName);
         var pythonCommands = new[]
         {
             ("python", $"\"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\""),
@@ -4256,8 +4338,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         new[] { standardOutputTimeout?.Trim(), standardErrorTimeout?.Trim() }
                             .Where(value => !string.IsNullOrWhiteSpace(value)));
                     errors.Add(string.IsNullOrWhiteSpace(combinedTimeoutOutput)
-                        ? $"{fileName}: Sussex validation PDF generation exceeded {WorkflowValidationPdfTimeout.TotalSeconds:0} seconds and was stopped."
-                        : $"{fileName}: Sussex validation PDF generation exceeded {WorkflowValidationPdfTimeout.TotalSeconds:0} seconds and was stopped. {combinedTimeoutOutput}");
+                        ? $"{fileName}: Sussex session-review PDF generation exceeded {WorkflowValidationPdfTimeout.TotalSeconds:0} seconds and was stopped."
+                        : $"{fileName}: Sussex session-review PDF generation exceeded {WorkflowValidationPdfTimeout.TotalSeconds:0} seconds and was stopped. {combinedTimeoutOutput}");
                     continue;
                 }
 
@@ -4268,7 +4350,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 {
                     return new OperationOutcome(
                         OperationOutcomeKind.Success,
-                        "Validation PDF generated.",
+                        "Session review PDF generated.",
                         string.IsNullOrWhiteSpace(standardOutput) ? outputPdfPath : standardOutput.Trim(),
                         Items: [outputPdfPath]);
                 }
@@ -4289,9 +4371,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         return new OperationOutcome(
             OperationOutcomeKind.Warning,
-            "Validation PDF could not be generated automatically.",
+            "Session review PDF could not be generated automatically.",
             errors.Count == 0
-                ? "The companion could not launch the Sussex validation PDF generator."
+                ? "The companion could not launch the Sussex session-review PDF generator."
                 : string.Join(" ", errors));
     }
 
@@ -4301,8 +4383,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Windows validation data folder is missing.",
-                "The 20 second validation run completed, but the local Windows session folder could not be found afterward.");
+                "Windows session folder is missing.",
+                "The session completed locally, but the local Windows session folder could not be found afterward.");
         }
 
         if (string.IsNullOrWhiteSpace(remoteSessionDir))
@@ -4310,7 +4392,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "Quest recording folder was not reported.",
-                "The validation run completed locally, but the Quest runtime did not report a device-side session directory to pull from.");
+                "The session completed locally, but the Quest runtime did not report a device-side session directory to pull from.");
         }
 
         if (!_hzdbService.IsAvailable)
@@ -4318,7 +4400,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "hzdb is not available for Quest file pullback.",
-                "The validation run completed locally, but Quest-side backup files cannot be pulled until hzdb is available.");
+                "The session completed locally, but Quest-side backup files cannot be pulled until hzdb is available.");
         }
 
         var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
@@ -4327,7 +4409,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "Quest selector missing for file pullback.",
-                "The validation run completed locally, but the companion no longer has a headset selector for hzdb file pullback.");
+                "The session completed locally, but the companion no longer has a headset selector for hzdb file pullback.");
         }
 
         var localPullFolderPath = Path.Combine(localSessionFolderPath, "device-session-pull");
@@ -5816,7 +5898,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         string eventName,
         string eventDetail,
         string result,
-        bool clearParticipantId)
+        bool clearParticipantId,
+        bool pullQuestArtifacts,
+        string remoteSessionDir,
+        bool generateSessionReviewPdf)
     {
         await DispatchAsync(() =>
         {
@@ -5828,8 +5913,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             StopRegularRecordingSamples();
         }).ConfigureAwait(false);
 
+        OperationOutcome? questPullOutcome = null;
         try
         {
+            if (pullQuestArtifacts)
+            {
+                questPullOutcome = await PullQuestRecordingArtifactsAsync(remoteSessionDir, recordingSession.SessionFolderPath).ConfigureAwait(false);
+                recordingSession.RecordEvent(
+                    "recording.device_pullback",
+                    BuildRecorderEventDetail(questPullOutcome),
+                    null,
+                    questPullOutcome.Kind.ToString());
+            }
+
             recordingSession.RecordEvent(eventName, eventDetail, null, result, endedAtUtc);
             recordingSession.Complete(endedAtUtc);
         }
@@ -5839,9 +5935,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var completedDevicePullFolderPath = questPullOutcome?.Items?.FirstOrDefault() ?? string.Empty;
+        OperationOutcome? sessionReviewPdfOutcome = null;
+        if (generateSessionReviewPdf)
+        {
+            sessionReviewPdfOutcome = await GenerateSessionReviewPdfAsync(
+                    recordingSession.SessionFolderPath,
+                    ParticipantSessionReviewPdfFileName)
+                .ConfigureAwait(false);
+        }
+
+        var completedPdfPath = sessionReviewPdfOutcome?.Kind == OperationOutcomeKind.Success
+            ? sessionReviewPdfOutcome.Items?.FirstOrDefault() ?? string.Empty
+            : string.Empty;
+
         await DispatchAsync(() =>
         {
             _lastCompletedRecordingFolderPath = recordingSession.SessionFolderPath;
+            _lastCompletedRecordingDevicePullFolderPath = completedDevicePullFolderPath;
+            _lastCompletedRecordingPdfPath = completedPdfPath;
             _participantRunStopping = false;
             if (clearParticipantId)
             {
@@ -7823,6 +7935,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Recorder faulted before a session folder could be confirmed."
                 : $"Last session folder: {_lastCompletedRecordingFolderPath}";
             RecordingFolderPath = _lastCompletedRecordingFolderPath;
+            RecordingDevicePullFolderPath = _lastCompletedRecordingDevicePullFolderPath;
+            RecordingPdfPath = _lastCompletedRecordingPdfPath;
             return;
         }
 
@@ -7836,6 +7950,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Stopping after the last participant session."
                 : $"Active session: {_activeRecordingSession.SessionId}";
             RecordingFolderPath = _activeRecordingSession?.SessionFolderPath ?? _lastCompletedRecordingFolderPath;
+            RecordingDevicePullFolderPath = string.Empty;
+            RecordingPdfPath = string.Empty;
             return;
         }
 
@@ -7848,9 +7964,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : $"Recording participant {_activeRecordingSession.ParticipantId}.";
             RecordingDetail = ClockAlignmentRunning
                 ? $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. {ClockAlignmentDetail}"
-                : $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}.";
+                : $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. Quest backup files will be pulled into device-session-pull when recording stops.";
             RecordingSessionLabel = $"Active session: {_activeRecordingSession.SessionId}";
             RecordingFolderPath = _activeRecordingSession.SessionFolderPath;
+            RecordingDevicePullFolderPath = string.Empty;
+            RecordingPdfPath = string.Empty;
             return;
         }
 
@@ -7863,11 +7981,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : "Recorder armed for the next participant run.";
             RecordingDetail = ParticipantHasExistingSessions
                 ? $"{ParticipantExistingSessionsLabel} Starting the run from Experiment Session will still create a new session folder."
-                : "Starting the run from Experiment Session will create a timestamped session folder with settings, events, signals, and breathing trace files.";
+                : "Starting the run from Experiment Session will create a timestamped session folder with settings, events, signals, breathing trace files, pulled Quest backup files, and a formatted session review PDF when recording stops.";
             RecordingSessionLabel = string.IsNullOrWhiteSpace(_lastCompletedRecordingFolderPath)
                 ? "No previous participant session completed in this shell instance."
                 : $"Last completed session: {_lastCompletedRecordingFolderPath}";
             RecordingFolderPath = _lastCompletedRecordingFolderPath;
+            RecordingDevicePullFolderPath = _lastCompletedRecordingDevicePullFolderPath;
+            RecordingPdfPath = _lastCompletedRecordingPdfPath;
             return;
         }
 
@@ -7879,6 +7999,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? "No participant session has been recorded from this shell instance yet."
             : $"Last completed session: {_lastCompletedRecordingFolderPath}";
         RecordingFolderPath = _lastCompletedRecordingFolderPath;
+        RecordingDevicePullFolderPath = _lastCompletedRecordingDevicePullFolderPath;
+        RecordingPdfPath = _lastCompletedRecordingPdfPath;
     }
 
     private void UpdateWorkflowGuideState()
@@ -8801,12 +8923,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         bool isEnabled,
         string? runningLabel = null,
         bool? stateIsOn = null)
-        => new(
+    {
+        bool? actionIsEnabling = stateIsOn.HasValue ? !stateIsOn.Value : null;
+        return new WorkflowGuideActionItem(
             command.IsRunning ? runningLabel ?? $"{label}..." : label,
             command,
             isEnabled && !command.IsRunning,
             command.IsRunning,
-            stateIsOn);
+            stateIsOn,
+            actionIsEnabling);
+    }
 
     private string BuildControllerWakeReminderSummary()
     {
@@ -12195,19 +12321,22 @@ public sealed class WorkflowGuideActionItem : ObservableObject
     private bool _isEnabled;
     private bool _isRunning;
     private bool? _stateIsOn;
+    private bool? _actionIsEnabling;
 
     public WorkflowGuideActionItem(
         string label,
         AsyncRelayCommand command,
         bool isEnabled,
         bool isRunning,
-        bool? stateIsOn)
+        bool? stateIsOn,
+        bool? actionIsEnabling)
     {
         _label = label;
         _command = command;
         _isEnabled = isEnabled;
         _isRunning = isRunning;
         _stateIsOn = stateIsOn;
+        _actionIsEnabling = actionIsEnabling;
     }
 
     public string Label
@@ -12240,6 +12369,12 @@ public sealed class WorkflowGuideActionItem : ObservableObject
         private set => SetProperty(ref _stateIsOn, value);
     }
 
+    public bool? ActionIsEnabling
+    {
+        get => _actionIsEnabling;
+        private set => SetProperty(ref _actionIsEnabling, value);
+    }
+
     public void UpdateFrom(WorkflowGuideActionItem source)
     {
         Label = source.Label;
@@ -12247,6 +12382,7 @@ public sealed class WorkflowGuideActionItem : ObservableObject
         IsEnabled = source.IsEnabled;
         IsRunning = source.IsRunning;
         StateIsOn = source.StateIsOn;
+        ActionIsEnabling = source.ActionIsEnabling;
     }
 }
 

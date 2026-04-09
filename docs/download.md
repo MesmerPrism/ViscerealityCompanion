@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.26.0`.
+`0.1.27.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -103,6 +103,10 @@ the sequential guide flow, the controller-breathing profile tab, participant
 locked mode, Windows-plus-Quest session snapshots, the LSL/runtime hardening
 changes, and the refactored Sussex visual-profile workflow:
 
+- the dedicated `Experiment Session` operator popout for real participant runs
+- automatic Quest pullback into `device-session-pull` after normal participant recordings
+- automatic session review PDFs for both validation captures and normal participant runs
+
 - the bundled Sussex baseline stays permanently available as a library profile
 - the app can also ship additional bundled Sussex visual profiles from the
   release payload, listed ahead of the local writable profile library
@@ -141,6 +145,9 @@ expecting the companion to install or launch anything.
 2. Confirm it opens in `Sussex University experiment mode`.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
+5. Check the top app header for the opened-build badge. The installed preview
+   should identify itself as `Published install 0.1.27.0`; unpackaged local
+   builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an
 older build or a repo-local source build instead of the packaged Sussex preview.

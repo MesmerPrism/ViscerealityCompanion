@@ -1284,12 +1284,26 @@ public static class Program
             PrintOutcome(result);
         });
 
+        var pullCommand = new Command("pull", "Pull one file from device storage");
+        var remotePathArg = new Argument<string>("remote-path", description: "Remote file path to pull");
+        var localPathArg = new Argument<string>("local-path", description: "Local destination path");
+        pullCommand.Add(remotePathArg);
+        pullCommand.Add(localPathArg);
+        pullCommand.Handler = CommandHandler.Create(async (string remotePath, string localPath, string? device) =>
+        {
+            var hzdb = HzdbServiceFactory.CreateDefault();
+            var serial = ResolveDeviceSerial(device);
+            var result = await hzdb.PullFileAsync(serial, remotePath, localPath);
+            PrintOutcome(result);
+        });
+
         hzdbCommand.AddCommand(screenshotCommand);
         hzdbCommand.AddCommand(perfTraceCommand);
         hzdbCommand.AddCommand(proximityCommand);
         hzdbCommand.AddCommand(wakeCommand);
         hzdbCommand.AddCommand(infoCommand);
         hzdbCommand.AddCommand(lsCommand);
+        hzdbCommand.AddCommand(pullCommand);
         return hzdbCommand;
     }
 

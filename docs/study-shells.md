@@ -232,10 +232,11 @@ orientation-first Sussex home view:
 - the Experiment Session window:
   - this is the dedicated live participant-run surface after the sequential
     guide has passed
-  - it keeps participant entry, `Start Recording`, `Stop Recording`, live
-    telemetry, clock/network consistency, recenter, particle toggles,
-    screenshot capture, and the condensed operator log on one low-distraction
-    popout
+- it keeps participant entry, `Start Recording`, `Stop Recording`, live
+  telemetry, clock/network consistency, recenter, particle toggles,
+  screenshot capture, quick access to the Windows session folder, the pulled
+  Quest backup folder, the generated `session_review_report.pdf`, and the
+  condensed operator log on one low-distraction popout
 - one saved launch profile:
   - this is the pinned saved profile the shell stages to the device-side
     startup CSV before Sussex launches
@@ -293,7 +294,9 @@ sync rules as the GUI. The intended agentic Sussex workflow is:
 Do not invent ad hoc CLI replacements for the live participant recorder flow.
 The current CLI parity stops at setup/runtime control and profile automation;
 the real participant run is intentionally driven from the `Experiment Session`
-window.
+window. The CLI can still help with post-run recovery or inspection through
+`viscereality hzdb ls ...` and `viscereality hzdb pull ...`, but the normal
+participant start/stop flow remains GUI-first.
 
 The agent-readable field catalogs are:
 

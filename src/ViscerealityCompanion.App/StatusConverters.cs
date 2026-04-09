@@ -141,6 +141,61 @@ public sealed class StatusDetailFormatterConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+public sealed class ActionLabelToIsEnablingConverter : IValueConverter
+{
+    private static readonly string[] EnablingPrefixes =
+    [
+        "Start ",
+        "Launch ",
+        "Wake ",
+        "Enable ",
+        "Use Automatic",
+        "Particles On",
+        "On"
+    ];
+
+    private static readonly string[] DisablingPrefixes =
+    [
+        "Stop ",
+        "Exit ",
+        "Sleep ",
+        "Disable ",
+        "Pause ",
+        "Use Controller",
+        "Particles Off",
+        "Off"
+    ];
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not string rawLabel || string.IsNullOrWhiteSpace(rawLabel))
+        {
+            return DependencyProperty.UnsetValue;
+        }
+
+        var normalizedLabel = rawLabel.Trim();
+        if (normalizedLabel.EndsWith("...", StringComparison.Ordinal))
+        {
+            normalizedLabel = normalizedLabel[..^3].TrimEnd();
+        }
+
+        if (EnablingPrefixes.Any(prefix => normalizedLabel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        if (DisablingPrefixes.Any(prefix => normalizedLabel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        return DependencyProperty.UnsetValue;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 public sealed class LogLevelToBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

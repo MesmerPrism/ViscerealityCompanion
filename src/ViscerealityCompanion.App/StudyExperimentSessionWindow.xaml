@@ -5,7 +5,7 @@
         xmlns:local="clr-namespace:ViscerealityCompanion.App"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Sussex Experiment Session"
+        Title="{Binding ExperimentSessionWindowTitle}"
         Width="1360"
         Height="940"
         MinWidth="1120"
@@ -66,11 +66,33 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2">
+                    <Border Background="{StaticResource PanelBrush}"
+                            BorderBrush="{StaticResource LineBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="8,6">
+                        <StackPanel>
+                            <TextBlock Text="Opened Build"
+                                       Style="{StaticResource SessionMicroLabelStyle}" />
+                            <TextBlock Text="{Binding PublishedBuildSummary}"
+                                       FontFamily="{StaticResource MonoFont}"
+                                       FontSize="13"
+                                       FontWeight="Bold"
+                                       TextAlignment="Right"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding PublishedBuildDetail}"
+                                       Style="{StaticResource SectionCaptionStyle}"
+                                       Margin="0,4,0,0"
+                                       TextAlignment="Right"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
                     <TextBlock Text="{Binding RecordingSummary}"
                                FontSize="18"
                                FontWeight="Bold"
                                Foreground="{Binding RecordingLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                TextAlignment="Right"
+                               Margin="0,8,0,0"
                                TextWrapping="Wrap" />
                     <TextBlock Text="{Binding LastTwinStateTimestampLabel}"
                                Style="{StaticResource SectionCaptionStyle}"
@@ -131,11 +153,19 @@
                                     Command="{Binding ToggleRecordingCommand}"
                                     IsEnabled="{Binding CanToggleRecording}"
                                     Style="{StaticResource StateActionButtonStyle}"
-                                    Tag="{Binding IsRecordingToggleState}"
+                                    Tag="{Binding RecordingToggleActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                     Margin="0,6,0,0" />
                             <Button Content="Open Session Folder"
                                     Command="{Binding OpenRecordingSessionFolderCommand}"
                                     IsEnabled="{Binding CanOpenRecordingSessionFolder}"
+                                    Margin="0,6,0,0" />
+                            <Button Content="Open Quest Backup"
+                                    Command="{Binding OpenRecordingSessionDevicePullFolderCommand}"
+                                    IsEnabled="{Binding CanOpenRecordingSessionDevicePullFolder}"
+                                    Margin="0,6,0,0" />
+                            <Button Content="Open Session PDF"
+                                    Command="{Binding OpenRecordingSessionPdfCommand}"
+                                    IsEnabled="{Binding CanOpenRecordingSessionPdf}"
                                     Margin="0,6,0,0" />
                         </StackPanel>
                     </Border>
@@ -282,7 +312,7 @@
                                         Command="{Binding ToggleParticlesCommand}"
                                         IsEnabled="{Binding CanToggleParticles}"
                                         Style="{StaticResource StateActionButtonStyle}"
-                                        Tag="{Binding IsParticlesToggleState}"
+                                        Tag="{Binding ParticlesToggleActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                         Margin="0,12,0,0" />
                             </StackPanel>
                         </Border>

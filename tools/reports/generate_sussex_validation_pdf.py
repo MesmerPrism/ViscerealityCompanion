@@ -548,7 +548,7 @@ def build_cover_page(
     axis.text(
         0.045,
         0.905,
-        "Dark validation report for the operator-side session capture and Quest pullback.",
+        "Review report for the operator-side session capture and any available Quest pullback.",
         color=COLORS["muted"],
         fontsize=10.5,
         va="top",
@@ -926,8 +926,8 @@ def build_report(session_dir: Path, output_pdf: Path) -> None:
         metadata = pdf.infodict()
         metadata["Title"] = "Sussex Session Review"
         metadata["Author"] = "Viscereality Companion"
-        metadata["Subject"] = "Sussex validation capture report"
-        metadata["Keywords"] = "sussex, quest, validation, lsl, pdf"
+        metadata["Subject"] = "Sussex session review report"
+        metadata["Keywords"] = "sussex, quest, session, lsl, pdf"
 
         build_cover_page(
             pdf,

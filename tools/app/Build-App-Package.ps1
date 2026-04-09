@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
-    [string]$Version = '0.1.26.0',
+    [string]$Version = '0.1.27.0',
     [string]$PackageId = 'MesmerPrism.ViscerealityCompanion',
     [string]$Publisher = 'CN=MesmerPrism',
     [string]$DisplayName = 'Viscereality Companion',

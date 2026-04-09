@@ -633,7 +633,7 @@
                                                 <Button Content="{Binding StudyRuntimeActionLabel}"
                                                         Command="{Binding ToggleStudyRuntimeCommand}"
                                                         Style="{StaticResource StateActionButtonStyle}"
-                                                        Tag="{Binding IsStudyRuntimeToggleState}" />
+                                                        Tag="{Binding StudyRuntimeActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}" />
                                             </WrapPanel>
                                             <Expander Style="{StaticResource CompactStatusExpanderStyle}">
                                                 <Expander.Header>
@@ -735,7 +735,7 @@
                                                     <Button Content="{Binding ProximityActionLabel}"
                                                             Command="{Binding ToggleProximityCommand}"
                                                             Style="{StaticResource StateActionButtonStyle}"
-                                                            Tag="{Binding IsProximityToggleState}"
+                                                            Tag="{Binding ProximityActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                                             IsEnabled="{Binding CanToggleProximity}"
                                                             Margin="0,10,0,0" />
                                                 </StackPanel>
@@ -808,7 +808,7 @@
                                                     <Button Content="{Binding TestLslSenderActionLabel}"
                                                             Command="{Binding ToggleTestLslSenderCommand}"
                                                             Style="{StaticResource StateActionButtonStyle}"
-                                                            Tag="{Binding IsTestLslSenderToggleState}"
+                                                            Tag="{Binding TestLslSenderActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                                             IsEnabled="{Binding CanToggleTestLslSender}"
                                                             Margin="0,10,0,0" />
                                                 </StackPanel>
@@ -849,7 +849,7 @@
                                             Command="{Binding ToggleParticlesCommand}"
                                             IsEnabled="{Binding CanToggleParticles}"
                                             Style="{StaticResource StateActionButtonStyle}"
-                                            Tag="{Binding IsParticlesToggleState}"
+                                            Tag="{Binding ParticlesToggleActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                             Margin="0,12,0,0" />
                                 </StackPanel>
                             </Border>
@@ -937,11 +937,13 @@
                                             <WrapPanel Margin="0,8,0,0">
                                                 <Button Content="{Binding AutomaticBreathingModeActionLabel}"
                                                         Command="{Binding ToggleAutomaticBreathingModeCommand}"
+                                                        Style="{StaticResource StateActionButtonStyle}"
+                                                        Tag="{Binding AutomaticBreathingModeActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                                         IsEnabled="{Binding CanToggleAutomaticBreathingMode}" />
                                                 <Button Content="{Binding AutomaticBreathingRunActionLabel}"
                                                         Command="{Binding ToggleAutomaticBreathingRunCommand}"
                                                         Style="{StaticResource StateActionButtonStyle}"
-                                                        Tag="{Binding IsAutomaticBreathingRunToggleState}"
+                                                        Tag="{Binding AutomaticBreathingRunActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                                         IsEnabled="{Binding CanToggleAutomaticBreathingRun}" />
                                             </WrapPanel>
                                         </StackPanel>

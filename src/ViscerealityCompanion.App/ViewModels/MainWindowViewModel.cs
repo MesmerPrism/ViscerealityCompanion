@@ -926,6 +926,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 ? "This package is configured to open directly into the pinned study shell instead of the general operator workspace."
                 : "Use Start Here for the direct operator path, or open the pinned study mode when a session needs one controlled surface.";
 
+    public string PublishedBuildSummary => AppBuildIdentity.Current.Summary;
+
+    public string PublishedBuildDetail => AppBuildIdentity.Current.Detail;
+
+    public string WindowTitle => $"Viscereality Companion ({AppBuildIdentity.Current.ShortId})";
+
     public string HeaderModeSummary
         => ActiveStudyShell is not null
             ? IsStudyModeLocked

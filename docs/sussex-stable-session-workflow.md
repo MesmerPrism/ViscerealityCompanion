@@ -105,9 +105,11 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
 2. `Stop Recording` should:
    - stop companion-side data capture
    - send the headset-side stop and end command
+   - pull the Quest-side backup into `device-session-pull`
    - send `Reset Calibration`
    - send `Particles Off`
    - write final session metadata to disk
+   - generate `session_review_report.pdf`
 3. The experimenter removes the headset from the participant.
 4. Put the headset to sleep with the physical power button.
 5. Return to the participant-number entry state without forcing kiosk exit, so
@@ -246,11 +248,13 @@ evolving CSV. The row shape should stay stable across signals.
 %LOCALAPPDATA%\ViscerealityCompanion\study-data\sussex-university\
   participant-0007\
     20260329T141530Z\
+      device-session-pull\
       session_snapshot.json
       session_settings.json
       session_events.csv
       signals_long.csv
       breathing_trace.csv
+      session_review_report.pdf
       quest_screenshot_prestart.png
 ```
 

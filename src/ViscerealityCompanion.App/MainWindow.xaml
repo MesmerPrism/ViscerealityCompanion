@@ -7,7 +7,7 @@
         xmlns:viewModels="clr-namespace:ViscerealityCompanion.App.ViewModels"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Viscereality Companion"
+        Title="{Binding WindowTitle}"
         Width="1520"
         Height="980"
         MinWidth="1280"
@@ -485,6 +485,26 @@
                                            Style="{StaticResource MicroCaptionStyle}"
                                            Margin="0,4,0,0"
                                            TextWrapping="Wrap" />
+                                <Border Background="{StaticResource PanelBrush}"
+                                        BorderBrush="{StaticResource LineBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="8,6"
+                                        Margin="0,10,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Opened Build"
+                                                   Style="{StaticResource EyebrowStyle}" />
+                                        <TextBlock Text="{Binding PublishedBuildSummary}"
+                                                   FontFamily="{StaticResource MonoFont}"
+                                                   FontSize="13"
+                                                   FontWeight="Bold"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding PublishedBuildDetail}"
+                                                   Style="{StaticResource MicroCaptionStyle}"
+                                                   Margin="0,4,0,0"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
                                 <TextBlock Text="{Binding LslRuntimeSummary}"
                                            Style="{StaticResource MicroCaptionStyle}"
                                            Margin="0,8,0,0"
@@ -814,13 +834,13 @@
                                     <Button Content="{Binding ActiveStudyShell.HeadsetAwakeActionLabel}"
                                             Command="{Binding ActiveStudyShell.ToggleHeadsetPowerCommand}"
                                             Style="{StaticResource StateActionButtonStyle}"
-                                            Tag="{Binding ActiveStudyShell.IsHeadsetAwakeToggleState}"
+                                            Tag="{Binding ActiveStudyShell.HeadsetAwakeActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                             IsEnabled="{Binding ActiveStudyShell.CanToggleHeadsetPower}"
                                             Margin="0,0,0,8" />
                                     <Button Content="{Binding ActiveStudyShell.StudyRuntimeActionLabel}"
                                             Command="{Binding ActiveStudyShell.ToggleStudyRuntimeCommand}"
                                             Style="{StaticResource StateActionButtonStyle}"
-                                            Tag="{Binding ActiveStudyShell.IsStudyRuntimeToggleState}"
+                                            Tag="{Binding ActiveStudyShell.StudyRuntimeActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
                                             Margin="0" />
                                 </StackPanel>
                             </Grid>

@@ -401,7 +401,7 @@
                                         <Button Content="{Binding Label}"
                                                 Command="{Binding Command}"
                                                 IsEnabled="{Binding IsEnabled}"
-                                                Tag="{Binding StateIsOn}"
+                                                Tag="{Binding ActionIsEnabling}"
                                                 Style="{StaticResource GuideStateActionButtonStyle}" />
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
