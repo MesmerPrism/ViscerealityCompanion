@@ -22,7 +22,7 @@ internal static class AppBuildIdentity
         {
             return new AppBuildStamp(
                 $"Published install {packagedIdentity.Version}",
-                $"Installed package {packagedIdentity.Name}. App Installer updates should target this copy.",
+                $"Installed package {packagedIdentity.Name}. Published MSIX updates should target this copy.",
                 packagedIdentity.Version,
                 IsPackaged: true);
         }
@@ -45,8 +45,8 @@ internal static class AppBuildIdentity
                 ? "Unpackaged build"
                 : $"Unpackaged build {bestVersion}",
             string.IsNullOrWhiteSpace(processPath)
-                ? "This copy is not running from an installed MSIX package, so App Installer updates do not apply to it."
-                : $"Running unpackaged from {processPath}. App Installer updates do not apply to this copy.",
+                ? "This copy is not running from an installed MSIX package, so the packaged Windows update flow does not apply to it."
+                : $"Running unpackaged from {processPath}. The packaged Windows update flow does not apply to this copy.",
             string.IsNullOrWhiteSpace(bestVersion) ? "unpackaged" : bestVersion,
             IsPackaged: false);
     }

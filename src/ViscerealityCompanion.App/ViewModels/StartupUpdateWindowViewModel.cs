@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App.ViewModels;
@@ -134,7 +133,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         ProgressPercent = 5;
         ProgressStatus = "Preparing updates";
         ProgressDetail = _snapshot.App.UpdateAvailable
-            ? "The companion will refresh the managed official Quest tooling cache first, then open Windows App Installer for the app package step."
+            ? "The companion will refresh the managed official Quest tooling cache first, then install the published Windows package directly without opening the App Installer UI."
             : "The companion will refresh the managed official Quest tooling cache in place.";
 
         string toolingMessage;
@@ -160,20 +159,24 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
 
             if (_snapshot.App.UpdateAvailable)
             {
-                ProgressStatus = "Opening Windows App Installer";
-                ProgressDetail = "Downloading the latest .appinstaller file from GitHub Releases and handing off to Windows App Installer.";
+                ProgressStatus = "Installing Windows package update";
+                ProgressDetail = "Downloading and staging the published MSIX update directly from the App Installer feed.";
                 ProgressPercent = 96;
 
-                using var publishedUpdates = new PublishedPreviewUpdateService();
-                var appInstallerPath = await publishedUpdates.DownloadLatestAppInstallerAsync().ConfigureAwait(true);
-                Process.Start(new ProcessStartInfo
+                var installer = new PackagedAppUpdateInstaller();
+                var appProgress = new Progress<PackagedAppUpdateProgress>(update =>
                 {
-                    FileName = appInstallerPath,
-                    UseShellExecute = true
+                    ProgressStatus = update.Status;
+                    ProgressDetail = update.Detail;
+                    ProgressPercent = Math.Clamp(update.PercentComplete, 1, 99);
                 });
 
-                Summary = "Windows App Installer opened";
-                Detail = $"{toolingMessage} Continue the app update in Windows App Installer.";
+                await installer
+                    .ApplyPublishedUpdateAsync(_snapshot.App.AppInstallerUri, appProgress)
+                    .ConfigureAwait(true);
+
+                Summary = "Windows package update applied";
+                Detail = $"{toolingMessage} If the updated app does not reopen automatically, launch it again from Start.";
             }
             else
             {
@@ -208,7 +211,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
 
     private Task OpenReleasesAsync()
     {
-        Process.Start(new ProcessStartInfo
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
             FileName = _snapshot.App.ReleasePageUri,
             UseShellExecute = true
@@ -233,6 +236,6 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
 
     private static string BuildInitialDetail(StartupUpdateSnapshot snapshot)
         => snapshot.App.UpdateAvailable
-            ? "Update now refreshes the managed official Quest tooling cache first and then opens Windows App Installer for the Windows package step."
+            ? "Update now refreshes the managed official Quest tooling cache first and then installs the Windows package directly from the published App Installer feed."
             : "Update now refreshes the managed official Quest tooling cache in place without leaving the app.";
 }

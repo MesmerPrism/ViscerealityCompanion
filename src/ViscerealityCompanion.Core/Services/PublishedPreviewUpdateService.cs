@@ -93,7 +93,7 @@ public sealed class PublishedPreviewUpdateService : IDisposable
                 ? $"Windows package update {availableVersion} is available."
                 : "Windows package is current.",
             Detail: updateAvailable
-                ? $"Installed package {currentVersion ?? "n/a"} can be updated through Windows App Installer."
+                ? $"Installed package {currentVersion ?? "n/a"} can be updated directly from the published App Installer feed."
                 : $"Installed package {currentVersion ?? "n/a"} matches the latest published .appinstaller metadata.",
             AppInstallerUri: AppInstallerDownloadUri,
             ReleasePageUri: ReleasePageUri);
