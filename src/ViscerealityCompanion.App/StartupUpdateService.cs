@@ -27,13 +27,43 @@ internal static class StartupUpdateService
 
         var appTask = GetAppStatusSafeAsync(publishedUpdates, currentBuild, cancellationToken);
         var toolingTask = GetToolingStatusSafeAsync(tooling, cancellationToken);
+        var localToolingStatus = tooling.GetLocalStatus();
 
-        await Task.WhenAll(appTask, toolingTask).ConfigureAwait(false);
+        var appStatus = await appTask.ConfigureAwait(false);
+        if (appStatus.UpdateAvailable)
+        {
+            var toolingStatus = await GetCompletedOrFallbackToolingStatusAsync(toolingTask, localToolingStatus).ConfigureAwait(false);
+            return new StartupUpdateSnapshot(appStatus, toolingStatus);
+        }
 
         var snapshot = new StartupUpdateSnapshot(
-            await appTask.ConfigureAwait(false),
+            appStatus,
             await toolingTask.ConfigureAwait(false));
         return snapshot.HasUpdates ? snapshot : null;
+    }
+
+    private static async Task<OfficialQuestToolingStatus> GetCompletedOrFallbackToolingStatusAsync(
+        Task<OfficialQuestToolingStatus> toolingTask,
+        OfficialQuestToolingStatus fallbackStatus)
+    {
+        if (toolingTask.IsCompletedSuccessfully)
+        {
+            return toolingTask.Result;
+        }
+
+        var completed = await Task.WhenAny(toolingTask, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
+        if (completed == toolingTask)
+        {
+            try
+            {
+                return await toolingTask.ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+        }
+
+        return fallbackStatus;
     }
 
     private static async Task<PublishedAppUpdateStatus> GetAppStatusSafeAsync(

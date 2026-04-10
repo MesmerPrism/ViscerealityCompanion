@@ -19,8 +19,8 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        await _viewModel.InitializeAsync();
         _ = CheckForStartupUpdatesAsync();
+        await _viewModel.InitializeAsync();
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -30,15 +30,21 @@ public partial class MainWindow : Window
 
     private async Task CheckForStartupUpdatesAsync()
     {
+        StartupUpdateDiagnostics.Write(
+            $"Startup update check begin. Build={AppBuildIdentity.Current.ShortId}, IsPackaged={AppBuildIdentity.Current.IsPackaged}, Summary=\"{AppBuildIdentity.Current.Summary}\".");
+
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
             var snapshot = await StartupUpdateService.CheckForUpdatesAsync(AppBuildIdentity.Current, cts.Token).ConfigureAwait(true);
             if (snapshot is null || !IsLoaded)
             {
+                StartupUpdateDiagnostics.Write("Startup update check completed with no available updates.");
                 return;
             }
 
+            StartupUpdateDiagnostics.Write(
+                $"Startup update dialog opening. AppUpdateAvailable={snapshot.App.UpdateAvailable}, CurrentVersion={snapshot.App.CurrentVersion ?? "n/a"}, AvailableVersion={snapshot.App.AvailableVersion ?? "n/a"}, ToolingUpdates={snapshot.HasToolingUpdates}.");
             var dialog = new StartupUpdateWindow(new StartupUpdateWindowViewModel(snapshot))
             {
                 Owner = this
@@ -48,9 +54,11 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
+            StartupUpdateDiagnostics.Write("Startup update check timed out.");
         }
-        catch
+        catch (Exception exception)
         {
+            StartupUpdateDiagnostics.Write($"Startup update check failed: {exception}");
         }
     }
 }
