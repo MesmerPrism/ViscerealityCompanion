@@ -31,6 +31,7 @@ public static class Program
         rootCommand.AddCommand(BuildStudyCommand());
         rootCommand.AddCommand(BuildSussexCommand());
         rootCommand.AddCommand(BuildHzdbCommand());
+        rootCommand.AddCommand(BuildToolingCommand());
         rootCommand.AddCommand(BuildUtilityCommand());
 
         return await rootCommand.InvokeAsync(args);
@@ -1307,6 +1308,55 @@ public static class Program
         return hzdbCommand;
     }
 
+    private static Command BuildToolingCommand()
+    {
+        var toolingCommand = new Command("tooling", "Manage the official Quest developer tooling used by the companion");
+        var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+
+        var statusCommand = new Command("status", "Show the managed official Quest tooling state");
+        var checkUpstreamOption = new Option<bool>("--check-upstream", "Check the latest published upstream versions as well as the local managed installs.");
+        statusCommand.Add(jsonOption);
+        statusCommand.Add(checkUpstreamOption);
+        statusCommand.Handler = CommandHandler.Create(async (bool json, bool checkUpstream) =>
+        {
+            using var tooling = new OfficialQuestToolingService();
+            var status = checkUpstream
+                ? await tooling.GetStatusAsync().ConfigureAwait(false)
+                : tooling.GetLocalStatus();
+
+            if (json)
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(status, SussexCliSupport.JsonOptions));
+                return;
+            }
+
+            PrintToolingStatus(status, includeUpstream: checkUpstream);
+        });
+
+        var installCommand = new Command("install-official", "Install or update Meta hzdb plus Android platform-tools into the managed LocalAppData tool cache");
+        installCommand.Add(jsonOption);
+        installCommand.Handler = CommandHandler.Create(async (bool json) =>
+        {
+            using var tooling = new OfficialQuestToolingService();
+            var result = await tooling.InstallOrUpdateAsync().ConfigureAwait(false);
+
+            if (json)
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result, SussexCliSupport.JsonOptions));
+                return;
+            }
+
+            Console.WriteLine(result.Summary);
+            Console.WriteLine(result.Detail);
+            Console.WriteLine();
+            PrintToolingStatus(result.Status, includeUpstream: true);
+        });
+
+        toolingCommand.AddCommand(statusCommand);
+        toolingCommand.AddCommand(installCommand);
+        return toolingCommand;
+    }
+
     private static string ResolveDeviceSerial(string? device)
     {
         if (!string.IsNullOrWhiteSpace(device))
@@ -1360,6 +1410,34 @@ public static class Program
                 Console.WriteLine($"       - {item}");
             }
         }
+    }
+
+    private static void PrintToolingStatus(OfficialQuestToolingStatus status, bool includeUpstream)
+    {
+        Console.WriteLine($"Managed tooling root: {OfficialQuestToolingLayout.RootPath}");
+        Console.WriteLine($"Ready: {status.IsReady}");
+        Console.WriteLine();
+
+        PrintToolingComponent(status.Hzdb, includeUpstream);
+        Console.WriteLine();
+        PrintToolingComponent(status.PlatformTools, includeUpstream);
+    }
+
+    private static void PrintToolingComponent(OfficialQuestToolStatus component, bool includeUpstream)
+    {
+        Console.WriteLine(component.DisplayName);
+        Console.WriteLine($"  Installed:         {component.IsInstalled}");
+        Console.WriteLine($"  Installed version: {component.InstalledVersion ?? "n/a"}");
+        if (includeUpstream)
+        {
+            Console.WriteLine($"  Available version: {component.AvailableVersion ?? "n/a"}");
+            Console.WriteLine($"  Update available:  {component.UpdateAvailable}");
+        }
+
+        Console.WriteLine($"  Path:              {component.InstallPath}");
+        Console.WriteLine($"  Source:            {component.SourceUri}");
+        Console.WriteLine($"  License:           {component.LicenseSummary}");
+        Console.WriteLine($"  License URL:       {component.LicenseUri}");
     }
 
     private static string ResolveCatalogRoot()

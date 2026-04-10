@@ -2,12 +2,13 @@ using System.Diagnostics;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Windows.Forms;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.PreviewInstaller;
 
 internal readonly record struct InstallerProgressUpdate(string Status, string Detail, int PercentComplete);
 
-internal readonly record struct InstallerCompletionResult(string AppInstallerPath);
+internal readonly record struct InstallerCompletionResult(string AppInstallerPath, string? ToolingWarning);
 
 internal static class Program
 {
@@ -65,10 +66,29 @@ internal static class Program
             50));
         await DownloadFileAsync(httpClient, AppInstallerDownloadUri, appInstallerPath, cancellationToken);
 
+        string? toolingWarning = null;
+        try
+        {
+            using var tooling = new OfficialQuestToolingService(httpClient);
+            var toolingProgress = new Progress<OfficialQuestToolingProgress>(update =>
+                progress.Report(new InstallerProgressUpdate(
+                    update.Status,
+                    update.Detail,
+                    50 + (int)Math.Round(update.PercentComplete * 0.3))));
+
+            await tooling.InstallOrUpdateAsync(toolingProgress, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception toolingException)
+        {
+            toolingWarning =
+                "The preview package can still be installed, but the official Quest tooling cache could not be refreshed automatically. " +
+                $"{toolingException.Message}";
+        }
+
         progress.Report(new InstallerProgressUpdate(
             "Trusting the preview certificate",
             "Adding the public preview certificate to Trusted People so the MSIX package can be installed cleanly.",
-            70));
+            85));
         TrustCertificate(certificatePath);
 
         progress.Report(new InstallerProgressUpdate(
@@ -82,7 +102,7 @@ internal static class Program
             "Continue the install in the Windows App Installer window. If it did not open, use the retry button below.",
             100));
 
-        return new InstallerCompletionResult(appInstallerPath);
+        return new InstallerCompletionResult(appInstallerPath, toolingWarning);
     }
 
     private static void EnsureAdministrator()

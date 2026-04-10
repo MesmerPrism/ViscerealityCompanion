@@ -119,6 +119,28 @@ public sealed class HzdbServiceTests
     }
 
     [Fact]
+    public void ResolveCommandPath_prefers_first_existing_normalized_candidate()
+    {
+        var candidates = new[]
+        {
+            "",
+            null,
+            "  \"C:\\\\missing\\\\hzdb.exe\"  ",
+            ".\\tools\\..\\managed\\hzdb.exe",
+            "C:\\\\other\\\\hzdb.exe"
+        };
+
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Path.GetFullPath(".\\managed\\hzdb.exe")
+        };
+
+        var resolved = WindowsHzdbService.ResolveCommandPath(candidates, existing.Contains);
+
+        Assert.Equal(Path.GetFullPath(".\\managed\\hzdb.exe"), resolved);
+    }
+
+    [Fact]
     public void ResolveNpxCommandPath_prefers_first_existing_normalized_candidate()
     {
         var candidates = new[]

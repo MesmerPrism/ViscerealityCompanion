@@ -14,24 +14,16 @@ public class HzdbCommandTests
     private const string StudyPackage = "com.Viscereality.SussexExperiment";
     private const string StudyFilesDir = "/sdcard/Android/data/com.Viscereality.SussexExperiment/files/";
     private readonly QuestDeviceFixture _device;
-    private static readonly Lazy<string?> _npxCommandPath = new(WindowsHzdbService.ResolveNpxCommandPath);
+    private static readonly Lazy<string?> _hzdbCommandPath = new(WindowsHzdbService.ResolveHzdbCommandPath);
     private static readonly Lazy<bool> _hzdbAvailable = new(() =>
     {
         try
         {
-            var npxCommandPath = _npxCommandPath.Value;
-            if (string.IsNullOrWhiteSpace(npxCommandPath))
+            var commandPath = _hzdbCommandPath.Value;
+            if (string.IsNullOrWhiteSpace(commandPath))
                 return false;
 
-            var psi = new ProcessStartInfo(npxCommandPath)
-            {
-                Arguments = "-y @meta-quest/hzdb --version",
-                WorkingDirectory = Path.GetDirectoryName(npxCommandPath) ?? AppContext.BaseDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var psi = CreateHzdbProcessStartInfo(commandPath, "--version");
             using var process = Process.Start(psi)!;
             process.WaitForExit(30_000);
             return process.ExitCode == 0;
@@ -42,7 +34,7 @@ public class HzdbCommandTests
     public HzdbCommandTests(QuestDeviceFixture device) => _device = device;
 
     [Fact]
-    public async Task Hzdb_is_available_via_npx()
+    public async Task Hzdb_is_available()
     {
         if (!_hzdbAvailable.Value) return;
         var result = await RunHzdb("--help");
@@ -194,24 +186,33 @@ public class HzdbCommandTests
 
     private static async Task<string> RunHzdb(string arguments)
     {
-        var npxCommandPath = _npxCommandPath.Value
-            ?? throw new InvalidOperationException("Could not locate npx.cmd for hzdb integration tests.");
+        var commandPath = _hzdbCommandPath.Value
+            ?? throw new InvalidOperationException("Could not locate a managed hzdb.exe or npx.cmd for hzdb integration tests.");
 
-        var psi = new ProcessStartInfo(npxCommandPath)
-        {
-            Arguments = $"-y @meta-quest/hzdb {arguments}",
-            WorkingDirectory = Path.GetDirectoryName(npxCommandPath) ?? AppContext.BaseDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
+        var psi = CreateHzdbProcessStartInfo(commandPath, arguments);
 
         using var process = Process.Start(psi)!;
         var stdout = await process.StandardOutput.ReadToEndAsync();
         var stderr = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
         return stdout + stderr;
+    }
+
+    private static ProcessStartInfo CreateHzdbProcessStartInfo(string commandPath, string arguments)
+    {
+        var normalizedPath = Path.GetFullPath(commandPath);
+        var usesNpx = string.Equals(Path.GetFileName(normalizedPath), "npx.cmd", StringComparison.OrdinalIgnoreCase);
+        return new ProcessStartInfo(normalizedPath)
+        {
+            Arguments = usesNpx
+                ? $"-y @meta-quest/hzdb {arguments}"
+                : arguments,
+            WorkingDirectory = Path.GetDirectoryName(normalizedPath) ?? AppContext.BaseDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
     }
 
     private async Task<string> RunHzdbWithUsbRetryAsync(string arguments)

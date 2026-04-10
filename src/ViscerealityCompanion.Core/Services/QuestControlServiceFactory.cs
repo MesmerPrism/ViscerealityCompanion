@@ -14,30 +14,56 @@ public static class QuestControlServiceFactory
 internal static class AdbExecutableLocator
 {
     public static string? TryLocate()
-    {
-        var candidates = new List<string>();
+        => ResolveExecutablePath(EnumerateCandidates(), File.Exists);
 
-        void AddCandidate(string? path)
+    internal static string? ResolveExecutablePath(IEnumerable<string?> candidatePaths, Func<string, bool> fileExists)
+    {
+        ArgumentNullException.ThrowIfNull(candidatePaths);
+        ArgumentNullException.ThrowIfNull(fileExists);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawCandidate in candidatePaths)
         {
-            if (!string.IsNullOrWhiteSpace(path))
+            if (string.IsNullOrWhiteSpace(rawCandidate))
+                continue;
+
+            string candidate;
+            try
             {
-                candidates.Add(path);
+                candidate = Path.GetFullPath(rawCandidate.Trim().Trim('"'));
             }
+            catch
+            {
+                continue;
+            }
+
+            if (!seen.Add(candidate))
+                continue;
+
+            if (fileExists(candidate))
+                return candidate;
         }
 
-        AddCandidate(Path.Combine(
+        return null;
+    }
+
+    private static IEnumerable<string?> EnumerateCandidates()
+    {
+        yield return Environment.GetEnvironmentVariable("VISCEREALITY_ADB_EXE");
+        yield return OfficialQuestToolingLayout.AdbExecutablePath;
+        yield return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Android",
             "Sdk",
             "platform-tools",
-            "adb.exe"));
+            "adb.exe");
 
         foreach (var envVar in new[] { "ANDROID_SDK_ROOT", "ANDROID_HOME" })
         {
             var value = Environment.GetEnvironmentVariable(envVar);
             if (!string.IsNullOrWhiteSpace(value))
             {
-                AddCandidate(Path.Combine(value, "platform-tools", "adb.exe"));
+                yield return Path.Combine(value, "platform-tools", "adb.exe");
             }
         }
 
@@ -45,11 +71,8 @@ internal static class AdbExecutableLocator
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var entry in pathEntries)
         {
-            AddCandidate(Path.Combine(entry, "adb.exe"));
-            AddCandidate(Path.Combine(entry, "adb"));
+            yield return Path.Combine(entry, "adb.exe");
+            yield return Path.Combine(entry, "adb");
         }
-
-        return candidates
-            .FirstOrDefault(candidate => File.Exists(candidate));
     }
 }

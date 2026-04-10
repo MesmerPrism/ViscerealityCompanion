@@ -7,11 +7,11 @@ public sealed class AppBuildIdentityTests
     [Fact]
     public void TryReadPackagedVersionFromProcessPath_ParsesWindowsAppsVersion()
     {
-        var processPath = @"C:\Program Files\WindowsApps\MesmerPrism.ViscerealityCompanion_0.1.29.0_x64__8wekyb3d8bbwe\ViscerealityCompanion.App\ViscerealityCompanion.exe";
+        var processPath = @"C:\Program Files\WindowsApps\MesmerPrism.ViscerealityCompanion_0.1.30.0_x64__8wekyb3d8bbwe\ViscerealityCompanion.App\ViscerealityCompanion.exe";
 
         var version = AppBuildIdentity.TryReadPackagedVersionFromProcessPath(processPath);
 
-        Assert.Equal("0.1.29.0", version);
+        Assert.Equal("0.1.30.0", version);
     }
 
     [Fact]

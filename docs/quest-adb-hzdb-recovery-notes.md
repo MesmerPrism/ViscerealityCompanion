@@ -17,6 +17,22 @@ history:
 - which commands looked promising but did not solve the issue
 - what the current best recovery sequence is
 
+## Command Setup For This Repo
+
+If you want this repo to stage the current official Quest tooling first, run:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- tooling install-official
+```
+
+The shell snippets below keep plain `adb` for brevity. On a machine that is
+using the managed LocalAppData cache directly, you can substitute:
+
+```powershell
+$adb = Join-Path $env:LOCALAPPDATA 'ViscerealityCompanion\tooling\platform-tools\current\platform-tools\adb.exe'
+$hzdb = Join-Path $env:LOCALAPPDATA 'ViscerealityCompanion\tooling\hzdb\current\hzdb.exe'
+```
+
 ## Primary Failure Shape
 
 The recurring launch blocker was not a generic ADB disconnect. The device was
@@ -134,7 +150,7 @@ Working conclusion:
 `hzdb` is available and usable:
 
 ```powershell
-npx -y @meta-quest/hzdb --version
+& $hzdb --version
 ```
 
 Observed command behavior:
@@ -187,7 +203,7 @@ adb -s $device shell input keyevent 26
 adb -s $device shell input keyevent 223
 adb -s $device shell input keyevent 224
 adb -s $device shell input keyevent 3
-npx -y @meta-quest/hzdb device wake --device $device
+& $hzdb device wake --device $device
 ```
 
 Observed behavior:
@@ -768,7 +784,7 @@ New screenshot rule from this probe:
 - example command:
 
 ```powershell
-npx -y @meta-quest/hzdb capture screenshot `
+& $hzdb capture screenshot `
   --device 3487C10H3M017Q `
   --method metacam `
   --output C:\path\to\shot.png

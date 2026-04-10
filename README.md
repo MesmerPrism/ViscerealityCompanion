@@ -59,6 +59,17 @@ are published. The current public preview is Sussex-focused and bundles the Suss
 the installed app payload, so operators do not need a separate APK download for
 that study shell.
 
+The guided preview installer now also refreshes the managed official Quest
+tooling cache under `%LOCALAPPDATA%\ViscerealityCompanion\tooling` from the
+upstream publishers:
+
+- Meta's published Windows `hzdb` package
+- Google's published Android SDK Platform-Tools package
+
+That keeps the public release flow clear: the app ships from this repo, while
+the Quest developer tools are fetched from their official upstream sources at
+install/update time instead of being silently relicensed or mirrored here.
+
 - Download/install guide: [docs/download.md](docs/download.md)
 - First-session walkthrough: [docs/first-session.md](docs/first-session.md)
 - Study-shell guide: [docs/study-shells.md](docs/study-shells.md)
@@ -96,6 +107,13 @@ git lfs pull
 dotnet build ViscerealityCompanion.sln
 dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
+```
+
+If you want the managed official Quest tooling cache on a source-build machine
+as well, run:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- tooling install-official
 ```
 
 `git lfs pull` matters here because the committed `samples/quest-session-kit/APKs/SussexExperiment.apk`
@@ -197,4 +215,8 @@ local Astral checkout.
 
 ## License
 
-[MIT](LICENSE)
+The repo source code is licensed under [MIT](LICENSE).
+
+Some bundled or fetched operator dependencies remain under their own upstream
+terms. See [THIRD_PARTY_DEPENDENCIES.md](THIRD_PARTY_DEPENDENCIES.md) for the
+current public dependency boundary.

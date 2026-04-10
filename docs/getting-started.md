@@ -17,7 +17,8 @@ If you are not changing code and a public preview release exists, use
 - Windows 10 or later
 - .NET SDK 10.0 or later
 - Git LFS if you want the committed Sussex APK mirror instead of only the pointer file
-- Android platform-tools with `adb` on `PATH` if you want live Quest install and launch
+- official Quest tooling from the guided installer or the CLI `tooling install-official` path if you want the repo to manage `hzdb` plus Android platform-tools for you
+- or an existing `adb` install on `PATH` if you already manage Android platform-tools yourself
 - Node.js 24 or later if you want to build the docs site
 
 ## Build And Run
@@ -30,6 +31,13 @@ git lfs pull
 dotnet build ViscerealityCompanion.sln
 dotnet test ViscerealityCompanion.sln
 dotnet run --project src/ViscerealityCompanion.App
+```
+
+If you want the repo to stage the current official Meta `hzdb` plus Google's
+Android platform-tools into the managed LocalAppData cache first, run:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- tooling install-official
 ```
 
 If Smart App Control or Windows code integrity blocks the multi-file repo build

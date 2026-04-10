@@ -29,12 +29,12 @@ public sealed class WindowsHzdbService : IHzdbService
     private static readonly Regex VrPowerManagerBroadcastRegex = new(
         @"^\s*\d+(?:\.\d+)?s \(([\d\.]+)s ago\) - received com\.oculus\.vrpowermanager\.(prox_close|automation_disable) broadcast: duration=(\d+)",
         RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
-    private readonly Lazy<string?> _npxCommandPath;
+    private readonly Lazy<string?> _commandPath;
     private readonly Lazy<bool> _available;
 
     public WindowsHzdbService()
     {
-        _npxCommandPath = new Lazy<string?>(ResolveNpxCommandPath);
+        _commandPath = new Lazy<string?>(ResolveHzdbCommandPath);
         _available = new Lazy<bool>(ProbeAvailability);
     }
 
@@ -207,14 +207,11 @@ public sealed class WindowsHzdbService : IHzdbService
             : Outcome(OperationOutcomeKind.Failure, "File pull failed.", result.Combined);
     }
 
-    internal static string? ResolveNpxCommandPath()
-        => ResolveNpxCommandPath(EnumerateNpxCommandCandidates(), File.Exists);
+    internal static string? ResolveHzdbCommandPath()
+        => ResolveCommandPath(EnumerateHzdbExecutableCandidates(), File.Exists)
+           ?? ResolveCommandPath(EnumerateNpxCommandCandidates(), File.Exists);
 
-    internal static bool ShouldPreferAdbScreenshot(string? method)
-        => string.IsNullOrWhiteSpace(method) ||
-           string.Equals(method.Trim().Trim('"'), "screencap", StringComparison.OrdinalIgnoreCase);
-
-    internal static string? ResolveNpxCommandPath(IEnumerable<string?> candidatePaths, Func<string, bool> fileExists)
+    internal static string? ResolveCommandPath(IEnumerable<string?> candidatePaths, Func<string, bool> fileExists)
     {
         ArgumentNullException.ThrowIfNull(candidatePaths);
         ArgumentNullException.ThrowIfNull(fileExists);
@@ -232,6 +229,16 @@ public sealed class WindowsHzdbService : IHzdbService
 
         return null;
     }
+
+    internal static string? ResolveNpxCommandPath()
+        => ResolveCommandPath(EnumerateNpxCommandCandidates(), File.Exists);
+
+    internal static bool ShouldPreferAdbScreenshot(string? method)
+        => string.IsNullOrWhiteSpace(method) ||
+           string.Equals(method.Trim().Trim('"'), "screencap", StringComparison.OrdinalIgnoreCase);
+
+    internal static string? ResolveNpxCommandPath(IEnumerable<string?> candidatePaths, Func<string, bool> fileExists)
+        => ResolveCommandPath(candidatePaths, fileExists);
 
     private bool ProbeAvailability()
     {
@@ -334,14 +341,27 @@ public sealed class WindowsHzdbService : IHzdbService
 
     private ProcessStartInfo CreateProcessStartInfo(string arguments)
     {
-        var npxCommandPath = _npxCommandPath.Value;
-        if (string.IsNullOrWhiteSpace(npxCommandPath))
-            throw new FileNotFoundException("Could not locate npx.cmd for hzdb.", "npx.cmd");
+        var commandPath = _commandPath.Value;
+        if (string.IsNullOrWhiteSpace(commandPath))
+            throw new FileNotFoundException("Could not locate a managed hzdb.exe or npx.cmd for hzdb.", "hzdb.exe");
 
-        return new ProcessStartInfo(npxCommandPath)
+        if (string.Equals(Path.GetFileName(commandPath), "npx.cmd", StringComparison.OrdinalIgnoreCase))
         {
-            Arguments = $"-y @meta-quest/hzdb {arguments}",
-            WorkingDirectory = Path.GetDirectoryName(npxCommandPath) ?? AppContext.BaseDirectory,
+            return new ProcessStartInfo(commandPath)
+            {
+                Arguments = $"-y @meta-quest/hzdb {arguments}",
+                WorkingDirectory = Path.GetDirectoryName(commandPath) ?? AppContext.BaseDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+        }
+
+        return new ProcessStartInfo(commandPath)
+        {
+            Arguments = arguments,
+            WorkingDirectory = Path.GetDirectoryName(commandPath) ?? AppContext.BaseDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -520,6 +540,24 @@ public sealed class WindowsHzdbService : IHzdbService
                 OperationOutcomeKind.Failure,
                 "Perf capture failed.",
                 $"{hzdbFailureDetail}\nFallback via adb exec-out failed.\n{ex.Message}");
+        }
+    }
+
+    private static IEnumerable<string?> EnumerateHzdbExecutableCandidates()
+    {
+        yield return Environment.GetEnvironmentVariable("VISCEREALITY_HZDB_EXE");
+        yield return OfficialQuestToolingLayout.HzdbExecutablePath;
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+        {
+            yield return Path.Combine(localAppData, "Microsoft", "WinGet", "Links", "hzdb.exe");
+        }
+
+        foreach (var pathValue in EnumeratePathValues())
+        {
+            foreach (var entry in SplitPathEntries(pathValue))
+                yield return Path.Combine(entry, "hzdb.exe");
         }
     }
 
@@ -741,13 +779,13 @@ public sealed class PreviewHzdbService : IHzdbService
     public bool IsAvailable => false;
 
     public Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, string? method = null, CancellationToken cancellationToken = default)
-        => Preview("Screenshot capture requires hzdb (npx @meta-quest/hzdb).");
+        => Preview("Screenshot capture requires hzdb. Run guided setup or install the official Quest tooling cache first.");
 
     public Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default)
-        => Preview("Perf capture requires hzdb (npx @meta-quest/hzdb).");
+        => Preview("Perf capture requires hzdb. Run guided setup or install the official Quest tooling cache first.");
 
     public Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default)
-        => Preview("Proximity control requires hzdb (npx @meta-quest/hzdb).");
+        => Preview("Proximity control requires hzdb. Run guided setup or install the official Quest tooling cache first.");
 
     public Task<QuestProximityStatus> GetProximityStatusAsync(string deviceSerial, CancellationToken cancellationToken = default)
         => Task.FromResult(new QuestProximityStatus(
@@ -762,19 +800,19 @@ public sealed class PreviewHzdbService : IHzdbService
             StatusDetail: "Quest proximity readback requires adb plus hzdb companion integration."));
 
     public Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)
-        => Preview("Device wake via hzdb requires hzdb (npx @meta-quest/hzdb).");
+        => Preview("Device wake via hzdb requires hzdb. Run guided setup or install the official Quest tooling cache first.");
 
     public Task<OperationOutcome> GetDeviceInfoAsync(string deviceSerial, CancellationToken cancellationToken = default)
-        => Preview("Device info requires hzdb (npx @meta-quest/hzdb).");
+        => Preview("Device info requires hzdb. Run guided setup or install the official Quest tooling cache first.");
 
     public Task<OperationOutcome> ListFilesAsync(string deviceSerial, string remotePath, CancellationToken cancellationToken = default)
-        => Preview("File listing requires hzdb (npx @meta-quest/hzdb).");
+        => Preview("File listing requires hzdb. Run guided setup or install the official Quest tooling cache first.");
 
     public Task<OperationOutcome> PushFileAsync(string deviceSerial, string localPath, string remotePath, CancellationToken cancellationToken = default)
-        => Preview("File push requires hzdb (npx @meta-quest/hzdb).");
+        => Preview("File push requires hzdb. Run guided setup or install the official Quest tooling cache first.");
 
     public Task<OperationOutcome> PullFileAsync(string deviceSerial, string remotePath, string localPath, CancellationToken cancellationToken = default)
-        => Preview("File pull requires hzdb (npx @meta-quest/hzdb).");
+        => Preview("File pull requires hzdb. Run guided setup or install the official Quest tooling cache first.");
 
     private static Task<OperationOutcome> Preview(string detail)
         => Task.FromResult(new OperationOutcome(OperationOutcomeKind.Preview, "hzdb not available.", detail));

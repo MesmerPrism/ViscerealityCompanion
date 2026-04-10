@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.29.0`.
+`0.1.30.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -36,6 +36,12 @@ also disable the `ms-appinstaller:` web-link protocol, so the manual path uses
 the downloaded `.appinstaller` file from disk instead of relying on a browser
 handoff.
 
+The helper also refreshes the managed official Quest tooling cache under
+`%LOCALAPPDATA%\ViscerealityCompanion\tooling` from Meta's published Windows
+`hzdb` package and Google's published Android platform-tools package. Those
+developer tools remain under their own upstream terms; this repo does not
+relicense them under MIT.
+
 <div class="download-start">
   <section class="download-path download-path-primary">
     <h2>Automatic guided setup</h2>
@@ -46,7 +52,7 @@ handoff.
     </div>
     <ol class="step-list">
       <li>Download and run <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe"><code>ViscerealityCompanion-Preview-Setup.exe</code></a>.</li>
-      <li>If Windows allows it, let the helper trust the preview certificate and open Windows App Installer.</li>
+      <li>If Windows allows it, let the helper trust the preview certificate, refresh the managed official Quest tooling cache, and open Windows App Installer.</li>
       <li>Install the app, then launch <strong>Viscereality Companion</strong> from the Start menu.</li>
       <li>Inside the app, stay in <code>Sussex University experiment mode</code> and use the sequential guide.</li>
     </ol>
@@ -146,7 +152,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed preview
-   should identify itself as `Published install 0.1.29.0`; unpackaged local
+   should identify itself as `Published install 0.1.30.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an
@@ -201,6 +207,7 @@ Use the repo build directly:
 
 ```powershell
 dotnet build ViscerealityCompanion.sln
+dotnet run --project src/ViscerealityCompanion.Cli -- tooling install-official
 dotnet run --project src/ViscerealityCompanion.App
 ```
 

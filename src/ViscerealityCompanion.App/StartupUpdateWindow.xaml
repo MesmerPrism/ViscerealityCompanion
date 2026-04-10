@@ -1,0 +1,217 @@
+<Window x:Class="ViscerealityCompanion.App.StartupUpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="{Binding WindowTitle}"
+        Width="760"
+        MinWidth="760"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{StaticResource AppBackgroundBrush}"
+        Foreground="{StaticResource InkBrush}">
+    <Window.Resources>
+        <Style x:Key="UpdatePanelStyle" TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
+            <Setter Property="Padding" Value="14" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+        </Style>
+
+        <Style x:Key="UpdateSectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="UpdateSectionDetailStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="UpdateStatusChipStyle" TargetType="Border">
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="{StaticResource StatusSuccessSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource StatusSuccessBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Tag}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource StatusWarningSoftBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource StatusWarningBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="UpdateStatusTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{StaticResource StatusSuccessBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Tag}" Value="True">
+                    <Setter Property="Foreground" Value="{StaticResource StatusWarningBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,18">
+            <TextBlock Text="{Binding Heading}"
+                       Style="{StaticResource SectionTitleStyle}" />
+            <TextBlock Text="{Binding Summary}"
+                       Style="{StaticResource SectionCaptionStyle}"
+                       Margin="0,6,0,0" />
+            <TextBlock Text="{Binding Detail}"
+                       Style="{StaticResource SectionCaptionStyle}"
+                       Margin="0,0,0,0" />
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Style="{StaticResource UpdatePanelStyle}"
+                Visibility="{Binding ShowAppSection, Converter={StaticResource BoolToVisibility}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                    <TextBlock Text="Windows package"
+                               Style="{StaticResource UpdateSectionTitleStyle}" />
+                    <TextBlock Text="{Binding AppDetail}"
+                               Style="{StaticResource UpdateSectionDetailStyle}"
+                               Margin="0,6,0,0" />
+                    <TextBlock Style="{StaticResource UpdateSectionDetailStyle}"
+                               Margin="0,10,0,0">
+                        <Run Text="Installed: " />
+                        <Run Text="{Binding AppCurrentVersion}" />
+                        <Run Text="  |  Published: " />
+                        <Run Text="{Binding AppAvailableVersion}" />
+                    </TextBlock>
+                </StackPanel>
+
+                <Border Grid.Column="1"
+                        VerticalAlignment="Top"
+                        Style="{StaticResource UpdateStatusChipStyle}"
+                        Tag="{Binding AppUpdateAvailable}">
+                    <TextBlock Text="{Binding AppStatusLabel}"
+                               Style="{StaticResource UpdateStatusTextStyle}"
+                               Tag="{Binding AppUpdateAvailable}" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Row="2">
+            <Border Style="{StaticResource UpdatePanelStyle}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                        <TextBlock Text="Meta Horizon Debug Bridge (hzdb)"
+                                   Style="{StaticResource UpdateSectionTitleStyle}" />
+                        <TextBlock Text="{Binding HzdbDetail}"
+                                   Style="{StaticResource UpdateSectionDetailStyle}"
+                                   Margin="0,6,0,0" />
+                        <TextBlock Style="{StaticResource UpdateSectionDetailStyle}"
+                                   Margin="0,10,0,0">
+                            <Run Text="Installed: " />
+                            <Run Text="{Binding HzdbCurrentVersion}" />
+                            <Run Text="  |  Published: " />
+                            <Run Text="{Binding HzdbAvailableVersion}" />
+                        </TextBlock>
+                    </StackPanel>
+
+                    <Border Grid.Column="1"
+                            VerticalAlignment="Top"
+                            Style="{StaticResource UpdateStatusChipStyle}"
+                            Tag="{Binding HzdbUpdateAvailable}">
+                        <TextBlock Text="{Binding HzdbStatusLabel}"
+                                   Style="{StaticResource UpdateStatusTextStyle}"
+                                   Tag="{Binding HzdbUpdateAvailable}" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource UpdatePanelStyle}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                        <TextBlock Text="Android SDK Platform-Tools"
+                                   Style="{StaticResource UpdateSectionTitleStyle}" />
+                        <TextBlock Text="{Binding PlatformToolsDetail}"
+                                   Style="{StaticResource UpdateSectionDetailStyle}"
+                                   Margin="0,6,0,0" />
+                        <TextBlock Style="{StaticResource UpdateSectionDetailStyle}"
+                                   Margin="0,10,0,0">
+                            <Run Text="Installed: " />
+                            <Run Text="{Binding PlatformToolsCurrentVersion}" />
+                            <Run Text="  |  Published: " />
+                            <Run Text="{Binding PlatformToolsAvailableVersion}" />
+                        </TextBlock>
+                    </StackPanel>
+
+                    <Border Grid.Column="1"
+                            VerticalAlignment="Top"
+                            Style="{StaticResource UpdateStatusChipStyle}"
+                            Tag="{Binding PlatformToolsUpdateAvailable}">
+                        <TextBlock Text="{Binding PlatformToolsStatusLabel}"
+                                   Style="{StaticResource UpdateStatusTextStyle}"
+                                   Tag="{Binding PlatformToolsUpdateAvailable}" />
+                    </Border>
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <Border Grid.Row="3"
+                Style="{StaticResource UpdatePanelStyle}"
+                Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel>
+                <TextBlock Text="{Binding ProgressStatus}"
+                           Style="{StaticResource UpdateSectionTitleStyle}" />
+                <TextBlock Text="{Binding ProgressDetail}"
+                           Style="{StaticResource UpdateSectionDetailStyle}"
+                           Margin="0,6,0,10" />
+                <ProgressBar Minimum="0"
+                             Maximum="100"
+                             Height="14"
+                             Value="{Binding ProgressPercent, Mode=OneWay}" />
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="4"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,8,0,0">
+            <Button Content="Open Releases"
+                    Command="{Binding OpenReleasesCommand}"
+                    Visibility="{Binding ShowOpenReleasesAction, Converter={StaticResource BoolToVisibility}}" />
+            <Button Content="Later"
+                    Command="{Binding DismissActionCommand}"
+                    Visibility="{Binding ShowDismissAction, Converter={StaticResource BoolToVisibility}}" />
+            <Button Content="{Binding PrimaryActionLabel}"
+                    Command="{Binding PrimaryActionCommand}"
+                    Background="{StaticResource FocusBlueBrush}"
+                    BorderBrush="{StaticResource FocusBlueBrush}"
+                    Foreground="{StaticResource AppBackgroundBrush}" />
+        </StackPanel>
+    </Grid>
+</Window>

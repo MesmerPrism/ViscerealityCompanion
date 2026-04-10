@@ -2778,7 +2778,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 new OperationOutcome(
                     OperationOutcomeKind.Preview,
                     "hzdb not available.",
-                    "Install or expose @meta-quest/hzdb before using the experiment-shell proximity hold.")).ConfigureAwait(false);
+                    "Run guided setup or install the official Quest tooling cache before using the experiment-shell proximity hold.")).ConfigureAwait(false);
             return;
         }
 
@@ -2841,7 +2841,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             var unavailableOutcome = new OperationOutcome(
                 OperationOutcomeKind.Preview,
                 "hzdb not available.",
-                "Install or expose @meta-quest/hzdb before using Quest screenshot capture.");
+                "Run guided setup or install the official Quest tooling cache before using Quest screenshot capture.");
             await ApplyOutcomeAsync(
                 "Capture Quest Screenshot",
                 unavailableOutcome).ConfigureAwait(false);
@@ -8257,7 +8257,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             WorkflowGuideQuestScreenshotLevel = OperationOutcomeKind.Preview;
             WorkflowGuideQuestScreenshotSummary = "Quest screenshot capture unavailable.";
-            WorkflowGuideQuestScreenshotDetail = "Install or expose @meta-quest/hzdb before using Quest screenshot capture in this verification step.";
+            WorkflowGuideQuestScreenshotDetail = "Run guided setup or install the official Quest tooling cache before using Quest screenshot capture in this verification step.";
             WorkflowGuideQuestScreenshotPath = string.Empty;
             WorkflowGuideQuestScreenshotPreview = null;
             return;
@@ -10475,7 +10475,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             ProximityLevel = OperationOutcomeKind.Preview;
             ProximitySummary = "Proximity hold unavailable.";
-            ProximityDetail = "Install or expose @meta-quest/hzdb before using the experiment-shell proximity hold.";
+            ProximityDetail = "Run guided setup or install the official Quest tooling cache before using the experiment-shell proximity hold.";
             ProximityEvidenceLabel = "Latest readback unavailable because hzdb is not available.";
             return;
         }
@@ -10586,7 +10586,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             QuestScreenshotLevel = OperationOutcomeKind.Preview;
             QuestScreenshotSummary = "Quest screenshot capture unavailable.";
-            QuestScreenshotDetail = "Install or expose @meta-quest/hzdb before using Quest screenshot capture.";
+            QuestScreenshotDetail = "Run guided setup or install the official Quest tooling cache before using Quest screenshot capture.";
             return;
         }
 

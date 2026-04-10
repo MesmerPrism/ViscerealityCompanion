@@ -2445,7 +2445,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             return new OperationOutcome(
                 OperationOutcomeKind.Preview,
                 "hzdb not available.",
-                "Install or expose @meta-quest/hzdb to collect extra device details on request.");
+                "Run guided setup or install the official Quest tooling cache before collecting extra device details on request.");
         }
 
         var selectors = ResolveHzdbSelectorCandidates();

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Integration.Tests;
 
@@ -124,31 +125,7 @@ public sealed class QuestDeviceFixture : IAsyncLifetime
     }
 
     private static string? LocateAdb()
-    {
-        string[] candidates =
-        [
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Android", "Sdk", "platform-tools", "adb.exe"),
-            @"C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe",
-            @"C:\Program Files\Unity\Hub\Editor\6000.2.7f2\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe",
-        ];
-
-        foreach (var candidate in candidates)
-        {
-            if (File.Exists(candidate))
-                return candidate;
-        }
-
-        // Check PATH
-        var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(';') ?? [];
-        foreach (var dir in pathDirs)
-        {
-            var candidate = Path.Combine(dir, "adb.exe");
-            if (File.Exists(candidate))
-                return candidate;
-        }
-
-        return null;
-    }
+        => AdbExecutableLocator.TryLocate();
 }
 
 /// <summary>
@@ -174,19 +151,7 @@ public static class DeviceSkip
         try
         {
             // Quick check: just run `adb devices` without WiFi setup
-            string[] candidates =
-            [
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Android", "Sdk", "platform-tools", "adb.exe"),
-                @"C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe",
-                @"C:\Program Files\Unity\Hub\Editor\6000.2.7f2\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe",
-            ];
-
-            var adb = candidates.FirstOrDefault(File.Exists);
-            if (adb is null)
-            {
-                var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(';') ?? [];
-                adb = pathDirs.Select(d => Path.Combine(d, "adb.exe")).FirstOrDefault(File.Exists);
-            }
+            var adb = AdbExecutableLocator.TryLocate();
 
             if (adb is null) return false;
 

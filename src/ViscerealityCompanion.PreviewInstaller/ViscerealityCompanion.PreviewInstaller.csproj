@@ -14,4 +14,7 @@
   <ItemGroup>
     <EmbeddedResource Include="..\ViscerealityCompanion.App\Assets\viscereality-wordmark.png" Link="Assets\viscereality-wordmark.png" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ViscerealityCompanion.Core\ViscerealityCompanion.Core.csproj" />
+  </ItemGroup>
 </Project>

@@ -12,6 +12,13 @@ nav_order: 80
 The `viscereality` CLI mirrors the WPF desktop app's capabilities for
 scripting, automation, and headless operation.
 
+For source builds, the simplest way to stage the official Quest-side developer
+tools the app expects is:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- tooling install-official
+```
+
 ## Sussex Workflow Split
 
 For the Sussex study workflow there is now a deliberate split between CLI and
@@ -155,11 +162,21 @@ Use `--json` whenever an agent needs stable machine-readable output.
 | `hzdb ls <path>` | List files under a Quest path |
 | `hzdb pull <remote-path> <local-path>` | Pull one Quest file to Windows |
 
+### Tooling
+
+| Command | Description |
+|---------|-------------|
+| `tooling status` | Show the local managed official Quest tooling cache state |
+| `tooling status --check-upstream` | Also query the latest published upstream versions |
+| `tooling install-official` | Install or update Meta `hzdb` plus Android platform-tools into `%LOCALAPPDATA%\ViscerealityCompanion\tooling` |
+
 ## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
 | `VISCEREALITY_QUEST_SESSION_KIT_ROOT` | Override catalog root directory |
+| `VISCEREALITY_ADB_EXE` | Override the `adb.exe` path the app and CLI should use |
+| `VISCEREALITY_HZDB_EXE` | Override the `hzdb.exe` path the app and CLI should use |
 | `VISCEREALITY_LSL_DLL` | Path to `lsl.dll` for LSL features |
 
 ## Example
