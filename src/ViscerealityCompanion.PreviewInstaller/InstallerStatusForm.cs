@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace ViscerealityCompanion.PreviewInstaller;
@@ -28,19 +30,23 @@ internal sealed class InstallerStatusForm : Form
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Panel _shellPanel;
     private readonly Panel _statusPanel;
+    private readonly Panel _titleBarPanel;
     private readonly PictureBox _logoBox;
     private readonly Label _titleLabel;
     private readonly Label _introLabel;
+    private readonly Label _windowTitleLabel;
     private readonly Label _summaryLabel;
     private readonly Label _detailLabel;
     private readonly Panel _progressTrack;
     private readonly Panel _progressFill;
     private readonly Label _progressValueLabel;
     private readonly Label _footerLabel;
+    private readonly Button _titleBarCloseButton;
     private readonly Button _openReleaseButton;
     private readonly Button _retryButton;
     private readonly Button _closeButton;
 
+    private int _disposeState;
     private bool _started;
     private string? _lastAppInstallerPath;
     private int _progressPercent = 5;
@@ -54,26 +60,80 @@ internal sealed class InstallerStatusForm : Form
         _releasePageUri = releasePageUri ?? throw new ArgumentNullException(nameof(releasePageUri));
 
         AutoScaleMode = AutoScaleMode.Dpi;
-        BackColor = AppBackgroundColor;
-        ClientSize = new Size(760, 430);
+        BackColor = LineColor;
+        ClientSize = new Size(900, 560);
         DoubleBuffered = true;
         Font = CreateUiFont(10.5f, FontStyle.Regular);
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        FormBorderStyle = FormBorderStyle.None;
         ForeColor = InkColor;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        Padding = new Padding(16);
+        MinimumSize = new Size(900, 560);
+        Padding = new Padding(1);
         StartPosition = FormStartPosition.CenterScreen;
         Text = "Viscereality Companion Preview Setup";
+        var framePanel = new Panel
+        {
+            BackColor = AppBackgroundColor,
+            Dock = DockStyle.Fill,
+            Padding = new Padding(16, 0, 16, 16)
+        };
+        Controls.Add(framePanel);
+
+        _titleBarCloseButton = new Button
+        {
+            BackColor = AppBackgroundColor,
+            Dock = DockStyle.Right,
+            FlatStyle = FlatStyle.Flat,
+            Font = CreateUiFont(10f, FontStyle.Bold),
+            ForeColor = InkColor,
+            Margin = new Padding(0),
+            TabStop = false,
+            Text = "X",
+            Width = 46
+        };
+        _titleBarCloseButton.FlatAppearance.BorderSize = 0;
+        _titleBarCloseButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(64, 18, 28);
+        _titleBarCloseButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(52, 14, 22);
+        _titleBarCloseButton.Click += (_, _) => Close();
+
+        _windowTitleLabel = new Label
+        {
+            AutoSize = true,
+            Dock = DockStyle.Left,
+            Font = CreateUiFont(10.5f, FontStyle.Regular),
+            ForeColor = MutedColor,
+            Margin = new Padding(0),
+            Padding = new Padding(0, 12, 0, 0),
+            Text = Text
+        };
+
+        _titleBarPanel = new Panel
+        {
+            BackColor = AppBackgroundColor,
+            Dock = DockStyle.Top,
+            Height = 42,
+            Margin = new Padding(0),
+            Padding = new Padding(14, 0, 0, 0)
+        };
+        _titleBarPanel.Controls.Add(_windowTitleLabel);
+        _titleBarPanel.Controls.Add(_titleBarCloseButton);
+        _titleBarPanel.MouseDown += (_, e) => BeginWindowDrag(e);
+        _windowTitleLabel.MouseDown += (_, e) => BeginWindowDrag(e);
+        _titleBarPanel.Paint += (_, e) =>
+        {
+            using var pen = new Pen(LineColor, 1f);
+            e.Graphics.DrawLine(pen, 0, _titleBarPanel.Height - 1, _titleBarPanel.Width, _titleBarPanel.Height - 1);
+        };
+        framePanel.Controls.Add(_titleBarPanel);
 
         _shellPanel = new Panel
         {
+            AutoScroll = true,
             BackColor = ShellBackgroundColor,
             Dock = DockStyle.Fill,
             Padding = new Padding(22, 20, 22, 20)
         };
         _shellPanel.Paint += (_, e) => DrawPanelBorder(e.Graphics, _shellPanel.ClientRectangle, LineColor);
-        Controls.Add(_shellPanel);
+        framePanel.Controls.Add(_shellPanel);
 
         var buttonRow = new FlowLayoutPanel
         {
@@ -145,7 +205,7 @@ internal sealed class InstallerStatusForm : Form
             Font = CreateUiFont(11.5f, FontStyle.Regular),
             ForeColor = MutedColor,
             Margin = new Padding(0, 0, 0, 12),
-            MaximumSize = new Size(640, 0),
+            MaximumSize = new Size(780, 0),
             Text = "The bootstrapper stages the latest public preview, refreshes the official Quest tooling cache from Meta and Google, and then opens Windows App Installer for the final install step."
         };
         statusLayout.Controls.Add(_detailLabel, 0, 1);
@@ -204,23 +264,37 @@ internal sealed class InstallerStatusForm : Form
             Font = CreateUiFont(10f, FontStyle.Regular),
             ForeColor = MutedColor,
             Margin = new Padding(0),
-            MaximumSize = new Size(640, 0),
+            MaximumSize = new Size(780, 0),
             Text = "After this window opens Windows App Installer, confirm the update there. This helper also refreshes the managed LocalAppData cache for the official Meta hzdb and Android platform-tools downloads when those sources are reachable."
         };
         statusLayout.Controls.Add(_footerLabel, 0, 3);
 
         var headerPanel = new Panel
         {
-            AutoSize = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Dock = DockStyle.Top,
-            Height = 126,
             Margin = new Padding(0, 0, 0, 16)
         };
         _shellPanel.Controls.Add(headerPanel);
 
+        var headerLayout = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Color.Transparent,
+            ColumnCount = 1,
+            Dock = DockStyle.Top,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+            RowCount = 3
+        };
+        headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        headerPanel.Controls.Add(headerLayout);
+
         _logoBox = new PictureBox
         {
-            Dock = DockStyle.Top,
+            Anchor = AnchorStyles.Left,
             Height = 54,
             Image = LoadEmbeddedLogo(),
             Margin = new Padding(0, 0, 0, 12),
@@ -229,30 +303,30 @@ internal sealed class InstallerStatusForm : Form
 
         _introLabel = new Label
         {
-            AutoSize = false,
+            AutoSize = true,
             Dock = DockStyle.Top,
             Font = CreateUiFont(11f, FontStyle.Regular),
             ForeColor = MutedColor,
-            Height = 42,
             Margin = new Padding(0),
+            MaximumSize = new Size(800, 0),
             Text = "This installer stages the latest public preview, refreshes the official Quest tooling cache, and then hands off to Windows App Installer for the final install or update.",
             TextAlign = ContentAlignment.TopLeft
         };
 
         _titleLabel = new Label
         {
-            AutoSize = false,
+            AutoSize = true,
             Dock = DockStyle.Top,
             Font = CreateUiFont(28f, FontStyle.Bold),
             ForeColor = InkColor,
-            Height = 48,
             Margin = new Padding(0, 8, 0, 8),
+            MaximumSize = new Size(800, 0),
             Text = "Install Or Update Viscereality Companion",
             TextAlign = ContentAlignment.MiddleLeft
         };
-        headerPanel.Controls.Add(_introLabel);
-        headerPanel.Controls.Add(_titleLabel);
-        headerPanel.Controls.Add(_logoBox);
+        headerLayout.Controls.Add(_logoBox, 0, 0);
+        headerLayout.Controls.Add(_titleLabel, 0, 1);
+        headerLayout.Controls.Add(_introLabel, 0, 2);
         UpdateProgressBarFill();
     }
 
@@ -270,9 +344,16 @@ internal sealed class InstallerStatusForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && Interlocked.Exchange(ref _disposeState, 1) == 0)
         {
-            _cancellation.Cancel();
+            try
+            {
+                _cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
             _cancellation.Dispose();
             _logoBox.Image?.Dispose();
         }
@@ -455,4 +536,24 @@ internal sealed class InstallerStatusForm : Form
         path.CloseFigure();
         return path;
     }
+
+    private void BeginWindowDrag(MouseEventArgs eventArgs)
+    {
+        if (eventArgs.Button != MouseButtons.Left)
+        {
+            return;
+        }
+
+        ReleaseCapture();
+        _ = SendMessage(Handle, WindowMessageNonClientLeftButtonDown, HitTestCaption, 0);
+    }
+
+    private const int WindowMessageNonClientLeftButtonDown = 0xA1;
+    private const int HitTestCaption = 0x2;
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr handle, int message, int wParam, int lParam);
 }

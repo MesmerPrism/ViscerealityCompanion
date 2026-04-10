@@ -20,6 +20,7 @@ internal static class Program
     [STAThread]
     private static int Main()
     {
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
