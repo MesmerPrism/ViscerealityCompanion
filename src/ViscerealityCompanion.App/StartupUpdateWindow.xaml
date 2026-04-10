@@ -14,6 +14,8 @@
         Background="{StaticResource AppBackgroundBrush}"
         Foreground="{StaticResource InkBrush}">
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
         <Style x:Key="UpdatePanelStyle" TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
             <Setter Property="Padding" Value="14" />
             <Setter Property="Margin" Value="0,0,0,12" />
@@ -96,9 +98,9 @@
                     <TextBlock Style="{StaticResource UpdateSectionDetailStyle}"
                                Margin="0,10,0,0">
                         <Run Text="Installed: " />
-                        <Run Text="{Binding AppCurrentVersion}" />
+                        <Run Text="{Binding AppCurrentVersion, Mode=OneWay}" />
                         <Run Text="  |  Published: " />
-                        <Run Text="{Binding AppAvailableVersion}" />
+                        <Run Text="{Binding AppAvailableVersion, Mode=OneWay}" />
                     </TextBlock>
                 </StackPanel>
 
@@ -130,9 +132,9 @@
                         <TextBlock Style="{StaticResource UpdateSectionDetailStyle}"
                                    Margin="0,10,0,0">
                             <Run Text="Installed: " />
-                            <Run Text="{Binding HzdbCurrentVersion}" />
+                            <Run Text="{Binding HzdbCurrentVersion, Mode=OneWay}" />
                             <Run Text="  |  Published: " />
-                            <Run Text="{Binding HzdbAvailableVersion}" />
+                            <Run Text="{Binding HzdbAvailableVersion, Mode=OneWay}" />
                         </TextBlock>
                     </StackPanel>
 
@@ -163,9 +165,9 @@
                         <TextBlock Style="{StaticResource UpdateSectionDetailStyle}"
                                    Margin="0,10,0,0">
                             <Run Text="Installed: " />
-                            <Run Text="{Binding PlatformToolsCurrentVersion}" />
+                            <Run Text="{Binding PlatformToolsCurrentVersion, Mode=OneWay}" />
                             <Run Text="  |  Published: " />
-                            <Run Text="{Binding PlatformToolsAvailableVersion}" />
+                            <Run Text="{Binding PlatformToolsAvailableVersion, Mode=OneWay}" />
                         </TextBlock>
                     </StackPanel>
 

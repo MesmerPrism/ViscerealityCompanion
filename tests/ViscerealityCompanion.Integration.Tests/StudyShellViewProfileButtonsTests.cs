@@ -16,6 +16,7 @@ using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Integration.Tests;
 
+[Collection("WpfUi")]
 public sealed class StudyShellViewProfileButtonsTests
 {
     [Fact]
@@ -44,7 +45,10 @@ public sealed class StudyShellViewProfileButtonsTests
             await RunOnStaAsync(async () =>
             {
                 var app = EnsureApplication();
-                app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                if (app.Dispatcher.CheckAccess())
+                {
+                    app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                }
 
                 using var visualWorkspace = new SussexVisualProfilesWorkspaceViewModel(CreateStudy(studyId), new PreviewQuestControlService());
                 using var controllerWorkspace = new SussexControllerBreathingProfilesWorkspaceViewModel(CreateStudy(studyId), new PreviewQuestControlService());
