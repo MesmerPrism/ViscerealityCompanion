@@ -35,6 +35,27 @@ public sealed class OfficialQuestToolingServiceTests
         Assert.Equal("37.0.0", revision);
     }
 
+    [Fact]
+    public void ParseHzdbReleaseMetadataJson_reads_live_registry_shape()
+    {
+        var metadata = OfficialQuestToolingService.ParseHzdbReleaseMetadataJson("""
+            {
+              "name": "@meta-quest/hzdb-win32-x64",
+              "version": "1.0.1",
+              "license": "SEE LICENSE AT https://developers.meta.com/horizon/licenses/",
+              "dist": {
+                "tarball": "https://registry.npmjs.org/@meta-quest/hzdb-win32-x64/-/hzdb-win32-x64-1.0.1.tgz",
+                "integrity": "sha512-example"
+              }
+            }
+            """);
+
+        Assert.Equal("1.0.1", metadata.Version);
+        Assert.Equal("https://registry.npmjs.org/@meta-quest/hzdb-win32-x64/-/hzdb-win32-x64-1.0.1.tgz", metadata.TarballUri);
+        Assert.Equal("sha512-example", metadata.Integrity);
+        Assert.Equal("SEE LICENSE AT https://developers.meta.com/horizon/licenses/", metadata.License);
+    }
+
     [Theory]
     [InlineData(null, "C:\\tools\\hzdb.exe", "1.0.1", true)]
     [InlineData("", "C:\\tools\\hzdb.exe", "1.0.1", true)]

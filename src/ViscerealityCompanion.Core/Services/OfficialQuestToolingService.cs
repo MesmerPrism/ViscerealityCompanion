@@ -2,6 +2,7 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
 
 namespace ViscerealityCompanion.Core.Services;
@@ -114,6 +115,11 @@ public sealed class OfficialQuestToolingService : IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
+    };
+
+    private static readonly JsonSerializerOptions WebJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
     };
 
     private readonly HttpClient _httpClient;
@@ -254,6 +260,26 @@ public sealed class OfficialQuestToolingService : IDisposable
         return null;
     }
 
+    internal static (string Version, string TarballUri, string Integrity, string License) ParseHzdbReleaseMetadataJson(string json)
+    {
+        var metadata = JsonSerializer.Deserialize<HzdbPackageResponse>(json, WebJsonOptions)
+                       ?? throw new InvalidOperationException("Meta hzdb metadata response was empty.");
+
+        if (string.IsNullOrWhiteSpace(metadata.Version) ||
+            string.IsNullOrWhiteSpace(metadata.License) ||
+            string.IsNullOrWhiteSpace(metadata.Dist?.Tarball) ||
+            string.IsNullOrWhiteSpace(metadata.Dist?.Integrity))
+        {
+            throw new InvalidOperationException("Meta hzdb metadata response did not include the expected version, license, or tarball fields.");
+        }
+
+        return (
+            metadata.Version.Trim(),
+            metadata.Dist.Tarball.Trim(),
+            metadata.Dist.Integrity.Trim(),
+            metadata.License.Trim());
+    }
+
     private OfficialQuestToolStatus BuildHzdbStatus(string? installedVersion, string? availableVersion)
         => new(
             Id: "meta-hzdb",
@@ -287,23 +313,14 @@ public sealed class OfficialQuestToolingService : IDisposable
         using var response = await _httpClient.GetAsync(MetaHzdbMetadataUri, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        var metadata = await JsonSerializer.DeserializeAsync<HzdbPackageResponse>(stream, cancellationToken: cancellationToken).ConfigureAwait(false)
-                       ?? throw new InvalidOperationException("Meta hzdb metadata response was empty.");
-
-        if (string.IsNullOrWhiteSpace(metadata.Version) ||
-            string.IsNullOrWhiteSpace(metadata.License) ||
-            string.IsNullOrWhiteSpace(metadata.Dist?.Tarball) ||
-            string.IsNullOrWhiteSpace(metadata.Dist?.Integrity))
-        {
-            throw new InvalidOperationException("Meta hzdb metadata response did not include the expected version, license, or tarball fields.");
-        }
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var metadata = ParseHzdbReleaseMetadataJson(json);
 
         return new HzdbReleaseMetadata(
-            metadata.Version.Trim(),
-            metadata.Dist.Tarball.Trim(),
-            metadata.Dist.Integrity.Trim(),
-            metadata.License.Trim());
+            metadata.Version,
+            metadata.TarballUri,
+            metadata.Integrity,
+            metadata.License);
     }
 
     private async Task<PlatformToolsReleaseMetadata> FetchPlatformToolsReleaseAsync(CancellationToken cancellationToken)
@@ -517,9 +534,14 @@ public sealed class OfficialQuestToolingService : IDisposable
     private static void WriteMetadata(string destinationPath, OfficialQuestToolMetadata metadata)
         => File.WriteAllText(destinationPath, JsonSerializer.Serialize(metadata, JsonOptions));
 
-    private sealed record HzdbPackageResponse(string Version, string License, HzdbDistResponse Dist);
+    private sealed record HzdbPackageResponse(
+        [property: JsonPropertyName("version")] string Version,
+        [property: JsonPropertyName("license")] string License,
+        [property: JsonPropertyName("dist")] HzdbDistResponse? Dist);
 
-    private sealed record HzdbDistResponse(string Tarball, string Integrity);
+    private sealed record HzdbDistResponse(
+        [property: JsonPropertyName("tarball")] string Tarball,
+        [property: JsonPropertyName("integrity")] string Integrity);
 
     private sealed record HzdbReleaseMetadata(string Version, string TarballUri, string Integrity, string License);
 

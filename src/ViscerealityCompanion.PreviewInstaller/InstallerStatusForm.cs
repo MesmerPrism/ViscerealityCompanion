@@ -174,7 +174,6 @@ internal sealed class InstallerStatusForm : Form
             Padding = new Padding(1)
         };
         _progressTrack.Paint += (_, e) => DrawTrackBorder(e.Graphics, _progressTrack.ClientRectangle, _statusAccentColor);
-        _progressTrack.Resize += (_, _) => UpdateProgressBarFill();
         progressRow.Controls.Add(_progressTrack, 0, 0);
 
         _progressFill = new Panel
@@ -196,6 +195,7 @@ internal sealed class InstallerStatusForm : Form
             Text = "5%"
         };
         progressRow.Controls.Add(_progressValueLabel, 1, 0);
+        _progressTrack.Resize += (_, _) => UpdateProgressBarFill();
 
         _footerLabel = new Label
         {
@@ -336,6 +336,11 @@ internal sealed class InstallerStatusForm : Form
 
     private void UpdateProgressBarFill()
     {
+        if (_progressFill is null || _progressValueLabel is null)
+        {
+            return;
+        }
+
         var availableWidth = Math.Max(0, _progressTrack.ClientSize.Width - _progressTrack.Padding.Horizontal);
         var fillWidth = (int)Math.Round(availableWidth * (_progressPercent / 100d));
         _progressFill.Width = Math.Clamp(fillWidth, 0, availableWidth);
