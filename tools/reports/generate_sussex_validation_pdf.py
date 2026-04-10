@@ -11,6 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Iterable
 
 import matplotlib
 
@@ -55,6 +56,73 @@ class ClockAlignmentSample:
     roundtrip_ms: float
     quest_minus_windows_clock_seconds: float
     quest_turnaround_ms: float
+
+
+@dataclass(frozen=True)
+class UpstreamLslSample:
+    recorded_at_utc: float
+    observed_local_clock_seconds: float
+    stream_sample_timestamp_seconds: float
+    value_numeric: float
+    sequence: int
+
+
+@dataclass(frozen=True)
+class TimingMarker:
+    recorded_at_utc: float
+    marker_name: str
+    sample_sequence: int | None
+    source_lsl_timestamp_seconds: float
+    quest_local_clock_seconds: float
+    value01: float | None
+    aux_value: float | None
+
+
+@dataclass(frozen=True)
+class QuestPacketTiming:
+    source_lsl_timestamp_seconds: float
+    sample_sequence: int | None
+    packet_value01: float | None
+    heartbeat_packet_receive_at_quest_local: float | None
+    coherence_packet_receive_at_quest_local: float | None
+    heartbeat_real_beat_publish_at_quest_local: float | None
+    coherence_value_publish_at_quest_local: float | None
+    orbit_radius_peak_at_quest_local: float | None
+    orbit_radius_peak_value01: float | None
+    orbit_radius_peak_aux_value: float | None
+
+
+@dataclass(frozen=True)
+class PacketTimingMatch:
+    source_lsl_timestamp_seconds: float
+    relative_seconds: float
+    windows_sequence: int | None
+    quest_sample_sequence: int | None
+    windows_packet_value01: float | None
+    quest_packet_value01: float | None
+    windows_observed_local_clock_seconds: float | None
+    quest_heartbeat_packet_receive_at_quest_local: float | None
+    quest_coherence_value_publish_at_quest_local: float | None
+    quest_orbit_radius_peak_at_quest_local: float | None
+    orbit_radius_peak_value01: float | None
+    orbit_radius_peak_aux_value: float | None
+    windows_receive_latency_ms: float | None
+    quest_receive_latency_ms: float | None
+    coherence_publish_latency_ms: float | None
+    orbit_peak_latency_ms: float | None
+    quest_receive_to_orbit_peak_ms: float | None
+
+
+@dataclass(frozen=True)
+class PacketTimingAnalysis:
+    matches: list[PacketTimingMatch]
+    windows_overlap: list[UpstreamLslSample]
+    quest_overlap: list[QuestPacketTiming]
+    windows_only: list[UpstreamLslSample]
+    quest_only: list[QuestPacketTiming]
+    overlap_start: float | None
+    overlap_end: float | None
+    quest_minus_windows_clock_seconds: float | None
 
 
 def normalize_key(value: str) -> str:
@@ -249,6 +317,131 @@ def read_clock_alignment(path: Path) -> list[ClockAlignmentSample]:
 
     samples.sort(key=lambda item: item.probe_sequence)
     return samples
+
+
+def read_upstream_lsl_samples(path: Path) -> list[UpstreamLslSample]:
+    samples: list[UpstreamLslSample] = []
+    if not path.is_file():
+        return samples
+
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            try:
+                recorded_at_utc = parse_iso_timestamp(row.get("recorded_at_utc", "").strip())
+                observed_local_clock_seconds = float(row.get("observed_local_clock_seconds", "").strip())
+                stream_sample_timestamp_seconds = float(row.get("stream_sample_timestamp_seconds", "").strip())
+                value_numeric = float(row.get("value_numeric", "").strip())
+                sequence = int(float(row.get("sequence", "").strip()))
+            except ValueError:
+                continue
+
+            samples.append(
+                UpstreamLslSample(
+                    recorded_at_utc=recorded_at_utc,
+                    observed_local_clock_seconds=observed_local_clock_seconds,
+                    stream_sample_timestamp_seconds=stream_sample_timestamp_seconds,
+                    value_numeric=value_numeric,
+                    sequence=sequence,
+                )
+            )
+
+    samples.sort(key=lambda item: item.stream_sample_timestamp_seconds)
+    return samples
+
+
+def parse_optional_float(value: str) -> float | None:
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_optional_int(value: str) -> int | None:
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None
+
+
+def read_timing_markers(path: Path) -> list[TimingMarker]:
+    markers: list[TimingMarker] = []
+    if not path.is_file():
+        return markers
+
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            source_timestamp = parse_optional_float(row.get("source_lsl_timestamp_seconds", ""))
+            quest_clock = parse_optional_float(row.get("quest_local_clock_seconds", ""))
+            if source_timestamp is None or quest_clock is None:
+                continue
+
+            try:
+                recorded_at_utc = parse_iso_timestamp(row.get("recorded_at_utc", "").strip())
+            except ValueError:
+                continue
+
+            markers.append(
+                TimingMarker(
+                    recorded_at_utc=recorded_at_utc,
+                    marker_name=row.get("marker_name", "").strip(),
+                    sample_sequence=parse_optional_int(row.get("sample_sequence", "")),
+                    source_lsl_timestamp_seconds=source_timestamp,
+                    quest_local_clock_seconds=quest_clock,
+                    value01=parse_optional_float(row.get("value01", "")),
+                    aux_value=parse_optional_float(row.get("aux_value", "")),
+                )
+            )
+
+    markers.sort(key=lambda item: (item.source_lsl_timestamp_seconds, item.quest_local_clock_seconds, item.marker_name))
+    return markers
+
+
+def group_quest_packet_timings(markers: Iterable[TimingMarker]) -> list[QuestPacketTiming]:
+    grouped: dict[int, dict[str, TimingMarker]] = defaultdict(dict)
+    raw_source_timestamps: dict[int, float] = {}
+    sample_sequences: dict[int, int | None] = {}
+
+    for marker in markers:
+        key = int(round(marker.source_lsl_timestamp_seconds * 10000.0))
+        grouped[key][marker.marker_name] = marker
+        raw_source_timestamps[key] = marker.source_lsl_timestamp_seconds
+        sample_sequences[key] = marker.sample_sequence
+
+    packets: list[QuestPacketTiming] = []
+    for key in sorted(grouped.keys()):
+        marker_map = grouped[key]
+        heartbeat_receive = marker_map.get("heartbeat_packet_receive")
+        coherence_receive = marker_map.get("coherence_packet_receive")
+        heartbeat_publish = marker_map.get("heartbeat_real_beat_publish")
+        coherence_publish = marker_map.get("coherence_value_publish")
+        orbit_peak = marker_map.get("orbit_radius_peak")
+        packet_value = (
+            heartbeat_receive.value01
+            if heartbeat_receive and heartbeat_receive.value01 is not None
+            else coherence_receive.value01 if coherence_receive else None
+        )
+        packets.append(
+            QuestPacketTiming(
+                source_lsl_timestamp_seconds=raw_source_timestamps[key],
+                sample_sequence=sample_sequences[key],
+                packet_value01=packet_value,
+                heartbeat_packet_receive_at_quest_local=heartbeat_receive.quest_local_clock_seconds if heartbeat_receive else None,
+                coherence_packet_receive_at_quest_local=coherence_receive.quest_local_clock_seconds if coherence_receive else None,
+                heartbeat_real_beat_publish_at_quest_local=heartbeat_publish.quest_local_clock_seconds if heartbeat_publish else None,
+                coherence_value_publish_at_quest_local=coherence_publish.quest_local_clock_seconds if coherence_publish else None,
+                orbit_radius_peak_at_quest_local=orbit_peak.quest_local_clock_seconds if orbit_peak else None,
+                orbit_radius_peak_value01=orbit_peak.value01 if orbit_peak else None,
+                orbit_radius_peak_aux_value=orbit_peak.aux_value if orbit_peak else None,
+            )
+        )
+
+    return packets
 
 
 def seconds_since(points: list[tuple[float, float]], session_start_utc: float) -> list[tuple[float, float]]:
@@ -455,6 +648,505 @@ def plot_overlay_panel(
     legend = ax.legend(facecolor=COLORS["panel_alt"], edgecolor=COLORS["grid"], fontsize=8.2, loc="upper right")
     for text in legend.get_texts():
         text.set_color(COLORS["text"])
+
+
+def get_clock_offset_seconds(settings: dict, clock_samples: list[ClockAlignmentSample]) -> float | None:
+    direct_value = get_setting(
+        settings,
+        "ClockAlignmentRecommendedQuestMinusWindowsClockSeconds",
+        "clockAlignmentRecommendedQuestMinusWindowsClockSeconds",
+        default="",
+    )
+    if direct_value:
+        try:
+            return float(direct_value)
+        except ValueError:
+            pass
+
+    candidate_samples = [sample.quest_minus_windows_clock_seconds for sample in clock_samples if sample.window_kind == "StartBurst"]
+    if not candidate_samples:
+        candidate_samples = [sample.quest_minus_windows_clock_seconds for sample in clock_samples]
+    if not candidate_samples:
+        return None
+    return statistics.median(candidate_samples)
+
+
+def filter_packet_overlap(
+    windows_samples: list[UpstreamLslSample],
+    quest_packets: list[QuestPacketTiming],
+) -> tuple[list[UpstreamLslSample], list[QuestPacketTiming], float | None, float | None]:
+    if not windows_samples or not quest_packets:
+        return [], [], None, None
+
+    overlap_start = max(windows_samples[0].stream_sample_timestamp_seconds, quest_packets[0].source_lsl_timestamp_seconds)
+    overlap_end = min(windows_samples[-1].stream_sample_timestamp_seconds, quest_packets[-1].source_lsl_timestamp_seconds)
+    if overlap_start > overlap_end:
+        return [], [], None, None
+
+    windows_overlap = [
+        sample
+        for sample in windows_samples
+        if overlap_start <= sample.stream_sample_timestamp_seconds <= overlap_end
+    ]
+    quest_overlap = [
+        packet
+        for packet in quest_packets
+        if overlap_start <= packet.source_lsl_timestamp_seconds <= overlap_end
+    ]
+    return windows_overlap, quest_overlap, overlap_start, overlap_end
+
+
+def match_packet_timings(
+    windows_samples: list[UpstreamLslSample],
+    quest_packets: list[QuestPacketTiming],
+    quest_minus_windows_clock_seconds: float | None,
+    tolerance_seconds: float = 0.001,
+) -> tuple[list[PacketTimingMatch], list[UpstreamLslSample], list[QuestPacketTiming], float | None, float | None]:
+    windows_overlap, quest_overlap, overlap_start, overlap_end = filter_packet_overlap(windows_samples, quest_packets)
+    if not windows_overlap or not quest_overlap or overlap_start is None:
+        return [], windows_overlap, quest_overlap, overlap_start, overlap_end
+
+    matches: list[PacketTimingMatch] = []
+    windows_only: list[UpstreamLslSample] = []
+    quest_only: list[QuestPacketTiming] = []
+    windows_index = 0
+    quest_index = 0
+
+    while windows_index < len(windows_overlap) and quest_index < len(quest_overlap):
+        windows_sample = windows_overlap[windows_index]
+        quest_packet = quest_overlap[quest_index]
+        delta_seconds = windows_sample.stream_sample_timestamp_seconds - quest_packet.source_lsl_timestamp_seconds
+
+        if abs(delta_seconds) <= tolerance_seconds:
+            source_timestamp = 0.5 * (
+                windows_sample.stream_sample_timestamp_seconds + quest_packet.source_lsl_timestamp_seconds
+            )
+            relative_seconds = source_timestamp - overlap_start
+            send_time_in_quest_clock = (
+                source_timestamp + quest_minus_windows_clock_seconds
+                if quest_minus_windows_clock_seconds is not None
+                else None
+            )
+
+            def quest_latency_ms(event_time: float | None) -> float | None:
+                if event_time is None or send_time_in_quest_clock is None:
+                    return None
+                return (event_time - send_time_in_quest_clock) * 1000.0
+
+            def quest_pipeline_latency_ms(later_time: float | None, earlier_time: float | None) -> float | None:
+                if later_time is None or earlier_time is None:
+                    return None
+                return (later_time - earlier_time) * 1000.0
+
+            matches.append(
+                PacketTimingMatch(
+                    source_lsl_timestamp_seconds=source_timestamp,
+                    relative_seconds=relative_seconds,
+                    windows_sequence=windows_sample.sequence,
+                    quest_sample_sequence=quest_packet.sample_sequence,
+                    windows_packet_value01=windows_sample.value_numeric,
+                    quest_packet_value01=quest_packet.packet_value01,
+                    windows_observed_local_clock_seconds=windows_sample.observed_local_clock_seconds,
+                    quest_heartbeat_packet_receive_at_quest_local=quest_packet.heartbeat_packet_receive_at_quest_local,
+                    quest_coherence_value_publish_at_quest_local=quest_packet.coherence_value_publish_at_quest_local,
+                    quest_orbit_radius_peak_at_quest_local=quest_packet.orbit_radius_peak_at_quest_local,
+                    orbit_radius_peak_value01=quest_packet.orbit_radius_peak_value01,
+                    orbit_radius_peak_aux_value=quest_packet.orbit_radius_peak_aux_value,
+                    windows_receive_latency_ms=(
+                        windows_sample.observed_local_clock_seconds - windows_sample.stream_sample_timestamp_seconds
+                    )
+                    * 1000.0,
+                    quest_receive_latency_ms=quest_latency_ms(quest_packet.heartbeat_packet_receive_at_quest_local),
+                    coherence_publish_latency_ms=quest_latency_ms(quest_packet.coherence_value_publish_at_quest_local),
+                    orbit_peak_latency_ms=quest_latency_ms(quest_packet.orbit_radius_peak_at_quest_local),
+                    quest_receive_to_orbit_peak_ms=quest_pipeline_latency_ms(
+                        quest_packet.orbit_radius_peak_at_quest_local,
+                        quest_packet.heartbeat_packet_receive_at_quest_local,
+                    ),
+                )
+            )
+            windows_index += 1
+            quest_index += 1
+        elif delta_seconds < 0.0:
+            windows_only.append(windows_sample)
+            windows_index += 1
+        else:
+            quest_only.append(quest_packet)
+            quest_index += 1
+
+    windows_only.extend(windows_overlap[windows_index:])
+    quest_only.extend(quest_overlap[quest_index:])
+    return matches, windows_only, quest_only, overlap_start, overlap_end
+
+
+def compute_gap_series(source_timestamps: list[float], overlap_start: float) -> list[tuple[float, float]]:
+    if len(source_timestamps) < 2:
+        return []
+    return [
+        (current - overlap_start, (current - previous) * 1000.0)
+        for previous, current in zip(source_timestamps, source_timestamps[1:])
+    ]
+
+
+def packet_scatter_points_from_windows(
+    samples: list[UpstreamLslSample],
+    overlap_start: float,
+) -> list[tuple[float, float]]:
+    return [
+        (sample.stream_sample_timestamp_seconds - overlap_start, sample.value_numeric)
+        for sample in samples
+    ]
+
+
+def packet_scatter_points_from_quest(
+    packets: list[QuestPacketTiming],
+    overlap_start: float,
+) -> list[tuple[float, float]]:
+    return [
+        (packet.source_lsl_timestamp_seconds - overlap_start, packet.packet_value01)
+        for packet in packets
+        if packet.packet_value01 is not None
+    ]
+
+
+def non_null_points(values: Iterable[tuple[float, float | None]]) -> list[tuple[float, float]]:
+    return [(x, y) for x, y in values if y is not None]
+
+
+def analyze_packet_timings(
+    settings: dict,
+    windows_upstream_samples: list[UpstreamLslSample],
+    quest_packet_timings: list[QuestPacketTiming],
+    clock_samples: list[ClockAlignmentSample],
+) -> PacketTimingAnalysis:
+    quest_minus_windows_clock_seconds = get_clock_offset_seconds(settings, clock_samples)
+    matches, windows_only, quest_only, overlap_start, overlap_end = match_packet_timings(
+        windows_upstream_samples,
+        quest_packet_timings,
+        quest_minus_windows_clock_seconds,
+    )
+    windows_overlap, quest_overlap, _, _ = filter_packet_overlap(windows_upstream_samples, quest_packet_timings)
+    return PacketTimingAnalysis(
+        matches=matches,
+        windows_overlap=windows_overlap,
+        quest_overlap=quest_overlap,
+        windows_only=windows_only,
+        quest_only=quest_only,
+        overlap_start=overlap_start,
+        overlap_end=overlap_end,
+        quest_minus_windows_clock_seconds=quest_minus_windows_clock_seconds,
+    )
+
+
+def write_packet_timing_csv(output_csv: Path, analysis: PacketTimingAnalysis) -> None:
+    fieldnames = [
+        "match_status",
+        "source_lsl_timestamp_seconds",
+        "seconds_since_first_overlapping_packet",
+        "clock_alignment_quest_minus_windows_seconds",
+        "windows_sequence",
+        "quest_sample_sequence",
+        "windows_packet_value01",
+        "quest_packet_value01",
+        "windows_observed_local_clock_seconds",
+        "quest_heartbeat_packet_receive_at_quest_local",
+        "quest_coherence_value_publish_at_quest_local",
+        "quest_orbit_radius_peak_at_quest_local",
+        "orbit_radius_peak_value01",
+        "orbit_radius_peak_aux_value",
+        "windows_receive_latency_ms",
+        "quest_receive_latency_ms",
+        "coherence_publish_latency_ms",
+        "orbit_peak_latency_ms",
+        "quest_receive_to_orbit_peak_ms",
+    ]
+
+    overlap_start = analysis.overlap_start
+    quest_minus_windows_clock_seconds = analysis.quest_minus_windows_clock_seconds
+    rows: list[dict[str, float | int | str | None]] = []
+
+    for match in analysis.matches:
+        rows.append(
+            {
+                "match_status": "matched",
+                "source_lsl_timestamp_seconds": match.source_lsl_timestamp_seconds,
+                "seconds_since_first_overlapping_packet": match.relative_seconds,
+                "clock_alignment_quest_minus_windows_seconds": quest_minus_windows_clock_seconds,
+                "windows_sequence": match.windows_sequence,
+                "quest_sample_sequence": match.quest_sample_sequence,
+                "windows_packet_value01": match.windows_packet_value01,
+                "quest_packet_value01": match.quest_packet_value01,
+                "windows_observed_local_clock_seconds": match.windows_observed_local_clock_seconds,
+                "quest_heartbeat_packet_receive_at_quest_local": match.quest_heartbeat_packet_receive_at_quest_local,
+                "quest_coherence_value_publish_at_quest_local": match.quest_coherence_value_publish_at_quest_local,
+                "quest_orbit_radius_peak_at_quest_local": match.quest_orbit_radius_peak_at_quest_local,
+                "orbit_radius_peak_value01": match.orbit_radius_peak_value01,
+                "orbit_radius_peak_aux_value": match.orbit_radius_peak_aux_value,
+                "windows_receive_latency_ms": match.windows_receive_latency_ms,
+                "quest_receive_latency_ms": match.quest_receive_latency_ms,
+                "coherence_publish_latency_ms": match.coherence_publish_latency_ms,
+                "orbit_peak_latency_ms": match.orbit_peak_latency_ms,
+                "quest_receive_to_orbit_peak_ms": match.quest_receive_to_orbit_peak_ms,
+            }
+        )
+
+    for sample in analysis.windows_only:
+        relative_seconds = sample.stream_sample_timestamp_seconds - overlap_start if overlap_start is not None else None
+        rows.append(
+            {
+                "match_status": "windows_only",
+                "source_lsl_timestamp_seconds": sample.stream_sample_timestamp_seconds,
+                "seconds_since_first_overlapping_packet": relative_seconds,
+                "clock_alignment_quest_minus_windows_seconds": quest_minus_windows_clock_seconds,
+                "windows_sequence": sample.sequence,
+                "quest_sample_sequence": None,
+                "windows_packet_value01": sample.value_numeric,
+                "quest_packet_value01": None,
+                "windows_observed_local_clock_seconds": sample.observed_local_clock_seconds,
+                "quest_heartbeat_packet_receive_at_quest_local": None,
+                "quest_coherence_value_publish_at_quest_local": None,
+                "quest_orbit_radius_peak_at_quest_local": None,
+                "orbit_radius_peak_value01": None,
+                "orbit_radius_peak_aux_value": None,
+                "windows_receive_latency_ms": (sample.observed_local_clock_seconds - sample.stream_sample_timestamp_seconds) * 1000.0,
+                "quest_receive_latency_ms": None,
+                "coherence_publish_latency_ms": None,
+                "orbit_peak_latency_ms": None,
+                "quest_receive_to_orbit_peak_ms": None,
+            }
+        )
+
+    for packet in analysis.quest_only:
+        relative_seconds = packet.source_lsl_timestamp_seconds - overlap_start if overlap_start is not None else None
+        send_time_in_quest_clock = (
+            packet.source_lsl_timestamp_seconds + quest_minus_windows_clock_seconds
+            if quest_minus_windows_clock_seconds is not None
+            else None
+        )
+
+        def quest_latency_ms(event_time: float | None) -> float | None:
+            if event_time is None or send_time_in_quest_clock is None:
+                return None
+            return (event_time - send_time_in_quest_clock) * 1000.0
+
+        def quest_pipeline_latency_ms(later_time: float | None, earlier_time: float | None) -> float | None:
+            if later_time is None or earlier_time is None:
+                return None
+            return (later_time - earlier_time) * 1000.0
+
+        rows.append(
+            {
+                "match_status": "quest_only",
+                "source_lsl_timestamp_seconds": packet.source_lsl_timestamp_seconds,
+                "seconds_since_first_overlapping_packet": relative_seconds,
+                "clock_alignment_quest_minus_windows_seconds": quest_minus_windows_clock_seconds,
+                "windows_sequence": None,
+                "quest_sample_sequence": packet.sample_sequence,
+                "windows_packet_value01": None,
+                "quest_packet_value01": packet.packet_value01,
+                "windows_observed_local_clock_seconds": None,
+                "quest_heartbeat_packet_receive_at_quest_local": packet.heartbeat_packet_receive_at_quest_local,
+                "quest_coherence_value_publish_at_quest_local": packet.coherence_value_publish_at_quest_local,
+                "quest_orbit_radius_peak_at_quest_local": packet.orbit_radius_peak_at_quest_local,
+                "orbit_radius_peak_value01": packet.orbit_radius_peak_value01,
+                "orbit_radius_peak_aux_value": packet.orbit_radius_peak_aux_value,
+                "windows_receive_latency_ms": None,
+                "quest_receive_latency_ms": quest_latency_ms(packet.heartbeat_packet_receive_at_quest_local),
+                "coherence_publish_latency_ms": quest_latency_ms(packet.coherence_value_publish_at_quest_local),
+                "orbit_peak_latency_ms": quest_latency_ms(packet.orbit_radius_peak_at_quest_local),
+                "quest_receive_to_orbit_peak_ms": quest_pipeline_latency_ms(
+                    packet.orbit_radius_peak_at_quest_local,
+                    packet.heartbeat_packet_receive_at_quest_local,
+                ),
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            float(row["source_lsl_timestamp_seconds"]) if row["source_lsl_timestamp_seconds"] is not None else math.inf,
+            str(row["match_status"]),
+        )
+    )
+
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    with output_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def plot_scatter_series(
+    ax,
+    points: list[tuple[float, float]],
+    color: str,
+    label: str,
+    *,
+    marker: str = "o",
+    filled: bool = True,
+    zorder: int = 4,
+    size: float = 28,
+) -> None:
+    if not points:
+        return
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    ax.scatter(
+        xs,
+        ys,
+        s=size,
+        alpha=0.95,
+        label=label,
+        marker=marker,
+        facecolors=color if filled else COLORS["panel_alt"],
+        edgecolors=color,
+        linewidths=1.0,
+        zorder=zorder,
+    )
+    if len(points) > 1:
+        ax.plot(xs, ys, color=color, linewidth=1.0, alpha=0.45, zorder=max(1, zorder - 1))
+
+
+def summarize_series(values: list[float]) -> str:
+    if not values:
+        return "n/a"
+    return f"{statistics.mean(values):.1f} ms mean, {statistics.median(values):.1f} ms median"
+
+
+def build_packet_timing_page(
+    pdf: PdfPages,
+    analysis: PacketTimingAnalysis,
+) -> None:
+    figure, axes = plt.subplots(2, 2, figsize=PAGE_SIZE, facecolor=COLORS["page"])
+    axes = axes.flatten()
+    figure.subplots_adjust(left=0.07, right=0.965, top=0.79, bottom=0.11, hspace=0.34, wspace=0.20)
+    figure.suptitle("Packet delivery and orbit response", color=COLORS["text"], fontsize=20, fontweight="bold", y=0.955)
+    figure.text(
+        0.07,
+        0.875,
+        "Each dot is one received heartbeat/coherence packet keyed by its source LSL timestamp, not a held twin-state mirror frame.",
+        color=COLORS["muted"],
+        fontsize=10.2,
+    )
+
+    matches = analysis.matches
+    windows_only = analysis.windows_only
+    quest_only = analysis.quest_only
+    overlap_start = analysis.overlap_start
+    overlap_end = analysis.overlap_end
+    windows_overlap = analysis.windows_overlap
+    quest_overlap = analysis.quest_overlap
+
+    if overlap_start is None or overlap_end is None:
+        for axis in axes:
+            axis.set_facecolor(COLORS["panel_alt"])
+            axis.axis("off")
+            axis.text(0.5, 0.5, "No overlapping packet window", ha="center", va="center", color=COLORS["muted"])
+        pdf.savefig(figure, facecolor=figure.get_facecolor())
+        plt.close(figure)
+        return
+
+    windows_packet_points = packet_scatter_points_from_windows(windows_overlap, overlap_start)
+    quest_packet_points = packet_scatter_points_from_quest(quest_overlap, overlap_start)
+    windows_receive_points = non_null_points(
+        (match.relative_seconds, match.windows_receive_latency_ms) for match in matches
+    )
+    quest_receive_points = non_null_points(
+        (match.relative_seconds, match.quest_receive_latency_ms) for match in matches
+    )
+    coherence_publish_points = non_null_points(
+        (match.relative_seconds, match.coherence_publish_latency_ms) for match in matches
+    )
+    orbit_peak_points = non_null_points(
+        (match.relative_seconds, match.orbit_peak_latency_ms) for match in matches
+    )
+    quest_receive_to_peak_points = non_null_points(
+        (match.relative_seconds, match.quest_receive_to_orbit_peak_ms) for match in matches
+    )
+    windows_gap_points = compute_gap_series(
+        [sample.stream_sample_timestamp_seconds for sample in windows_overlap],
+        overlap_start,
+    )
+    quest_gap_points = compute_gap_series(
+        [packet.source_lsl_timestamp_seconds for packet in quest_overlap],
+        overlap_start,
+    )
+
+    apply_axis_style(axes[0], "Packet value by send time", "unit01", "Every received packet in the shared send-time window")
+    axes[0].set_xlabel("s since first overlapping packet", color=COLORS["muted"], fontsize=8.8)
+    plot_scatter_series(
+        axes[0],
+        quest_packet_points,
+        COLORS["orange"],
+        f"Quest packet receive ({len(quest_packet_points)})",
+        marker="o",
+        filled=True,
+        zorder=4,
+        size=22,
+    )
+    plot_scatter_series(
+        axes[0],
+        windows_packet_points,
+        COLORS["blue"],
+        f"Windows upstream ({len(windows_packet_points)})",
+        marker="s",
+        filled=False,
+        zorder=5,
+        size=42,
+    )
+    axes[0].set_ylim(0.0, 1.0)
+
+    apply_axis_style(axes[1], "Delivery latency after send", "ms", "Package send to receive/publish timing")
+    axes[1].set_xlabel("s since first overlapping packet", color=COLORS["muted"], fontsize=8.8)
+    plot_scatter_series(axes[1], windows_receive_points, COLORS["blue"], "Windows receive", marker="s", filled=False, zorder=5)
+    plot_scatter_series(axes[1], quest_receive_points, COLORS["orange"], "Quest heartbeat receive", marker="o", filled=True, zorder=4)
+    plot_scatter_series(axes[1], coherence_publish_points, COLORS["magenta"], "Quest coherence publish", marker="^", filled=True, zorder=4)
+
+    apply_axis_style(axes[2], "Orbit peak latency after send", "ms", "Package send to orbit-distance peak")
+    axes[2].set_xlabel("s since first overlapping packet", color=COLORS["muted"], fontsize=8.8)
+    plot_scatter_series(axes[2], orbit_peak_points, COLORS["green"], "Quest orbit peak", marker="o", filled=True, zorder=4)
+    plot_scatter_series(
+        axes[2],
+        quest_receive_to_peak_points,
+        COLORS["cyan"],
+        "Quest receive -> peak",
+        marker="s",
+        filled=False,
+        zorder=5,
+    )
+
+    apply_axis_style(axes[3], "Packet gap / continuity", "ms", "Gaps between consecutive received packets")
+    axes[3].set_xlabel("s since first overlapping packet", color=COLORS["muted"], fontsize=8.8)
+    plot_scatter_series(axes[3], windows_gap_points, COLORS["blue"], "Windows gap", marker="s", filled=False, zorder=5)
+    plot_scatter_series(axes[3], quest_gap_points, COLORS["orange"], "Quest gap", marker="o", filled=True, zorder=4)
+
+    for axis in axes:
+        if axis.has_data():
+            x_max = max(
+                [1.0]
+                + [line.get_xdata()[-1] for line in axis.lines if len(line.get_xdata()) > 0]
+                + [collection.get_offsets()[-1][0] for collection in axis.collections if len(collection.get_offsets()) > 0]
+            )
+            axis.set_xlim(left=0.0, right=max(1.0, float(x_max)))
+            legend = axis.legend(facecolor=COLORS["panel_alt"], edgecolor=COLORS["grid"], fontsize=8.0, loc="upper right")
+            for text in legend.get_texts():
+                text.set_color(COLORS["text"])
+
+    summary_text = (
+        f"Overlap {overlap_end - overlap_start:.1f}s | Packets W/Q/M {len(windows_overlap)}/{len(quest_overlap)}/{len(matches)}"
+        f" | Only W/Q {len(windows_only)}/{len(quest_only)}"
+    )
+    latency_text = "Mean latencies unavailable."
+    if windows_receive_points and quest_receive_points and orbit_peak_points and quest_receive_to_peak_points:
+        latency_text = (
+            f"Means: W {statistics.mean([point[1] for point in windows_receive_points]):.1f} ms, "
+            f"Q {statistics.mean([point[1] for point in quest_receive_points]):.1f} ms, "
+            f"Q peak {statistics.mean([point[1] for point in orbit_peak_points]):.1f} ms, "
+            f"Q recv->peak {statistics.mean([point[1] for point in quest_receive_to_peak_points]):.1f} ms"
+        )
+    figure.text(0.07, 0.052, summary_text, color=COLORS["muted"], fontsize=8.8, va="top")
+    figure.text(0.07, 0.026, latency_text, color=COLORS["muted"], fontsize=8.3, va="top")
+    pdf.savefig(figure, facecolor=figure.get_facecolor())
+    plt.close(figure)
 
 
 def build_cover_page(
@@ -794,7 +1486,7 @@ def build_clock_alignment_page(pdf: PdfPages, clock_samples: list[ClockAlignment
     plt.close(figure)
 
 
-def build_report(session_dir: Path, output_pdf: Path) -> None:
+def build_report(session_dir: Path, output_pdf: Path, output_csv: Path | None = None) -> None:
     settings_path = session_dir / "session_settings.json"
     windows_signals_path = session_dir / "signals_long.csv"
     quest_signals_path = session_dir / "device-session-pull" / "signals_long.csv"
@@ -803,6 +1495,8 @@ def build_report(session_dir: Path, output_pdf: Path) -> None:
     windows_events_path = session_dir / "session_events.csv"
     quest_events_path = session_dir / "device-session-pull" / "session_events.csv"
     clock_alignment_path = session_dir / "clock_alignment_roundtrip.csv"
+    upstream_lsl_monitor_path = session_dir / "upstream_lsl_monitor.csv"
+    timing_markers_path = session_dir / "device-session-pull" / "timing_markers.csv"
 
     if not session_dir.is_dir():
         raise FileNotFoundError(f"Session folder not found: {session_dir}")
@@ -817,6 +1511,11 @@ def build_report(session_dir: Path, output_pdf: Path) -> None:
     windows_events = read_session_events(windows_events_path)
     quest_events = read_session_events(quest_events_path)
     clock_samples = read_clock_alignment(clock_alignment_path)
+    windows_upstream_samples = read_upstream_lsl_samples(upstream_lsl_monitor_path)
+    quest_timing_markers = read_timing_markers(timing_markers_path)
+    quest_packet_timings = group_quest_packet_timings(quest_timing_markers)
+    packet_timing_analysis = analyze_packet_timings(settings, windows_upstream_samples, quest_packet_timings, clock_samples)
+    write_packet_timing_csv(output_csv or (session_dir / "packet_timing_analysis.csv"), packet_timing_analysis)
 
     session_start_text = get_setting(settings, "sessionStartedAtUtc", "SessionStartedAtUtc", default="")
     session_start_utc = None
@@ -840,10 +1539,24 @@ def build_report(session_dir: Path, output_pdf: Path) -> None:
         (
             "Biofeedback alignment",
             [
-                PlotSpec("coherence.value01", "signals", "coherence.value01", "Shared twin-state coherence"),
+                PlotSpec("coherence.value01", "signals", "coherence.value01", "Held twin-state coherence mirror between packets"),
                 PlotSpec("heartbeat.value01", "signals", "heartbeat.value01", "Normalized heartbeat envelope"),
-                PlotSpec("heartbeat.packet_value01", "signals", "heartbeat.packet_value01", "LSL packet payload"),
+                PlotSpec("heartbeat.packet_value01", "signals", "heartbeat.packet_value01", "Latest upstream packet value held in twin-state"),
                 PlotSpec("heartbeat.real_beat_value01", "signals", "heartbeat.real_beat_value01", "Beat trigger ramp"),
+            ],
+        ),
+        (
+            "Orbit response mirrors",
+            [
+                PlotSpec("orbit.radius_visual01", "signals", "orbit.radius_visual01", "Runtime orbit-distance multiplier"),
+                PlotSpec(
+                    "orbit.radius_envelope_weight01",
+                    "signals",
+                    "orbit.radius_envelope_weight01",
+                    "Orbit-distance envelope weight",
+                ),
+                PlotSpec("orbit.radius_phase01", "signals", "orbit.radius_phase01", "Orbit-distance phase"),
+                PlotSpec("orbit.radius_peak_active", "signals", "orbit.radius_peak_active", "Orbit near-peak flag"),
             ],
         ),
         (
@@ -957,6 +1670,10 @@ def build_report(session_dir: Path, output_pdf: Path) -> None:
                 windows_breathing_units,
                 quest_breathing_units,
             )
+        build_packet_timing_page(
+            pdf,
+            packet_timing_analysis,
+        )
         build_clock_alignment_page(pdf, clock_samples, settings)
 
 
@@ -964,12 +1681,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--session-dir", required=True)
     parser.add_argument("--output-pdf", required=True)
+    parser.add_argument("--output-csv", required=False)
     args = parser.parse_args()
 
     session_dir = Path(args.session_dir).resolve()
     output_pdf = Path(args.output_pdf).resolve()
+    output_csv = Path(args.output_csv).resolve() if args.output_csv else None
 
-    build_report(session_dir, output_pdf)
+    build_report(session_dir, output_pdf, output_csv)
     print(str(output_pdf))
     return 0
 

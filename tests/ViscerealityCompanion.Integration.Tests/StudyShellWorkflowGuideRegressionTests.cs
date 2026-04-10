@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using ViscerealityCompanion.Core.Services;
 using ViscerealityCompanion.App;
 using ViscerealityCompanion.App.ViewModels;
 using ViscerealityCompanion.Core.Models;
@@ -231,6 +232,22 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.Contains("must turn green", gate.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void LslGuideActions_IncludeWindowsEnvironmentAnalysisButton()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_testLslSignalService", new PreviewTestLslSignalService());
+        SetPrivateField(viewModel, "_testLslSenderActionLabel", "Start TEST Sender");
+        SetPrivateAutoProperty(viewModel, nameof(StudyShellViewModel.ToggleTestLslSenderCommand), new AsyncRelayCommand(() => Task.CompletedTask));
+        SetPrivateAutoProperty(viewModel, nameof(StudyShellViewModel.ProbeLslConnectionCommand), new AsyncRelayCommand(() => Task.CompletedTask));
+        SetPrivateAutoProperty(viewModel, nameof(StudyShellViewModel.AnalyzeWindowsEnvironmentCommand), new AsyncRelayCommand(() => Task.CompletedTask));
+
+        var actions = InvokePrivateMethod<IReadOnlyList<WorkflowGuideActionItem>>(viewModel, "BuildWorkflowGuideActionItems", 8);
+
+        Assert.Equal(3, actions.Count);
+        Assert.Contains(actions, action => string.Equals(action.Label, "Analyze Windows Environment", StringComparison.Ordinal));
+    }
+
     private static StudyShellViewModel CreateViewModel(StudyShellDefinition study)
     {
         var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
@@ -343,6 +360,13 @@ public sealed class StudyShellWorkflowGuideRegressionTests
     {
         var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new InvalidOperationException($"Could not find field {fieldName}.");
+        field.SetValue(target, value);
+    }
+
+    private static void SetPrivateAutoProperty(object target, string propertyName, object value)
+    {
+        var field = target.GetType().GetField($"<{propertyName}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException($"Could not find auto-property backing field for {propertyName}.");
         field.SetValue(target, value);
     }
 }

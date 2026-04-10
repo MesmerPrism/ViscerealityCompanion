@@ -68,6 +68,10 @@ public sealed class StudyDataRecorderServiceTests
                 ["study.heartbeat.value01"] = "0.71",
                 ["study.heartbeat.real_beat_value01"] = "1",
                 ["study.coherence.value01"] = "0.63",
+                ["study.orbit.radius_visual01"] = "0.84",
+                ["study.orbit.radius_envelope_weight01"] = "0.72",
+                ["study.orbit.radius_phase01"] = "0.31",
+                ["study.orbit.radius_peak_active"] = "true",
                 ["study.breathing.value01"] = "0.58",
                 ["study.radius.sphere.progress01"] = "0.34",
                 ["study.radius.sphere.raw"] = "1.75",
@@ -142,6 +146,10 @@ public sealed class StudyDataRecorderServiceTests
             Assert.True(signalLines.Length > 5);
             Assert.Equal(2, signalLines.Count(line => line.Contains("headset.position.x", StringComparison.Ordinal)));
             Assert.Equal(2, signalLines.Count(line => line.Contains("breathing.value01", StringComparison.Ordinal)));
+            Assert.Equal(2, signalLines.Count(line => line.Contains("orbit.radius_visual01", StringComparison.Ordinal)));
+            Assert.Equal(2, signalLines.Count(line => line.Contains("orbit.radius_peak_active", StringComparison.Ordinal)));
+            Assert.Contains(",orbit,orbit.radius_visual01,0.84,,unit01,", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
+            Assert.Contains(",orbit,orbit.radius_peak_active,1,true,bool,", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
             Assert.Contains("2026-03-29T12:34:57.8000000Z", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
             Assert.DoesNotContain("pacer_radius.progress01", string.Join(Environment.NewLine, signalLines), StringComparison.Ordinal);
 
