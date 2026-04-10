@@ -526,10 +526,27 @@ public sealed class StudyShellViewProfileButtonsTests
 
     private static void DeleteFileIfPresent(string? path)
     {
-        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
-            File.Delete(path);
+            return;
         }
+
+        IOException? lastIOException = null;
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            try
+            {
+                File.Delete(path);
+                return;
+            }
+            catch (IOException ex) when (File.Exists(path))
+            {
+                lastIOException = ex;
+                Thread.Sleep(100);
+            }
+        }
+
+        throw lastIOException ?? new IOException($"Could not delete '{path}'.");
     }
 
     private static void CommitTextBoxEdit(TextBox textBox)

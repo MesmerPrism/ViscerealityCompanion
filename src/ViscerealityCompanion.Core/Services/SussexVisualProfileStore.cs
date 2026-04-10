@@ -204,7 +204,11 @@ public sealed class SussexVisualProfileStore
 
     private static async Task<string> ComputeFileSha256Async(string path, CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(path);
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
         using var sha = SHA256.Create();
         var hash = await sha.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
         return Convert.ToHexString(hash);
