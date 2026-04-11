@@ -8,7 +8,11 @@ namespace ViscerealityCompanion.PreviewInstaller;
 
 internal readonly record struct InstallerProgressUpdate(string Status, string Detail, int PercentComplete);
 
-internal readonly record struct InstallerCompletionResult(string AppInstallerPath, string? ToolingWarning);
+internal readonly record struct InstallerCompletionResult(
+    string AppInstallerPath,
+    string Summary,
+    string Detail,
+    string? ToolingWarning);
 
 internal static class Program
 {
@@ -16,6 +20,8 @@ internal static class Program
     private const string CertificateDownloadUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer";
     private const string ReleasePageUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases";
     private const string DownloadDirectoryName = "ViscerealityCompanionPreviewSetup";
+    private const string AppInstallerFileName = "ViscerealityCompanion.appinstaller";
+    private const string CertificateFileName = "ViscerealityCompanion.cer";
 
     [STAThread]
     private static int Main()
@@ -50,8 +56,8 @@ internal static class Program
         var downloadDirectory = Path.Combine(Path.GetTempPath(), DownloadDirectoryName);
         Directory.CreateDirectory(downloadDirectory);
 
-        var certificatePath = Path.Combine(downloadDirectory, "ViscerealityCompanion.cer");
-        var appInstallerPath = Path.Combine(downloadDirectory, "ViscerealityCompanion.appinstaller");
+        var certificatePath = Path.Combine(downloadDirectory, CertificateFileName);
+        var appInstallerPath = Path.Combine(downloadDirectory, AppInstallerFileName);
 
         using var httpClient = new HttpClient();
 
@@ -63,7 +69,7 @@ internal static class Program
 
         progress.Report(new InstallerProgressUpdate(
             "Downloading App Installer metadata",
-            "Fetching the current .appinstaller file that points Windows App Installer at the latest Sussex-focused preview package.",
+            "Fetching the current .appinstaller feed that points at the latest Sussex-focused preview package.",
             50));
         await DownloadFileAsync(httpClient, AppInstallerDownloadUri, appInstallerPath, cancellationToken);
 
@@ -93,17 +99,29 @@ internal static class Program
         TrustCertificate(certificatePath);
 
         progress.Report(new InstallerProgressUpdate(
-            "Opening Windows App Installer",
-            "The package metadata is ready. Windows App Installer will open next so you can finish the install or update.",
-            95));
-        LaunchAppInstaller(appInstallerPath);
+            "Inspecting existing install",
+            "Checking whether a previous packaged Viscereality Companion install is already registered on this machine.",
+            87));
+        var packageInstaller = new PreviewPackageInstaller();
+        var packageIdentity = PreviewPackageInstaller.ParseAppInstallerManifest(appInstallerPath);
+        var existingPackage = PreviewPackageInstaller.FindExistingPackage(packageIdentity);
+        var installResult = await packageInstaller
+            .InstallOrUpdateAsync(packageIdentity, existingPackage, progress, cancellationToken)
+            .ConfigureAwait(false);
 
+        var completionSummary = BuildCompletionSummary(installResult);
+        var completionDetail = BuildCompletionDetail(installResult);
         progress.Report(new InstallerProgressUpdate(
-            "Windows App Installer opened",
-            "Continue the install in the Windows App Installer window. If it did not open, use the retry button below.",
+            completionSummary,
+            completionDetail,
             100));
 
-        return new InstallerCompletionResult(appInstallerPath, toolingWarning);
+        return new InstallerCompletionResult(appInstallerPath, completionSummary, completionDetail, toolingWarning);
+    }
+
+    internal static string GetDownloadedAppInstallerPath()
+    {
+        return Path.Combine(Path.GetTempPath(), DownloadDirectoryName, AppInstallerFileName);
     }
 
     private static void EnsureAdministrator()
@@ -146,17 +164,6 @@ internal static class Program
         }
     }
 
-    private static void LaunchAppInstaller(string appInstallerPath)
-    {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = appInstallerPath,
-            UseShellExecute = true
-        };
-
-        Process.Start(startInfo);
-    }
-
     private static void ShowError(Exception exception)
     {
         var message =
@@ -170,5 +177,39 @@ internal static class Program
             "Viscereality Companion Preview Setup",
             MessageBoxButtons.OK,
             MessageBoxIcon.Error);
+    }
+
+    private static string BuildCompletionSummary(PreviewPackageInstallResult installResult)
+    {
+        if (installResult.RemovedPreviousInstall)
+        {
+            return $"Viscereality Companion {installResult.InstalledVersion} replaced the previous install.";
+        }
+
+        if (installResult.UpdatedExistingInstall)
+        {
+            return string.Equals(installResult.PreviousVersion, installResult.InstalledVersion, StringComparison.OrdinalIgnoreCase)
+                ? $"Viscereality Companion {installResult.InstalledVersion} is installed."
+                : $"Viscereality Companion updated to {installResult.InstalledVersion}.";
+        }
+
+        return $"Viscereality Companion {installResult.InstalledVersion} installed.";
+    }
+
+    private static string BuildCompletionDetail(PreviewPackageInstallResult installResult)
+    {
+        if (installResult.RemovedPreviousInstall)
+        {
+            return $"The existing packaged install {installResult.PreviousVersion ?? "n/a"} blocked the in-place update, so the helper removed it and installed {installResult.InstalledVersion} cleanly.";
+        }
+
+        if (installResult.UpdatedExistingInstall)
+        {
+            return string.Equals(installResult.PreviousVersion, installResult.InstalledVersion, StringComparison.OrdinalIgnoreCase)
+                ? "The packaged install already matched the published release. The helper refreshed that install cleanly."
+                : $"Windows updated the packaged install from {installResult.PreviousVersion ?? "n/a"} to {installResult.InstalledVersion} and closed the running app first if needed.";
+        }
+
+        return $"The packaged preview was installed directly from the published App Installer feed and is ready to launch from the Start menu as Viscereality Companion {installResult.InstalledVersion}.";
     }
 }

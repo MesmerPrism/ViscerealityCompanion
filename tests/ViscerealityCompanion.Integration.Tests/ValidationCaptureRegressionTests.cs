@@ -153,8 +153,10 @@ public sealed class ValidationCaptureRegressionTests
             ]) ?? throw new InvalidOperationException("Calibration quality status was null.");
 
         Assert.Equal(OperationOutcomeKind.Success, GetPropertyValue<OperationOutcomeKind>(status, "Level"));
+        Assert.True(GetPropertyValue<bool>(status, "Accepted"));
         Assert.Equal("Accepted", GetPropertyValue<string>(status, "Badge"));
-        Assert.Contains("narrow movement margin", GetPropertyValue<string>(status, "Summary"), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("should work", GetPropertyValue<string>(status, "Summary"), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("less robust response", GetPropertyValue<string>(status, "Expectation"), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("low-motion", GetPropertyValue<string>(status, "Cause"), StringComparison.OrdinalIgnoreCase);
 
         var metrics = GetPropertyValue<string>(status, "Metrics");
@@ -162,6 +164,69 @@ public sealed class ValidationCaptureRegressionTests
         Assert.Contains("Rejected 30", metrics, StringComparison.Ordinal);
         Assert.Contains("Target 120", metrics, StringComparison.Ordinal);
         Assert.Contains("Acceptance 80%", metrics, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ControllerCalibrationQuality_SaysNotAcceptedWhenLowMotionPreventsAcceptance()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        var method = GetPrivateMethod("BuildControllerCalibrationQualityStatus");
+
+        var status = method.Invoke(
+            viewModel,
+            [
+                false,
+                false,
+                0d,
+                "controller_volume",
+                191,
+                120,
+                71,
+                0,
+                71,
+                0.63d,
+                "movement too small"
+            ]) ?? throw new InvalidOperationException("Calibration quality status was null.");
+
+        Assert.Equal(OperationOutcomeKind.Warning, GetPropertyValue<OperationOutcomeKind>(status, "Level"));
+        Assert.False(GetPropertyValue<bool>(status, "Accepted"));
+        Assert.Equal("Not accepted", GetPropertyValue<string>(status, "Badge"));
+        Assert.Contains("not been accepted yet", GetPropertyValue<string>(status, "Summary"), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not rely on controller breath tracking yet", GetPropertyValue<string>(status, "Expectation"), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("controller motion stayed too small", GetPropertyValue<string>(status, "Cause"), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ControllerCard_SaysCalibrationNotAcceptedWhenTelemetryShowsLowMotionOnly()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        SetPrivateField(viewModel, "_study", CreateMinimalStudyDefinition());
+        SetPrivateField(
+            viewModel,
+            "_reportedTwinState",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["tracker.breathing.controller.active"] = "true",
+                ["tracker.breathing.controller.state"] = "running",
+                ["tracker.breathing.controller.calibrated"] = "false",
+                ["tracker.breathing.controller.validation_progress01"] = "0.0",
+                ["tracker.breathing.controller.validation_axis_mode"] = "controller_volume",
+                ["tracker.breathing.controller.validation_frames_observed"] = "191",
+                ["tracker.breathing.controller.validation_frames_accepted"] = "120",
+                ["tracker.breathing.controller.validation_frames_rejected"] = "71",
+                ["tracker.breathing.controller.validation_frames_rejected_bad_tracking"] = "0",
+                ["tracker.breathing.controller.validation_frames_rejected_low_motion"] = "71",
+                ["tracker.breathing.controller.validation_acceptance01"] = "0.63",
+                ["tracker.breathing.controller.failure_reason"] = "movement too small"
+            });
+
+        GetPrivateMethod("UpdateControllerCard").Invoke(viewModel, []);
+
+        Assert.Equal("Calibration not accepted yet", viewModel.ControllerCalibrationLabel);
+        Assert.Contains("not accepted yet", viewModel.ControllerSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not rely on breath tracking", viewModel.ControllerSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("bench-only", viewModel.ControllerDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Not accepted", viewModel.ControllerCalibrationQualityBadge);
     }
 
     [Fact]
@@ -200,6 +265,42 @@ public sealed class ValidationCaptureRegressionTests
 
         Assert.Equal("Background drift completed.", GetFieldValue<string>(viewModel, "_validationClockAlignmentBackgroundSummary"));
         Assert.Equal("Quest echoed background probes.", GetFieldValue<string>(viewModel, "_validationClockAlignmentBackgroundDetail"));
+    }
+
+    [Fact]
+    public void QuestBackupButtons_RequirePulledArtifactsInsteadOfAnEmptyFolder()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"viscereality-empty-pull-{Guid.NewGuid():N}");
+        var emptyPullFolder = Path.Combine(tempRoot, "device-session-pull");
+        Directory.CreateDirectory(emptyPullFolder);
+
+        try
+        {
+            var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+            SetPrivateField(viewModel, "_recordingDevicePullFolderPath", emptyPullFolder);
+            SetPrivateField(viewModel, "_validationCaptureDevicePullFolderPath", emptyPullFolder);
+
+            Assert.False(viewModel.CanOpenRecordingSessionDevicePullFolder);
+            Assert.False(viewModel.CanOpenValidationCaptureDevicePullFolder);
+
+            File.WriteAllText(Path.Combine(emptyPullFolder, "session_events.csv"), "header");
+
+            Assert.True(viewModel.CanOpenRecordingSessionDevicePullFolder);
+            Assert.True(viewModel.CanOpenValidationCaptureDevicePullFolder);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     [Fact]

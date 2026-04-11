@@ -47,8 +47,8 @@
   "controls": {
     "use_principal_axis_calibration": {
       "id": "use_principal_axis_calibration",
-      "group": "Calibration Mode",
-      "label": "Use Principal-Axis Calibration",
+      "group": "Calibration Setup",
+      "label": "Use Dynamic Motion Axis",
       "editable": true,
       "value": true,
       "baselineValue": true,
@@ -57,19 +57,19 @@
       "safeRange": { "minimum": 0, "maximum": 1 },
       "runtimeMapping": { "hotloadKey": "study_controller_breathing_use_principal_axis_calibration" },
       "info": {
-        "effect": "Switches between principal-axis solve and live-axis warmup calibration.",
-        "increaseLooksLike": "Enabled keeps the learned axis tied to dominant motion.",
-        "decreaseLooksLike": "Disabled uses the live controller axis after warmup.",
+        "effect": "Chooses whether calibration solves a motion axis from the recorded controller movement or keeps using the fixed warmed-up controller orientation.",
+        "increaseLooksLike": "Enabled solves a dynamic axis from the recorded motion sample.",
+        "decreaseLooksLike": "Disabled keeps a fixed controller orientation after warmup.",
         "tradeoffs": [
-          "Enabled is usually more robust.",
-          "Disabled can simplify recovery if the solved axis is unstable."
+          "Enabled can follow the participant's actual motion direction more closely.",
+          "Disabled can be easier to reason about if the solved axis feels unstable."
         ]
       }
     },
     "axis_warmup_seconds": {
       "id": "axis_warmup_seconds",
-      "group": "Calibration Mode",
-      "label": "Axis Warmup Seconds",
+      "group": "Calibration Setup",
+      "label": "Fixed-Orientation Warmup Seconds",
       "editable": true,
       "value": 1.0,
       "baselineValue": 1.0,
@@ -78,8 +78,8 @@
       "safeRange": { "minimum": 0.1, "maximum": 5.0 },
       "runtimeMapping": { "hotloadKey": "study_controller_breathing_axis_warmup_seconds" },
       "info": {
-        "effect": "Sets how long live-axis warmup runs before learning.",
-        "increaseLooksLike": "Warmup spends longer stabilizing the axis.",
+        "effect": "Sets how long the fixed-orientation mode spends stabilizing the controller orientation before learning begins.",
+        "increaseLooksLike": "Fixed-orientation warmup spends longer stabilizing the controller axis.",
         "decreaseLooksLike": "Learning begins sooner.",
         "tradeoffs": [
           "Higher values can steady the axis.",
@@ -89,8 +89,8 @@
     },
     "axis_warmup_frames": {
       "id": "axis_warmup_frames",
-      "group": "Calibration Mode",
-      "label": "Axis Warmup Frames",
+      "group": "Calibration Setup",
+      "label": "Fixed-Orientation Warmup Frames",
       "editable": true,
       "value": 10,
       "baselineValue": 10,
@@ -99,8 +99,8 @@
       "safeRange": { "minimum": 0, "maximum": 120 },
       "runtimeMapping": { "hotloadKey": "study_controller_breathing_axis_warmup_frames" },
       "info": {
-        "effect": "Sets the warmup frame count before learning starts.",
-        "increaseLooksLike": "Warmup needs more valid frames.",
+        "effect": "Sets how many valid frames fixed-orientation mode needs before learning starts.",
+        "increaseLooksLike": "Fixed-orientation warmup needs more valid frames.",
         "decreaseLooksLike": "Warmup finishes sooner.",
         "tradeoffs": [
           "Higher values stabilize the axis.",
@@ -110,7 +110,7 @@
     },
     "learn_window_seconds": {
       "id": "learn_window_seconds",
-      "group": "Calibration Mode",
+      "group": "Calibration Setup",
       "label": "Learn Window Seconds",
       "editable": true,
       "value": 8.0,
@@ -131,7 +131,7 @@
     },
     "learn_accepted_frames": {
       "id": "learn_accepted_frames",
-      "group": "Calibration Mode",
+      "group": "Calibration Setup",
       "label": "Learn Accepted Frames",
       "editable": true,
       "value": 120,
@@ -152,7 +152,7 @@
     },
     "calibration_watchdog_seconds": {
       "id": "calibration_watchdog_seconds",
-      "group": "Calibration Mode",
+      "group": "Calibration Setup",
       "label": "Calibration Watchdog Seconds",
       "editable": true,
       "value": 30.0,
@@ -173,7 +173,7 @@
     },
     "invert_for_left_hand": {
       "id": "invert_for_left_hand",
-      "group": "Calibration Mode",
+      "group": "Calibration Setup",
       "label": "Invert For Left Hand",
       "editable": true,
       "value": true,
@@ -320,19 +320,19 @@
     },
     "min_accepted_delta": {
       "id": "min_accepted_delta",
-      "group": "Bounds",
-      "label": "Minimum Accepted Delta",
+      "group": "Calibration Acceptance",
+      "label": "Minimum Accepted Movement",
       "editable": true,
-      "value": 0.001,
-      "baselineValue": 0.001,
+      "value": 0.0008,
+      "baselineValue": 0.0008,
       "type": "float",
       "units": "meters",
       "safeRange": { "minimum": 0.0, "maximum": 0.02 },
       "runtimeMapping": { "hotloadKey": "study_controller_breathing_min_accepted_delta" },
       "info": {
-        "effect": "Sets the smallest motion change that still counts as a new accepted sample.",
-        "increaseLooksLike": "Calibration ignores smaller changes and waits for larger motion.",
-        "decreaseLooksLike": "Calibration accepts smaller changes as meaningful motion.",
+        "effect": "Sets the smallest controller movement that still counts as a new accepted learning sample.",
+        "increaseLooksLike": "Calibration ignores smaller motions and waits for broader movement.",
+        "decreaseLooksLike": "Calibration accepts smaller motions as meaningful movement.",
         "tradeoffs": [
           "Higher values reject micro-jitter more aggressively.",
           "Lower values can accept more noise."
@@ -341,18 +341,18 @@
     },
     "min_acceptable_travel": {
       "id": "min_acceptable_travel",
-      "group": "Bounds",
-      "label": "Minimum Acceptable Travel",
+      "group": "Calibration Acceptance",
+      "label": "Minimum Calibration Travel",
       "editable": true,
-      "value": 0.03,
-      "baselineValue": 0.03,
+      "value": 0.02,
+      "baselineValue": 0.02,
       "type": "float",
       "units": "meters",
       "safeRange": { "minimum": 0.005, "maximum": 0.2 },
       "runtimeMapping": { "hotloadKey": "study_controller_breathing_min_acceptable_travel" },
       "info": {
-        "effect": "Sets the travel span calibration must observe before it accepts bounds.",
-        "increaseLooksLike": "Calibration demands a larger motion excursion.",
+        "effect": "Sets the total travel span calibration must observe before it accepts the solved breathing bounds.",
+        "increaseLooksLike": "Calibration demands a larger motion excursion before it is accepted.",
         "decreaseLooksLike": "Calibration can accept shorter motion ranges.",
         "tradeoffs": [
           "Higher values avoid tiny low-quality calibrations.",
@@ -362,7 +362,7 @@
     },
     "adaptive_bounds_enabled": {
       "id": "adaptive_bounds_enabled",
-      "group": "Bounds",
+      "group": "Calibration Acceptance",
       "label": "Adaptive Bounds Enabled",
       "editable": true,
       "value": true,
@@ -383,7 +383,7 @@
     },
     "soft_margin_normalized": {
       "id": "soft_margin_normalized",
-      "group": "Bounds",
+      "group": "Calibration Acceptance",
       "label": "Soft Margin Normalized",
       "editable": true,
       "value": 0.05,
@@ -404,7 +404,7 @@
     },
     "edge_ease": {
       "id": "edge_ease",
-      "group": "Bounds",
+      "group": "Calibration Acceptance",
       "label": "Edge Ease",
       "editable": true,
       "value": 0.05,
@@ -425,7 +425,7 @@
     },
     "bounds_adapt_lerp": {
       "id": "bounds_adapt_lerp",
-      "group": "Bounds",
+      "group": "Calibration Acceptance",
       "label": "Bounds Adapt Lerp",
       "editable": true,
       "value": 0.5,
@@ -446,7 +446,7 @@
     },
     "min_adaptive_span_normalized": {
       "id": "min_adaptive_span_normalized",
-      "group": "Bounds",
+      "group": "Calibration Acceptance",
       "label": "Minimum Adaptive Span",
       "editable": true,
       "value": 0.75,
@@ -467,7 +467,7 @@
     },
     "lower_quantile": {
       "id": "lower_quantile",
-      "group": "Bounds",
+      "group": "Calibration Acceptance",
       "label": "Lower Quantile",
       "editable": true,
       "value": 0.05,
@@ -488,7 +488,7 @@
     },
     "upper_quantile": {
       "id": "upper_quantile",
-      "group": "Bounds",
+      "group": "Calibration Acceptance",
       "label": "Upper Quantile",
       "editable": true,
       "value": 0.95,

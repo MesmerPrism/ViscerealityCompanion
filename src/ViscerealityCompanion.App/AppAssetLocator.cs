@@ -4,8 +4,14 @@ namespace ViscerealityCompanion.App;
 
 internal static class AppAssetLocator
 {
-    public static string ResolveQuestSessionKitRoot()
-        => ResolveExistingDirectory(
+    private static readonly string[] BundledCliEntryPoints =
+    [
+        "viscereality.exe",
+        "viscereality.dll"
+    ];
+
+    public static string? TryResolveQuestSessionKitRoot()
+        => TryResolveExistingDirectory(
             Environment.GetEnvironmentVariable("VISCEREALITY_QUEST_SESSION_KIT_ROOT"),
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit")),
             Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
@@ -15,6 +21,10 @@ internal static class AppAssetLocator
                 "repos",
                 "AstralKarateDojo",
                 "QuestSessionKit"));
+
+    public static string ResolveQuestSessionKitRoot()
+        => TryResolveQuestSessionKitRoot()
+            ?? throw new DirectoryNotFoundException("Could not resolve the requested Viscereality asset directory.");
 
     public static string? TryResolveStudyShellRoot()
         => TryResolveExistingDirectory(
@@ -41,6 +51,54 @@ internal static class AppAssetLocator
                 "ViscerealityCompanion",
                 "samples",
                 "oscillator-config"));
+
+    public static string? TryResolveDocsRoot()
+        => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_DOCS_ROOT"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "docs")),
+            Path.Combine(AppContext.BaseDirectory, "docs"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "ViscerealityCompanion",
+                "docs"));
+
+    public static string? TryResolveBundledCliRoot()
+        => TryResolveExistingDirectoryContainingAnyFile(
+            BundledCliEntryPoints,
+            Environment.GetEnvironmentVariable("VISCEREALITY_BUNDLED_CLI_ROOT"),
+            Path.Combine(AppContext.BaseDirectory, "cli", "current"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "artifacts", "cli-win-x64")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "ViscerealityCompanion.Cli", "bin", "Debug", "net10.0")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "ViscerealityCompanion.Cli", "bin", "Release", "net10.0")),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "ViscerealityCompanion",
+                "artifacts",
+                "cli-win-x64"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "ViscerealityCompanion",
+                "src",
+                "ViscerealityCompanion.Cli",
+                "bin",
+                "Debug",
+                "net10.0"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "ViscerealityCompanion",
+                "src",
+                "ViscerealityCompanion.Cli",
+                "bin",
+                "Release",
+                "net10.0"));
 
     public static string? TryResolveSussexParticleSizeTemplatePath()
         => TryResolveExistingFile(
@@ -78,10 +136,6 @@ internal static class AppAssetLocator
                 "LlmTuningProfiles",
                 "sussex-controller-breathing-tuning-v1.template.json"));
 
-    private static string ResolveExistingDirectory(params string?[] candidates)
-        => TryResolveExistingDirectory(candidates)
-            ?? throw new DirectoryNotFoundException("Could not resolve the requested Viscereality asset directory.");
-
     private static string? TryResolveExistingDirectory(params string?[] candidates)
         => candidates
             .Where(candidate => !string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
@@ -93,4 +147,10 @@ internal static class AppAssetLocator
             .Where(candidate => !string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate))
             .Select(candidate => Path.GetFullPath(candidate!))
             .FirstOrDefault();
+
+    private static string? TryResolveExistingDirectoryContainingAnyFile(IEnumerable<string> fileNames, params string?[] candidates)
+        => candidates
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate))
+            .Select(candidate => Path.GetFullPath(candidate!))
+            .FirstOrDefault(candidate => fileNames.Any(fileName => File.Exists(Path.Combine(candidate, fileName))));
 }

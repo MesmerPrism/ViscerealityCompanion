@@ -10,7 +10,7 @@ namespace ViscerealityCompanion.Integration.Tests;
 public sealed class StudyShellWorkflowGuideRegressionTests
 {
     [Fact]
-    public void PinnedBuildStatus_TreatsSoftwareIdentityMismatchAsAdvisoryWhenPinnedApkMatches()
+    public void PinnedBuildStatus_HidesVerifiedBaselineStateWhenPinnedApkMatches()
     {
         var viewModel = CreateViewModel(CreateStudy(CreateBaseline()));
         SetPrivateField(
@@ -65,9 +65,28 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         InvokePrivateVoid(viewModel, "UpdatePinnedBuildStatus");
 
         Assert.Equal(OperationOutcomeKind.Success, viewModel.PinnedBuildLevel);
-        Assert.Equal("Pinned Sussex APK matches the recorded Sussex build.", viewModel.PinnedBuildSummary);
-        Assert.Contains("Current headset OS/build differs from the verified baseline.", viewModel.PinnedBuildDetail, StringComparison.Ordinal);
-        Assert.DoesNotContain("Headset OS does not match", viewModel.PinnedBuildSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Sussex APK matches the pinned hash.", viewModel.PinnedBuildSummary);
+        Assert.Contains("Headset software: v63 | build new-build | display new-display", viewModel.PinnedBuildDetail, StringComparison.Ordinal);
+        Assert.DoesNotContain("verified baseline", viewModel.PinnedBuildDetail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("recorded Sussex build", viewModel.PinnedBuildSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SoftwareIdentityGate_StaysAdvisoryWhenBaselineSurfacingIsDisabled()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_pinnedBuildLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_pinnedBuildSummary", "Sussex APK matches the pinned hash.");
+        SetPrivateField(viewModel, "_pinnedBuildDetail", "Study package: com.Viscereality.SussexExperiment");
+
+        var gate = InvokePrivateMethod<WorkflowGuideGateState>(viewModel, "EvaluateSoftwareIdentityGateState");
+
+        Assert.True(gate.Ready);
+        Assert.Equal(OperationOutcomeKind.Success, gate.Level);
+        Assert.Equal("Sussex APK matches the pinned hash.", gate.Summary);
+        Assert.Contains("Study package: com.Viscereality.SussexExperiment", gate.Detail, StringComparison.Ordinal);
+        Assert.Contains("intentionally hidden in the operator shell", gate.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("no verified Sussex software baseline", gate.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

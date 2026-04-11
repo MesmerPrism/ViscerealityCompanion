@@ -8,13 +8,44 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('win-x64')]
     [string]$RuntimeIdentifier = 'win-x64',
-    [string]$Version = '0.1.37.0',
+    [string]$Version = '0.1.38.0',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
-    [string]$FileName = 'ViscerealityCompanion-Preview-Setup.exe'
+    [string]$FileName = 'ViscerealityCompanion-Preview-Setup.exe',
+    [string]$PackageCertificatePath,
+    [string]$PackageCertificatePassword,
+    [string]$PackageCertificateTimestampUrl
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+function Resolve-SignToolPath {
+    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace($command.Source)) {
+        return $command.Source
+    }
+
+    $searchRoots = @(
+        ${env:ProgramFiles(x86)},
+        $env:ProgramFiles
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($root in $searchRoots) {
+        $kitsRoot = Join-Path $root 'Windows Kits\10\bin'
+        if (-not (Test-Path $kitsRoot)) {
+            continue
+        }
+
+        $match = Get-ChildItem -Path $kitsRoot -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        if ($null -ne $match) {
+            return $match.FullName
+        }
+    }
+
+    throw "Could not locate signtool.exe. Install the Windows SDK or add signtool.exe to PATH."
+}
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $projectPath = Join-Path $repoRoot 'src\ViscerealityCompanion.PreviewInstaller\ViscerealityCompanion.PreviewInstaller.csproj'
@@ -61,5 +92,35 @@ if (-not (Test-Path $publishedExe)) {
 
 $finalPath = Join-Path $outputPath $FileName
 Copy-Item $publishedExe $finalPath -Force
+
+if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePath)) {
+    if (-not (Test-Path $PackageCertificatePath)) {
+        throw "Signing certificate not found at $PackageCertificatePath"
+    }
+
+    $signToolPath = Resolve-SignToolPath
+    $signArgs = @(
+        'sign',
+        '/fd', 'SHA256',
+        '/f', $PackageCertificatePath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePassword)) {
+        $signArgs += @('/p', $PackageCertificatePassword)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
+        $signArgs += @('/tr', $PackageCertificateTimestampUrl, '/td', 'SHA256')
+    }
+
+    $signArgs += $finalPath
+
+    Write-Host 'Signing preview setup bootstrapper...' -ForegroundColor Cyan
+    & $signToolPath @signArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "signtool failed for $finalPath with exit code $LASTEXITCODE"
+    }
+}
+
 Remove-Item -Recurse -Force $publishPath
 Write-Host "Copied preview setup bootstrapper to $finalPath" -ForegroundColor Green

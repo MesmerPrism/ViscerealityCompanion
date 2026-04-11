@@ -322,6 +322,100 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
         }
     }
 
+    [Fact]
+    public async Task Controller_workspace_exposes_dynamic_vs_fixed_axis_setup_in_profile_section()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexControllerBreathingTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex controller-breathing tuning template.");
+        var compiler = new SussexControllerBreathingTuningCompiler(File.ReadAllText(templatePath));
+        var store = new SussexControllerBreathingProfileStore(compiler);
+        var studyId = $"controller-setup-summary-{Guid.NewGuid():N}";
+        var profileName = $"ZZZ Setup Summary {Guid.NewGuid():N}";
+
+        SussexControllerBreathingProfileRecord? record = null;
+        try
+        {
+            record = await store.CreateFromTemplateAsync(profileName);
+
+            using var workspace = new SussexControllerBreathingProfilesWorkspaceViewModel(
+                CreateStudy(studyId),
+                new ConnectedQuestControlService(),
+                new ConnectedTwinModeBridge());
+            await workspace.InitializeAsync();
+            workspace.SelectedProfile = workspace.Profiles.First(profile => string.Equals(profile.Id, record.Id, StringComparison.OrdinalIgnoreCase));
+
+            var modeField = FindControllerField(workspace, "use_principal_axis_calibration");
+            var deltaField = FindControllerField(workspace, "min_accepted_delta");
+            var travelField = FindControllerField(workspace, "min_acceptable_travel");
+
+            Assert.Equal("Calibration Setup", modeField.Group);
+            Assert.Equal("Use Dynamic Motion Axis", modeField.Label);
+            Assert.Equal("Calibration Acceptance", deltaField.Group);
+            Assert.Equal("Minimum Accepted Movement", deltaField.Label);
+            Assert.Equal(0.0008d, deltaField.BaselineValue, 4);
+            Assert.Equal("Calibration Acceptance", travelField.Group);
+            Assert.Equal("Minimum Calibration Travel", travelField.Label);
+            Assert.Equal(0.02d, travelField.BaselineValue, 3);
+            Assert.Equal("Dynamic motion axis selected.", workspace.CalibrationModeSummary);
+            Assert.Contains("0.8 mm", workspace.CalibrationAcceptanceSummary, StringComparison.Ordinal);
+            Assert.Contains("2 cm", workspace.CalibrationAcceptanceSummary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFileIfPresent(record?.FilePath);
+            DeleteStudySessionArtifacts(
+                studyId,
+                "sussex-controller-breathing-startup",
+                "sussex-controller-breathing-apply");
+        }
+    }
+
+    [Fact]
+    public async Task Controller_workspace_quick_mode_switch_applies_fixed_orientation_choice()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexControllerBreathingTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex controller-breathing tuning template.");
+        var compiler = new SussexControllerBreathingTuningCompiler(File.ReadAllText(templatePath));
+        var store = new SussexControllerBreathingProfileStore(compiler);
+        var studyId = $"controller-quick-mode-{Guid.NewGuid():N}";
+
+        SussexControllerBreathingProfileRecord? record = null;
+        string? compiledCsvPath = null;
+        try
+        {
+            record = await store.CreateFromTemplateAsync($"ZZZ Quick Mode {Guid.NewGuid():N}");
+
+            using var workspace = new SussexControllerBreathingProfilesWorkspaceViewModel(
+                CreateStudy(studyId),
+                new ConnectedQuestControlService(),
+                new ConnectedTwinModeBridge());
+            await workspace.InitializeAsync();
+            workspace.SelectedProfile = workspace.Profiles.First(profile => string.Equals(profile.Id, record.Id, StringComparison.OrdinalIgnoreCase));
+
+            workspace.UseFixedOrientationCalibrationCommand.Execute(null);
+
+            await WaitForConditionAsync(
+                () => workspace.SelectedProfile?.Document.ControlValues.TryGetValue("use_principal_axis_calibration", out var savedValue) == true &&
+                      Math.Abs(savedValue) < 0.000001d,
+                TimeSpan.FromSeconds(10));
+
+            Assert.NotNull(workspace.SelectedProfile);
+            Assert.True(workspace.IsFixedControllerOrientationSelected);
+            Assert.False(workspace.IsDynamicMotionAxisSelected);
+            Assert.Equal(0d, workspace.SelectedProfile!.Document.ControlValues["use_principal_axis_calibration"], 6);
+            Assert.Contains("Fixed controller orientation", workspace.CalibrationModeSummary, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteFileIfPresent(record?.FilePath);
+            DeleteFileIfPresent(compiledCsvPath);
+            DeleteStudySessionArtifacts(
+                studyId,
+                "sussex-controller-breathing-startup",
+                "sussex-controller-breathing-apply");
+        }
+    }
+
     private static SussexVisualProfileFieldViewModel FindVisualField(
         SussexVisualProfilesWorkspaceViewModel workspace,
         string fieldId)

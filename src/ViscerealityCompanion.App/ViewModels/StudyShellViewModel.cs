@@ -44,6 +44,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int ControllerBreathingProfilesTabIndex = 4;
     private const int InspectTabIndex = 5;
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
+    // Keep verified-baseline tracking in code, but do not surface it in the operator shell for now.
+    private static bool SurfaceVerifiedBaselineInShell => false;
     private const string TestSenderHeartbeatMode = "3";
     private const string TestSenderCoherenceMode = "2";
     private const string QuestSensorLockActivity = "SensorLockActivity";
@@ -135,6 +137,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly IStudyClockAlignmentService _clockAlignmentService = StudyClockAlignmentServiceFactory.CreateDefault();
     private readonly ILslMonitorService _upstreamLslMonitorService = LslMonitorServiceFactory.CreateDefault();
     private readonly WindowsEnvironmentAnalysisService _windowsEnvironmentAnalysisService;
+    private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
     private readonly SemaphoreSlim _startupHotloadSyncSemaphore = new(1, 1);
@@ -284,6 +287,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _controllerCalibrationQualityLevel = OperationOutcomeKind.Preview;
     private string _controllerCalibrationQualityBadge = "Calibration quality n/a";
     private string _controllerCalibrationQualitySummary = "Quality guidance will appear during controller validation.";
+    private string _controllerCalibrationQualityExpectation = string.Empty;
     private string _controllerCalibrationQualityMetrics = "Progress n/a · Observed n/a · Accepted n/a · Rejected n/a · Target n/a · Acceptance n/a";
     private string _controllerCalibrationQualityCause = string.Empty;
     private string _controllerCalibrationQualityDetail = "Raw validation counters stay hidden until you expand details.";
@@ -526,6 +530,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OpenTwinEventsWindowCommand = new AsyncRelayCommand(OpenTwinEventsWindowAsync);
         OpenWorkflowGuideWindowCommand = new AsyncRelayCommand(OpenWorkflowGuideWindowAsync);
         OpenExperimentSessionWindowCommand = new AsyncRelayCommand(OpenExperimentSessionWindowAsync);
+        OpenLocalAgentWorkspaceCommand = new AsyncRelayCommand(OpenLocalAgentWorkspaceAsync);
+        CopyLocalAgentPromptCommand = new AsyncRelayCommand(CopyLocalAgentPromptAsync);
         PreviousWorkflowGuideStepCommand = new AsyncRelayCommand(PreviousWorkflowGuideStepAsync);
         NextWorkflowGuideStepCommand = new AsyncRelayCommand(NextWorkflowGuideStepAsync);
         RunWorkflowValidationCaptureCommand = new AsyncRelayCommand(RunWorkflowValidationCaptureAsync);
@@ -552,6 +558,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string PublishedBuildSummary => AppBuildIdentity.Current.Summary;
     public string PublishedBuildDetail => AppBuildIdentity.Current.Detail;
     public string ExperimentSessionWindowTitle => $"Sussex Experiment Session ({AppBuildIdentity.Current.ShortId})";
+    public string LocalAgentWorkspacePath => _localAgentWorkspaceService.RootPath;
+    public string LocalAgentWorkspaceSummary =>
+        "Use this folder as the environment for a local agent instead of the protected WindowsApps install. The companion mirrors a bundled CLI, the CLI docs, and the Sussex example catalogs there under LocalAppData.";
+    public string LocalAgentWorkspaceDetail =>
+        "Open the folder, then paste the built-in prompt into your local agent. The workspace includes `viscereality.ps1`, `viscereality.cmd`, and the bundled CLI payload under `cli\\current`, so the guided-install path can stay self-contained without a repo checkout.";
     public SussexVisualProfilesWorkspaceViewModel VisualProfiles => _visualProfiles;
     public SussexControllerBreathingProfilesWorkspaceViewModel ControllerBreathingProfiles => _controllerBreathingProfiles;
 
@@ -1192,8 +1203,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             && Directory.Exists(RecordingFolderPath);
 
     public bool CanOpenRecordingSessionDevicePullFolder
-        => !string.IsNullOrWhiteSpace(RecordingDevicePullFolderPath)
-            && Directory.Exists(RecordingDevicePullFolderPath);
+        => HasPulledQuestBackupFolder(RecordingDevicePullFolderPath);
 
     public bool CanOpenRecordingSessionPdf
         => !string.IsNullOrWhiteSpace(RecordingPdfPath)
@@ -1547,8 +1557,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             && Directory.Exists(ValidationCaptureLocalFolderPath);
 
     public bool CanOpenValidationCaptureDevicePullFolder
-        => !string.IsNullOrWhiteSpace(ValidationCaptureDevicePullFolderPath)
-            && Directory.Exists(ValidationCaptureDevicePullFolderPath);
+        => HasPulledQuestBackupFolder(ValidationCaptureDevicePullFolderPath);
 
     public bool CanOpenValidationCapturePdf
         => !string.IsNullOrWhiteSpace(ValidationCapturePdfPath)
@@ -1948,6 +1957,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _controllerCalibrationQualitySummary, value);
     }
 
+    public string ControllerCalibrationQualityExpectation
+    {
+        get => _controllerCalibrationQualityExpectation;
+        private set => SetProperty(ref _controllerCalibrationQualityExpectation, value);
+    }
+
     public string ControllerCalibrationQualityMetrics
     {
         get => _controllerCalibrationQualityMetrics;
@@ -2251,6 +2266,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand OpenTwinEventsWindowCommand { get; }
     public AsyncRelayCommand OpenWorkflowGuideWindowCommand { get; }
     public AsyncRelayCommand OpenExperimentSessionWindowCommand { get; }
+    public AsyncRelayCommand OpenLocalAgentWorkspaceCommand { get; }
+    public AsyncRelayCommand CopyLocalAgentPromptCommand { get; }
     public AsyncRelayCommand PreviousWorkflowGuideStepCommand { get; }
     public AsyncRelayCommand NextWorkflowGuideStepCommand { get; }
     public AsyncRelayCommand RunWorkflowValidationCaptureCommand { get; }
@@ -2280,6 +2297,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await RefreshStatusAsync().ConfigureAwait(false);
         }
 
+        _ = WarmLocalAgentWorkspaceAsync();
     }
 
     public void Dispose()
@@ -3124,6 +3142,105 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     "Quest screenshot could not be opened.",
                     ex.Message,
                     Items: [screenshotPath])).ConfigureAwait(false);
+        }
+    }
+
+    private async Task OpenLocalAgentWorkspaceAsync()
+    {
+        LocalAgentWorkspaceSnapshot snapshot;
+        try
+        {
+            snapshot = await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                "Open Local Agent Workspace",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Local agent workspace could not be prepared.",
+                    ex.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = snapshot.RootPath,
+                UseShellExecute = true
+            });
+
+            await ApplyOutcomeAsync(
+                "Open Local Agent Workspace",
+                new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    "Local agent workspace ready.",
+                    $"Open your local agent in {snapshot.RootPath}. This workspace mirrors the bundled CLI, CLI docs, Sussex study-shell manifests, device and hotload profiles, tuning templates, and a ready-made agent prompt outside WindowsApps.",
+                    Items: [snapshot.RootPath])).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                "Open Local Agent Workspace",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Local agent workspace could not be opened.",
+                    ex.Message,
+                    Items: [snapshot.RootPath])).ConfigureAwait(false);
+        }
+    }
+
+    private async Task CopyLocalAgentPromptAsync()
+    {
+        LocalAgentWorkspaceSnapshot snapshot;
+        try
+        {
+            snapshot = await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                "Copy Local Agent Prompt",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Local agent prompt could not be prepared.",
+                    ex.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await DispatchAsync(() => Clipboard.SetText(snapshot.PromptText)).ConfigureAwait(false);
+            await ApplyOutcomeAsync(
+                "Copy Local Agent Prompt",
+                new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    "Local agent prompt copied.",
+                    $"Copied a prompt that tells a local agent to inspect {snapshot.RootPath}, use the bundled CLI wrappers, read the mirrored Sussex docs and examples, and explain what the CLI can control today.",
+                    Items: [snapshot.PromptPath])).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await ApplyOutcomeAsync(
+                "Copy Local Agent Prompt",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Local agent prompt could not be copied.",
+                    ex.Message,
+                    Items: [snapshot.PromptPath])).ConfigureAwait(false);
+        }
+    }
+
+    private async Task WarmLocalAgentWorkspaceAsync()
+    {
+        try
+        {
+            await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Best effort only. The explicit workspace buttons still surface any failure details.
         }
     }
 
@@ -4293,7 +4410,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private async Task OpenRecordingSessionDevicePullFolderAsync()
     {
         var folderPath = await DispatchAsync(() => RecordingDevicePullFolderPath).ConfigureAwait(false);
-        await OpenValidationCaptureFolderAsync(
+        await OpenQuestBackupFolderAsync(
             folderPath,
             "Open Recording Quest Backup",
             "Recording Quest backup folder is not available yet.",
@@ -4303,7 +4420,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private async Task OpenValidationCaptureDevicePullFolderAsync()
     {
         var folderPath = await DispatchAsync(() => ValidationCaptureDevicePullFolderPath).ConfigureAwait(false);
-        await OpenValidationCaptureFolderAsync(
+        await OpenQuestBackupFolderAsync(
             folderPath,
             "Open Pulled Quest Backup",
             "Pulled Quest backup folder is not available yet.",
@@ -4582,14 +4699,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (pulledFiles.Count == 0)
         {
+            TryDeleteEmptyDirectory(localPullFolderPath);
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "Quest backup files were not pulled.",
                 $"No files were pulled from {remoteSessionDir}. {listOutcome.Detail}",
-                Items:
-                [
-                    localPullFolderPath
-                ]);
+                Items: []);
         }
 
         var detailBuilder = new StringBuilder();
@@ -4668,6 +4783,87 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         catch
         {
         }
+    }
+
+    private static bool HasPulledQuestBackupFolder(string? folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Directory.EnumerateFileSystemEntries(folderPath).Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TryDeleteEmptyDirectory(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+        {
+            return;
+        }
+
+        try
+        {
+            if (!Directory.EnumerateFileSystemEntries(folderPath).Any())
+            {
+                Directory.Delete(folderPath, recursive: false);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task OpenQuestBackupFolderAsync(string folderPath, string actionLabel, string unavailableSummary, string unavailableDetail)
+    {
+        if (!HasPulledQuestBackupFolder(folderPath))
+        {
+            var detail = BuildQuestBackupFolderUnavailableDetail(folderPath, unavailableDetail);
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    unavailableSummary,
+                    detail,
+                    Items: string.IsNullOrWhiteSpace(folderPath) ? [] : [folderPath])).ConfigureAwait(false);
+            return;
+        }
+
+        await OpenValidationCaptureFolderAsync(folderPath, actionLabel, unavailableSummary, unavailableDetail).ConfigureAwait(false);
+    }
+
+    private static string BuildQuestBackupFolderUnavailableDetail(string? folderPath, string fallbackDetail)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return $"{fallbackDetail} No pulled Quest backup path was recorded for this session yet.";
+        }
+
+        if (!Directory.Exists(folderPath))
+        {
+            return $"{fallbackDetail} Expected folder: {folderPath}. The Quest pullback either never completed or the folder was removed afterward.";
+        }
+
+        try
+        {
+            if (!Directory.EnumerateFileSystemEntries(folderPath).Any())
+            {
+                return $"{fallbackDetail} The folder exists but is empty: {folderPath}. The Quest pullback did not produce any files.";
+            }
+        }
+        catch (Exception exception)
+        {
+            return $"{fallbackDetail} The shell could not inspect {folderPath}: {exception.Message}";
+        }
+
+        return fallbackDetail;
     }
 
     public Task RecenterAsync()
@@ -4870,7 +5066,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     : CanChooseStudyApk
                         ? "Selected study APK does not match the Sussex study hash."
                         : "Bundled Sussex APK does not match the Sussex study hash.";
-                LocalApkDetail = $"Path: {stagedPath}. SHA256 {hash}. Expected {_study.App.Sha256}.";
+                LocalApkDetail = string.Join(
+                    Environment.NewLine,
+                    $"Path: {stagedPath}",
+                    $"File SHA256: {hash}",
+                    $"Expected SHA256: {_study.App.Sha256}");
                 OnPropertyChanged(nameof(HasValidPinnedLocalApk));
             }).ConfigureAwait(false);
         }
@@ -5029,8 +5229,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     : OperationOutcomeKind.Warning;
                 InstalledApkSummary = $"{_study.App.Label} runtime hash reported by the headset.{snapshotSuffix}";
                 InstalledApkDetail =
-                    $"ADB install-path query did not return a clean result, but quest_twin_state reported study.session.apk_sha256={runtimeHashFallback}. " +
-                    $"{_installedAppStatus.Summary} {_installedAppStatus.Detail}".Trim();
+                    string.Join(
+                        Environment.NewLine,
+                        $"Runtime hash fallback: {runtimeHashFallback}",
+                        "ADB install-path query did not return a clean result.",
+                        _installedAppStatus.Summary,
+                        FormatSemicolonSeparatedDetail(_installedAppStatus.Detail));
             }
             else
             {
@@ -5044,8 +5248,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 InstalledApkSummary = _installedAppStatus.Summary + snapshotSuffix;
                 InstalledApkDetail = string.IsNullOrWhiteSpace(_installedAppStatus.InstalledSha256) &&
                                      !string.IsNullOrWhiteSpace(runtimeHashFallback)
-                    ? $"{_installedAppStatus.Detail} Runtime hash fallback: {runtimeHashFallback}."
-                    : _installedAppStatus.Detail;
+                    ? string.Join(
+                        Environment.NewLine,
+                        FormatSemicolonSeparatedDetail(_installedAppStatus.Detail),
+                        $"Runtime hash fallback: {runtimeHashFallback}")
+                    : FormatSemicolonSeparatedDetail(_installedAppStatus.Detail);
             }
         }).ConfigureAwait(false);
     }
@@ -5189,6 +5396,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private void UpdatePinnedBuildStatus()
     {
         var baseline = _study.App.VerificationBaseline;
+        var surfaceVerifiedBaseline = SurfaceVerifiedBaselineInShell && baseline is not null;
         var installedHash = InstalledApkHash;
         var installedMatchesPinnedHash = HashMatches(installedHash, _study.App.Sha256);
         var hasInstalledHash = !string.IsNullOrWhiteSpace(installedHash);
@@ -5198,30 +5406,32 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var hasSoftwareIdentity =
             !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareReleaseOrCodename) &&
             !string.IsNullOrWhiteSpace(_headsetStatus?.SoftwareBuildId);
-        var deviceProfileActive = _deviceProfileStatus?.IsActive == true;
         var reportedRuntimeEnvironmentHash = GetReportedRuntimeEnvironmentHash();
         var hasReportedRuntimeEnvironmentHash = !string.IsNullOrWhiteSpace(reportedRuntimeEnvironmentHash);
         var reportedRuntimeDeviceProfileId = GetReportedRuntimeDeviceProfileId();
         var softwareMatchesBaseline = false;
         var displayMatchesBaseline = true;
 
-        if (baseline is not null)
+        if (surfaceVerifiedBaseline)
         {
-            var baselineMatchesPinnedHash = HashMatches(baseline.ApkSha256, _study.App.Sha256);
+            var activeBaseline = baseline!;
+            var activeHeadsetStatus = _headsetStatus;
+            var baselineMatchesPinnedHash = HashMatches(activeBaseline.ApkSha256, _study.App.Sha256);
             softwareMatchesBaseline =
                 hasSoftwareIdentity &&
-                string.Equals(_headsetStatus!.SoftwareReleaseOrCodename, baseline.SoftwareVersion, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(_headsetStatus.SoftwareBuildId, baseline.BuildId, StringComparison.OrdinalIgnoreCase);
+                activeHeadsetStatus is not null &&
+                string.Equals(activeHeadsetStatus.SoftwareReleaseOrCodename, activeBaseline.SoftwareVersion, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(activeHeadsetStatus.SoftwareBuildId, activeBaseline.BuildId, StringComparison.OrdinalIgnoreCase);
             displayMatchesBaseline =
-                string.IsNullOrWhiteSpace(baseline.DisplayId) ||
-                string.Equals(_headsetStatus?.SoftwareDisplayId, baseline.DisplayId, StringComparison.OrdinalIgnoreCase);
+                string.IsNullOrWhiteSpace(activeBaseline.DisplayId) ||
+                string.Equals(activeHeadsetStatus?.SoftwareDisplayId, activeBaseline.DisplayId, StringComparison.OrdinalIgnoreCase);
             var deviceProfileIdMatchesBaseline =
-                string.IsNullOrWhiteSpace(baseline.DeviceProfileId) ||
-                string.Equals(baseline.DeviceProfileId, _study.DeviceProfile.Id, StringComparison.OrdinalIgnoreCase);
+                string.IsNullOrWhiteSpace(activeBaseline.DeviceProfileId) ||
+                string.Equals(activeBaseline.DeviceProfileId, _study.DeviceProfile.Id, StringComparison.OrdinalIgnoreCase);
             var runtimeDeviceProfileIdMatchesBaseline =
                 string.IsNullOrWhiteSpace(reportedRuntimeDeviceProfileId) ||
-                string.IsNullOrWhiteSpace(baseline.DeviceProfileId) ||
-                string.Equals(reportedRuntimeDeviceProfileId, baseline.DeviceProfileId, StringComparison.OrdinalIgnoreCase);
+                string.IsNullOrWhiteSpace(activeBaseline.DeviceProfileId) ||
+                string.Equals(reportedRuntimeDeviceProfileId, activeBaseline.DeviceProfileId, StringComparison.OrdinalIgnoreCase);
             var fingerprintMatches =
                 hasConnectedHeadset &&
                 hasInstalledEvidence &&
@@ -5229,7 +5439,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 hasSoftwareIdentity &&
                 deviceProfileIdMatchesBaseline &&
                 StudyVerificationFingerprint.Matches(
-                    baseline,
+                    activeBaseline,
                     _study.App.PackageId,
                     installedHash,
                     _headsetStatus!.SoftwareReleaseOrCodename,
@@ -5240,7 +5450,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 hasReadyPinnedApkOnHeadset &&
                 hasReportedRuntimeEnvironmentHash &&
                 runtimeDeviceProfileIdMatchesBaseline &&
-                string.Equals(reportedRuntimeEnvironmentHash, baseline.EnvironmentHash, StringComparison.OrdinalIgnoreCase);
+                string.Equals(reportedRuntimeEnvironmentHash, activeBaseline.EnvironmentHash, StringComparison.OrdinalIgnoreCase);
 
             if (!baselineMatchesPinnedHash)
             {
@@ -5269,8 +5479,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             if (installedMatchesPinnedHash)
             {
-                PinnedBuildLevel = OperationOutcomeKind.Warning;
-                PinnedBuildSummary = "Sussex APK matches the pinned hash, but no verified baseline is recorded yet.";
+                PinnedBuildLevel = OperationOutcomeKind.Success;
+                PinnedBuildSummary = "Sussex APK matches the pinned hash.";
             }
             else if (!hasInstalledHash)
             {
@@ -5287,8 +5497,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             PinnedBuildLevel = OperationOutcomeKind.Warning;
             PinnedBuildSummary = CanChooseStudyApk
-                ? "Approved Sussex APK is ready to install, but it still needs a verified baseline run."
-                : "Bundled Sussex APK is ready to install, but it still needs a verified baseline run.";
+                ? "Approved Sussex APK is ready to install."
+                : "Bundled Sussex APK is ready to install.";
         }
         else if (!string.IsNullOrWhiteSpace(StagedApkPath) && File.Exists(StagedApkPath))
         {
@@ -5303,34 +5513,28 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             PinnedBuildSummary = "Waiting for the bundled Sussex APK.";
         }
 
-        var details = new List<string>
-        {
-            $"Study package: {_study.App.PackageId}",
-            $"Study version: {_study.App.VersionName}",
-            $"Study SHA256: {_study.App.Sha256}"
-        };
+        var details = new List<string>();
+        AddDetailLine(details, "Study package", _study.App.PackageId);
+        AddDetailLine(details, "Study version", string.IsNullOrWhiteSpace(_study.App.VersionName) ? "n/a" : _study.App.VersionName);
+        AddDetailLine(details, "Study SHA256", _study.App.Sha256);
 
-        if (baseline is not null)
+        if (_lastDeviceSnapshotAtUtc.HasValue)
         {
-            details.Add(BuildVerificationBaselineDetail(baseline));
-        }
-
-        if (!string.IsNullOrWhiteSpace(StagedApkPath))
-        {
-            details.Add(LocalApkSummary);
-        }
-
-        if (_installedAppStatus is not null)
-        {
-            details.Add(InstalledApkSummary);
+            AddDetailLine(details, "Last headset snapshot", _lastDeviceSnapshotAtUtc.Value.ToLocalTime().ToString("HH:mm:ss"));
         }
 
         if (_headsetStatus is not null)
         {
-            details.Add(BuildCurrentHeadsetVerificationDetail(_headsetStatus));
+            AddDetailLine(details, "Headset software", BuildCurrentHeadsetVerificationDetail(_headsetStatus));
         }
 
-        if (baseline is not null && hasReadyPinnedApkOnHeadset)
+        if (surfaceVerifiedBaseline)
+        {
+            details.Add(string.Empty);
+            details.Add(BuildVerificationBaselineDetail(baseline!));
+        }
+
+        if (surfaceVerifiedBaseline && hasReadyPinnedApkOnHeadset)
         {
             if (hasSoftwareIdentity && !softwareMatchesBaseline)
             {
@@ -5343,17 +5547,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             }
         }
 
-        if (_deviceProfileStatus is not null)
-        {
-            details.Add($"{_deviceProfileStatus.Label}: {_deviceProfileStatus.Detail}");
-
-            if (hasReadyPinnedApkOnHeadset && !deviceProfileActive)
-            {
-                details.Add("Pinned Sussex APK still matches, but the device profile card shows settings that should be reviewed before leaving the bench.");
-            }
-        }
-
-        PinnedBuildDetail = string.Join(" ", details);
+        PinnedBuildDetail = string.Join(Environment.NewLine, details.Where(detail => detail is not null));
         UpdatePinnedBuildCardState();
     }
 
@@ -5375,14 +5569,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static string BuildCurrentHeadsetVerificationDetail(HeadsetAppStatus status)
     {
         var softwareIdentity = FormatSoftwareIdentity(status.SoftwareReleaseOrCodename, status.SoftwareBuildId);
-        var displayPart = string.IsNullOrWhiteSpace(status.SoftwareDisplayId)
-            ? string.Empty
-            : $" Display {status.SoftwareDisplayId}.";
-        var installedPart = string.IsNullOrWhiteSpace(status.SoftwareReleaseOrCodename) && string.IsNullOrWhiteSpace(status.SoftwareBuildId)
-            ? "Current headset software n/a."
-            : $"Current headset software {softwareIdentity}.{displayPart}";
+        if (string.IsNullOrWhiteSpace(status.SoftwareReleaseOrCodename) && string.IsNullOrWhiteSpace(status.SoftwareBuildId))
+        {
+            return "n/a";
+        }
 
-        return installedPart.Trim();
+        return string.IsNullOrWhiteSpace(status.SoftwareDisplayId)
+            ? softwareIdentity
+            : $"{softwareIdentity} | display {status.SoftwareDisplayId}";
     }
 
     private static string FormatSoftwareIdentity(string? softwareVersion, string? buildId)
@@ -5391,6 +5585,37 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : string.IsNullOrWhiteSpace(softwareVersion)
                 ? $"build {buildId.Trim()}"
                 : $"{softwareVersion.Trim()} | build {buildId.Trim()}";
+
+    private static void AddDetailLine(List<string> details, string label, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        details.Add($"{label}: {value}");
+    }
+
+    private static string FormatSemicolonSeparatedDetail(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            return string.Empty;
+        }
+
+        var lines = detail
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SelectMany(line => line.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Select(line => line.Trim())
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToArray();
+
+        return lines.Length == 0
+            ? string.Empty
+            : string.Join(Environment.NewLine, lines);
+    }
 
     private void UpdateDeviceProfileRows()
     {
@@ -5809,12 +6034,27 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         await DispatchAsync(() =>
         {
+            var detailForDisplay = BuildActionDetailForDisplay(actionLabel, outcome);
             LastActionLabel = actionLabel;
-            LastActionDetail = outcome.Detail;
+            LastActionDetail = detailForDisplay;
             LastActionLevel = outcome.Kind;
-            AppendLog(MapLevel(outcome.Kind), outcome.Summary, outcome.Detail);
+            AppendLog(MapLevel(outcome.Kind), outcome.Summary, detailForDisplay);
             UpdateWorkflowGuideState();
         }).ConfigureAwait(false);
+    }
+
+    private static string BuildActionDetailForDisplay(string actionLabel, OperationOutcome outcome)
+    {
+        if (string.Equals(actionLabel, "Start Breathing Calibration", StringComparison.Ordinal) &&
+            outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            var guidance = "Watch Calibration Telemetry for the real verdict: accepted, accepted with warnings, not accepted yet, or rejected.";
+            return string.IsNullOrWhiteSpace(outcome.Detail)
+                ? guidance
+                : $"{outcome.Detail} {guidance}";
+        }
+
+        return outcome.Detail;
     }
 
     private void RefreshBenchToolsStatus()
@@ -8370,8 +8610,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 "Send Particles On, confirm visually, then send Particles Off.",
                 "This is still a recommended bench-confidence check even though it no longer blocks the guide."),
             10 => (
-                "Start calibration only if you want the optional bench readback.",
-                "Calibration remains visible here, but the current Sussex path can continue without it."),
+                "Choose the calibration mode you want, then start calibration only if you need the optional bench readback.",
+                "Dynamic motion axis solves the axis from recorded movement. Fixed controller orientation keeps the warmed-up controller axis. Calibration remains optional on the current Sussex path."),
             11 => (
                 "Enter a temporary validation id and run the 20 second capture.",
                 "This step uses the dedicated validation card below rather than the generic action buttons."),
@@ -8966,12 +9206,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             10 =>
             [
                 new WorkflowGuideCheckItem(
+                    "Calibration setup",
+                    _controllerBreathingProfiles?.CalibrationModeSummary ?? "Calibration setup not loaded yet.",
+                    _controllerBreathingProfiles?.CalibrationSetupDetail ?? "The controller-breathing profile library is not ready yet.",
+                    _controllerBreathingProfiles is null ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview),
+                new WorkflowGuideCheckItem(
                     "Calibration quality",
                     ControllerCalibrationQualityVisible
                         ? $"{ControllerCalibrationQualityBadge}: {ControllerCalibrationQualitySummary}"
                         : ControllerSummary,
                     ControllerCalibrationQualityVisible
-                        ? $"Calibration is optional on the current Sussex APK. {ControllerCalibrationQualityMetrics}{(string.IsNullOrWhiteSpace(ControllerCalibrationQualityCause) ? string.Empty : $" {ControllerCalibrationQualityCause}.")} {ControllerCalibrationQualityDetail}"
+                        ? $"Calibration is optional on the current Sussex APK. {ControllerCalibrationQualityExpectation} {ControllerCalibrationQualityMetrics}{(string.IsNullOrWhiteSpace(ControllerCalibrationQualityCause) ? string.Empty : $" {ControllerCalibrationQualityCause}.")} {ControllerCalibrationQualityDetail}"
                         : $"Calibration is optional on the current Sussex APK. {ControllerCalibrationLabel}. {ControllerDetail}",
                     ControllerCalibrationQualityVisible ? ControllerCalibrationQualityLevel : ControllerLevel),
                 new WorkflowGuideCheckItem("Volume readback", $"Current controller volume {ControllerValueLabel}.", "If calibration succeeds, a live volume readback should appear here. The guide can still continue while this path remains unstable.", string.Equals(ControllerValueLabel, "n/a", StringComparison.OrdinalIgnoreCase) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
@@ -9119,13 +9364,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     }
 
     private static string BuildWorkflowGuideLastActionSummary(string actionLabel, OperationOutcomeKind level)
-        => level switch
+    {
+        if (string.Equals(actionLabel, "Start Breathing Calibration", StringComparison.Ordinal) &&
+            level != OperationOutcomeKind.Failure)
+        {
+            return "Calibration command sent. Watch telemetry for the verdict.";
+        }
+
+        return level switch
         {
             OperationOutcomeKind.Success => $"{actionLabel} completed.",
             OperationOutcomeKind.Warning => $"{actionLabel} needs attention.",
             OperationOutcomeKind.Failure => $"{actionLabel} needs attention.",
             _ => $"{actionLabel} finished."
         };
+    }
 
     private static void ReplaceWorkflowGuideCheckItems(
         ObservableCollection<WorkflowGuideCheckItem> target,
@@ -9225,6 +9478,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private WorkflowGuideGateState EvaluateSoftwareIdentityGateState()
     {
+        if (!SurfaceVerifiedBaselineInShell)
+        {
+            var advisorySummary = string.IsNullOrWhiteSpace(PinnedBuildSummary)
+                ? "Software identity baseline is currently advisory only."
+                : PinnedBuildSummary;
+            var advisoryDetail = string.IsNullOrWhiteSpace(PinnedBuildDetail)
+                ? "Verified OS/build baseline tracking remains in code, but it is intentionally hidden in the operator shell for now. APK hash verification stays active in the Sussex APK step."
+                : $"{PinnedBuildDetail}{Environment.NewLine}Verified OS/build baseline tracking remains in code, but it is intentionally hidden in the operator shell for now.";
+            return new WorkflowGuideGateState(
+                ToAdvisoryLevel(PinnedBuildLevel),
+                advisorySummary,
+                advisoryDetail,
+                true);
+        }
+
         if (VerificationBaseline is null)
         {
             return new WorkflowGuideGateState(
@@ -9967,8 +10235,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ApplyControllerCalibrationQuality(new ControllerCalibrationQualityStatus(
                 Visible: true,
                 Level: OperationOutcomeKind.Preview,
+                Accepted: false,
                 Badge: "Not in use",
                 Summary: "Controller calibration is not used while the automatic breathing cycle drives the sphere.",
+                Expectation: "The automatic breathing cycle is in control, so controller calibration does not affect live breath tracking right now.",
                 Metrics: automaticTelemetry.AutomaticValue.HasValue
                     ? $"Automatic value {automaticTelemetry.AutomaticValue.Value:0.000} · Cycle {(automaticTelemetry.AutomaticRunning == true ? "running" : "paused")}"
                     : $"Cycle {(automaticTelemetry.AutomaticRunning == true ? "running" : "paused")}",
@@ -10006,12 +10276,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         BreathingDriverValuePercent = ControllerValuePercent;
         BreathingDriverValueText = $"Current controller volume {ControllerValueLabel}";
         ControllerCalibrationPercent = calibrated == true ? 100d : validationProgress.HasValue ? validationProgress.Value * 100d : 0d;
-        ControllerCalibrationLabel = calibrated == true
-            ? "Calibrated"
-            : validating == true && validationProgress.HasValue
-                ? $"Validating {validationProgress.Value:P0}"
-                : "Calibration n/a";
-        ApplyControllerCalibrationQuality(BuildControllerCalibrationQualityStatus(
+        var calibrationQuality = BuildControllerCalibrationQualityStatus(
             validating,
             calibrated,
             validationProgress,
@@ -10022,7 +10287,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             validationFramesRejectedBadTracking,
             validationFramesRejectedLowMotion,
             validationAcceptance,
-            failureReason));
+            failureReason);
+        ApplyControllerCalibrationQuality(calibrationQuality);
+        ControllerCalibrationLabel = BuildControllerCalibrationLabel(calibrated, validating, validationProgress, calibrationQuality);
 
         if (_reportedTwinState.Count == 0)
         {
@@ -10032,27 +10299,52 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(failureReason))
+        var controllerStateDetail =
+            $"Route {(string.IsNullOrWhiteSpace(routingLabel) ? "n/a" : routingLabel)} (mode {routingMode ?? "n/a"}). " +
+            $"State {(string.IsNullOrWhiteSpace(state) ? "n/a" : state)}. " +
+            $"Controller value {ControllerValueLabel}.";
+
+        if (calibrationQuality.Visible && calibrationQuality.Accepted)
         {
-            ControllerLevel = OperationOutcomeKind.Failure;
-            ControllerSummary = "Controller breathing reported a failure.";
-            ControllerDetail = failureReason;
+            ControllerLevel = active == true
+                ? calibrationQuality.Level
+                : OperationOutcomeKind.Warning;
+            ControllerSummary = calibrationQuality.Level == OperationOutcomeKind.Warning
+                ? "Breath tracking should work, but calibration quality is degraded."
+                : active == true
+                    ? "Breath tracking ready."
+                    : "Calibration accepted, but controller breathing is not active yet.";
+            ControllerDetail = $"{calibrationQuality.Expectation} {controllerStateDetail}".Trim();
+            return;
+        }
+
+        if (validating == true)
+        {
+            ControllerLevel = OperationOutcomeKind.Preview;
+            ControllerSummary = "Calibration in progress. Breath tracking is not ready yet.";
+            ControllerDetail = $"{calibrationQuality.Expectation} {controllerStateDetail}".Trim();
+            return;
+        }
+
+        if (calibrationQuality.Visible)
+        {
+            ControllerLevel = calibrationQuality.Level;
+            ControllerSummary = calibrationQuality.Level == OperationOutcomeKind.Failure
+                ? "Calibration rejected. Do not rely on breath tracking."
+                : "Calibration not accepted yet. Do not rely on breath tracking.";
+            ControllerDetail = $"{calibrationQuality.Expectation} {controllerStateDetail}".Trim();
             return;
         }
 
         ControllerLevel = active == true
-            ? calibrated == true
-                ? OperationOutcomeKind.Success
-                : OperationOutcomeKind.Warning
+            ? OperationOutcomeKind.Warning
             : state is null && routingMode is null
                 ? OperationOutcomeKind.Preview
                 : OperationOutcomeKind.Warning;
         ControllerSummary = active == true
-            ? calibrated == true
-                ? "Controller breathing active and calibrated."
-                : "Controller breathing active but not calibrated yet."
+            ? "Controller breathing is visible, but calibration has not started yet."
             : "Controller breathing is not active yet.";
-        ControllerDetail = $"Route {(string.IsNullOrWhiteSpace(routingLabel) ? "n/a" : routingLabel)} (mode {routingMode ?? "n/a"}). State {(string.IsNullOrWhiteSpace(state) ? "n/a" : state)}. Controller value {ControllerValueLabel}.";
+        ControllerDetail = $"{controllerStateDetail} Start calibration before relying on controller breath tracking.".Trim();
     }
 
     private void ApplyControllerCalibrationQuality(ControllerCalibrationQualityStatus status)
@@ -10061,6 +10353,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ControllerCalibrationQualityLevel = status.Level;
         ControllerCalibrationQualityBadge = status.Badge;
         ControllerCalibrationQualitySummary = status.Summary;
+        ControllerCalibrationQualityExpectation = status.Expectation;
         ControllerCalibrationQualityMetrics = status.Metrics;
         ControllerCalibrationQualityCause = status.Cause;
         ControllerCalibrationQualityDetail = status.Detail;
@@ -10094,8 +10387,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return new ControllerCalibrationQualityStatus(
                 Visible: false,
                 Level: OperationOutcomeKind.Preview,
+                Accepted: false,
                 Badge: "Calibration quality n/a",
                 Summary: "Quality guidance will appear during controller validation.",
+                Expectation: string.Empty,
                 Metrics: "Progress n/a · Observed n/a · Accepted n/a · Rejected n/a · Target n/a · Acceptance n/a",
                 Cause: string.Empty,
                 Detail: "Raw validation counters stay hidden until you expand details.");
@@ -10123,52 +10418,69 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             calibrated == true
             && acceptedTargetReached
             && effectiveAcceptance is null or >= 0.65d;
+        var accepted = calibrated == true;
 
-        var level = OperationOutcomeKind.Success;
-        var badge = "Good";
-        var summary = calibrated == true && validating != true
-            ? "Calibration completed successfully"
-            : "Calibration progressing normally";
+        var level = validating == true ? OperationOutcomeKind.Preview : OperationOutcomeKind.Success;
+        var badge = accepted
+            ? "Accepted"
+            : validating == true
+                ? "In progress"
+                : "Not accepted";
+        var summary = accepted
+            ? "Breath tracking should work normally."
+            : validating == true
+                ? "Calibration is still collecting accepted frames."
+                : "Breath tracking is not ready yet.";
+        var expectation = accepted
+            ? "Breath tracking should work normally."
+            : validating == true
+                ? "Wait for calibration to finish before relying on controller breath tracking."
+                : "Do not rely on controller breath tracking yet.";
         var cause = string.Empty;
 
         if (stalled)
         {
             level = OperationOutcomeKind.Failure;
-            badge = "Stalled";
+            badge = "Rejected";
             summary = "Calibration stalled";
+            expectation = "Do not rely on controller breath tracking yet. Re-run calibration before expecting a usable signal.";
             cause = "No accepted frames in the last few updates";
         }
         else if (badTrackingDominant || lowAcceptance || ContainsCalibrationKeyword(failureReason, "tracking"))
         {
-            if (completedWithHealthyMargin)
+            if (accepted)
             {
                 level = OperationOutcomeKind.Warning;
-                badge = "Accepted";
-                summary = "Calibration completed, but tracking was noisy";
+                badge = "Accepted with warnings";
+                summary = "Breath tracking should work, but calibration quality is degraded.";
+                expectation = "Breath tracking should work, but expect noisier or less stable tracking until you recalibrate.";
                 cause = "Target reached, but tracking rejects were still high enough to reduce confidence";
             }
             else
             {
                 level = OperationOutcomeKind.Failure;
-                badge = "Poor";
-                summary = "Tracking unstable";
+                badge = "Rejected";
+                summary = "Calibration was rejected because tracking was unstable.";
+                expectation = "Do not rely on controller breath tracking yet. Re-run calibration with steadier controller tracking.";
                 cause = "Many frames were rejected by tracking";
             }
         }
         else if (lowMotionDominant || middlingAcceptance || ContainsCalibrationKeyword(failureReason, "motion", "movement"))
         {
-            if (completedWithHealthyMargin && !middlingAcceptance)
+            if (accepted && completedWithHealthyMargin && !middlingAcceptance)
             {
                 level = OperationOutcomeKind.Success;
                 badge = "Accepted";
-                summary = "Calibration completed with a narrow movement margin";
+                summary = "Breath tracking should work, but the calibration margin was narrow.";
+                expectation = "Breath tracking should work, but expect a weaker or less robust response until you recalibrate with broader motion.";
                 cause = "Target reached; most rejected frames were low-motion rather than tracking loss";
             }
             else
             {
                 level = OperationOutcomeKind.Warning;
-                badge = "Needs broader motion";
-                summary = "Movement range was too small";
+                badge = "Not accepted";
+                summary = "Calibration has not been accepted yet.";
+                expectation = "Some controller volume may appear, but do not rely on controller breath tracking yet. Treat it as bench-only until you recalibrate with broader motion.";
                 cause = "Many frames were rejected because the controller motion stayed too small";
             }
         }
@@ -10189,7 +10501,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         var detailParts = new List<string>
         {
-            $"Axis {(string.IsNullOrWhiteSpace(validationAxisMode) ? "n/a" : validationAxisMode)}.",
+            $"Axis {FormatControllerCalibrationAxisModeLabel(validationAxisMode)}.",
             $"Observed {FormatControllerValidationCount(validationFramesObserved)}.",
             $"Accepted {FormatControllerValidationCount(validationFramesAccepted)}.",
             $"Rejected {rejectedFrames.ToString(CultureInfo.InvariantCulture)} (tracking {FormatControllerValidationCount(validationFramesRejectedBadTracking)}, low motion {FormatControllerValidationCount(validationFramesRejectedLowMotion)})."
@@ -10202,11 +10514,58 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return new ControllerCalibrationQualityStatus(
             Visible: true,
             Level: level,
+            Accepted: accepted,
             Badge: badge,
             Summary: summary,
+            Expectation: expectation,
             Metrics: metrics,
             Cause: cause,
             Detail: string.Join(" ", detailParts));
+    }
+
+    private static string FormatControllerCalibrationAxisModeLabel(string? axisMode)
+    {
+        if (string.IsNullOrWhiteSpace(axisMode))
+        {
+            return "n/a";
+        }
+
+        return axisMode.Trim() switch
+        {
+            "CalibrationMotionPrincipalAxis" => "Dynamic motion axis",
+            "LiveControllerAxisWarmup" => "Fixed controller orientation",
+            _ => axisMode.Trim()
+        };
+    }
+
+    private static string BuildControllerCalibrationLabel(
+        bool? calibrated,
+        bool? validating,
+        double? validationProgress,
+        ControllerCalibrationQualityStatus qualityStatus)
+    {
+        if (calibrated == true)
+        {
+            return qualityStatus.Level == OperationOutcomeKind.Warning
+                ? "Calibration accepted with warnings"
+                : "Calibration accepted";
+        }
+
+        if (validating == true)
+        {
+            return validationProgress.HasValue
+                ? $"Calibration in progress ({validationProgress.Value:P0})"
+                : "Calibration in progress";
+        }
+
+        if (!qualityStatus.Visible)
+        {
+            return "Calibration not started";
+        }
+
+        return qualityStatus.Level == OperationOutcomeKind.Failure
+            ? "Calibration rejected"
+            : "Calibration not accepted yet";
     }
 
     private string BuildValidationCaptureActionSummary()
@@ -12549,8 +12908,10 @@ internal readonly record struct ParticleVisibilityEffectObservation(
 internal sealed record ControllerCalibrationQualityStatus(
     bool Visible,
     OperationOutcomeKind Level,
+    bool Accepted,
     string Badge,
     string Summary,
+    string Expectation,
     string Metrics,
     string Cause,
     string Detail);

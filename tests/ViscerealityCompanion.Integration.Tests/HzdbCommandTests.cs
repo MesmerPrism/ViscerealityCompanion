@@ -86,7 +86,7 @@ public class HzdbCommandTests
     {
         if (!_hzdbAvailable.Value || DeviceSkip.ShouldSkip) return;
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "viscereality-test");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"viscereality-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
         var outputPath = Path.Combine(tempDir, "test-screenshot");
 

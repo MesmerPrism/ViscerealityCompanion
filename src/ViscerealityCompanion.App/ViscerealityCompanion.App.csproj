@@ -15,6 +15,7 @@
     <Title>Viscereality Companion</Title>
     <Product>Viscereality Companion</Product>
     <ApplicationIcon>Assets\viscereality-companion.ico</ApplicationIcon>
+    <BundledCliProjectPath>$(MSBuildProjectDirectory)\..\ViscerealityCompanion.Cli\ViscerealityCompanion.Cli.csproj</BundledCliProjectPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,6 +29,18 @@
           CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\samples\oscillator-config\**\*.*"
           Link="samples\oscillator-config\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\cli.md"
+          Link="docs\cli.md"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\study-shells.md"
+          Link="docs\study-shells.md"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\docs\monitoring-and-control.md"
+          Link="docs\monitoring-and-control.md"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\tools\reports\generate_sussex_validation_pdf.py"
@@ -44,5 +57,18 @@
     <Resource Include="Assets\viscereality-companion.png" />
     <Resource Include="Assets\viscereality-wordmark.png" />
   </ItemGroup>
+
+  <Target Name="PublishBundledCli"
+          AfterTargets="Publish"
+          Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <PropertyGroup>
+      <_BundledCliRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_BundledCliRuntimeIdentifier>
+      <_BundledCliRuntimeIdentifier Condition="'$(_BundledCliRuntimeIdentifier)' == ''">win-x64</_BundledCliRuntimeIdentifier>
+      <_BundledCliPublishDir>$([System.IO.Path]::Combine('$(PublishDir)', 'cli', 'current'))</_BundledCliPublishDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(_BundledCliPublishDir)" />
+    <Exec Command="dotnet publish &quot;$(BundledCliProjectPath)&quot; --configuration &quot;$(Configuration)&quot; --runtime &quot;$(_BundledCliRuntimeIdentifier)&quot; -p:PublishSingleFile=true -p:SelfContained=true --output &quot;$(_BundledCliPublishDir)&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
 
 </Project>

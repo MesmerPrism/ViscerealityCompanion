@@ -48,7 +48,7 @@ internal sealed class InstallerStatusForm : Form
 
     private int _disposeState;
     private bool _started;
-    private string? _lastAppInstallerPath;
+    private string? _lastAppInstallerPath = Program.GetDownloadedAppInstallerPath();
     private int _progressPercent = 5;
     private Color _statusAccentColor = AccentColor;
 
@@ -151,7 +151,7 @@ internal sealed class InstallerStatusForm : Form
         _closeButton.Visible = false;
         buttonRow.Controls.Add(_closeButton);
 
-        _retryButton = BuildButton("Open App Installer Again", isPrimary: true, AccentColor);
+        _retryButton = BuildButton("Open Downloaded App Installer", isPrimary: true, AccentColor);
         _retryButton.Click += (_, _) => RetryOpenAppInstaller();
         _retryButton.Visible = false;
         buttonRow.Controls.Add(_retryButton);
@@ -206,7 +206,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0, 0, 0, 12),
             MaximumSize = new Size(780, 0),
-            Text = "The bootstrapper stages the latest public preview, refreshes the official Quest tooling cache from Meta and Google, and then opens Windows App Installer for the final install step."
+            Text = "The bootstrapper stages the latest public preview, refreshes the official Quest tooling cache from Meta and Google, trusts the preview certificate, and then installs or updates the packaged app directly."
         };
         statusLayout.Controls.Add(_detailLabel, 0, 1);
 
@@ -265,7 +265,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0),
             MaximumSize = new Size(780, 0),
-            Text = "After this window opens Windows App Installer, confirm the update there. This helper also refreshes the managed LocalAppData cache for the official Meta hzdb and Android platform-tools downloads when those sources are reachable."
+            Text = "This helper installs or updates the packaged app itself. It also refreshes the managed LocalAppData cache for the official Meta hzdb and Android platform-tools downloads when those sources are reachable."
         };
         statusLayout.Controls.Add(_footerLabel, 0, 3);
 
@@ -309,7 +309,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0),
             MaximumSize = new Size(800, 0),
-            Text = "This installer stages the latest public preview, refreshes the official Quest tooling cache, and then hands off to Windows App Installer for the final install or update.",
+            Text = "This installer stages the latest public preview, refreshes the official Quest tooling cache, and then installs or updates the packaged app directly.",
             TextAlign = ContentAlignment.TopLeft
         };
 
@@ -370,12 +370,11 @@ internal sealed class InstallerStatusForm : Form
             var result = await _installAsync(progress, _cancellation.Token).ConfigureAwait(true);
             _lastAppInstallerPath = result.AppInstallerPath;
             ApplyStatusVisuals(StatusPanelSuccessBackgroundColor, SuccessColor, InkColor);
-            _summaryLabel.Text = "Windows App Installer opened";
-            _detailLabel.Text = "Finish the install or update in the Windows App Installer window. If that window did not appear, you can reopen it from here.";
+            _summaryLabel.Text = result.Summary;
+            _detailLabel.Text = result.Detail;
             _footerLabel.Text = string.IsNullOrWhiteSpace(result.ToolingWarning)
-                ? "The package metadata and managed official Quest tooling cache are already staged. This helper does not perform the final install itself."
+                ? "The packaged install is ready. Launch Viscereality Companion from the Start menu and stay in the Sussex shell for the guided workflow."
                 : $"{result.ToolingWarning} You can rerun the helper later or use `viscereality tooling install-official` after the app is installed.";
-            _retryButton.Visible = true;
             _closeButton.Visible = true;
         }
         catch (OperationCanceledException)
@@ -387,9 +386,10 @@ internal sealed class InstallerStatusForm : Form
             ApplyStatusVisuals(StatusPanelFailureBackgroundColor, FailureColor, FailureColor);
             _summaryLabel.Text = "Guided setup could not finish";
             _detailLabel.Text = exception.Message;
-            _footerLabel.Text = "If the latest preview release is not reachable yet, open the GitHub releases page and download the certificate and MSIX manually.";
+            _footerLabel.Text = "If direct install still fails on this machine, open the downloaded App Installer file or fall back to the GitHub releases page for the certificate and MSIX.";
             _progressPercent = 0;
             UpdateProgressBarFill();
+            _retryButton.Visible = File.Exists(_lastAppInstallerPath);
             _openReleaseButton.Visible = true;
             _closeButton.Visible = true;
         }

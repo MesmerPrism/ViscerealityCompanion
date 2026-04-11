@@ -1154,12 +1154,12 @@ internal static class SussexCliSupport
     private static string ResolveSussexVisualTuningTemplatePath()
         => ResolveExistingFile(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_TUNING_TEMPLATE"),
-            Path.Combine(TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-visual-tuning-v1.template.json"));
+            Path.Combine(CliAssetLocator.TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-visual-tuning-v1.template.json"));
 
     private static string ResolveSussexControllerBreathingTuningTemplatePath()
         => ResolveExistingFile(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_TUNING_TEMPLATE"),
-            Path.Combine(ResolveQuestSessionKitRoot(), "LlmTuningProfiles", "sussex-controller-breathing-tuning-v1.template.json"),
+            Path.Combine(CliAssetLocator.ResolveQuestSessionKitRoot(), "LlmTuningProfiles", "sussex-controller-breathing-tuning-v1.template.json"),
             Path.Combine(
                 Environment.GetEnvironmentVariable("USERPROFILE") ?? string.Empty,
                 "source",
@@ -1172,45 +1172,7 @@ internal static class SussexCliSupport
     private static string? TryResolveBundledSussexVisualProfilesRoot(string? studyRoot)
         => TryResolveExistingDirectory(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT"),
-            Path.Combine(studyRoot ?? TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "visual-profiles"));
-
-    private static string ResolveQuestSessionKitRoot()
-        => ResolveExistingDirectory(
-            Environment.GetEnvironmentVariable("VISCEREALITY_QUEST_SESSION_KIT_ROOT"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit")),
-            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
-            Path.Combine(
-                Environment.GetEnvironmentVariable("USERPROFILE") ?? string.Empty,
-                "source",
-                "repos",
-                "AstralKarateDojo",
-                "QuestSessionKit"));
-
-    private static string? TryResolveStudyShellRoot()
-        => TryResolveExistingDirectory(
-            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_SHELL_ROOT"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "study-shells")),
-            Path.Combine(AppContext.BaseDirectory, "samples", "study-shells"),
-            Path.Combine(
-                Environment.GetEnvironmentVariable("USERPROFILE") ?? string.Empty,
-                "source",
-                "repos",
-                "ViscerealityCompanion",
-                "samples",
-                "study-shells"));
-
-    private static string? TryResolveOscillatorConfigRoot()
-        => TryResolveExistingDirectory(
-            Environment.GetEnvironmentVariable("VISCEREALITY_OSCILLATOR_CONFIG_ROOT"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "oscillator-config")),
-            Path.Combine(AppContext.BaseDirectory, "samples", "oscillator-config"),
-            Path.Combine(
-                Environment.GetEnvironmentVariable("USERPROFILE") ?? string.Empty,
-                "source",
-                "repos",
-                "ViscerealityCompanion",
-                "samples",
-                "oscillator-config"));
+            Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "visual-profiles"));
 
     private static string ResolveExistingDirectory(params string?[] candidates)
         => TryResolveExistingDirectory(candidates)
@@ -1268,10 +1230,10 @@ internal static class SussexCliSupport
             ? value >= 0.5d ? "On" : "Off"
             : string.Equals(type, "int", StringComparison.OrdinalIgnoreCase)
                 ? Math.Round(value, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture)
-                : value.ToString("0.###", CultureInfo.InvariantCulture);
+                : value.ToString("0.######", CultureInfo.InvariantCulture);
 
     private static string ResolveNumericFormat(string type)
-        => string.Equals(type, "int", StringComparison.OrdinalIgnoreCase) ? "0" : "0.###";
+        => string.Equals(type, "int", StringComparison.OrdinalIgnoreCase) ? "0" : "0.######";
 
     private static (string? PairGroup, string? PairPartner) ResolvePairMetadata(string controlId)
     {

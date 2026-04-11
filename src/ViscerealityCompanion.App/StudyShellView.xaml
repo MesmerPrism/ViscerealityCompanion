@@ -179,10 +179,45 @@
                                            Foreground="{StaticResource MutedBrush}"
                                            TextWrapping="Wrap"
                                            Margin="0,6,0,0" />
-                                <TextBlock Text="{Binding StudyDescription}"
-                                           Style="{StaticResource CompactCaptionStyle}"
-                                           Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding StudyDescription}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
                             </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.5*" />
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Local agent workspace" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding LocalAgentWorkspaceSummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding LocalAgentWorkspaceDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="Workspace folder"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               Margin="0,10,0,0" />
+                                    <TextBlock Text="{Binding LocalAgentWorkspacePath}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               Style="{StaticResource CompactCaptionStyle}" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2"
+                                            VerticalAlignment="Center">
+                                    <Button Content="Open Agent Workspace"
+                                            Command="{Binding OpenLocalAgentWorkspaceCommand}" />
+                                    <Button Content="Copy Local Agent Prompt"
+                                            Command="{Binding CopyLocalAgentPromptCommand}"
+                                            Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <!-- Navigation cards -->
@@ -640,18 +675,21 @@
                                                     <TextBlock Text="Build details" Style="{StaticResource InfoLabelStyle}" Margin="0" />
                                                 </Expander.Header>
                                                 <StackPanel Margin="0,6,0,0">
+                                                    <TextBlock Text="Pinned study" Style="{StaticResource InfoLabelStyle}" Margin="0,0,0,4" />
                                                     <TextBlock Text="{Binding PinnedBuildDetail}" Style="{StaticResource CompactCaptionStyle}" />
                                                     <TextBlock Text="{Binding StudyApkSourceLabel}" Style="{StaticResource InfoLabelStyle}" Margin="0,8,0,4" />
                                                     <TextBlock Text="{Binding LocalApkSummary}"
                                                                FontWeight="Bold"
                                                                Foreground="{Binding LocalApkLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                                Style="{StaticResource CompactCaptionStyle}" />
-                                                    <TextBlock Text="{Binding StagedApkPath}"
+                                                    <TextBlock Text="{Binding LocalApkDetail}"
                                                                Style="{StaticResource CompactCaptionStyle}"
+                                                               FontFamily="{StaticResource MonoFont}"
                                                                Margin="0,4,0,0" />
                                                     <TextBlock Text="Installed on headset" Style="{StaticResource InfoLabelStyle}" Margin="0,8,0,4" />
                                                     <TextBlock Text="{Binding InstalledApkDetail}"
-                                                               Style="{StaticResource CompactCaptionStyle}" />
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               FontFamily="{StaticResource MonoFont}" />
                                                 </StackPanel>
                                             </Expander>
                                         </StackPanel>
@@ -962,6 +1000,37 @@
 
                                     <Border Margin="0,10,0,0"
                                             Padding="10"
+                                            Background="{StaticResource SurfaceTintBrush}"
+                                            BorderBrush="{StaticResource LineBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8">
+                                        <StackPanel>
+                                            <TextBlock Text="Calibration setup" Style="{StaticResource InfoLabelStyle}" />
+                                            <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationModeSummary}"
+                                                       Style="{StaticResource CompactCaptionStyle}"
+                                                       Margin="0,4,0,0"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationAcceptanceSummary}"
+                                                       Style="{StaticResource CompactCaptionStyle}"
+                                                       Margin="0,4,0,0"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationModeDetail}"
+                                                       Style="{StaticResource CompactCaptionStyle}"
+                                                       Margin="0,4,0,0"
+                                                       TextWrapping="Wrap" />
+                                            <WrapPanel Margin="0,8,0,0">
+                                                <Button Content="Use Dynamic Motion Axis"
+                                                        Command="{Binding ControllerBreathingProfiles.UseDynamicAxisCalibrationCommand}"
+                                                        Margin="0,0,8,0" />
+                                                <Button Content="Use Fixed Controller Orientation"
+                                                        Command="{Binding ControllerBreathingProfiles.UseFixedOrientationCalibrationCommand}" />
+                                            </WrapPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Margin="0,10,0,0"
+                                            Padding="10"
                                             Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}"
                                             Background="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                                             BorderBrush="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToBrush}}"
@@ -977,6 +1046,11 @@
                                             <TextBlock Text="{Binding ControllerCalibrationQualitySummary}"
                                                        Style="{StaticResource CompactCaptionStyle}"
                                                        Margin="0,4,0,0" />
+                                            <TextBlock Text="{Binding ControllerCalibrationQualityExpectation}"
+                                                       Style="{StaticResource CompactCaptionStyle}"
+                                                       Margin="0,4,0,0"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
 
@@ -1702,6 +1776,34 @@
                                                Style="{StaticResource SectionCaptionStyle}" />
 
                                     <Border Style="{StaticResource StudyInsetPanelStyle}"
+                                            Margin="0,8,0,0"
+                                            Background="{StaticResource SurfaceTintBrush}"
+                                            BorderBrush="{StaticResource LineBrush}">
+                                        <StackPanel>
+                                            <TextBlock Text="Calibration setup" Style="{StaticResource InfoLabelStyle}" />
+                                            <TextBlock Text="{Binding CalibrationModeSummary}"
+                                                       FontSize="15"
+                                                       FontWeight="Bold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding CalibrationAcceptanceSummary}"
+                                                       Style="{StaticResource CompactCaptionStyle}"
+                                                       Margin="0,6,0,0"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding CalibrationModeDetail}"
+                                                       Style="{StaticResource CompactCaptionStyle}"
+                                                       Margin="0,6,0,0"
+                                                       TextWrapping="Wrap" />
+                                            <WrapPanel Margin="0,10,0,0">
+                                                <Button Content="Use Dynamic Motion Axis"
+                                                        Command="{Binding UseDynamicAxisCalibrationCommand}"
+                                                        Margin="0,0,8,0" />
+                                                <Button Content="Use Fixed Controller Orientation"
+                                                        Command="{Binding UseFixedOrientationCalibrationCommand}" />
+                                            </WrapPanel>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource StudyInsetPanelStyle}"
                                             Margin="0,4,0,0"
                                             Background="{StaticResource SurfaceTintBrush}"
                                             BorderBrush="{StaticResource LineBrush}">
@@ -1773,7 +1875,7 @@
 
                                     <StackPanel Grid.Row="0">
                                         <TextBlock Text="Controller-breathing parameter table" Style="{StaticResource SectionTitleStyle}" />
-                                        <TextBlock Text="The table compares the current editor values against the saved launch override shown above. Sussex may briefly start on the bundled baseline before that override lands. Reset returns a row to the bundled Sussex baseline. Recalibrate on the headset after every apply."
+                                        <TextBlock Text="The table compares the current editor values against the saved launch override shown above. The first Calibration Setup rows let you choose dynamic motion axis versus fixed controller orientation and tune how much movement counts as an accepted calibration. Sussex may briefly start on the bundled baseline before that override lands. Reset returns a row to the bundled Sussex baseline. Recalibrate on the headset after every apply."
                                                    Style="{StaticResource SectionCaptionStyle}" />
                                         <Grid Margin="0,10,0,0">
                                             <Grid.ColumnDefinitions>

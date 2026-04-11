@@ -14,6 +14,10 @@ namespace ViscerealityCompanion.App.ViewModels;
 
 public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : ObservableObject, IDisposable
 {
+    private const string UsePrincipalAxisCalibrationFieldId = "use_principal_axis_calibration";
+    private const string MinAcceptedDeltaFieldId = "min_accepted_delta";
+    private const string MinAcceptableTravelFieldId = "min_acceptable_travel";
+
     private readonly StudyShellDefinition _study;
     private readonly IQuestControlService _questService;
     private readonly ITwinModeBridge? _twinBridge;
@@ -106,6 +110,8 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         DeleteSelectedCommand = new AsyncRelayCommand(DeleteSelectedAsync, () => SelectedProfile is not null && IsAvailable);
         ApplySelectedCommand = new AsyncRelayCommand(ApplySelectedAsync, () => SelectedProfile is not null && IsAvailable);
         ResetFieldCommand = new AsyncRelayCommand(ResetFieldAsync, parameter => parameter is SussexControllerBreathingProfileFieldViewModel && IsAvailable);
+        UseDynamicAxisCalibrationCommand = new AsyncRelayCommand(UseDynamicAxisCalibrationAsync, () => IsAvailable);
+        UseFixedOrientationCalibrationCommand = new AsyncRelayCommand(UseFixedOrientationCalibrationAsync, () => IsAvailable);
     }
 
     public event EventHandler? StartupProfileChanged;
@@ -254,6 +260,75 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
     public AsyncRelayCommand DeleteSelectedCommand { get; }
     public AsyncRelayCommand ApplySelectedCommand { get; }
     public AsyncRelayCommand ResetFieldCommand { get; }
+    public AsyncRelayCommand UseDynamicAxisCalibrationCommand { get; }
+    public AsyncRelayCommand UseFixedOrientationCalibrationCommand { get; }
+
+    public bool IsDynamicMotionAxisSelected => TryGetCurrentControlValue(UsePrincipalAxisCalibrationFieldId, out var value)
+        ? value >= 0.5d
+        : true;
+
+    public bool IsFixedControllerOrientationSelected => !IsDynamicMotionAxisSelected;
+
+    public string CalibrationModeSummary
+        => FindField(UsePrincipalAxisCalibrationFieldId) is null
+            ? "Calibration mode not loaded yet."
+            : IsDynamicMotionAxisSelected
+                ? "Dynamic motion axis selected."
+                : "Fixed controller orientation selected.";
+
+    public string CalibrationModeDetail
+    {
+        get
+        {
+            var modeField = FindField(UsePrincipalAxisCalibrationFieldId);
+            if (modeField is null)
+            {
+                return "Create or select a controller-breathing profile to choose the calibration mode.";
+            }
+
+            var modeExplanation = IsDynamicMotionAxisSelected
+                ? "Calibration solves the breathing axis from the recorded controller movement."
+                : "Calibration keeps the warmed-up controller orientation instead of solving a motion axis.";
+            var confirmation = modeField.ConfirmationLabel switch
+            {
+                "Confirmed" => "The headset has confirmed this mode.",
+                "Waiting" => "The headset has not confirmed this mode yet.",
+                "Edited" => "Apply to current session to send this mode to the headset now.",
+                "Mismatch" => "The headset is still reporting a different mode.",
+                _ => "Apply to current session to send this mode to the headset now."
+            };
+
+            return $"{modeExplanation} {confirmation}".Trim();
+        }
+    }
+
+    public string CalibrationAcceptanceSummary
+    {
+        get
+        {
+            var hasAcceptedMovement = TryGetCurrentControlValue(MinAcceptedDeltaFieldId, out var minAcceptedDelta);
+            var hasMinimumTravel = TryGetCurrentControlValue(MinAcceptableTravelFieldId, out var minAcceptableTravel);
+            if (!hasAcceptedMovement || !hasMinimumTravel)
+            {
+                return "Acceptance thresholds are not loaded yet.";
+            }
+
+            var acceptedMovement = hasAcceptedMovement
+                ? $"{(minAcceptedDelta * 1000d).ToString("0.###", CultureInfo.InvariantCulture)} mm"
+                : "n/a";
+            var minimumTravel = hasMinimumTravel
+                ? $"{(minAcceptableTravel * 100d).ToString("0.###", CultureInfo.InvariantCulture)} cm"
+                : "n/a";
+            return $"Acceptance gate: {acceptedMovement} per accepted movement sample, {minimumTravel} minimum calibration travel.";
+        }
+    }
+
+    public string CalibrationAcceptanceDetail
+        => "Use the Controller Breathing profile table to tune how much motion counts as meaningful movement during calibration and how much total excursion the headset must see before it accepts the result.";
+
+    public string CalibrationSetupSummary => $"{CalibrationModeSummary} {CalibrationAcceptanceSummary}".Trim();
+
+    public string CalibrationSetupDetail => $"{CalibrationModeDetail} {CalibrationAcceptanceDetail}".Trim();
 
     public async Task InitializeAsync()
     {
@@ -271,6 +346,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
     {
         _reportedTwinState = new Dictionary<string, string>(reportedTwinState, StringComparer.OrdinalIgnoreCase);
         RefreshComparisonState();
+        NotifyCalibrationSetupStateChanged();
     }
 
     public SussexControllerBreathingSessionSnapshot CaptureSessionSnapshot()
@@ -372,6 +448,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 LibraryDetail = $"Use New From Baseline to create the first profile in {LibraryRootLabel}.";
                 LibraryLevel = OperationOutcomeKind.Preview;
                 NotifyStartupStateChanged();
+                NotifyCalibrationSetupStateChanged();
                 return;
             }
 
@@ -390,6 +467,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             LibraryDetail = $"Profiles live in {LibraryRootLabel}. The selected profile can be applied over the existing Sussex hotload file path, and the saved next-launch override is shown on the right.";
             LibraryLevel = OperationOutcomeKind.Success;
             NotifyStartupStateChanged();
+            NotifyCalibrationSetupStateChanged();
         }).ConfigureAwait(false);
     }
 
@@ -435,6 +513,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
 
         RefreshComparisonState();
+        NotifyCalibrationSetupStateChanged();
     }
 
     private void OnFieldValueChanged()
@@ -442,6 +521,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         SchedulePersist();
         RefreshComparisonState(syncCurrentValueText: true);
         NotifyStartupStateChanged();
+        NotifyCalibrationSetupStateChanged();
     }
 
     private SussexControllerBreathingProfileRecord? CreateCurrentProfileRecord()
@@ -1034,6 +1114,16 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
     }
 
+    private async Task UseDynamicAxisCalibrationAsync()
+    {
+        await ApplyCalibrationModeSelectionAsync(useDynamicMotionAxis: true).ConfigureAwait(false);
+    }
+
+    private async Task UseFixedOrientationCalibrationAsync()
+    {
+        await ApplyCalibrationModeSelectionAsync(useDynamicMotionAxis: false).ConfigureAwait(false);
+    }
+
     private Task ResetFieldAsync(object? parameter)
     {
         if (parameter is SussexControllerBreathingProfileFieldViewModel field)
@@ -1163,12 +1253,15 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 var state = ResolveRowConfirmationState(rowConfirmationStates, field.Id);
                 field.SetConfirmation(state.Label, state.Level);
             }
+
+            NotifyCalibrationSetupStateChanged();
         }
         catch (Exception ex) when (ex is InvalidDataException or FormatException or InvalidOperationException)
         {
             ApplySummary = "Current controller-breathing values could not be compared safely.";
             ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next Sussex launch.";
             ApplyLevel = OperationOutcomeKind.Warning;
+            NotifyCalibrationSetupStateChanged();
         }
     }
 
@@ -1209,6 +1302,93 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         UseBundledStartupCommand.RaiseCanExecuteChanged();
         DeleteSelectedCommand.RaiseCanExecuteChanged();
         ApplySelectedCommand.RaiseCanExecuteChanged();
+        UseDynamicAxisCalibrationCommand.RaiseCanExecuteChanged();
+        UseFixedOrientationCalibrationCommand.RaiseCanExecuteChanged();
+    }
+
+    private SussexControllerBreathingProfileFieldViewModel? FindField(string fieldId)
+        => Groups
+            .SelectMany(group => group.Fields)
+            .FirstOrDefault(field => string.Equals(field.Id, fieldId, StringComparison.OrdinalIgnoreCase));
+
+    private bool TryGetCurrentControlValue(string fieldId, out double value)
+    {
+        var field = FindField(fieldId);
+        if (field is null)
+        {
+            value = 0d;
+            return false;
+        }
+
+        value = field.Value;
+        return true;
+    }
+
+    private async Task<bool> EnsureSelectedProfileAsync()
+    {
+        if (SelectedProfile is not null)
+        {
+            return true;
+        }
+
+        if (_profileStore is null)
+        {
+            return false;
+        }
+
+        var created = await _profileStore
+            .CreateFromTemplateAsync(BuildUniqueProfileName("Sussex Controller Breathing Profile"))
+            .ConfigureAwait(false);
+        await ReloadProfilesAsync(created.Id).ConfigureAwait(false);
+        return SelectedProfile is not null;
+    }
+
+    private async Task ApplyCalibrationModeSelectionAsync(bool useDynamicMotionAxis)
+    {
+        if (!await EnsureSelectedProfileAsync().ConfigureAwait(false))
+        {
+            ApplySummary = "Calibration setup is unavailable.";
+            ApplyDetail = "The Sussex controller-breathing profile library is not ready yet.";
+            ApplyLevel = OperationOutcomeKind.Failure;
+            NotifyCalibrationSetupStateChanged();
+            return;
+        }
+
+        var modeField = FindField(UsePrincipalAxisCalibrationFieldId);
+        if (modeField is null)
+        {
+            ApplySummary = "Calibration mode control is missing.";
+            ApplyDetail = "The selected controller-breathing profile does not expose the calibration mode field.";
+            ApplyLevel = OperationOutcomeKind.Failure;
+            NotifyCalibrationSetupStateChanged();
+            return;
+        }
+
+        modeField.SetValue(useDynamicMotionAxis ? 1d : 0d, notify: true);
+
+        var saved = await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false);
+        if (saved is null)
+        {
+            return;
+        }
+
+        var actionLabel = useDynamicMotionAxis
+            ? "Use Dynamic Motion-Axis Calibration"
+            : "Use Fixed-Orientation Calibration";
+        await ApplyProfileRecordAsync(saved, actionLabel, preferTwinRuntimePublish: true).ConfigureAwait(false);
+        NotifyCalibrationSetupStateChanged();
+    }
+
+    private void NotifyCalibrationSetupStateChanged()
+    {
+        OnPropertyChanged(nameof(IsDynamicMotionAxisSelected));
+        OnPropertyChanged(nameof(IsFixedControllerOrientationSelected));
+        OnPropertyChanged(nameof(CalibrationModeSummary));
+        OnPropertyChanged(nameof(CalibrationModeDetail));
+        OnPropertyChanged(nameof(CalibrationAcceptanceSummary));
+        OnPropertyChanged(nameof(CalibrationAcceptanceDetail));
+        OnPropertyChanged(nameof(CalibrationSetupSummary));
+        OnPropertyChanged(nameof(CalibrationSetupDetail));
     }
 
     private SussexControllerBreathingProfileListItemViewModel? ResolvePinnedStartupProfile()

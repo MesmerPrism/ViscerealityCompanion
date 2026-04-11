@@ -68,7 +68,7 @@ It currently pins:
 
 - package id: `com.Viscereality.SussexExperiment`
 - version: `0.1.2`
-- SHA256: `265168A57323F5A73FEDF310254824D7ABCD71D69EE64BAFC6D9B6EE7A80CA85`
+- SHA256: `CFDD4038C46A07A0824A0C51DEFEE9D7A21ADD06F937E9A2E8A0FCD24759E5B4`
 - bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
@@ -329,6 +329,28 @@ viscereality sussex controller clear-startup --json
 viscereality sussex controller apply-live "<profile>" --json
 ```
 
+For the controller profile table and CLI, calibration setup now lives in the
+same controller field catalog. The important ids are:
+
+- `use_principal_axis_calibration`
+  - `on` means dynamic motion axis
+  - `off` means fixed warmed-up controller orientation
+- `min_accepted_delta`
+  - the smallest movement that still counts as a new accepted calibration sample
+- `min_acceptable_travel`
+  - the total travel calibration must observe before it accepts the solve
+
+Example:
+
+```powershell
+viscereality sussex controller update "<profile>" `
+  --set use_principal_axis_calibration=off `
+  --set min_accepted_delta=0.0008 `
+  --set min_acceptable_travel=0.02 `
+  --set-startup `
+  --json
+```
+
 Current-session `apply-live` mirrors the GUI `Apply To Current Session`
 buttons:
 
@@ -462,7 +484,7 @@ baseline on `2026-04-03` through the accepted published GUI path:
 - recorded the accepted-app run under `artifacts/verify/sussex-manual-accept-run/`
 
 After that off-face pass, the Sussex bundle was refreshed again on `2026-04-06`
-to the current pinned SHA256 `265168A57323F5A73FEDF310254824D7ABCD71D69EE64BAFC6D9B6EE7A80CA85`
+to the current pinned SHA256 `CFDD4038C46A07A0824A0C51DEFEE9D7A21ADD06F937E9A2E8A0FCD24759E5B4`
 so the companion can confirm the simplified tracer controls through
 `hotload.integrated_tracers_*` readback. Treat the `2026-04-03` notes as the
 last published off-face behavior baseline, and the newer hash above as the

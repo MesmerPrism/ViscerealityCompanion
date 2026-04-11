@@ -153,10 +153,16 @@ jobs:
 
       - name: Publish preview setup bootstrapper
         shell: pwsh
+        env:
+          WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
+          WINDOWS_PACKAGE_TIMESTAMP_URL: ${{ vars.WINDOWS_PACKAGE_TIMESTAMP_URL }}
         run: |
           & powershell -ExecutionPolicy Bypass -File .\tools\app\Publish-PreviewSetup.ps1 `
             -Version '${{ steps.version.outputs.package_version }}' `
-            -FileName $env:PREVIEW_SETUP_FILE_NAME
+            -FileName $env:PREVIEW_SETUP_FILE_NAME `
+            -PackageCertificatePath '${{ steps.certificate.outputs.path }}' `
+            -PackageCertificatePassword $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD `
+            -PackageCertificateTimestampUrl $env:WINDOWS_PACKAGE_TIMESTAMP_URL
 
       - name: Package portable release assets
         shell: pwsh

@@ -899,7 +899,7 @@ public static class Program
         Option<bool> jsonOption,
         Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
     {
-        var controller = new Command("controller", "Sussex controller-breathing profile commands");
+        var controller = new Command("controller", "Sussex controller-breathing profile commands, including calibration mode and accepted-motion thresholds.");
 
         var list = new Command("list", "List local Sussex controller-breathing profiles");
         list.Handler = CommandHandler.Create(async (string study, bool json) =>
@@ -926,7 +926,7 @@ public static class Program
             }
         });
 
-        var fields = new Command("fields", "List all Sussex controller-breathing field ids, ranges, and tooltip metadata");
+        var fields = new Command("fields", "List all Sussex controller-breathing field ids, including calibration mode and accepted-motion controls.");
         fields.Handler = CommandHandler.Create((bool json) =>
         {
             var specs = SussexCliSupport.BuildControllerFieldSpecs();
@@ -952,11 +952,11 @@ public static class Program
         var fromOption = new Option<string>("--from", () => "bundled-baseline", "Source profile id/name, or bundled-baseline.");
         var nameOption = new Option<string>("--name", "New profile name.") { IsRequired = true };
         var notesOption = new Option<string?>("--notes", "Profile notes. Pass an empty string to clear notes.");
-        var setOption = createRepeatedAssignmentOption("--set", "Set one or more field values as id=value.");
-        var scaleOption = createRepeatedAssignmentOption("--scale", "Scale one or more numeric fields as id=factor.");
+        var setOption = createRepeatedAssignmentOption("--set", "Set one or more field values as id=value. Examples: use_principal_axis_calibration=off, min_accepted_delta=0.0008, min_acceptable_travel=0.02.");
+        var scaleOption = createRepeatedAssignmentOption("--scale", "Scale one or more numeric fields as id=factor. Use the fields command first for valid ids and safe ranges.");
         var setStartupOption = new Option<bool>("--set-startup", "Also save the resulting profile as the next-launch default.");
 
-        var create = new Command("create", "Create a new Sussex controller-breathing profile from baseline or another profile");
+        var create = new Command("create", "Create a new Sussex controller-breathing profile from baseline or another profile, including calibration mode and accepted-motion thresholds.");
         create.AddOption(fromOption);
         create.AddOption(nameOption);
         create.AddOption(notesOption);
@@ -1000,7 +1000,7 @@ public static class Program
             }
         });
 
-        var update = new Command("update", "Update an existing local Sussex controller-breathing profile") { profileArg };
+        var update = new Command("update", "Update an existing local Sussex controller-breathing profile, including calibration mode and accepted-motion thresholds.") { profileArg };
         update.AddOption(nameOption);
         update.AddOption(notesOption);
         update.AddOption(setOption);
@@ -1442,34 +1442,14 @@ public static class Program
 
     private static string ResolveCatalogRoot()
     {
-        var candidates = new[]
-        {
-            Environment.GetEnvironmentVariable("VISCEREALITY_QUEST_SESSION_KIT_ROOT"),
-            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit")),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source", "repos", "AstralKarateDojo", "QuestSessionKit")
-        };
-
-        return candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path!))
+        return CliAssetLocator.TryResolveQuestSessionKitRoot()
             ?? throw new InvalidOperationException(
                 "No Quest Session Kit catalog root found. Set VISCEREALITY_QUEST_SESSION_KIT_ROOT or use --root.");
     }
 
     private static string ResolveStudyShellRoot()
     {
-        var candidates = new[]
-        {
-            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_SHELL_ROOT"),
-            Path.Combine(AppContext.BaseDirectory, "samples", "study-shells"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "study-shells")),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source", "repos", "ViscerealityCompanion", "samples", "study-shells")
-        };
-
-        return candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path!))
+        return CliAssetLocator.TryResolveStudyShellRoot()
             ?? throw new InvalidOperationException(
                 "No study shell catalog root found. Set VISCEREALITY_STUDY_SHELL_ROOT or use --root.");
     }

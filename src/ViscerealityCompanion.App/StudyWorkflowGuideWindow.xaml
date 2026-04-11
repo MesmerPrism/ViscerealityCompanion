@@ -317,6 +317,38 @@
                                    Margin="0,8,0,0" />
                         <Border Margin="0,10,0,0"
                                 Padding="10"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Background="{StaticResource SurfaceTintBrush}"
+                                BorderBrush="{StaticResource LineBrush}">
+                            <StackPanel>
+                                <TextBlock Text="Calibration Setup"
+                                           Style="{StaticResource GuideMicroLabelStyle}" />
+                                <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationModeSummary}"
+                                           Style="{StaticResource GuideBodyStyle}"
+                                           FontWeight="Bold"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationAcceptanceSummary}"
+                                           Style="{StaticResource GuideDetailStyle}"
+                                           Margin="0,4,0,0"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ControllerBreathingProfiles.CalibrationModeDetail}"
+                                           Style="{StaticResource GuideDetailStyle}"
+                                           Margin="0,4,0,0"
+                                           TextWrapping="Wrap" />
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Button Content="Use Dynamic Motion Axis"
+                                            Command="{Binding ControllerBreathingProfiles.UseDynamicAxisCalibrationCommand}"
+                                            MinWidth="220"
+                                            Margin="0,0,8,0" />
+                                    <Button Content="Use Fixed Controller Orientation"
+                                            Command="{Binding ControllerBreathingProfiles.UseFixedOrientationCalibrationCommand}"
+                                            MinWidth="240" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Margin="0,10,0,0"
+                                Padding="10"
                                 Visibility="{Binding ControllerCalibrationQualityVisible, Converter={StaticResource BoolToVisibility}}"
                                 Background="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                                 BorderBrush="{Binding ControllerCalibrationQualityLevel, Converter={StaticResource OutcomeKindToBrush}}"
@@ -333,6 +365,11 @@
                                 <TextBlock Text="{Binding ControllerCalibrationQualitySummary}"
                                            Style="{StaticResource GuideDetailStyle}"
                                            Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding ControllerCalibrationQualityExpectation}"
+                                           Style="{StaticResource GuideDetailStyle}"
+                                           Margin="0,4,0,0"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding ControllerCalibrationQualityMetrics}"
                                            Style="{StaticResource GuideDetailStyle}"
                                            Margin="0,4,0,0" />

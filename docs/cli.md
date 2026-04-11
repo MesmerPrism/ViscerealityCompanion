@@ -12,6 +12,15 @@ nav_order: 80
 The `viscereality` CLI mirrors the WPF desktop app's capabilities for
 scripting, automation, and headless operation.
 
+Installed Sussex preview builds now expose a local agent workspace under
+`%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace`. The Sussex shell Home
+page includes `Open Agent Workspace` plus `Copy Local Agent Prompt` so
+installed-app users can hand a local agent a bundled `viscereality` command,
+the mirrored CLI docs, and the Sussex example catalogs without pointing it at
+the protected WindowsApps payload. The generated workspace includes
+`cli/current/viscereality.exe` plus `viscereality.ps1` and `viscereality.cmd`
+wrapper scripts that preload the mirrored sample-root overrides.
+
 For source builds, the simplest way to stage the official Quest-side developer
 tools the app expects is:
 
@@ -42,6 +51,18 @@ Quest backup into `device-session-pull` and generates `session_review_report.pdf
 inside the same participant session folder.
 
 ## Running
+
+From the guided-install local agent workspace under
+`%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace`, prefer:
+
+```powershell
+.\viscereality.ps1 --help
+```
+
+That wrapper preloads the mirrored sample-root overrides before invoking the
+bundled CLI under `cli/current`.
+
+From a source checkout, run:
 
 ```powershell
 dotnet run --project src/ViscerealityCompanion.Cli -- <command> [options]
@@ -140,6 +161,28 @@ Common subcommands on both surfaces are:
 
 Use `--json` whenever an agent needs stable machine-readable output.
 
+For the controller-breathing surface, the calibration setup is now part of the
+same field catalog and profile commands:
+
+- `use_principal_axis_calibration=on` keeps the dynamic motion-axis solve
+- `use_principal_axis_calibration=off` keeps the fixed warmed-up controller
+  orientation
+- `min_accepted_delta=0.0008` controls how much movement counts as a new
+  accepted calibration sample
+- `min_acceptable_travel=0.02` controls how much total travel calibration must
+  see before it accepts the solve
+
+Example:
+
+```powershell
+viscereality sussex controller fields --json
+viscereality sussex controller update "<profile>" `
+  --set use_principal_axis_calibration=off `
+  --set min_accepted_delta=0.0008 `
+  --set min_acceptable_travel=0.02 `
+  --json
+```
+
 ### Utilities
 
 | Command | Description |
@@ -201,6 +244,8 @@ viscereality study apply-profile sussex-university
 viscereality study launch sussex-university
 viscereality sussex visual fields --json
 viscereality sussex visual apply-live "<profile>" --json
+viscereality sussex controller fields --json
+viscereality sussex controller update "<profile>" --set use_principal_axis_calibration=off --set min_accepted_delta=0.0008 --set min_acceptable_travel=0.02 --json
 viscereality sussex controller apply-live "<profile>" --json
 ```
 
