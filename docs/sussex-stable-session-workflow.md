@@ -25,7 +25,15 @@ workflow with explicit hazards and a concrete implementation backlog.
   Do not disable proximity before kiosk entry, and do not leave it disabled
   during kiosk exit. Treat proximity bypass as a manual recovery and debugging
   tool only.
+- Wake the headset before kiosk launch. Do not launch Sussex while the headset
+  reports asleep; on the current April 2026 Meta OS build that can leave the
+  runtime running in a black or limbo scene that may require a headset restart.
+- Do not use remote GUI wake/sleep controls for Sussex. Manual headset
+  wake/sleep is the only supported operator path for now.
 - Do not enter kiosk mode until the right controller is awake and tracked.
+- Do not treat kiosk mode as a reliable right-controller Meta / menu button
+  lockout on the current April 2026 Meta OS build. Treat it as best-effort task
+  pinning plus screenshot-confirmed foreground only.
 - Do not allow the experimenter's calibration to survive into the participant
   run.
 - Keep the Sussex APK running across participants unless a real failure
@@ -59,10 +67,16 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
 1. Disconnect USB.
 2. The experimenter puts on the headset in the subject position.
 3. Create or confirm the Guardian boundary.
-4. Wake the right controller if needed and verify it is active before kiosk
+4. Wake the headset if needed. The launcher should read `Wake the headset to
+   enable launching` until the headset is awake.
+5. Wake the right controller if needed and verify it is active before kiosk
    entry.
-5. Launch Sussex in kiosk mode from the GUI.
-6. Confirm the visible scene on-headset. If shell focus and the visible scene
+6. Launch Sussex in kiosk mode from the GUI.
+7. If Guardian or another Meta visual blocker is still visible, clear it before
+   launching.
+8. Do not use controller Meta / menu-button behavior as the kiosk-success
+   signal on this build.
+9. Confirm the visible scene on-headset. If shell focus and the visible scene
    disagree, use one Quest screenshot as the source of truth.
 
 ### 3. Bench verification before subject handoff

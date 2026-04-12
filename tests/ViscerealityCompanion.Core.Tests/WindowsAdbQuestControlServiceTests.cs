@@ -446,6 +446,59 @@ public sealed class WindowsAdbQuestControlServiceTests
     }
 
     [Fact]
+    public void BuildSleepBlockedLaunchOutcome_requires_waking_before_launch()
+    {
+        var target = new QuestAppTarget(
+            Id: "sussex",
+            Label: "Sussex Experiment",
+            PackageId: "com.Viscereality.SussexExperiment",
+            ApkFile: string.Empty,
+            LaunchComponent: "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
+            BrowserPackageId: string.Empty,
+            Description: string.Empty,
+            Tags: []);
+        var readiness = new WindowsAdbQuestControlService.QuestWakeReadiness(
+            IsAwake: false,
+            IsInWakeLimbo: false,
+            WakeLimboComponent: string.Empty,
+            Detail: "wakefulness Asleep; interactive false; display OFF");
+
+        var outcome = WindowsAdbQuestControlService.BuildSleepBlockedLaunchOutcome(target, readiness);
+
+        Assert.Equal(OperationOutcomeKind.Failure, outcome.Kind);
+        Assert.Equal("Launch blocked for Sussex Experiment.", outcome.Summary);
+        Assert.Equal(target.PackageId, outcome.PackageId);
+        Assert.Contains("Wake the headset to enable launching", outcome.Detail, StringComparison.Ordinal);
+        Assert.Contains("headset restart", outcome.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildVisualBlockedLaunchOutcome_requires_clearing_blocker_before_launch()
+    {
+        var target = new QuestAppTarget(
+            Id: "sussex",
+            Label: "Sussex Experiment",
+            PackageId: "com.Viscereality.SussexExperiment",
+            ApkFile: string.Empty,
+            LaunchComponent: "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
+            BrowserPackageId: string.Empty,
+            Description: string.Empty,
+            Tags: []);
+        var readiness = new WindowsAdbQuestControlService.QuestWakeReadiness(
+            IsAwake: false,
+            IsInWakeLimbo: true,
+            WakeLimboComponent: "com.oculus.guardian/com.oculus.vrguardianservice.guardiandialog.GuardianDialogActivity",
+            Detail: "wakefulness Awake; interactive true; display ON; foreground com.oculus.guardian/com.oculus.vrguardianservice.guardiandialog.GuardianDialogActivity; Meta visual blocker active");
+
+        var outcome = WindowsAdbQuestControlService.BuildVisualBlockedLaunchOutcome(target, readiness);
+
+        Assert.Equal(OperationOutcomeKind.Failure, outcome.Kind);
+        Assert.Equal("Launch blocked for Sussex Experiment.", outcome.Summary);
+        Assert.Equal(target.PackageId, outcome.PackageId);
+        Assert.Contains("Clear the current Guardian or Meta visual blocker before launching", outcome.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ParseKioskForegroundEvidence_detects_clear_activity_as_real_pinned_foreground()
     {
         const string output = """

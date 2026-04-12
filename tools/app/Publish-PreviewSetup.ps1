@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('win-x64')]
     [string]$RuntimeIdentifier = 'win-x64',
-    [string]$Version = '0.1.38.0',
+    [string]$Version = '0.1.39.0',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
     [string]$FileName = 'ViscerealityCompanion-Preview-Setup.exe',
     [string]$PackageCertificatePath,

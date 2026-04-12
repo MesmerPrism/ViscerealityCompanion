@@ -267,6 +267,76 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.Contains(actions, action => string.Equals(action.Label, "Analyze Windows Environment", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void StudyRuntimeLaunch_IsBlockedAndRelabeled_WhenHeadsetIsAsleep()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(
+            viewModel,
+            "_headsetStatus",
+            CreateConnectedHeadsetStatus("com.oculus.vrshell") with
+            {
+                IsTargetForeground = false,
+                IsTargetRunning = false,
+                IsAwake = false,
+                Wakefulness = "Asleep",
+                DisplayPowerState = "OFF"
+            });
+
+        Assert.True(viewModel.IsLaunchBlockedBySleepingHeadset);
+        Assert.False(viewModel.CanLaunchStudyRuntime);
+        Assert.False(viewModel.CanToggleStudyRuntime);
+        Assert.Equal("Wake Headset To Enable Launching", viewModel.StudyRuntimeActionLabel);
+    }
+
+    [Fact]
+    public void WorkflowGuideLaunchAction_UsesWakePromptAndDisablesLaunch_WhenHeadsetIsAsleep()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(
+            viewModel,
+            "_headsetStatus",
+            CreateConnectedHeadsetStatus("com.oculus.vrshell") with
+            {
+                IsTargetForeground = false,
+                IsTargetRunning = false,
+                IsAwake = false,
+                Wakefulness = "Asleep",
+                DisplayPowerState = "OFF"
+            });
+        SetPrivateAutoProperty(viewModel, nameof(StudyShellViewModel.LaunchStudyAppCommand), new AsyncRelayCommand(() => Task.CompletedTask));
+        SetPrivateAutoProperty(viewModel, nameof(StudyShellViewModel.RefreshDeviceSnapshotCommand), new AsyncRelayCommand(() => Task.CompletedTask));
+
+        var actions = InvokePrivateMethod<IReadOnlyList<WorkflowGuideActionItem>>(viewModel, "BuildWorkflowGuideActionItems", 7);
+
+        Assert.Equal(2, actions.Count);
+        Assert.Equal("Wake Headset To Enable Launching", actions[0].Label);
+        Assert.False(actions[0].IsEnabled);
+        Assert.True(actions[1].IsEnabled);
+    }
+
+    [Fact]
+    public void StudyRuntimeLaunch_IsBlockedAndRelabeled_WhenMetaVisualBlockerIsActive()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(
+            viewModel,
+            "_headsetStatus",
+            CreateConnectedHeadsetStatus("com.oculus.guardian") with
+            {
+                IsTargetForeground = false,
+                IsTargetRunning = false,
+                IsAwake = true,
+                IsInWakeLimbo = true,
+                ForegroundComponent = "com.oculus.guardian/com.oculus.vrguardianservice.guardiandialog.GuardianDialogActivity"
+            });
+
+        Assert.True(viewModel.IsLaunchBlockedByHeadsetVisualBlocker);
+        Assert.False(viewModel.CanLaunchStudyRuntime);
+        Assert.False(viewModel.CanToggleStudyRuntime);
+        Assert.Equal("Clear Headset Blocker Before Launching", viewModel.StudyRuntimeActionLabel);
+    }
+
     private static StudyShellViewModel CreateViewModel(StudyShellDefinition study)
     {
         var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));

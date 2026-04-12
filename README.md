@@ -77,12 +77,17 @@ install/update time instead of being silently relicensed or mirrored here.
 For Sussex specifically, the packaged app now opens on a Home/orientation tab
 that includes the `Open Sequential Guide` entrypoint plus the condensed
 operator checklist. That step-by-step window is the intended first-run path for
-USB trust, Wi-Fi handoff, APK/profile checks, kiosk launch, LSL verification,
-particle checks, the optional controller-calibration probe, and the short
-validation capture. The validation step now keeps the timing alignment flow
-inline in the guide itself, instead of opening a separate timing window, and
-the `During session` surface now keeps Quest screenshot capture and clock
-alignment next to the other live-session controls.
+USB trust, Wi-Fi handoff, APK/profile checks, awake-headset launch gating,
+kiosk launch, LSL verification, particle checks, the optional
+controller-calibration probe, and the short validation capture. On the current
+April 2026 Meta OS build, Sussex kiosk launch should be treated as launch plus
+best-effort task pinning, not as a reliable Meta/menu-button lockout. The
+validation step now keeps the timing alignment flow inline in the guide
+itself, instead of opening a separate timing window, and the `During session`
+surface now keeps Quest screenshot capture and clock alignment next to the
+other live-session controls. The public GUI no longer exposes remote
+headset wake/sleep buttons; manual headset wake/sleep is the only supported
+operator path for now.
 
 For local agents and scripted operators, the CLI now mirrors the Sussex
 `Visual Profiles` and `Controller Breathing` tabs. The agent-readable field

@@ -831,12 +831,6 @@
                                     <Button Content="Refresh Snapshot"
                                             Command="{Binding ActiveStudyShell.RefreshDeviceSnapshotCommand}"
                                             Margin="0,0,0,8" />
-                                    <Button Content="{Binding ActiveStudyShell.HeadsetAwakeActionLabel}"
-                                            Command="{Binding ActiveStudyShell.ToggleHeadsetPowerCommand}"
-                                            Style="{StaticResource StateActionButtonStyle}"
-                                            Tag="{Binding ActiveStudyShell.HeadsetAwakeActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
-                                            IsEnabled="{Binding ActiveStudyShell.CanToggleHeadsetPower}"
-                                            Margin="0,0,0,8" />
                                     <Button Content="{Binding ActiveStudyShell.StudyRuntimeActionLabel}"
                                             Command="{Binding ActiveStudyShell.ToggleStudyRuntimeCommand}"
                                             Style="{StaticResource StateActionButtonStyle}"

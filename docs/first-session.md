@@ -121,9 +121,19 @@ viscereality perf 4 4
 click **Launch App**.
 
 For the Sussex kiosk path, keep the headset on-face for launch and the first
-visual verification pass. Kiosk pinning and the proximity hold are separate:
-launch first, confirm the runtime is correct, and only then decide whether you
-need the optional proximity bypass for a longer unattended phase.
+visual verification pass. If the shell says **Wake Headset To Enable
+Launching**, physically wake the headset first and do not launch from sleep.
+On the current April 2026 Meta OS build, launching while asleep can leave
+Sussex running in a black or limbo scene that may require a headset restart.
+If the headset is sitting in Guardian or another Meta visual-blocker state,
+clear that blocker first and wait for launch to re-enable. The app no longer
+offers remote wake/sleep controls in the GUI for Sussex; manual wake/sleep is
+the only supported operator path for now.
+Kiosk pinning and the proximity hold are separate: launch first, confirm the
+runtime is correct, and only then decide whether you need the optional
+proximity bypass for a longer unattended phase. Also treat kiosk as best-effort
+task pinning only: do not rely on it to disable the controller Meta / menu
+button on this build.
 
 Use the app to confirm:
 
@@ -203,6 +213,10 @@ viscereality twin send twin-pause
 - the `Sequential Sussex Guide` is now the preferred onboarding surface for first-time setup and bench verification
 - the `Experiment Session` window is now the preferred live participant-run surface after the guide handoff; the embedded shell tabs remain for broader tuning and inspection
 - the top status cards should be treated as the main pre-session checklist
+- the GUI no longer exposes remote headset wake/sleep controls for Sussex; use manual headset wake/sleep only
+- if the launch button reads `Wake Headset To Enable Launching`, wake the headset first; Sussex launch is now blocked while the headset reports asleep
+- if launch stays disabled because Guardian or another Meta visual blocker is active, clear that blocker in-headset before trying again
+- on the current April 2026 Meta OS build, Sussex kiosk mode no longer reliably disables the controller Meta / menu button, so use screenshot/scene confirmation instead of menu-button behavior as the success signal
 - controller breathing calibration is still exposed in the guide, but it is currently optional until the Sussex runtime calibration path is stabilized
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 - if the headset is already awake, normal Sussex command buttons should now react faster because the app no longer forces a full pre-send snapshot refresh before every command

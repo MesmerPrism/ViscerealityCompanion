@@ -148,6 +148,7 @@ public sealed class ActionLabelToIsEnablingConverter : IValueConverter
         "Start ",
         "Launch ",
         "Wake ",
+        "Clear ",
         "Enable ",
         "Use Automatic",
         "Particles On",

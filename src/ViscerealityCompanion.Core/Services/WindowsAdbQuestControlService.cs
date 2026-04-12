@@ -511,6 +511,12 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     public async Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, bool kioskMode = false, CancellationToken cancellationToken = default)
     {
         var selector = await EnsureSelectorAsync(cancellationToken).ConfigureAwait(false);
+        var launchGuard = await GuardLaunchAgainstUnsafeHeadsetStateAsync(selector, target, cancellationToken).ConfigureAwait(false);
+        if (launchGuard is not null)
+        {
+            return launchGuard;
+        }
+
         var wakeOutcome = await WakeSelectorBeforeActionAsync(selector, $"launching {target.Label}", cancellationToken).ConfigureAwait(false);
         if (IsWakeFailure(wakeOutcome))
         {
@@ -530,6 +536,22 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         var kioskOutcome = await EnterKioskModeAsync(selector, target, launchOutcome, cancellationToken).ConfigureAwait(false);
         return MergeWakeWarning(kioskOutcome, wakeOutcome);
+    }
+
+    private async Task<OperationOutcome?> GuardLaunchAgainstUnsafeHeadsetStateAsync(
+        string selector,
+        QuestAppTarget target,
+        CancellationToken cancellationToken)
+    {
+        var (readiness, powerStatus, _) = await QueryWakeReadinessSnapshotAsync(selector, cancellationToken).ConfigureAwait(false);
+        if (powerStatus.IsAwake == false)
+        {
+            return BuildSleepBlockedLaunchOutcome(target, readiness);
+        }
+
+        return readiness.IsInWakeLimbo
+            ? BuildVisualBlockedLaunchOutcome(target, readiness)
+            : null;
     }
 
     public async Task<OperationOutcome> StopAppAsync(QuestAppTarget target, bool exitKioskMode = false, CancellationToken cancellationToken = default)
@@ -3078,6 +3100,18 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             Detail = string.Join(" ", detailParts)
         };
     }
+
+    internal static OperationOutcome BuildSleepBlockedLaunchOutcome(QuestAppTarget target, QuestWakeReadiness readiness)
+        => Failure(
+            $"Launch blocked for {target.Label}.",
+            $"{readiness.Detail} Wake the headset to enable launching. Do not launch while the headset reports asleep on this HorizonOS build, because Sussex can start into a black or limbo scene that may require a headset restart.",
+            packageId: target.PackageId);
+
+    internal static OperationOutcome BuildVisualBlockedLaunchOutcome(QuestAppTarget target, QuestWakeReadiness readiness)
+        => Failure(
+            $"Launch blocked for {target.Label}.",
+            $"{readiness.Detail} Clear the current Guardian or Meta visual blocker before launching. Do not start Sussex while the headset is in this blocked visual state.",
+            packageId: target.PackageId);
 
     private static string FormatControllerDetail(QuestControllerStatus status)
     {

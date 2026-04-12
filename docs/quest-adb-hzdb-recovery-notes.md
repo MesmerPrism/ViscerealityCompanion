@@ -1128,6 +1128,22 @@ March 28 refinement:
   action that calls `hzdb capture screenshot --method metacam` and keeps a
   visual-confirmation warning active until the operator captures a fresh image
 
+## April 2026 HorizonOS Update
+
+The March 2026 kiosk findings below are now historical only. After the Meta /
+HorizonOS update observed on this machine by April 12, 2026:
+
+- Sussex can still launch and exit correctly while the controller Meta / menu
+  button remains active
+- kiosk must no longer be described as a reliable Meta / menu-button lockout
+- launch should be blocked while the headset reports asleep, with the operator
+  told `Wake the headset to enable launching`
+- launch should also stay blocked while Guardian or other Meta visual blockers
+  are active
+- the public GUI no longer exposes remote headset wake/sleep controls for
+  Sussex; manual headset wake/sleep is the only supported operator path for now
+- screenshot and visible-scene confirmation remain the real success criteria
+
 ## March 28 GUI Validation Update
 
 Fresh validation against the patched public companion app confirmed two

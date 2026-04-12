@@ -163,7 +163,7 @@ public static class Program
         var kioskOption = new Option<bool>("--kiosk", "Enter kiosk mode after launching the app.");
         var componentOption = new Option<string?>("--component", "Explicit launch component to use for the app.");
         var packageArg = new Argument<string>("package", description: "Package ID to launch");
-        var command = new Command("launch", "Launch an app on the connected Quest") { packageArg, kioskOption, componentOption };
+        var command = new Command("launch", "Launch an app on the connected Quest. Wake the headset first; the launcher now blocks while the headset reports asleep.") { packageArg, kioskOption, componentOption };
         command.Handler = CommandHandler.Create(async (string package, bool kiosk, string? component, string? device) =>
         {
             var service = CreateQuestService(device);
@@ -462,7 +462,7 @@ public static class Program
             PrintOutcome(result);
         });
 
-        var launchCommand = new Command("launch", "Launch the pinned study runtime using the study kiosk policy") { studyArg, rootOption };
+        var launchCommand = new Command("launch", "Launch the pinned study runtime using the study kiosk policy. Wake the headset first; the launcher now blocks while the headset reports asleep.") { studyArg, rootOption };
         launchCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
         {
             var definition = await ResolveStudyShellAsync(study, root);

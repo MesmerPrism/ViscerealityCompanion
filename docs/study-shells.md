@@ -81,6 +81,10 @@ toggle rather than a plain launch/stop button:
 
 - `Launch Kiosk Runtime` launches the Sussex APK, resolves the live Unity task,
   and pins it with `am task lock <TASK_ID>`
+- if the headset reports asleep, the launch surface now blocks the action and
+  tells the operator `Wake the headset to enable launching`
+- if Guardian or another Meta visual blocker is active, the launch surface also
+  stays blocked until that blocker is cleared in-headset
 - `Exit Kiosk Runtime` sends the confirmed Home-return stack:
   `automation_disable -> task lock stop -> HomeActivity -> force-stop Sussex`
   when an operator intentionally invokes it from a visible on-head runtime
@@ -95,9 +99,12 @@ toggle rather than a plain launch/stop button:
 - it is the required operator-side truth source whenever HorizonOS shell state
   and the visible headset scene disagree
 
-That behavior is specific to the Sussex study shell config and is meant to keep
-accidental controller Meta / menu presses from visually interrupting the
-experiment while the runtime is active.
+That behavior is specific to the Sussex study shell config, but on the current
+April 2026 Meta OS build it no longer guarantees that the controller Meta /
+menu button is visually neutralized while Sussex is active. Treat it as
+best-effort task pinning plus screenshot-confirmed foreground only. The public
+GUI also no longer exposes remote headset wake/sleep controls for Sussex; use
+manual headset wake/sleep only.
 
 Current operator rule:
 
@@ -116,17 +123,18 @@ Current operator rule:
 - for off-face functionality tests, quitting Sussex is optional and can be
   skipped
 
-Current confirmed GUI behavior on this machine:
+Current confirmed GUI behavior on this machine after the April 2026 Meta OS
+update:
 
-- from visible Meta Home, `Launch Kiosk Runtime` now reaches a working Sussex
-  kiosk state again
-- in that confirmed kiosk state, the controller Meta/menu button is visually
-  neutralized while the Unity runtime stays in front
+- from visible Meta Home, `Launch Kiosk Runtime` can still reach a working
+  Sussex runtime in front
+- the controller Meta / menu button is no longer a reliable kiosk-success
+  signal, because it can remain active even while Sussex stays in front
 - from a worn-head, visible Sussex runtime state, `Exit Kiosk Runtime` can
-  return the headset to visible Meta Home and restore normal controller
-  Meta/menu behavior
-- if the headset is already in black `SensorLock` limbo before the operator
-  starts, a physical power-button recovery can still be required first
+  still return the headset to visible Meta Home, but screenshot confirmation
+  remains mandatory
+- if the headset is already asleep or in black `SensorLock` limbo before the
+  operator starts, wake or recover it first; do not launch Sussex from sleep
 
 ## Self-Contained Sussex Package
 

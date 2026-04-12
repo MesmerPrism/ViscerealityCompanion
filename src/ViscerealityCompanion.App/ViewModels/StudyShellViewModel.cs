@@ -58,6 +58,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int WorkflowClockAlignmentDurationSeconds = SussexClockAlignmentStreamContract.DefaultDurationSeconds;
     private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds;
     private const int WorkflowClockAlignmentInitialBackgroundProbeDelaySeconds = 1;
+    private const string LaunchSleepBlockButtonLabel = "Wake Headset To Enable Launching";
+    private const string LaunchVisualBlockButtonLabel = "Clear Headset Blocker Before Launching";
+    private const string LaunchSleepBlockInstruction = "Wake the headset to enable launching.";
+    private const string LaunchVisualBlockInstruction = "Clear Guardian or any other Meta visual blocker before launching.";
+    private const string KioskMenuButtonAdvisory = "On the current Meta OS build, kiosk is best-effort task pinning only and does not reliably disable the controller Meta/menu button.";
     private const string TwinCommandStreamName = "quest_twin_commands";
     private const string TwinCommandStreamType = "quest.twin.command";
     private const string TwinStateStreamName = "quest_twin_state";
@@ -109,7 +114,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         new(5, "Verify the Sussex APK", "Check whether the approved Sussex Experiment APK is installed. If not, install the bundled study APK before moving on."),
         new(6, "Review the device profile", "Apply the pinned CPU, GPU, brightness, and media-volume profile, then review the battery and remaining bench advisories before leaving the bench. These checks stay visible, but they do not block the Sussex flow."),
         new(7, "Draw the boundary", "Have the experimenter draw a comfortable boundary that covers the participant position, experimenter position, and the full experiment area. This step is manual and not enforced by the app."),
-        new(8, "Launch kiosk mode", "Launch the Sussex runtime in kiosk mode. Kiosk means the study app is pinned in front and normal app switching is suppressed until the operator exits."),
+        new(8, "Launch kiosk mode", "Wake the headset to enable launching, then launch the Sussex runtime in kiosk mode. On the current Meta OS build this is best-effort task pinning, not a reliable Meta/menu-button lockout."),
         new(9, "Verify LSL reaches the headset", "Confirm the external heartbeat/biofeedback LSL stream is reaching the Sussex runtime and that the resulting live state is visible back in the companion."),
         new(10, "Test particle commands", "Use the companion controls to turn particles on and then off again. This is still recommended for bench confidence, but it does not block the Sussex flow."),
         new(11, "Try controller calibration", "Controller-volume breathing calibration is available here, but the current Sussex APK path is still unstable. Try it if useful, but it is not required before continuing."),
@@ -302,7 +307,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowSetupDetail = "Connect over Wi-Fi ADB, confirm the Sussex build, and apply the pinned device profile.";
     private OperationOutcomeKind _workflowKioskLevel = OperationOutcomeKind.Preview;
     private string _workflowKioskSummary = "Boundary setup and kiosk entry have not started yet.";
-    private string _workflowKioskDetail = "Keep the session on Wi-Fi ADB, put the headset on, wake the controller, then launch kiosk mode.";
+    private string _workflowKioskDetail = "Keep the session on Wi-Fi ADB, wake the headset to enable launching, wake the controller, then launch kiosk mode.";
     private OperationOutcomeKind _workflowBenchLevel = OperationOutcomeKind.Preview;
     private string _workflowBenchSummary = "Bench verification is waiting for the Sussex runtime.";
     private string _workflowBenchDetail = "Run particles, recenter, LSL, and controller calibration checks before participant handoff.";
@@ -507,11 +512,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         AnalyzeWindowsEnvironmentCommand = new AsyncRelayCommand(AnalyzeWindowsEnvironmentAsync);
         BrowseApkCommand = new AsyncRelayCommand(BrowseApkAsync);
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
-        LaunchStudyAppCommand = new AsyncRelayCommand(LaunchStudyAppAsync);
+        LaunchStudyAppCommand = new AsyncRelayCommand(LaunchStudyAppAsync, () => CanLaunchStudyRuntime);
         StopStudyAppCommand = new AsyncRelayCommand(StopStudyAppAsync);
-        ToggleStudyRuntimeCommand = new AsyncRelayCommand(ToggleStudyRuntimeAsync);
+        ToggleStudyRuntimeCommand = new AsyncRelayCommand(ToggleStudyRuntimeAsync, () => CanToggleStudyRuntime);
         ApplyPinnedDeviceProfileCommand = new AsyncRelayCommand(ApplyPinnedDeviceProfileAsync);
-        ToggleHeadsetPowerCommand = new AsyncRelayCommand(ToggleHeadsetPowerAsync);
         ToggleProximityCommand = new AsyncRelayCommand(ToggleProximityAsync);
         CaptureQuestScreenshotCommand = new AsyncRelayCommand(CaptureQuestScreenshotAsync);
         OpenLastQuestScreenshotCommand = new AsyncRelayCommand(OpenLastQuestScreenshotAsync);
@@ -617,7 +621,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _endpointDraft, value))
             {
-                OnPropertyChanged(nameof(CanToggleHeadsetPower));
                 OnPropertyChanged(nameof(CanToggleProximity));
             }
         }
@@ -1812,21 +1815,36 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public bool? IsProximityToggleState
         => GetCurrentProximityEnabledState();
 
-    public string HeadsetAwakeActionLabel
-        => IsHeadsetAwakeToggleState
-            ? "Sleep Headset"
-            : "Wake Headset";
-
-    public bool IsHeadsetAwakeToggleState
-        => _headsetStatus is { IsAwake: true, IsInWakeLimbo: false } && !IsHeadsetWakeBlockedByLockScreen();
-
     public string StudyRuntimeActionLabel
         => IsStudyRuntimeToggleState
             ? (_study.App.LaunchInKioskMode ? "Exit Kiosk Runtime" : "Stop Study Runtime")
-            : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
+            : IsLaunchBlockedBySleepingHeadset
+                ? LaunchSleepBlockButtonLabel
+                : IsLaunchBlockedByHeadsetVisualBlocker
+                    ? LaunchVisualBlockButtonLabel
+                : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
 
     public bool IsStudyRuntimeToggleState
         => IsStudyRuntimeForeground();
+
+    public bool IsLaunchBlockedBySleepingHeadset
+        => !IsStudyRuntimeForeground() && _headsetStatus?.IsAwake == false;
+
+    public bool IsLaunchBlockedByHeadsetVisualBlocker
+        => !IsStudyRuntimeForeground() && _headsetStatus?.IsInWakeLimbo == true;
+
+    public bool CanLaunchStudyRuntime
+        => !IsLaunchBlockedBySleepingHeadset && !IsLaunchBlockedByHeadsetVisualBlocker;
+
+    public bool CanToggleStudyRuntime
+        => IsStudyRuntimeToggleState || CanLaunchStudyRuntime;
+
+    public string WorkflowGuideLaunchActionLabel
+        => IsLaunchBlockedBySleepingHeadset
+            ? LaunchSleepBlockButtonLabel
+            : IsLaunchBlockedByHeadsetVisualBlocker
+                ? LaunchVisualBlockButtonLabel
+            : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
 
     public string TestLslSenderSummary
     {
@@ -2164,9 +2182,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         => _hzdbService.IsAvailable
             && !string.IsNullOrWhiteSpace(ResolveHeadsetActionSelector());
 
-    public bool CanToggleHeadsetPower
-        => !string.IsNullOrWhiteSpace(ResolveHeadsetActionSelector());
-
     public bool CanToggleTestLslSender
         => _testLslSignalService.IsRunning
             || _testLslSignalService.RuntimeState.Available;
@@ -2247,7 +2262,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand StopStudyAppCommand { get; }
     public AsyncRelayCommand ToggleStudyRuntimeCommand { get; }
     public AsyncRelayCommand ApplyPinnedDeviceProfileCommand { get; }
-    public AsyncRelayCommand ToggleHeadsetPowerCommand { get; }
     public AsyncRelayCommand ToggleProximityCommand { get; }
     public AsyncRelayCommand CaptureQuestScreenshotCommand { get; }
     public AsyncRelayCommand OpenLastQuestScreenshotCommand { get; }
@@ -2879,37 +2893,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         await RefreshHeadsetStatusAsync().ConfigureAwait(false);
     }
 
-    private async Task ToggleHeadsetPowerAsync()
-    {
-        var action = _headsetStatus is { IsAwake: true, IsInWakeLimbo: false } && !IsHeadsetWakeBlockedByLockScreen()
-            ? QuestUtilityAction.Sleep
-            : QuestUtilityAction.Wake;
-        var actionLabel = action == QuestUtilityAction.Sleep ? "Sleep Headset" : "Wake Headset";
-        var outcome = action == QuestUtilityAction.Wake
-            ? await _questService.RunUtilityAsync(action, allowWakeResumeTarget: false).ConfigureAwait(false)
-            : await _questService.RunUtilityAsync(action).ConfigureAwait(false);
-
-        if (action == QuestUtilityAction.Wake)
-        {
-            if (outcome.Kind != OperationOutcomeKind.Failure)
-            {
-                await Task.Delay(350).ConfigureAwait(false);
-            }
-
-            await RefreshStatusAsync().ConfigureAwait(false);
-            await ApplyOutcomeAsync(actionLabel, BuildWakeActionOutcome(outcome)).ConfigureAwait(false);
-            return;
-        }
-
-        await ApplyOutcomeAsync(actionLabel, outcome).ConfigureAwait(false);
-        if (outcome.Kind != OperationOutcomeKind.Failure)
-        {
-            await Task.Delay(350).ConfigureAwait(false);
-        }
-
-        await RefreshStatusAsync().ConfigureAwait(false);
-    }
-
     private async Task ToggleProximityAsync()
     {
         await TryWakeHeadsetBeforeStudyActionAsync("Toggle proximity hold").ConfigureAwait(false);
@@ -3387,30 +3370,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
            !IsStudyRuntimeForeground() &&
            !string.IsNullOrWhiteSpace(_headsetStatus.ForegroundComponent) &&
            _headsetStatus.ForegroundComponent.Contains(QuestSensorLockActivity, StringComparison.OrdinalIgnoreCase);
-
-    private OperationOutcome BuildWakeActionOutcome(OperationOutcome outcome)
-    {
-        if (outcome.Kind == OperationOutcomeKind.Failure || !IsHeadsetWakeBlockedByLockScreen())
-        {
-            return outcome;
-        }
-
-        var detailParts = new List<string>(3);
-        if (!string.IsNullOrWhiteSpace(outcome.Detail))
-        {
-            detailParts.Add(outcome.Detail);
-        }
-
-        detailParts.Add("Quest woke into SensorLockActivity instead of returning to the previous app.");
-        detailParts.Add(_headsetStatus?.IsTargetRunning == true
-            ? "Use Launch Study Runtime to bring Sussex back to the foreground."
-            : "Use Launch Study Runtime if you want to start Sussex from this state.");
-
-        return new OperationOutcome(
-            OperationOutcomeKind.Warning,
-            "Headset wake ended in the Quest lock screen.",
-            string.Join(" ", detailParts));
-    }
 
     private async Task<OperationOutcome?> TryStabilizeStudyPerformancePolicyAsync()
     {
@@ -5377,9 +5336,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             UpdateConnectionCardState();
             UpdateHeadsetSnapshotModeState();
             RefreshBenchToolsStatus();
-            OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
-            OnPropertyChanged(nameof(StudyRuntimeActionLabel));
-            OnPropertyChanged(nameof(CanToggleHeadsetPower));
+            RefreshStudyRuntimeLaunchState();
         }).ConfigureAwait(false);
 
         if (_startupHotloadSyncDeferredUntilStudyStops &&
@@ -6001,7 +5958,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 HeadsetAwakeLevel = OperationOutcomeKind.Warning;
                 HeadsetAwakeSummary = "Meta shell wake blocker active.";
-                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but a Meta visual blocker is still active, so the visible headset scene can still be black or Guardian-blocked even though Android says it is awake. Use Capture Quest Screenshot to confirm the actual visible state before deciding whether to launch or exit kiosk mode. {proximityContext}".Trim();
+                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but a Meta visual blocker is still active, so the visible headset scene can still be black or Guardian-blocked even though Android says it is awake. {LaunchVisualBlockInstruction} Use Capture Quest Screenshot to confirm the actual visible state before deciding whether to launch or exit kiosk mode. {proximityContext}".Trim();
             }
             else if (_headsetStatus.IsAwake == true)
             {
@@ -6012,8 +5969,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             else if (_headsetStatus.IsAwake == false)
             {
                 HeadsetAwakeLevel = OperationOutcomeKind.Warning;
-                HeadsetAwakeSummary = "Headset asleep.";
-                HeadsetAwakeDetail = $"{powerEvidence} {proximityContext} Any headset action button will wake the device before its command is sent.".Trim();
+                HeadsetAwakeSummary = "Headset asleep. Wake before launching.";
+                HeadsetAwakeDetail = $"{powerEvidence} {proximityContext} {LaunchSleepBlockInstruction} Do not start Sussex while the headset is asleep on this Meta OS build, because the runtime can enter a black or limbo scene that may require a headset restart. Other headset action buttons can still wake the device before their command is sent.".Trim();
             }
             else
             {
@@ -6025,9 +5982,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             }
         }
 
-        OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
-        OnPropertyChanged(nameof(StudyRuntimeActionLabel));
-        OnPropertyChanged(nameof(CanToggleHeadsetPower));
+        RefreshStudyRuntimeLaunchState();
     }
 
     private async Task ApplyOutcomeAsync(string actionLabel, OperationOutcome outcome)
@@ -6064,11 +6019,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdateTestLslSenderCard();
         UpdateBenchToolsCardState();
         UpdateBenchRefreshTimerState();
-        OnPropertyChanged(nameof(CanToggleHeadsetPower));
-        OnPropertyChanged(nameof(HeadsetAwakeActionLabel));
-        OnPropertyChanged(nameof(IsHeadsetAwakeToggleState));
-        OnPropertyChanged(nameof(StudyRuntimeActionLabel));
-        OnPropertyChanged(nameof(IsStudyRuntimeToggleState));
         OnPropertyChanged(nameof(CanStartBreathingCalibration));
         OnPropertyChanged(nameof(CanResetBreathingCalibration));
         OnPropertyChanged(nameof(CanToggleAutomaticBreathingMode));
@@ -6088,11 +6038,40 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanToggleProximity));
         OnPropertyChanged(nameof(IsProximityToggleState));
         OnPropertyChanged(nameof(CanCaptureQuestScreenshot));
+        RefreshStudyRuntimeLaunchState();
         OnPropertyChanged(nameof(CanOpenLastQuestScreenshot));
         OnPropertyChanged(nameof(CanToggleTestLslSender));
         OnPropertyChanged(nameof(IsTestLslSenderToggleState));
         UpdateWorkflowStatus();
     }
+
+    private void RefreshStudyRuntimeLaunchState()
+    {
+        OnPropertyChanged(nameof(StudyRuntimeActionLabel));
+        OnPropertyChanged(nameof(WorkflowGuideLaunchActionLabel));
+        OnPropertyChanged(nameof(IsStudyRuntimeToggleState));
+        OnPropertyChanged(nameof(IsLaunchBlockedBySleepingHeadset));
+        OnPropertyChanged(nameof(IsLaunchBlockedByHeadsetVisualBlocker));
+        OnPropertyChanged(nameof(CanLaunchStudyRuntime));
+        OnPropertyChanged(nameof(CanToggleStudyRuntime));
+
+        if (LaunchStudyAppCommand is not null)
+        {
+            LaunchStudyAppCommand.RaiseCanExecuteChanged();
+        }
+
+        if (ToggleStudyRuntimeCommand is not null)
+        {
+            ToggleStudyRuntimeCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    private string BuildLaunchBlockInstruction()
+        => IsLaunchBlockedBySleepingHeadset
+            ? LaunchSleepBlockInstruction
+            : IsLaunchBlockedByHeadsetVisualBlocker
+                ? LaunchVisualBlockInstruction
+                : string.Empty;
 
     private void RefreshAutomaticBreathingStateProperties()
     {
@@ -8602,7 +8581,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 "Cover the participant position, the experimenter position, and the full experiment area before using Next."),
             7 => (
                 "Launch Sussex in kiosk mode.",
-                "Wake the right controller first and confirm the connection still shows the Wi-Fi endpoint before launching."),
+                $"{LaunchSleepBlockInstruction} {LaunchVisualBlockInstruction} Wake the right controller first, confirm the connection still shows the Wi-Fi endpoint before launching, and do not rely on kiosk to disable the controller Meta/menu button on the current Meta OS build."),
             8 => (
                 "Turn on the test LSL sender if needed, then run Probe Connection or Analyze Windows Environment.",
                 "Probe Connection checks the headset path. Analyze Windows Environment checks the Windows tooling, liblsl runtimes, twin bridge, and whether the expected upstream sender is visible on this PC."),
@@ -8847,9 +8826,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         var ready = IsStudyRuntimeForeground();
         var level = ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
+        var launchBlockInstruction = BuildLaunchBlockInstruction();
         var detail = ready
-            ? "Sussex Experiment is active in the foreground. Kiosk keeps the experiment app pinned in front. If the controller was asleep at launch, wake it and relaunch before moving on."
-            : "Wake the right controller, confirm the connection still shows the Wi-Fi endpoint, then press Launch Sussex In Kiosk Mode. Kiosk pins the experiment app in front and suppresses normal app switching.";
+            ? $"Sussex Experiment is active in the foreground. {KioskMenuButtonAdvisory} If the controller was asleep at launch, wake it and relaunch before moving on."
+            : $"{(string.IsNullOrWhiteSpace(launchBlockInstruction) ? string.Empty : $"{launchBlockInstruction} ")}Wake the right controller, confirm the connection still shows the Wi-Fi endpoint, then launch kiosk mode. {KioskMenuButtonAdvisory}";
         return new WorkflowGuideGateState(level, ready ? "Sussex runtime is active in kiosk." : "Sussex runtime is not active in kiosk yet.", detail, ready);
     }
 
@@ -9189,6 +9169,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             7 =>
             [
+                new WorkflowGuideCheckItem("Headset wake", HeadsetAwakeSummary, HeadsetAwakeDetail, HeadsetAwakeLevel),
                 new WorkflowGuideCheckItem("Foreground runtime", IsStudyRuntimeForeground() ? "Sussex Experiment is in the foreground." : "Sussex Experiment is not in the foreground yet.", HeadsetForegroundLabel, IsStudyRuntimeForeground() ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
                 new WorkflowGuideCheckItem("Controller wake reminder", BuildControllerWakeReminderSummary(), BuildControllerWakeReminderDetail(), BuildControllerWakeReminderLevel())
             ],
@@ -9270,7 +9251,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             [],
             7 =>
             [
-                BuildWorkflowGuideActionItem("Launch Sussex In Kiosk Mode", LaunchStudyAppCommand, true, "Launching Sussex In Kiosk Mode..."),
+                BuildWorkflowGuideActionItem(WorkflowGuideLaunchActionLabel, LaunchStudyAppCommand, CanLaunchStudyRuntime, "Launching Kiosk Runtime..."),
                 BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
             ],
             8 =>
@@ -9785,7 +9766,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     : "Sussex kiosk is up and ready for bench verification."
                 : "Boundary setup and kiosk entry are still pending.";
         WorkflowKioskDetail =
-            $"{HeadsetAwakeSummary} {ControllerSummary} Keep watching the connection card so the guided path stays on the Wi-Fi endpoint used during the study. " +
+            $"{HeadsetAwakeSummary} {ControllerSummary} {(string.IsNullOrWhiteSpace(BuildLaunchBlockInstruction()) ? string.Empty : $"{BuildLaunchBlockInstruction()} ")}Keep watching the connection card so the guided path stays on the Wi-Fi endpoint used during the study. {KioskMenuButtonAdvisory} " +
             "Use the physical power button for off-face sleep/wake and keep proximity in normal mode during the standard kiosk path.";
 
         WorkflowBenchLevel = !runtimeForeground

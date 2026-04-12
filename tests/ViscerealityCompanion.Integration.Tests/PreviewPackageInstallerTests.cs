@@ -15,9 +15,9 @@ public sealed class PreviewPackageInstallerTests
                 appInstallerPath,
                 """
                 <?xml version="1.0" encoding="utf-8"?>
-                <AppInstaller xmlns="http://schemas.microsoft.com/appx/appinstaller/2018" Version="0.1.38.0">
+                <AppInstaller xmlns="http://schemas.microsoft.com/appx/appinstaller/2018" Version="0.1.39.0">
                   <MainPackage Name="MesmerPrism.ViscerealityCompanion"
-                               Version="0.1.38.0"
+                               Version="0.1.39.0"
                                Publisher="CN=MesmerPrism"
                                ProcessorArchitecture="x64"
                                Uri="https://example.invalid/ViscerealityCompanion.msix" />
@@ -28,7 +28,7 @@ public sealed class PreviewPackageInstallerTests
 
             Assert.Equal("MesmerPrism.ViscerealityCompanion", identity.Name);
             Assert.Equal("CN=MesmerPrism", identity.Publisher);
-            Assert.Equal("0.1.38.0", identity.Version);
+            Assert.Equal("0.1.39.0", identity.Version);
             Assert.Equal(new Uri(appInstallerPath, UriKind.Absolute), identity.AppInstallerUri);
         }
         finally
@@ -43,7 +43,7 @@ public sealed class PreviewPackageInstallerTests
         var packageIdentity = new PreviewPackageIdentity(
             "MesmerPrism.ViscerealityCompanion",
             "CN=MesmerPrism",
-            "0.1.38.0",
+            "0.1.39.0",
             new Uri("file:///C:/Temp/ViscerealityCompanion.appinstaller"));
 
         var package = PreviewPackageInstaller.FindExistingPackage(

@@ -131,11 +131,15 @@ Options:
 | `study list` | List available pinned study shells |
 | `study install <study>` | Install the pinned study APK |
 | `study apply-profile <study>` | Apply the pinned study device profile |
-| `study launch <study>` | Launch the pinned study runtime using the study kiosk policy |
+| `study launch <study>` | Launch the pinned study runtime using the study kiosk policy. The command now refuses to launch while the headset reports asleep; wake the headset first. |
 | `study stop <study>` | Stop the pinned study runtime using the study kiosk-exit policy |
 | `study status <study>` | Compare current headset state against the pinned study baseline |
 
 For Sussex, the study id is currently `sussex-university`.
+
+Remote headset wake/sleep is no longer part of the supported public GUI
+operator flow for Sussex. Use manual headset wake/sleep, and clear Guardian or
+other Meta visual blockers before `study launch`.
 
 ### Sussex Profiles
 

@@ -1941,20 +1941,24 @@ public static class HarnessScenarioRunner
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            var summary = studyViewModel.HeadsetAwakeSummary;
-            if (string.Equals(summary, "Headset awake.", StringComparison.OrdinalIgnoreCase))
+            await ExecuteCommandAsync(
+                studyViewModel.RefreshStatusCommand,
+                studyViewModel,
+                null,
+                TimeSpan.FromSeconds(15));
+
+            if (studyViewModel.IsStudyRuntimeToggleState ||
+                (!studyViewModel.IsLaunchBlockedBySleepingHeadset && !studyViewModel.IsLaunchBlockedByHeadsetVisualBlocker))
             {
                 return;
             }
 
-            await ExecuteCommandAsync(
-                studyViewModel.ToggleHeadsetPowerCommand,
-                studyViewModel,
-                "Wake Headset",
-                TimeSpan.FromSeconds(25));
-
             await Task.Delay(TimeSpan.FromSeconds(2));
         }
+
+        throw new InvalidOperationException(
+            $"Headset is not ready for Sussex launch. {studyViewModel.HeadsetAwakeSummary} {studyViewModel.HeadsetAwakeDetail} " +
+            "Wake the headset on-head and clear Guardian or any other Meta visual blocker before retrying the harness.");
     }
 
     private static bool? ParseBool(string? value)

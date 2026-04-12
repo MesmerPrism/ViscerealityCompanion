@@ -322,8 +322,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     [
         new ActionChoice<QuestUtilityAction>("Home", "Return to the Quest launcher.", QuestUtilityAction.Home),
         new ActionChoice<QuestUtilityAction>("Back", "Send a back event to the active Quest app.", QuestUtilityAction.Back),
-        new ActionChoice<QuestUtilityAction>("Wake", "Wake the Quest display before other commands.", QuestUtilityAction.Wake),
-        new ActionChoice<QuestUtilityAction>("Sleep", "Put the Quest display to sleep without changing the proximity mode.", QuestUtilityAction.Sleep),
         new ActionChoice<QuestUtilityAction>("List Apps", "Read the Quest package list over ADB.", QuestUtilityAction.ListInstalledPackages),
         new ActionChoice<QuestUtilityAction>("Reboot", "Reboot the Quest from the active ADB session.", QuestUtilityAction.Reboot)
     ]);

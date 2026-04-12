@@ -68,6 +68,21 @@ cross-project patterns, or central-bureau maintenance, use
   sussex-university`, kiosk entry, or shell-owned process state as proof that
   Sussex is visibly foregrounded. The app can launch, trigger a permission /
   task-lock transition, and bounce back to Home.
+- On the current HorizonOS build after the April 2026 Meta OS update on this
+  machine, do not describe Sussex kiosk mode as reliably disabling the
+  right-controller Meta / menu button. The app can launch and remain in front
+  while the menu button still behaves normally. Treat kiosk as best-effort task
+  pinning plus screenshot-confirmed foreground, not as a guaranteed button
+  lockout.
+- If the headset reports `Asleep`, wake it before any Sussex launch. Do not
+  launch while asleep. On this build that can leave Sussex running in a black /
+  limbo scene that may require a full headset restart. Operator-facing launch
+  surfaces should say `Wake the headset to enable launching` when that guard is
+  active.
+- The public GUI should not expose remote headset wake or sleep controls for
+  Sussex right now. The only official operator path is manual wake/sleep on the
+  headset itself, with launch blocked until the headset is awake and free of
+  Guardian or other Meta visual blockers.
 - For live Sussex validation, require both:
   - foreground confirmation from `viscereality status` or an equivalent ADB
     foreground-app check showing
@@ -91,10 +106,10 @@ cross-project patterns, or central-bureau maintenance, use
   SensorLock / passthrough limbo even when shell ownership looks home-like.
 - For off-face automation and functionality tests, quitting the Sussex APK is
   optional and should normally be skipped.
-- Recent Meta OS updates on this machine appear to have weakened true kiosk
-  lock. Off-face stop / restart is now less risky than older builds, but it is
-  still not a validation signal by itself. If an agent restarts Sussex
-  off-face, immediately re-check both foreground state and a fresh screenshot.
+- Recent Meta OS updates on this machine have weakened true kiosk lock.
+  Off-face stop / restart is now less risky than older builds, but it is still
+  not a validation signal by itself. If an agent restarts Sussex off-face,
+  immediately re-check both foreground state and a fresh screenshot.
 - If Sussex really must be exited, ask the user to wear the headset and quit it
   from a visible on-head state, then confirm the resulting Home-side scene with
   `Capture Quest Screenshot` or an equivalent metacam capture.
