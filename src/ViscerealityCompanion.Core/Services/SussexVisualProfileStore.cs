@@ -13,10 +13,7 @@ public sealed class SussexVisualProfileStore
         string? rootPath = null)
     {
         _compiler = compiler ?? throw new ArgumentNullException(nameof(compiler));
-        RootPath = rootPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "sussex-visual-profiles");
+        RootPath = rootPath ?? CompanionOperatorDataLayout.SussexVisualProfilesRootPath;
     }
 
     public string RootPath { get; }

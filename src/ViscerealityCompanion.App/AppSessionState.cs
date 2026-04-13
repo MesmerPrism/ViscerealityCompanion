@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App;
 
@@ -12,10 +13,7 @@ internal sealed record AppSessionState(
     DateTimeOffset? LastProximityUpdatedAtUtc = null,
     bool RegularAdbSnapshotEnabled = false)
 {
-    private static readonly string SessionDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ViscerealityCompanion",
-        "session");
+    private static readonly string SessionDirectory = CompanionOperatorDataLayout.SessionRootPath;
 
     private static readonly string StatePath = Path.Combine(SessionDirectory, "app-state.json");
     private static readonly string CliFallbackPath = Path.Combine(SessionDirectory, "cli-state.json");

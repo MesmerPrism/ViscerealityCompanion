@@ -1247,8 +1247,7 @@ public static class Program
             var hzdb = HzdbServiceFactory.CreateDefault();
             var serial = ResolveDeviceSerial(device);
             var outputPath = output ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "ViscerealityCompanion", "screenshots",
+                CompanionOperatorDataLayout.ScreenshotsRootPath,
                 $"screenshot_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}");
             var result = await hzdb.CaptureScreenshotAsync(serial, outputPath);
             PrintOutcome(result);
@@ -1398,11 +1397,13 @@ public static class Program
         {
             using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
             using var testSender = TestLslSignalServiceFactory.CreateDefault();
+            var streamDiscovery = LslStreamDiscoveryServiceFactory.CreateDefault();
             var bridge = TwinModeBridgeFactory.CreateDefault();
             try
             {
                 var service = new WindowsEnvironmentAnalysisService(
                     CreateMonitorService(),
+                    streamDiscovery,
                     clockAlignment,
                     testSender,
                     bridge);

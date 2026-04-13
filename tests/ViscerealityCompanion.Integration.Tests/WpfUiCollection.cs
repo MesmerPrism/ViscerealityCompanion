@@ -1,6 +1,6 @@
 namespace ViscerealityCompanion.Integration.Tests;
 
 [CollectionDefinition("WpfUi", DisableParallelization = true)]
-public sealed class WpfUiCollection
+public sealed class WpfUiCollection : ICollectionFixture<WpfUiFixture>
 {
 }

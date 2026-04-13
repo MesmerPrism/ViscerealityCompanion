@@ -1114,12 +1114,12 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
     }
 
-    private async Task UseDynamicAxisCalibrationAsync()
+    public async Task UseDynamicAxisCalibrationAsync()
     {
         await ApplyCalibrationModeSelectionAsync(useDynamicMotionAxis: true).ConfigureAwait(false);
     }
 
-    private async Task UseFixedOrientationCalibrationAsync()
+    public async Task UseFixedOrientationCalibrationAsync()
     {
         await ApplyCalibrationModeSelectionAsync(useDynamicMotionAxis: false).ConfigureAwait(false);
     }

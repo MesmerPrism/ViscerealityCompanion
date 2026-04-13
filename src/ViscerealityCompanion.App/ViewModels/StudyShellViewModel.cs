@@ -86,6 +86,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly TimeSpan DeviceSnapshotRefreshInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ProximityReadbackRefreshInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan RecordingSampleInterval = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan MachineLslStateRefreshSettleDelay = TimeSpan.FromMilliseconds(600);
     private static readonly TimeSpan WorkflowGuidePendingCommandWindow = TimeSpan.FromSeconds(15);
     private const int ClockAlignmentConsistencyHistoryLimit = 6;
     private const double ClockAlignmentConsistencyWarningMeanRoundTripSeconds = 0.08d;
@@ -141,11 +142,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly ITestLslSignalService _testLslSignalService = TestLslSignalServiceFactory.CreateDefault();
     private readonly IStudyClockAlignmentService _clockAlignmentService = StudyClockAlignmentServiceFactory.CreateDefault();
     private readonly ILslMonitorService _upstreamLslMonitorService = LslMonitorServiceFactory.CreateDefault();
+    private readonly ILslStreamDiscoveryService _lslStreamDiscoveryService = LslStreamDiscoveryServiceFactory.CreateDefault();
     private readonly WindowsEnvironmentAnalysisService _windowsEnvironmentAnalysisService;
     private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
     private readonly SemaphoreSlim _startupHotloadSyncSemaphore = new(1, 1);
+    private readonly SemaphoreSlim _machineLslStateRefreshGate = new(1, 1);
     private readonly SussexVisualProfilesWorkspaceViewModel _visualProfiles;
     private readonly SussexControllerBreathingProfilesWorkspaceViewModel _controllerBreathingProfiles;
     private readonly Dispatcher _dispatcher;
@@ -225,6 +228,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _proximityLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _questScreenshotLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _testLslSenderLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _machineLslStateLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _windowsEnvironmentAnalysisLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _benchToolsCardLevel = OperationOutcomeKind.Warning;
     private string _deviceProfileSummary = "Pinned device profile has not been checked yet.";
@@ -268,6 +272,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _windowsEnvironmentAnalysisDetail = "Run Analyze Windows Environment to check local tooling, liblsl runtimes, the twin bridge, and the expected upstream sender visibility on this PC.";
     private string _windowsEnvironmentAnalysisTimestampLabel = "Not run yet.";
     private bool _windowsEnvironmentAnalysisHasRun;
+    private string _machineLslStateSummary = "Machine LSL state has not been checked yet.";
+    private string _machineLslStateDetail = "Refresh Machine LSL State to compare companion-owned LSL services against the streams currently visible on this Windows machine. Use it to catch duplicate upstream senders, stale companion outlets, or cleanup leaks.";
+    private string _machineLslStateTimestampLabel = "Not checked yet.";
+    private bool _machineLslStateHasRun;
     private string _testLslSenderSummary = "Windows TEST sender off.";
     private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes smoothed HRV biofeedback samples on an irregular heartbeat-timed profile; Sussex treats packet arrival as heartbeat timing and the payload as the routed coherence value.";
     private string _testLslSenderValueLabel = "Not running";
@@ -455,6 +463,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _controllerBreathingProfiles = new SussexControllerBreathingProfilesWorkspaceViewModel(study, _questService, _twinBridge);
         _windowsEnvironmentAnalysisService = new WindowsEnvironmentAnalysisService(
             _upstreamLslMonitorService,
+            _lslStreamDiscoveryService,
             _clockAlignmentService,
             _testLslSignalService,
             _twinBridge);
@@ -509,6 +518,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         RefreshStatusCommand = new AsyncRelayCommand(RefreshStatusAsync);
         RefreshDeviceSnapshotCommand = new AsyncRelayCommand(RefreshDeviceSnapshotAsync);
         ProbeLslConnectionCommand = new AsyncRelayCommand(ProbeLslConnectionAsync);
+        RefreshMachineLslStateCommand = new AsyncRelayCommand(RefreshMachineLslStateAsync);
         AnalyzeWindowsEnvironmentCommand = new AsyncRelayCommand(AnalyzeWindowsEnvironmentAsync);
         BrowseApkCommand = new AsyncRelayCommand(BrowseApkAsync);
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
@@ -521,6 +531,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OpenLastQuestScreenshotCommand = new AsyncRelayCommand(OpenLastQuestScreenshotAsync);
         ToggleTestLslSenderCommand = new AsyncRelayCommand(ToggleTestLslSenderAsync);
         StartBreathingCalibrationCommand = new AsyncRelayCommand(StartBreathingCalibrationAsync);
+        StartDynamicAxisCalibrationCommand = new AsyncRelayCommand(StartDynamicAxisCalibrationAsync, () => CanStartDynamicAxisCalibration);
+        StartFixedAxisCalibrationCommand = new AsyncRelayCommand(StartFixedAxisCalibrationAsync, () => CanStartFixedAxisCalibration);
         ResetBreathingCalibrationCommand = new AsyncRelayCommand(ResetBreathingCalibrationAsync);
         ToggleAutomaticBreathingModeCommand = new AsyncRelayCommand(ToggleAutomaticBreathingModeAsync);
         ToggleAutomaticBreathingRunCommand = new AsyncRelayCommand(ToggleAutomaticBreathingRunAsync);
@@ -564,9 +576,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string ExperimentSessionWindowTitle => $"Sussex Experiment Session ({AppBuildIdentity.Current.ShortId})";
     public string LocalAgentWorkspacePath => _localAgentWorkspaceService.RootPath;
     public string LocalAgentWorkspaceSummary =>
-        "Use this folder as the environment for a local agent instead of the protected WindowsApps install. The companion mirrors a bundled CLI, the CLI docs, and the Sussex example catalogs there under LocalAppData.";
+        "Use this folder as the environment for a local agent instead of the protected WindowsApps install. The companion mirrors a bundled CLI, the CLI docs, and the Sussex example catalogs there under the host-visible operator-data root.";
     public string LocalAgentWorkspaceDetail =>
-        "Open the folder, then paste the built-in prompt into your local agent. The workspace includes `viscereality.ps1`, `viscereality.cmd`, and the bundled CLI payload under `cli\\current`, so the guided-install path can stay self-contained without a repo checkout.";
+        "Open the folder, then paste the built-in prompt into your local agent. The workspace includes `viscereality.ps1`, `viscereality.cmd`, and the bundled CLI payload under `cli\\current`, and the wrappers keep the CLI pointed at the same host-visible operator-data root as the installed app.";
     public SussexVisualProfilesWorkspaceViewModel VisualProfiles => _visualProfiles;
     public SussexControllerBreathingProfilesWorkspaceViewModel ControllerBreathingProfiles => _controllerBreathingProfiles;
 
@@ -953,6 +965,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _testLslSenderLevel, value);
     }
 
+    public OperationOutcomeKind MachineLslStateLevel
+    {
+        get => _machineLslStateLevel;
+        private set => SetProperty(ref _machineLslStateLevel, value);
+    }
+
     public OperationOutcomeKind WindowsEnvironmentAnalysisLevel
     {
         get => _windowsEnvironmentAnalysisLevel;
@@ -1170,7 +1188,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         get => _recordingFolderPath;
         private set
         {
-            if (SetProperty(ref _recordingFolderPath, value))
+            if (SetProperty(ref _recordingFolderPath, NormalizeHostVisibleOperatorPath(value)))
             {
                 OnPropertyChanged(nameof(CanOpenRecordingSessionFolder));
             }
@@ -1182,7 +1200,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         get => _recordingDevicePullFolderPath;
         private set
         {
-            if (SetProperty(ref _recordingDevicePullFolderPath, value))
+            if (SetProperty(ref _recordingDevicePullFolderPath, NormalizeHostVisibleOperatorPath(value)))
             {
                 OnPropertyChanged(nameof(CanOpenRecordingSessionDevicePullFolder));
             }
@@ -1194,7 +1212,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         get => _recordingPdfPath;
         private set
         {
-            if (SetProperty(ref _recordingPdfPath, value))
+            if (SetProperty(ref _recordingPdfPath, NormalizeHostVisibleOperatorPath(value)))
             {
                 OnPropertyChanged(nameof(CanOpenRecordingSessionPdf));
             }
@@ -1202,15 +1220,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     }
 
     public bool CanOpenRecordingSessionFolder
-        => !string.IsNullOrWhiteSpace(RecordingFolderPath)
-            && Directory.Exists(RecordingFolderPath);
+        => CompanionOperatorDataLayout.TryResolveExistingDirectory(RecordingFolderPath, out _);
 
     public bool CanOpenRecordingSessionDevicePullFolder
         => HasPulledQuestBackupFolder(RecordingDevicePullFolderPath);
 
     public bool CanOpenRecordingSessionPdf
-        => !string.IsNullOrWhiteSpace(RecordingPdfPath)
-            && File.Exists(RecordingPdfPath);
+        => CompanionOperatorDataLayout.TryResolveExistingFile(RecordingPdfPath, out _);
 
     public string WorkflowRuntimePendingSummary
     {
@@ -1337,7 +1353,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string WorkflowGuideQuestScreenshotPath
     {
         get => _workflowGuideQuestScreenshotPath;
-        private set => SetProperty(ref _workflowGuideQuestScreenshotPath, value);
+        private set => SetProperty(ref _workflowGuideQuestScreenshotPath, NormalizeHostVisibleOperatorPath(value));
     }
 
     public BitmapImage? WorkflowGuideQuestScreenshotPreview
@@ -1347,8 +1363,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     }
 
     public bool CanOpenWorkflowGuideQuestScreenshot
-        => !string.IsNullOrWhiteSpace(WorkflowGuideQuestScreenshotPath)
-            && File.Exists(WorkflowGuideQuestScreenshotPath);
+        => CompanionOperatorDataLayout.TryResolveExistingFile(WorkflowGuideQuestScreenshotPath, out _);
 
     public bool CanGoToPreviousWorkflowGuideStep => WorkflowGuideStepIndex > 0;
 
@@ -1390,7 +1405,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string ValidationCaptureLocalFolderPath
     {
         get => _validationCaptureLocalFolderPath;
-        private set => SetProperty(ref _validationCaptureLocalFolderPath, value);
+        private set => SetProperty(ref _validationCaptureLocalFolderPath, NormalizeHostVisibleOperatorPath(value));
     }
 
     public string ValidationCaptureDeviceSessionPath
@@ -1402,13 +1417,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string ValidationCaptureDevicePullFolderPath
     {
         get => _validationCaptureDevicePullFolderPath;
-        private set => SetProperty(ref _validationCaptureDevicePullFolderPath, value);
+        private set => SetProperty(ref _validationCaptureDevicePullFolderPath, NormalizeHostVisibleOperatorPath(value));
     }
 
     public string ValidationCapturePdfPath
     {
         get => _validationCapturePdfPath;
-        private set => SetProperty(ref _validationCapturePdfPath, value);
+        private set => SetProperty(ref _validationCapturePdfPath, NormalizeHostVisibleOperatorPath(value));
     }
 
     public bool ValidationCaptureRunning
@@ -1556,15 +1571,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     }
 
     public bool CanOpenValidationCaptureLocalFolder
-        => !string.IsNullOrWhiteSpace(ValidationCaptureLocalFolderPath)
-            && Directory.Exists(ValidationCaptureLocalFolderPath);
+        => CompanionOperatorDataLayout.TryResolveExistingDirectory(ValidationCaptureLocalFolderPath, out _);
 
     public bool CanOpenValidationCaptureDevicePullFolder
         => HasPulledQuestBackupFolder(ValidationCaptureDevicePullFolderPath);
 
     public bool CanOpenValidationCapturePdf
-        => !string.IsNullOrWhiteSpace(ValidationCapturePdfPath)
-            && File.Exists(ValidationCapturePdfPath);
+        => CompanionOperatorDataLayout.TryResolveExistingFile(ValidationCapturePdfPath, out _);
 
     public string DeviceProfileSummary
     {
@@ -1588,6 +1601,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _windowsEnvironmentAnalysisSummary;
         private set => SetProperty(ref _windowsEnvironmentAnalysisSummary, value);
+    }
+
+    public string MachineLslStateSummary
+    {
+        get => _machineLslStateSummary;
+        private set => SetProperty(ref _machineLslStateSummary, value);
+    }
+
+    public string MachineLslStateDetail
+    {
+        get => _machineLslStateDetail;
+        private set => SetProperty(ref _machineLslStateDetail, value);
+    }
+
+    public string MachineLslStateTimestampLabel
+    {
+        get => _machineLslStateTimestampLabel;
+        private set => SetProperty(ref _machineLslStateTimestampLabel, value);
+    }
+
+    public bool MachineLslStateHasRun
+    {
+        get => _machineLslStateHasRun;
+        private set => SetProperty(ref _machineLslStateHasRun, value);
     }
 
     public string WindowsEnvironmentAnalysisDetail
@@ -1623,7 +1660,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string QuestScreenshotPath
     {
         get => _questScreenshotPath;
-        private set => SetProperty(ref _questScreenshotPath, value);
+        private set => SetProperty(ref _questScreenshotPath, NormalizeHostVisibleOperatorPath(value));
     }
 
     public BitmapImage? QuestScreenshotPreview
@@ -2061,6 +2098,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public bool CanStartBreathingCalibration
         => !string.IsNullOrWhiteSpace(_study.Controls.StartBreathingCalibrationActionId);
 
+    public bool CanStartDynamicAxisCalibration
+        => CanStartBreathingCalibration && _controllerBreathingProfiles.IsAvailable;
+
+    public bool CanStartFixedAxisCalibration
+        => CanStartBreathingCalibration && _controllerBreathingProfiles.IsAvailable;
+
     public bool CanResetBreathingCalibration
         => !string.IsNullOrWhiteSpace(_study.Controls.ResetBreathingCalibrationActionId);
 
@@ -2191,8 +2234,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             && !string.IsNullOrWhiteSpace(ResolveQuestScreenshotSelector());
 
     public bool CanOpenLastQuestScreenshot
-        => !string.IsNullOrWhiteSpace(QuestScreenshotPath)
-            && File.Exists(QuestScreenshotPath);
+        => CompanionOperatorDataLayout.TryResolveExistingFile(QuestScreenshotPath, out _);
 
     public ObservableCollection<StudyValueSection> LiveSections { get; } = new();
 
@@ -2214,6 +2256,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public ObservableCollection<OperatorLogEntry> Logs { get; } = new();
     public ObservableCollection<WorkflowGuideCheckItem> WorkflowGuideChecks { get; } = new();
     public ObservableCollection<WorkflowGuideActionItem> WorkflowGuideActions { get; } = new();
+    public ObservableCollection<WorkflowGuideCheckItem> MachineLslStateChecks { get; } = new();
     public ObservableCollection<WorkflowGuideCheckItem> WindowsEnvironmentChecks { get; } = new();
     public ObservableCollection<WorkflowGuideCheckItem> ValidationClockAlignmentChecks { get; } = new();
 
@@ -2255,6 +2298,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand RefreshStatusCommand { get; }
     public AsyncRelayCommand RefreshDeviceSnapshotCommand { get; }
     public AsyncRelayCommand ProbeLslConnectionCommand { get; }
+    public AsyncRelayCommand RefreshMachineLslStateCommand { get; }
     public AsyncRelayCommand AnalyzeWindowsEnvironmentCommand { get; }
     public AsyncRelayCommand BrowseApkCommand { get; }
     public AsyncRelayCommand InstallStudyAppCommand { get; }
@@ -2267,6 +2311,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand OpenLastQuestScreenshotCommand { get; }
     public AsyncRelayCommand ToggleTestLslSenderCommand { get; }
     public AsyncRelayCommand StartBreathingCalibrationCommand { get; }
+    public AsyncRelayCommand StartDynamicAxisCalibrationCommand { get; }
+    public AsyncRelayCommand StartFixedAxisCalibrationCommand { get; }
     public AsyncRelayCommand ResetBreathingCalibrationCommand { get; }
     public AsyncRelayCommand ToggleAutomaticBreathingModeCommand { get; }
     public AsyncRelayCommand ToggleAutomaticBreathingRunCommand { get; }
@@ -2312,6 +2358,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         _ = WarmLocalAgentWorkspaceAsync();
+        QueueMachineLslStateRefresh();
     }
 
     public void Dispose()
@@ -2361,6 +2408,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _visualProfiles.Dispose();
         _controllerBreathingProfiles.Dispose();
         _startupHotloadSyncSemaphore.Dispose();
+        _machineLslStateRefreshGate.Dispose();
         _clockAlignmentService.Dispose();
         _testLslSignalService.Dispose();
     }
@@ -2459,6 +2507,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ApplyWindowsEnvironmentAnalysisResult(result);
             RefreshBenchToolsStatus();
         }).ConfigureAwait(false);
+        QueueMachineLslStateRefresh();
 
         await ApplyOutcomeAsync(
             "Analyze Windows Environment",
@@ -2511,6 +2560,444 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             Environment.NewLine,
             new[] { result.Detail }
                 .Concat(result.Checks.Select(check => $"{check.Label}: {check.Summary}")));
+
+    public Task RefreshMachineLslStateAsync()
+        => RefreshMachineLslStateCoreAsync(reportOutcome: true);
+
+    private void QueueMachineLslStateRefresh(TimeSpan? delay = null)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (delay is { } requestedDelay && requestedDelay > TimeSpan.Zero)
+                {
+                    await Task.Delay(requestedDelay).ConfigureAwait(false);
+                }
+
+                await RefreshMachineLslStateCoreAsync(reportOutcome: false).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best effort only. Explicit refreshes surface actionable failures.
+            }
+        });
+    }
+
+    private async Task RefreshMachineLslStateCoreAsync(bool reportOutcome)
+    {
+        if (!await _machineLslStateRefreshGate.WaitAsync(0).ConfigureAwait(false))
+        {
+            if (reportOutcome)
+            {
+                await ApplyOutcomeAsync(
+                    "Refresh Machine LSL State",
+                    new OperationOutcome(
+                        OperationOutcomeKind.Preview,
+                        "Machine LSL state is already refreshing.",
+                        "Wait for the current Windows-side LSL inventory pass to finish before running it again.")).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        try
+        {
+            var result = await BuildMachineLslStateResultAsync().ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                ApplyMachineLslStateResult(result);
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+
+            if (reportOutcome)
+            {
+                await ApplyOutcomeAsync(
+                    "Refresh Machine LSL State",
+                    new OperationOutcome(
+                        result.Level,
+                        result.Summary,
+                        BuildMachineLslStateActionDetail(result))).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() =>
+            {
+                MachineLslStateHasRun = true;
+                MachineLslStateLevel = OperationOutcomeKind.Failure;
+                MachineLslStateSummary = "Machine LSL state refresh failed.";
+                MachineLslStateDetail = exception.Message;
+                MachineLslStateTimestampLabel = $"Failed {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+                ReplaceWorkflowGuideCheckItems(MachineLslStateChecks, []);
+                RefreshBenchToolsStatus();
+            }).ConfigureAwait(false);
+
+            if (reportOutcome)
+            {
+                await ApplyOutcomeAsync(
+                    "Refresh Machine LSL State",
+                    new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        "Machine LSL state refresh failed.",
+                        exception.Message)).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _machineLslStateRefreshGate.Release();
+        }
+    }
+
+    private async Task<LslMachineStateResult> BuildMachineLslStateResultAsync()
+    {
+        var expectedStreamName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
+            ? HrvBiofeedbackStreamContract.StreamName
+            : _study.Monitoring.ExpectedLslStreamName;
+        var expectedStreamType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
+            ? HrvBiofeedbackStreamContract.StreamType
+            : _study.Monitoring.ExpectedLslStreamType;
+        var testSenderSourceId = BuildTestSenderSourceId();
+        var lslBridge = _twinBridge as LslTwinModeBridge;
+        var localTwinOutletsActive = lslBridge?.IsCommandOutletOpen == true;
+        var passiveMonitorRunning = _upstreamLslMonitorTask is { IsCompleted: false };
+        var backgroundClockMonitorRunning = _backgroundClockAlignmentTask is { IsCompleted: false };
+        var clockTransportExpectedActive = _activeRecordingSession is not null || backgroundClockMonitorRunning;
+
+        var runtimeState = _lslStreamDiscoveryService.RuntimeState;
+        IReadOnlyList<LslVisibleStreamInfo> expectedStreams = [];
+        IReadOnlyList<LslVisibleStreamInfo> twinCommandStreams = [];
+        IReadOnlyList<LslVisibleStreamInfo> twinConfigStreams = [];
+        IReadOnlyList<LslVisibleStreamInfo> clockProbeStreams = [];
+
+        if (runtimeState.Available)
+        {
+            var expectedTask = Task.Run(
+                () => _lslStreamDiscoveryService.Discover(new LslStreamDiscoveryRequest(expectedStreamName, expectedStreamType)),
+                CancellationToken.None);
+            var commandTask = Task.Run(
+                () => _lslStreamDiscoveryService.Discover(new LslStreamDiscoveryRequest(TwinCommandStreamName, TwinCommandStreamType)),
+                CancellationToken.None);
+            var configTask = Task.Run(
+                () => _lslStreamDiscoveryService.Discover(new LslStreamDiscoveryRequest(TwinConfigStreamName, TwinConfigStreamType)),
+                CancellationToken.None);
+            var clockTask = Task.Run(
+                () => _lslStreamDiscoveryService.Discover(new LslStreamDiscoveryRequest(SussexClockAlignmentStreamContract.ProbeStreamName, SussexClockAlignmentStreamContract.ProbeStreamType)),
+                CancellationToken.None);
+
+            await Task.WhenAll(expectedTask, commandTask, configTask, clockTask).ConfigureAwait(false);
+            expectedStreams = expectedTask.Result;
+            twinCommandStreams = commandTask.Result;
+            twinConfigStreams = configTask.Result;
+            clockProbeStreams = clockTask.Result;
+        }
+
+        var companionExpectedStreams = expectedStreams
+            .Where(stream => string.Equals(stream.SourceId, testSenderSourceId, StringComparison.Ordinal))
+            .ToArray();
+
+        var checks = new[]
+        {
+            BuildMachineLslRuntimeCheck(runtimeState),
+            BuildExpectedUpstreamInventoryCheck(expectedStreamName, expectedStreamType, expectedStreams, testSenderSourceId),
+            BuildTestSenderServiceCheck(expectedStreamName, expectedStreamType, companionExpectedStreams),
+            BuildTwinOutletInventoryCheck(localTwinOutletsActive, twinCommandStreams, twinConfigStreams, _twinBridge.Status),
+            BuildClockAlignmentTransportCheck(clockTransportExpectedActive, backgroundClockMonitorRunning, clockProbeStreams),
+            BuildPassiveUpstreamMonitorCheck(passiveMonitorRunning)
+        };
+
+        var failureCount = checks.Count(check => check.Level == OperationOutcomeKind.Failure);
+        var warningCount = checks.Count(check => check.Level == OperationOutcomeKind.Warning);
+        var level = failureCount > 0
+            ? OperationOutcomeKind.Failure
+            : warningCount > 0
+                ? OperationOutcomeKind.Warning
+                : OperationOutcomeKind.Success;
+
+        var summary = level switch
+        {
+            OperationOutcomeKind.Failure => "Machine LSL state found blocking issues.",
+            OperationOutcomeKind.Warning => "Machine LSL state needs attention.",
+            _ => "Machine LSL state looks clean."
+        };
+
+        var detail = $"Checks warn/fail: {warningCount}/{failureCount}.";
+        return new LslMachineStateResult(level, summary, detail, checks, DateTimeOffset.UtcNow);
+    }
+
+    private void ApplyMachineLslStateResult(LslMachineStateResult result)
+    {
+        MachineLslStateHasRun = true;
+        MachineLslStateLevel = result.Level;
+        MachineLslStateSummary = result.Summary;
+        MachineLslStateDetail = BuildMachineLslSummaryDetail(result);
+        MachineLslStateTimestampLabel = $"Last checked {result.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
+        ReplaceWorkflowGuideCheckItems(
+            MachineLslStateChecks,
+            result.Checks
+                .Select(check => new WorkflowGuideCheckItem(check.Label, check.Summary, check.Detail, check.Level))
+                .ToArray());
+    }
+
+    private static string BuildMachineLslSummaryDetail(LslMachineStateResult result)
+    {
+        var attentionItems = result.Checks
+            .Where(check => check.Level is OperationOutcomeKind.Warning or OperationOutcomeKind.Failure)
+            .Select(check => $"{check.Label}: {check.Summary}")
+            .ToArray();
+
+        if (attentionItems.Length == 0)
+        {
+            return $"{result.Detail} Companion-owned LSL services and the currently visible Windows-side streams agree.";
+        }
+
+        return $"{result.Detail} {string.Join(" ", attentionItems)}";
+    }
+
+    private static string BuildMachineLslStateActionDetail(LslMachineStateResult result)
+        => string.Join(
+            Environment.NewLine,
+            new[] { result.Detail }
+                .Concat(result.Checks.Select(check => $"{check.Label}: {check.Summary}")));
+
+    private LslMachineCheckResult BuildMachineLslRuntimeCheck(LslRuntimeState runtimeState)
+        => runtimeState.Available
+            ? new LslMachineCheckResult(
+                "Windows liblsl discovery runtime",
+                OperationOutcomeKind.Success,
+                "Windows liblsl discovery runtime is ready.",
+                runtimeState.Detail)
+            : new LslMachineCheckResult(
+                "Windows liblsl discovery runtime",
+                OperationOutcomeKind.Failure,
+                "Windows liblsl discovery runtime is unavailable.",
+                runtimeState.Detail);
+
+    private LslMachineCheckResult BuildExpectedUpstreamInventoryCheck(
+        string expectedStreamName,
+        string expectedStreamType,
+        IReadOnlyList<LslVisibleStreamInfo> expectedStreams,
+        string companionTestSourceId)
+    {
+        if (expectedStreams.Count == 0)
+        {
+            return new LslMachineCheckResult(
+                "Expected upstream sources",
+                OperationOutcomeKind.Warning,
+                $"No {expectedStreamName} / {expectedStreamType} sources are visible on Windows.",
+                $"Start the intended upstream sender or inspect the external publisher. The companion currently cannot see any source advertising {expectedStreamName} / {expectedStreamType} on this PC.");
+        }
+
+        var detail = $"Visible matches:{Environment.NewLine}{FormatVisibleStreamInventory(expectedStreams)}";
+        if (expectedStreams.Count == 1)
+        {
+            return new LslMachineCheckResult(
+                "Expected upstream sources",
+                OperationOutcomeKind.Success,
+                $"{expectedStreamName} / {expectedStreamType} is visible on Windows.",
+                detail);
+        }
+
+        var includesCompanionTestSender = expectedStreams.Any(stream => string.Equals(stream.SourceId, companionTestSourceId, StringComparison.Ordinal));
+        var summary = includesCompanionTestSender
+            ? $"Multiple {expectedStreamName} / {expectedStreamType} sources are visible, including the companion TEST sender."
+            : $"Multiple {expectedStreamName} / {expectedStreamType} sources are visible on Windows.";
+        var warningDetail = includesCompanionTestSender
+            ? $"{detail}{Environment.NewLine}This can make switching between the companion TEST sender and external sources unreliable because more than one source is advertising the same expected stream contract."
+            : $"{detail}{Environment.NewLine}More than one upstream source is advertising the expected stream contract on Windows.";
+        return new LslMachineCheckResult(
+            "Expected upstream sources",
+            OperationOutcomeKind.Warning,
+            summary,
+            warningDetail);
+    }
+
+    private LslMachineCheckResult BuildTestSenderServiceCheck(
+        string expectedStreamName,
+        string expectedStreamType,
+        IReadOnlyList<LslVisibleStreamInfo> companionExpectedStreams)
+    {
+        if (!_testLslSignalService.RuntimeState.Available)
+        {
+            return new LslMachineCheckResult(
+                "Companion TEST sender",
+                OperationOutcomeKind.Preview,
+                "Companion TEST sender unavailable.",
+                _testLslSignalService.RuntimeState.Detail);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_testLslSignalService.LastFaultDetail))
+        {
+            return new LslMachineCheckResult(
+                "Companion TEST sender",
+                OperationOutcomeKind.Failure,
+                "Companion TEST sender stopped after a local fault.",
+                _testLslSignalService.LastFaultDetail);
+        }
+
+        if (_testLslSignalService.IsRunning)
+        {
+            return companionExpectedStreams.Count switch
+            {
+                0 => new LslMachineCheckResult(
+                    "Companion TEST sender",
+                    OperationOutcomeKind.Warning,
+                    "Companion TEST sender says it is running, but its source is not visible yet.",
+                    $"The local sender is active, but no visible source matched `{BuildTestSenderSourceId()}` for {expectedStreamName} / {expectedStreamType}. If this does not clear after a refresh, the local sender may not be advertising cleanly."),
+                1 => new LslMachineCheckResult(
+                    "Companion TEST sender",
+                    OperationOutcomeKind.Success,
+                    "Companion TEST sender is running and visible.",
+                    FormatVisibleStreamInventory(companionExpectedStreams)),
+                _ => new LslMachineCheckResult(
+                    "Companion TEST sender",
+                    OperationOutcomeKind.Warning,
+                    "Companion TEST sender source appears more than once.",
+                    FormatVisibleStreamInventory(companionExpectedStreams))
+            };
+        }
+
+        if (companionExpectedStreams.Count > 0)
+        {
+            return new LslMachineCheckResult(
+                "Companion TEST sender",
+                OperationOutcomeKind.Warning,
+                "Companion TEST sender is off, but its source is still visible on Windows.",
+                $"{FormatVisibleStreamInventory(companionExpectedStreams)}{Environment.NewLine}If this persists after another refresh, the sender may not have shut down cleanly or another companion instance is still advertising the same source id.");
+        }
+
+        return new LslMachineCheckResult(
+            "Companion TEST sender",
+            OperationOutcomeKind.Preview,
+            "Companion TEST sender idle.",
+            $"The companion is not currently publishing {expectedStreamName} / {expectedStreamType}.");
+    }
+
+    private static LslMachineCheckResult BuildTwinOutletInventoryCheck(
+        bool localTwinOutletsActive,
+        IReadOnlyList<LslVisibleStreamInfo> twinCommandStreams,
+        IReadOnlyList<LslVisibleStreamInfo> twinConfigStreams,
+        TwinBridgeStatus twinBridgeStatus)
+    {
+        var detail =
+            $"Local twin bridge: {twinBridgeStatus.Summary}{Environment.NewLine}" +
+            $"Command stream matches ({TwinCommandStreamName} / {TwinCommandStreamType}): {twinCommandStreams.Count}{Environment.NewLine}" +
+            $"{FormatVisibleStreamInventory(twinCommandStreams)}{Environment.NewLine}" +
+            $"Config stream matches ({TwinConfigStreamName} / {TwinConfigStreamType}): {twinConfigStreams.Count}{Environment.NewLine}" +
+            $"{FormatVisibleStreamInventory(twinConfigStreams)}";
+
+        if (localTwinOutletsActive)
+        {
+            if (twinCommandStreams.Count == 1 && twinConfigStreams.Count == 1)
+            {
+                return new LslMachineCheckResult(
+                    "Companion twin outlets",
+                    OperationOutcomeKind.Success,
+                    "Companion twin outlets are active and visible.",
+                    detail);
+            }
+
+            return new LslMachineCheckResult(
+                "Companion twin outlets",
+                OperationOutcomeKind.Warning,
+                "Companion twin outlets are active, but the visible Windows inventory is unexpected.",
+                detail);
+        }
+
+        if (twinCommandStreams.Count > 0 || twinConfigStreams.Count > 0)
+        {
+            return new LslMachineCheckResult(
+                "Companion twin outlets",
+                OperationOutcomeKind.Warning,
+                "Twin outlet streams are still visible while the local bridge is idle.",
+                detail);
+        }
+
+        return new LslMachineCheckResult(
+            "Companion twin outlets",
+            OperationOutcomeKind.Preview,
+            "Companion twin outlets idle.",
+            twinBridgeStatus.Detail);
+    }
+
+    private static LslMachineCheckResult BuildClockAlignmentTransportCheck(
+        bool clockTransportExpectedActive,
+        bool backgroundClockMonitorRunning,
+        IReadOnlyList<LslVisibleStreamInfo> clockProbeStreams)
+    {
+        var stateDetail =
+            $"Warm transport expected active: {(clockTransportExpectedActive ? "yes" : "no")}.{Environment.NewLine}" +
+            $"Background sparse monitor active: {(backgroundClockMonitorRunning ? "yes" : "no")}.{Environment.NewLine}" +
+            $"Probe stream matches ({SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType}): {clockProbeStreams.Count}{Environment.NewLine}" +
+            FormatVisibleStreamInventory(clockProbeStreams);
+
+        if (clockTransportExpectedActive)
+        {
+            return clockProbeStreams.Count == 1
+                ? new LslMachineCheckResult(
+                    "Clock-alignment transport",
+                    OperationOutcomeKind.Success,
+                    "Clock-alignment probe transport is active and visible.",
+                    stateDetail)
+                : new LslMachineCheckResult(
+                    "Clock-alignment transport",
+                    OperationOutcomeKind.Warning,
+                    "Clock-alignment transport is expected active, but the visible probe inventory is unexpected.",
+                    stateDetail);
+        }
+
+        if (clockProbeStreams.Count > 0)
+        {
+            return new LslMachineCheckResult(
+                "Clock-alignment transport",
+                OperationOutcomeKind.Warning,
+                "Clock-alignment probe stream is visible while no local timing run is active.",
+                stateDetail);
+        }
+
+        return new LslMachineCheckResult(
+            "Clock-alignment transport",
+            OperationOutcomeKind.Preview,
+            "Clock-alignment transport idle.",
+            stateDetail);
+    }
+
+    private static LslMachineCheckResult BuildPassiveUpstreamMonitorCheck(bool passiveMonitorRunning)
+        => passiveMonitorRunning
+            ? new LslMachineCheckResult(
+                "Passive upstream monitor",
+                OperationOutcomeKind.Success,
+                "Passive upstream monitor is running.",
+                $"The Windows-side passive inlet monitor for {HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType} is currently armed for the active participant session.")
+            : new LslMachineCheckResult(
+                "Passive upstream monitor",
+                OperationOutcomeKind.Preview,
+                "Passive upstream monitor idle.",
+                $"No participant-session upstream inlet monitor is running for {HrvBiofeedbackStreamContract.StreamName} / {HrvBiofeedbackStreamContract.StreamType}.");
+
+    private static string FormatVisibleStreamInventory(IReadOnlyList<LslVisibleStreamInfo> streams)
+        => streams.Count == 0
+            ? "No matching visible streams."
+            : string.Join(
+                Environment.NewLine,
+                streams.Select(static stream =>
+                    $"{stream.Name} / {stream.Type} | source_id `{(string.IsNullOrWhiteSpace(stream.SourceId) ? "n/a" : stream.SourceId)}` | channels {stream.ChannelCount.ToString(CultureInfo.InvariantCulture)} | nominal {stream.SampleRateHz.ToString("0.###", CultureInfo.InvariantCulture)} Hz"));
+
+    private string BuildTestSenderSourceId()
+        => $"viscereality.companion.study-shell.test.{_study.Id}";
+
+    private sealed record LslMachineCheckResult(
+        string Label,
+        OperationOutcomeKind Level,
+        string Summary,
+        string Detail);
+
+    private sealed record LslMachineStateResult(
+        OperationOutcomeKind Level,
+        string Summary,
+        string Detail,
+        IReadOnlyList<LslMachineCheckResult> Checks,
+        DateTimeOffset CompletedAtUtc);
 
     private async Task BrowseApkAsync()
     {
@@ -3097,7 +3584,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private async Task OpenLastQuestScreenshotAsync()
     {
         var screenshotPath = await DispatchAsync(() => QuestScreenshotPath).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(screenshotPath) || !File.Exists(screenshotPath))
+        if (!CompanionOperatorDataLayout.TryResolveExistingFile(screenshotPath, out var resolvedScreenshotPath))
         {
             await ApplyOutcomeAsync(
                 "Open Quest Screenshot",
@@ -3112,7 +3599,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = screenshotPath,
+                FileName = resolvedScreenshotPath,
                 UseShellExecute = true
             });
         }
@@ -3124,7 +3611,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     OperationOutcomeKind.Failure,
                     "Quest screenshot could not be opened.",
                     ex.Message,
-                    Items: [screenshotPath])).ConfigureAwait(false);
+                    Items: [resolvedScreenshotPath])).ConfigureAwait(false);
         }
     }
 
@@ -3238,7 +3725,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var streamType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
             ? HrvBiofeedbackStreamContract.StreamType
             : _study.Monitoring.ExpectedLslStreamType;
-        var sourceId = $"viscereality.companion.study-shell.test.{_study.Id}";
+        var sourceId = BuildTestSenderSourceId();
 
         OperationOutcome outcome;
         if (isRunning)
@@ -3275,6 +3762,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             RefreshBenchToolsStatus();
             UpdateLslCard();
         }).ConfigureAwait(false);
+        QueueMachineLslStateRefresh(MachineLslStateRefreshSettleDelay);
     }
 
     private async Task<OperationOutcome> ApplyTestSenderRoutingAsync()
@@ -3445,8 +3933,68 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public Task StartBreathingCalibrationAsync()
         => SendStudyTwinCommandAsync(_study.Controls.StartBreathingCalibrationActionId, "Start Breathing Calibration");
 
+    public Task StartDynamicAxisCalibrationAsync()
+        => StartBreathingCalibrationWithModeAsync(
+            useDynamicMotionAxis: true,
+            actionLabel: "Start Dynamic-Axis Calibration");
+
+    public Task StartFixedAxisCalibrationAsync()
+        => StartBreathingCalibrationWithModeAsync(
+            useDynamicMotionAxis: false,
+            actionLabel: "Start Fixed-Axis Calibration");
+
     public Task ResetBreathingCalibrationAsync()
         => SendStudyTwinCommandAsync(_study.Controls.ResetBreathingCalibrationActionId, "Reset Breathing Calibration");
+
+    private async Task StartBreathingCalibrationWithModeAsync(bool useDynamicMotionAxis, string actionLabel)
+    {
+        if (!CanStartBreathingCalibration)
+        {
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    $"{actionLabel} unavailable.",
+                    "The current public runtime does not expose a breathing-calibration command yet.")).ConfigureAwait(false);
+            return;
+        }
+
+        if (!_controllerBreathingProfiles.IsAvailable)
+        {
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Calibration mode controls are unavailable.",
+                    "The Sussex controller-breathing profile workspace is not ready yet, so the session window cannot switch between dynamic-axis and fixed-axis calibration on this machine.")).ConfigureAwait(false);
+            return;
+        }
+
+        if (useDynamicMotionAxis)
+        {
+            await _controllerBreathingProfiles.UseDynamicAxisCalibrationAsync().ConfigureAwait(false);
+        }
+        else
+        {
+            await _controllerBreathingProfiles.UseFixedOrientationCalibrationAsync().ConfigureAwait(false);
+        }
+
+        var applyLevel = await DispatchAsync(() => _controllerBreathingProfiles.ApplyLevel).ConfigureAwait(false);
+        if (applyLevel == OperationOutcomeKind.Failure)
+        {
+            var applySummary = await DispatchAsync(() => _controllerBreathingProfiles.ApplySummary).ConfigureAwait(false);
+            var applyDetail = await DispatchAsync(() => _controllerBreathingProfiles.ApplyDetail).ConfigureAwait(false);
+            await ApplyOutcomeAsync(
+                actionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    string.IsNullOrWhiteSpace(applySummary) ? $"{actionLabel} failed." : applySummary,
+                    applyDetail)).ConfigureAwait(false);
+            return;
+        }
+
+        await SendStudyTwinCommandCoreAsync(_study.Controls.StartBreathingCalibrationActionId, actionLabel).ConfigureAwait(false);
+    }
 
     public async Task ToggleAutomaticBreathingModeAsync()
     {
@@ -4346,6 +4894,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return collection;
     }
 
+    private static string NormalizeHostVisibleOperatorPath(string? path)
+        => CompanionOperatorDataLayout.NormalizeHostVisiblePath(path);
+
     private async Task OpenValidationCaptureLocalFolderAsync()
     {
         var folderPath = await DispatchAsync(() => ValidationCaptureLocalFolderPath).ConfigureAwait(false);
@@ -4408,7 +4959,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private async Task OpenValidationCaptureFolderAsync(string folderPath, string actionLabel, string unavailableSummary, string unavailableDetail)
     {
-        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+        if (!CompanionOperatorDataLayout.TryResolveExistingDirectory(folderPath, out var resolvedFolderPath))
         {
             await ApplyOutcomeAsync(
                 actionLabel,
@@ -4416,7 +4967,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     OperationOutcomeKind.Warning,
                     unavailableSummary,
                     unavailableDetail,
-                    Items: string.IsNullOrWhiteSpace(folderPath) ? [] : [folderPath])).ConfigureAwait(false);
+                    Items: string.IsNullOrWhiteSpace(folderPath) ? [] : [NormalizeHostVisibleOperatorPath(folderPath)])).ConfigureAwait(false);
             return;
         }
 
@@ -4424,7 +4975,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = folderPath,
+                FileName = resolvedFolderPath,
                 UseShellExecute = true
             });
         }
@@ -4436,13 +4987,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     OperationOutcomeKind.Failure,
                     $"{actionLabel} failed.",
                     ex.Message,
-                    Items: [folderPath])).ConfigureAwait(false);
+                    Items: [resolvedFolderPath])).ConfigureAwait(false);
         }
     }
 
     private async Task OpenValidationCaptureFileAsync(string filePath, string actionLabel, string unavailableSummary, string unavailableDetail)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        if (!CompanionOperatorDataLayout.TryResolveExistingFile(filePath, out var resolvedFilePath))
         {
             await ApplyOutcomeAsync(
                 actionLabel,
@@ -4450,7 +5001,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     OperationOutcomeKind.Warning,
                     unavailableSummary,
                     unavailableDetail,
-                    Items: string.IsNullOrWhiteSpace(filePath) ? [] : [filePath])).ConfigureAwait(false);
+                    Items: string.IsNullOrWhiteSpace(filePath) ? [] : [NormalizeHostVisibleOperatorPath(filePath)])).ConfigureAwait(false);
             return;
         }
 
@@ -4458,7 +5009,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = filePath,
+                FileName = resolvedFilePath,
                 UseShellExecute = true
             });
         }
@@ -4470,7 +5021,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     OperationOutcomeKind.Failure,
                     $"{actionLabel} failed.",
                     ex.Message,
-                    Items: [filePath])).ConfigureAwait(false);
+                    Items: [resolvedFilePath])).ConfigureAwait(false);
         }
     }
 
@@ -4746,14 +5297,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private static bool HasPulledQuestBackupFolder(string? folderPath)
     {
-        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+        if (!CompanionOperatorDataLayout.TryResolveExistingDirectory(folderPath, out var resolvedFolderPath))
         {
             return false;
         }
 
         try
         {
-            return Directory.EnumerateFileSystemEntries(folderPath).Any();
+            return Directory.EnumerateFileSystemEntries(resolvedFolderPath).Any();
         }
         catch
         {
@@ -4805,21 +5356,22 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return $"{fallbackDetail} No pulled Quest backup path was recorded for this session yet.";
         }
 
-        if (!Directory.Exists(folderPath))
+        var normalizedFolderPath = NormalizeHostVisibleOperatorPath(folderPath);
+        if (!Directory.Exists(normalizedFolderPath))
         {
-            return $"{fallbackDetail} Expected folder: {folderPath}. The Quest pullback either never completed or the folder was removed afterward.";
+            return $"{fallbackDetail} Expected folder: {normalizedFolderPath}. The Quest pullback either never completed or the folder was removed afterward.";
         }
 
         try
         {
-            if (!Directory.EnumerateFileSystemEntries(folderPath).Any())
+            if (!Directory.EnumerateFileSystemEntries(normalizedFolderPath).Any())
             {
-                return $"{fallbackDetail} The folder exists but is empty: {folderPath}. The Quest pullback did not produce any files.";
+                return $"{fallbackDetail} The folder exists but is empty: {normalizedFolderPath}. The Quest pullback did not produce any files.";
             }
         }
         catch (Exception exception)
         {
-            return $"{fallbackDetail} The shell could not inspect {folderPath}: {exception.Message}";
+            return $"{fallbackDetail} The shell could not inspect {normalizedFolderPath}: {exception.Message}";
         }
 
         return fallbackDetail;
@@ -5901,12 +6453,21 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (MachineLslStateHasRun && MachineLslStateLevel == OperationOutcomeKind.Failure)
+        {
+            BenchToolsCardLevel = OperationOutcomeKind.Failure;
+            BenchToolsSummary = "Bench tools are blocked by machine LSL state issues.";
+            return;
+        }
+
         if (_testLslSignalService.IsRunning)
         {
             BenchToolsCardLevel = OperationOutcomeKind.Warning;
-            BenchToolsSummary = ProximityLevel == OperationOutcomeKind.Success
-                ? "Bench tools are active."
-                : "Bench tools are active. Proximity readback needs attention.";
+            BenchToolsSummary = MachineLslStateHasRun && MachineLslStateLevel == OperationOutcomeKind.Warning
+                ? "Bench tools are active, but machine LSL state needs attention."
+                : ProximityLevel == OperationOutcomeKind.Success
+                    ? "Bench tools are active."
+                    : "Bench tools are active. Proximity readback needs attention.";
             return;
         }
 
@@ -5921,6 +6482,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             BenchToolsCardLevel = OperationOutcomeKind.Warning;
             BenchToolsSummary = "Bench tools are ready, but Windows environment advisories remain.";
+            return;
+        }
+
+        if (MachineLslStateHasRun && MachineLslStateLevel == OperationOutcomeKind.Warning)
+        {
+            BenchToolsCardLevel = OperationOutcomeKind.Warning;
+            BenchToolsSummary = "Bench tools are ready, but machine LSL state needs attention.";
             return;
         }
 
@@ -6000,7 +6568,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private static string BuildActionDetailForDisplay(string actionLabel, OperationOutcome outcome)
     {
-        if (string.Equals(actionLabel, "Start Breathing Calibration", StringComparison.Ordinal) &&
+        if (IsBreathingCalibrationStartAction(actionLabel) &&
             outcome.Kind != OperationOutcomeKind.Failure)
         {
             var guidance = "Watch Calibration Telemetry for the real verdict: accepted, accepted with warnings, not accepted yet, or rejected.";
@@ -6012,6 +6580,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return outcome.Detail;
     }
 
+    private static bool IsBreathingCalibrationStartAction(string actionLabel)
+        => string.Equals(actionLabel, "Start Breathing Calibration", StringComparison.Ordinal)
+           || string.Equals(actionLabel, "Start Dynamic-Axis Calibration", StringComparison.Ordinal)
+           || string.Equals(actionLabel, "Start Fixed-Axis Calibration", StringComparison.Ordinal);
+
     private void RefreshBenchToolsStatus()
     {
         UpdateProximityCard();
@@ -6020,6 +6593,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdateBenchToolsCardState();
         UpdateBenchRefreshTimerState();
         OnPropertyChanged(nameof(CanStartBreathingCalibration));
+        OnPropertyChanged(nameof(CanStartDynamicAxisCalibration));
+        OnPropertyChanged(nameof(CanStartFixedAxisCalibration));
         OnPropertyChanged(nameof(CanResetBreathingCalibration));
         OnPropertyChanged(nameof(CanToggleAutomaticBreathingMode));
         OnPropertyChanged(nameof(CanToggleAutomaticBreathingRun));
@@ -6042,6 +6617,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanOpenLastQuestScreenshot));
         OnPropertyChanged(nameof(CanToggleTestLslSender));
         OnPropertyChanged(nameof(IsTestLslSenderToggleState));
+        StartDynamicAxisCalibrationCommand.RaiseCanExecuteChanged();
+        StartFixedAxisCalibrationCommand.RaiseCanExecuteChanged();
         UpdateWorkflowStatus();
     }
 
@@ -6908,6 +7485,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 TaskCreationOptions.DenyChildAttach | TaskCreationOptions.LongRunning,
                 TaskScheduler.Default)
             .Unwrap();
+        QueueMachineLslStateRefresh();
     }
 
     private async Task MonitorUpstreamLslAsync(StudyDataRecordingSession recordingSession, CancellationToken cancellationToken)
@@ -7027,6 +7605,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         finally
         {
             cts?.Dispose();
+            QueueMachineLslStateRefresh();
         }
     }
 
@@ -7037,6 +7616,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var cts = new CancellationTokenSource();
         _backgroundClockAlignmentCts = cts;
         _backgroundClockAlignmentTask = RunBackgroundClockAlignmentLoopAsync(recordingSession, cts.Token);
+        QueueMachineLslStateRefresh();
     }
 
     private async Task RunBackgroundClockAlignmentLoopAsync(StudyDataRecordingSession recordingSession, CancellationToken cancellationToken)
@@ -7130,6 +7710,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         finally
         {
             cts?.Dispose();
+            QueueMachineLslStateRefresh();
         }
     }
 
@@ -9349,7 +9930,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private static string BuildWorkflowGuideLastActionSummary(string actionLabel, OperationOutcomeKind level)
     {
-        if (string.Equals(actionLabel, "Start Breathing Calibration", StringComparison.Ordinal) &&
+        if (IsBreathingCalibrationStartAction(actionLabel) &&
             level != OperationOutcomeKind.Failure)
         {
             return "Calibration command sent. Watch telemetry for the verdict.";
@@ -11507,6 +12088,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             RefreshBenchToolsStatus();
             UpdateLslCard();
+            QueueMachineLslStateRefresh(MachineLslStateRefreshSettleDelay);
         });
     }
 
@@ -11515,6 +12097,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         _ = _dispatcher.InvokeAsync(() =>
         {
             _twinRefreshPending = true;
+            QueueMachineLslStateRefresh(MachineLslStateRefreshSettleDelay);
             if (_twinRefreshTimer is null)
             {
                 RefreshLiveTwinState();
@@ -11634,9 +12217,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string BuildQuestScreenshotOutputPath()
     {
         var screenshotRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "screenshots",
+            CompanionOperatorDataLayout.ScreenshotsRootPath,
             _study.Id);
         Directory.CreateDirectory(screenshotRoot);
         return Path.Combine(screenshotRoot, $"quest_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fffffff}.png");

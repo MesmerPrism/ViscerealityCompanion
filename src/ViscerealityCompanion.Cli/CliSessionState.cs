@@ -1,13 +1,12 @@
 using System.Text.Json;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Cli;
 
 internal sealed record CliSessionState(string? ActiveEndpoint, string? LastUsbSerial)
 {
     private static readonly string StatePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ViscerealityCompanion",
-        "session",
+        CompanionOperatorDataLayout.SessionRootPath,
         "cli-state.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()

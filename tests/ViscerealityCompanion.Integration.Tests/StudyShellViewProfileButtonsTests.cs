@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -19,6 +18,13 @@ namespace ViscerealityCompanion.Integration.Tests;
 [Collection("WpfUi")]
 public sealed class StudyShellViewProfileButtonsTests
 {
+    private readonly WpfUiFixture fixture;
+
+    public StudyShellViewProfileButtonsTests(WpfUiFixture fixture)
+    {
+        this.fixture = fixture;
+    }
+
     [Fact]
     public async Task Study_shell_profile_buttons_commit_grid_edits_and_update_saved_launch_override()
     {
@@ -42,9 +48,9 @@ public sealed class StudyShellViewProfileButtonsTests
             visualRecord = await visualStore.CreateFromTemplateAsync(visualProfileName);
             controllerRecord = await controllerStore.CreateFromTemplateAsync(controllerProfileName);
 
-            await RunOnStaAsync(async () =>
+            await fixture.InvokeAsync(async () =>
             {
-                var app = EnsureApplication();
+                var app = fixture.Application;
                 if (app.Dispatcher.CheckAccess())
                 {
                     app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -355,18 +361,6 @@ public sealed class StudyShellViewProfileButtonsTests
         }
     }
 
-    private static ViscerealityCompanion.App.App EnsureApplication()
-    {
-        if (Application.Current is ViscerealityCompanion.App.App current)
-        {
-            return current;
-        }
-
-        var app = new ViscerealityCompanion.App.App();
-        app.InitializeComponent();
-        return app;
-    }
-
     private static StudyShellDefinition CreateStudy(string studyId)
         => new(
             studyId,
@@ -417,56 +411,6 @@ public sealed class StudyShellViewProfileButtonsTests
                 "recenter",
                 "particles_on",
                 "particles_off"));
-
-    private static async Task RunOnStaAsync(Func<Task> action)
-    {
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
-                action().ContinueWith(task =>
-                {
-                    try
-                    {
-                        if (task.IsFaulted)
-                        {
-                            completion.SetException(task.Exception!.InnerExceptions);
-                        }
-                        else if (task.IsCanceled)
-                        {
-                            completion.SetCanceled();
-                        }
-                        else
-                        {
-                            completion.SetResult();
-                        }
-                    }
-                    finally
-                    {
-                        if (Application.Current is Application currentApplication &&
-                            currentApplication.Dispatcher == Dispatcher.CurrentDispatcher)
-                        {
-                            currentApplication.Shutdown();
-                        }
-
-                        Dispatcher.CurrentDispatcher.BeginInvokeShutdown(DispatcherPriority.Background);
-                    }
-                }, TaskScheduler.FromCurrentSynchronizationContext());
-
-                Dispatcher.Run();
-            }
-            catch (Exception ex)
-            {
-                completion.TrySetException(ex);
-            }
-        });
-
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        await completion.Task.WaitAsync(TimeSpan.FromMinutes(2));
-    }
 
     private static async Task WaitForConditionAsync(Func<bool> condition, TimeSpan timeout)
     {

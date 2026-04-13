@@ -22,7 +22,7 @@ The app now prefers the managed official Quest tooling cache first, then falls
 back to normal Android SDK locations. It looks for `adb.exe` in:
 
 1. `%VISCEREALITY_ADB_EXE%`
-2. `%LOCALAPPDATA%\ViscerealityCompanion\tooling\platform-tools\current\platform-tools\adb.exe`
+2. the current operator-data root under `...\ViscerealityCompanion\tooling\platform-tools\current\platform-tools\adb.exe`
 3. `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`
 4. `%ANDROID_SDK_ROOT%\platform-tools\adb.exe`
 5. `%ANDROID_HOME%\platform-tools\adb.exe`
@@ -50,7 +50,7 @@ Quest screenshot capture, Quest file pullback, and the experiment-shell
 proximity helper depend on `hzdb`. The app looks for `hzdb` in:
 
 1. `%VISCEREALITY_HZDB_EXE%`
-2. `%LOCALAPPDATA%\ViscerealityCompanion\tooling\hzdb\current\hzdb.exe`
+2. the current operator-data root under `...\ViscerealityCompanion\tooling\hzdb\current\hzdb.exe`
 3. `%LOCALAPPDATA%\Microsoft\WinGet\Links\hzdb.exe`
 4. every entry on `PATH`
 5. `npx.cmd` as a legacy fallback
@@ -90,6 +90,58 @@ the expected locations:
 
 If the bundled DLL is missing or blocked, the app falls back to preview
 messaging for those features.
+
+## Switching between the TEST sender and another LSL sender is unreliable
+
+Treat that as a Windows-side LSL inventory problem first, not as proof that
+the headset-side Sussex inlet is broken.
+
+Start with these checks in order:
+
+1. In the Sussex `Pre-session` Bench-tools card, run `Refresh Machine LSL State`.
+2. In the same card, run `Analyze Windows Environment`.
+3. If the headset path itself is under suspicion, run `Probe Connection` from
+   Step 9 in the sequential guide or `study probe-connection sussex-university`
+   from the CLI.
+
+`Machine LSL State` is the companion-side view. It compares what the app
+believes it owns locally against what Windows currently resolves over liblsl.
+The most common failure mode is more than one visible
+`HRV_Biofeedback / HRV` publisher on the same machine. That can happen if:
+
+- the companion TEST sender is still advertising after a failed stop
+- another companion instance is still open
+- an external Python sender is publishing the same stream contract
+
+Current builds now wait for the local TEST sender loop to unwind on stop and
+warn when the Windows inventory still shows stale companion-owned streams or
+multiple matching upstream publishers.
+
+## Explorer says a Sussex session folder path is not available
+
+Older packaged builds could check a Sussex session folder path from inside the
+app and then hand Explorer a non-host-visible alias. Current builds now resolve
+the host-visible operator-data root first, so `Open Session Folder`, `Open
+Quest Backup`, `Open Session PDF`, and the validation-capture folder buttons
+should open the real on-disk location.
+
+For packaged installs, that root is usually:
+
+```text
+%LOCALAPPDATA%\Packages\<package-family>\LocalCache\Local\ViscerealityCompanion\
+```
+
+For unpackaged/source builds, it remains:
+
+```text
+%LOCALAPPDATA%\ViscerealityCompanion\
+```
+
+If you are driving the bundled CLI from the exported agent workspace, use the
+generated wrappers (`viscereality.ps1`, `viscereality.cmd`, `agent-env.ps1`,
+`agent-env.cmd`). They now export `VISCEREALITY_OPERATOR_DATA_ROOT` so the CLI
+uses that same host-visible root instead of drifting back to a different bare
+LocalAppData path.
 
 ## The packaged launcher path is not available yet
 

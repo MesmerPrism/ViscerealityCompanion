@@ -20,10 +20,7 @@ public sealed class OscillatorConfigWriter
 
     public OscillatorConfigWriter(string? outputRoot = null)
     {
-        _outputRoot = outputRoot ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "oscillator-config");
+        _outputRoot = outputRoot ?? CompanionOperatorDataLayout.OscillatorConfigRootPath;
     }
 
     public async Task<string> WriteAsync(

@@ -13,10 +13,7 @@ public sealed class SussexControllerBreathingProfileStore
         string? rootPath = null)
     {
         _compiler = compiler ?? throw new ArgumentNullException(nameof(compiler));
-        RootPath = rootPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "sussex-controller-breathing-profiles");
+        RootPath = rootPath ?? CompanionOperatorDataLayout.SussexControllerBreathingProfilesRootPath;
     }
 
     public string RootPath { get; }

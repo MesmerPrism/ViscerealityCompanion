@@ -38,11 +38,7 @@ internal sealed record OfficialQuestToolMetadata(string Version, string SourceUr
 
 public static class OfficialQuestToolingLayout
 {
-    public static string RootPath =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "tooling");
+    public static string RootPath => CompanionOperatorDataLayout.ToolingRootPath;
 
     public static string HzdbRootPath => Path.Combine(RootPath, "hzdb");
     public static string HzdbCurrentPath => Path.Combine(HzdbRootPath, "current");

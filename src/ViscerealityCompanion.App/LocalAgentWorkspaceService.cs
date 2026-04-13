@@ -249,7 +249,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine("# Local Agent Workspace");
         builder.AppendLine();
         builder.AppendLine("Open your local agent in this folder if you installed Viscereality Companion from the guided installer and do not have a repo checkout.");
-        builder.AppendLine("This workspace mirrors the bundled CLI, the CLI reference, and the Sussex example catalogs into a normal `%LOCALAPPDATA%` folder so the agent does not need access to the protected WindowsApps install.");
+        builder.AppendLine("This workspace mirrors the bundled CLI, the CLI reference, and the Sussex example catalogs into the same host-visible operator-data root the installed app uses, so the agent does not need access to the protected WindowsApps install.");
         builder.AppendLine();
         builder.AppendLine("## Start Here");
         AppendRelativeFileIfPresent(builder, snapshot.RootPath, Path.Combine(snapshot.DocsRootPath, "cli.md"));
@@ -279,16 +279,14 @@ internal sealed class LocalAgentWorkspaceService
 
         builder.AppendLine("- `agent-env.ps1` and `agent-env.cmd` are available if you want a whole shell session to inherit the same sample-root overrides.");
         builder.AppendLine("- `tooling status` only reports the managed Quest tool cache (`hzdb` and Android platform-tools). Use `windows-env analyze` for liblsl and live-stream diagnostics.");
-        builder.AppendLine("- Runtime data and managed Quest tooling still live under `%LOCALAPPDATA%\\ViscerealityCompanion\\...`; see `LOCAL_PATHS.md`.");
+        builder.AppendLine("- The wrappers also set `VISCEREALITY_OPERATOR_DATA_ROOT` so the bundled CLI keeps using the same host-visible operator-data root as the desktop app; see `LOCAL_PATHS.md`.");
         builder.AppendLine("- This workspace intentionally mirrors docs, manifests, device profiles, hotload profiles, tuning templates, and the bundled CLI without duplicating the bundled Sussex APK.");
         return builder.ToString();
     }
 
     private string BuildLocalPaths(LocalAgentWorkspaceSnapshot snapshot)
     {
-        var localRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion");
+        var localRoot = CompanionOperatorDataLayout.RootPath;
 
         var builder = new StringBuilder();
         builder.AppendLine("# Local Paths");
@@ -309,14 +307,17 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine($"- cmd.exe env helper: `{snapshot.CmdEnvScriptPath}`");
         builder.AppendLine();
         builder.AppendLine("## Local Runtime Data");
+        builder.AppendLine($"- Operator data root: `{localRoot}`");
         builder.AppendLine($"- Managed tooling root: `{OfficialQuestToolingLayout.RootPath}`");
         builder.AppendLine($"- Managed adb path: `{OfficialQuestToolingLayout.AdbExecutablePath}`");
         builder.AppendLine($"- Managed hzdb path: `{OfficialQuestToolingLayout.HzdbExecutablePath}`");
-        builder.AppendLine($"- Session state root: `{Path.Combine(localRoot, "session")}`");
-        builder.AppendLine($"- Study data root: `{Path.Combine(localRoot, "study-data")}`");
-        builder.AppendLine($"- Sussex visual profiles: `{Path.Combine(localRoot, "sussex-visual-profiles")}`");
-        builder.AppendLine($"- Sussex controller profiles: `{Path.Combine(localRoot, "sussex-controller-breathing-profiles")}`");
-        builder.AppendLine($"- Logs: `{Path.Combine(localRoot, "logs")}`");
+        builder.AppendLine($"- Session state root: `{CompanionOperatorDataLayout.SessionRootPath}`");
+        builder.AppendLine($"- Study data root: `{CompanionOperatorDataLayout.StudyDataRootPath}`");
+        builder.AppendLine($"- Sussex visual profiles: `{CompanionOperatorDataLayout.SussexVisualProfilesRootPath}`");
+        builder.AppendLine($"- Sussex controller profiles: `{CompanionOperatorDataLayout.SussexControllerBreathingProfilesRootPath}`");
+        builder.AppendLine($"- Screenshots: `{CompanionOperatorDataLayout.ScreenshotsRootPath}`");
+        builder.AppendLine($"- Logs: `{CompanionOperatorDataLayout.LogsRootPath}`");
+        builder.AppendLine($"- Operator-data override env var: `{CompanionOperatorDataLayout.RootOverrideEnvironmentVariable}`");
         builder.AppendLine();
         builder.AppendLine("## Bundled Asset Sources");
         builder.AppendLine($"- Bundled docs source: `{_docsRoot ?? "not found"}`");
@@ -340,6 +341,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine($"$env:VISCEREALITY_QUEST_SESSION_KIT_ROOT = \"{EscapeForPowerShell(snapshot.QuestSessionKitRootPath)}\"");
         builder.AppendLine($"$env:VISCEREALITY_STUDY_SHELL_ROOT = \"{EscapeForPowerShell(snapshot.StudyShellRootPath)}\"");
         builder.AppendLine($"$env:VISCEREALITY_OSCILLATOR_CONFIG_ROOT = \"{EscapeForPowerShell(snapshot.OscillatorConfigRootPath)}\"");
+        builder.AppendLine($"$env:{CompanionOperatorDataLayout.RootOverrideEnvironmentVariable} = \"{EscapeForPowerShell(CompanionOperatorDataLayout.RootPath)}\"");
         builder.AppendLine($"$bundledCliRoot = \"{EscapeForPowerShell(snapshot.BundledCliRootPath)}\"");
         builder.AppendLine("$bundledLslDll = Join-Path $bundledCliRoot 'lsl.dll'");
         builder.AppendLine("$bundledLslRuntimeDll = Join-Path $bundledCliRoot 'runtimes\\win-x64\\native\\lsl.dll'");
@@ -363,6 +365,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine($"set \"VISCEREALITY_QUEST_SESSION_KIT_ROOT={snapshot.QuestSessionKitRootPath}\"");
         builder.AppendLine($"set \"VISCEREALITY_STUDY_SHELL_ROOT={snapshot.StudyShellRootPath}\"");
         builder.AppendLine($"set \"VISCEREALITY_OSCILLATOR_CONFIG_ROOT={snapshot.OscillatorConfigRootPath}\"");
+        builder.AppendLine($"set \"{CompanionOperatorDataLayout.RootOverrideEnvironmentVariable}={CompanionOperatorDataLayout.RootPath}\"");
         builder.AppendLine($"if exist \"{LslRuntimeLayout.GetLocalDllPath(snapshot.BundledCliRootPath)}\" set \"VISCEREALITY_LSL_DLL={LslRuntimeLayout.GetLocalDllPath(snapshot.BundledCliRootPath)}\"");
         builder.AppendLine($"if not defined VISCEREALITY_LSL_DLL if exist \"{LslRuntimeLayout.GetRuntimeDllPath(snapshot.BundledCliRootPath)}\" set \"VISCEREALITY_LSL_DLL={LslRuntimeLayout.GetRuntimeDllPath(snapshot.BundledCliRootPath)}\"");
         builder.AppendLine($"set \"PATH={snapshot.BundledCliRootPath};%PATH%\"");
@@ -376,6 +379,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine("$env:VISCEREALITY_QUEST_SESSION_KIT_ROOT = \"" + EscapeForPowerShell(snapshot.QuestSessionKitRootPath) + "\"");
         builder.AppendLine("$env:VISCEREALITY_STUDY_SHELL_ROOT = \"" + EscapeForPowerShell(snapshot.StudyShellRootPath) + "\"");
         builder.AppendLine("$env:VISCEREALITY_OSCILLATOR_CONFIG_ROOT = \"" + EscapeForPowerShell(snapshot.OscillatorConfigRootPath) + "\"");
+        builder.AppendLine("$env:" + CompanionOperatorDataLayout.RootOverrideEnvironmentVariable + " = \"" + EscapeForPowerShell(CompanionOperatorDataLayout.RootPath) + "\"");
         builder.AppendLine("$bundledCliRoot = Join-Path $PSScriptRoot 'cli\\current'");
         builder.AppendLine("$bundledLslDll = Join-Path $bundledCliRoot 'lsl.dll'");
         builder.AppendLine("$bundledLslRuntimeDll = Join-Path $bundledCliRoot 'runtimes\\win-x64\\native\\lsl.dll'");
@@ -410,6 +414,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine($"set \"VISCEREALITY_QUEST_SESSION_KIT_ROOT={snapshot.QuestSessionKitRootPath}\"");
         builder.AppendLine($"set \"VISCEREALITY_STUDY_SHELL_ROOT={snapshot.StudyShellRootPath}\"");
         builder.AppendLine($"set \"VISCEREALITY_OSCILLATOR_CONFIG_ROOT={snapshot.OscillatorConfigRootPath}\"");
+        builder.AppendLine($"set \"{CompanionOperatorDataLayout.RootOverrideEnvironmentVariable}={CompanionOperatorDataLayout.RootPath}\"");
         builder.AppendLine("set \"BUNDLED_CLI_ROOT=%~dp0cli\\current\"");
         builder.AppendLine("if exist \"%BUNDLED_CLI_ROOT%\\lsl.dll\" set \"VISCEREALITY_LSL_DLL=%BUNDLED_CLI_ROOT%\\lsl.dll\"");
         builder.AppendLine("if not defined VISCEREALITY_LSL_DLL if exist \"%BUNDLED_CLI_ROOT%\\runtimes\\win-x64\\native\\lsl.dll\" set \"VISCEREALITY_LSL_DLL=%BUNDLED_CLI_ROOT%\\runtimes\\win-x64\\native\\lsl.dll\"");

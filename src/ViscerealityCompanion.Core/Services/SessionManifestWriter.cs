@@ -9,10 +9,7 @@ public sealed class SessionManifestWriter
 
     public SessionManifestWriter(string? outputRoot = null)
     {
-        _outputRoot = outputRoot ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "session");
+        _outputRoot = outputRoot ?? CompanionOperatorDataLayout.SessionRootPath;
     }
 
     public async Task<string> WriteAsync(

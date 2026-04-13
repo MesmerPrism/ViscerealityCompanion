@@ -50,6 +50,16 @@ cross-project patterns, or central-bureau maintenance, use
   current ADB-backed headset snapshot and then reports the expected inlet,
   runtime target, connected inlet, connection counts, and whether fresh
   `quest_twin_state / quest.twin.state` frames are returning to Windows.
+- For companion-side LSL troubleshooting, prefer the Sussex `Pre-session`
+  Bench-tools `Machine LSL State` panel before assuming the Quest side is at
+  fault. It compares the companion-owned TEST sender, twin outlets, clock
+  probe transport, passive monitor tasks, and the currently visible Windows
+  `HRV_Biofeedback / HRV` publishers.
+- If `Machine LSL State` or `windows-env analyze` shows multiple visible
+  `HRV_Biofeedback / HRV` sources on Windows, treat that as a likely cause of
+  unreliable switching between the built-in TEST sender and external Python
+  senders. Do not claim a clean companion stop until the Windows-side
+  inventory no longer shows the companion-owned source id.
 - `liblsl` on Windows may log repeated startup warnings like
   `Could not bind multicast responder ... to interface ::1 (An invalid argument
   was supplied.)` while enumerating the IPv6 loopback adapter. Treat that as a
@@ -283,8 +293,13 @@ surfaces:
 
 When an action exists in both places, the CLI is the preferred automation path.
 It uses the same persisted profile JSON files, the same startup/apply state
-files under `%LOCALAPPDATA%\ViscerealityCompanion\session\`, the same Sussex
-template schemas, and the same hotload/twin publish channels as the GUI.
+files under the current operator-data root
+(`%LOCALAPPDATA%\ViscerealityCompanion\...` for unpackaged builds, or the
+host-visible packaged `...\Packages\<family>\LocalCache\Local\ViscerealityCompanion\...`
+path for installed MSIX builds), the same Sussex template schemas, and the
+same hotload/twin publish channels as the GUI. The bundled agent-workspace
+wrappers now set `VISCEREALITY_OPERATOR_DATA_ROOT` so the mirrored CLI stays on
+that same host-visible root.
 Current exception: Sussex kiosk exit / `study stop` cleanup is not a preferred
 off-face automation path on this machine. Treat runtime exit as a user-worn
 operator action unless the user explicitly wants to take that risk.

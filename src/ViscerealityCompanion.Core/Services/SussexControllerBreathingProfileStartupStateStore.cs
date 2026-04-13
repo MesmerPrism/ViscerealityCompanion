@@ -20,10 +20,7 @@ public sealed class SussexControllerBreathingProfileStartupStateStore
             throw new ArgumentException("A study id is required for the Sussex controller-breathing startup-state store.", nameof(studyId));
         }
 
-        var root = stateRoot ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "session");
+        var root = stateRoot ?? CompanionOperatorDataLayout.SessionRootPath;
         Directory.CreateDirectory(root);
         _statePath = Path.Combine(root, $"sussex-controller-breathing-startup-{SanitizeToken(studyId)}.json");
     }

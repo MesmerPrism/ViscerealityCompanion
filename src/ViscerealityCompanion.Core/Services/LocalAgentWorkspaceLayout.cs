@@ -2,11 +2,7 @@ namespace ViscerealityCompanion.Core.Services;
 
 public static class LocalAgentWorkspaceLayout
 {
-    public static string RootPath =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "agent-workspace");
+    public static string RootPath => CompanionOperatorDataLayout.LocalAgentWorkspaceRootPath;
 
     public static string BundledCliRootPath => Path.Combine(RootPath, "cli", "current");
     public static string BundledCliExecutablePath => Path.Combine(BundledCliRootPath, "viscereality.exe");

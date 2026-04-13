@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.39.0`.
+`0.1.41.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -37,11 +37,12 @@ manual certificate path below. Some Windows machines also disable the
 `ms-appinstaller:` web-link protocol, so the manual path uses the downloaded
 `.appinstaller` file from disk instead of relying on a browser handoff.
 
-The helper also refreshes the managed official Quest tooling cache under
-`%LOCALAPPDATA%\ViscerealityCompanion\tooling` from Meta's published Windows
-`hzdb` package and Google's published Android platform-tools package. Those
-developer tools remain under their own upstream terms; this repo does not
-relicense them under MIT.
+The helper also refreshes the managed official Quest tooling cache under the
+current operator-data root (`...\ViscerealityCompanion\tooling`; for packaged
+installs usually `%LOCALAPPDATA%\Packages\<package-family>\LocalCache\Local\ViscerealityCompanion\tooling`)
+from Meta's published Windows `hzdb` package and Google's published Android
+platform-tools package. Those developer tools remain under their own upstream
+terms; this repo does not relicense them under MIT.
 
 <div class="download-start">
   <section class="download-path download-path-primary">
@@ -101,7 +102,7 @@ If you know exactly which file you want, use these direct links:
 - the bundled Windows x64 `lsl.dll` runtime used by the built-in TEST sender and live LSL monitor path
 - the pinned Quest device profile and study-specific monitoring surface
 - the install assets needed to put the Windows app on another machine
-- the app-bundled CLI payload used to seed `%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace` with `viscereality.ps1`, `viscereality.cmd`, the bundled workspace `lsl.dll`, and a ready-made local-agent prompt after first launch
+- the app-bundled CLI payload used to seed the current operator-data root under `...\ViscerealityCompanion\agent-workspace` with `viscereality.ps1`, `viscereality.cmd`, the bundled workspace `lsl.dll`, and a ready-made local-agent prompt after first launch
 
 Sussex operators should not need a separate APK download if they are using the
 packaged preview install.
@@ -114,6 +115,8 @@ changes, and the refactored Sussex visual-profile workflow:
 - the dedicated `Experiment Session` operator popout for real participant runs
 - automatic Quest pullback into `device-session-pull` after normal participant recordings
 - automatic session review PDFs for both validation captures and normal participant runs
+- host-visible packaged operator-data paths for session folders, screenshots,
+  logs, tooling, and the exported local agent workspace
 
 - the bundled Sussex baseline stays permanently available as a library profile
 - the app can also ship additional bundled Sussex visual profiles from the
@@ -154,7 +157,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed preview
-   should identify itself as `Published install 0.1.39.0`; unpackaged local
+   should identify itself as `Published install 0.1.41.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an

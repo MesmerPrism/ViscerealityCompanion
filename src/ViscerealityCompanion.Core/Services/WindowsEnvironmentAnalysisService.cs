@@ -23,8 +23,8 @@ public sealed record WindowsEnvironmentAnalysisResult(
 
 public sealed class WindowsEnvironmentAnalysisService
 {
-    private static readonly TimeSpan StreamProbeTimeout = TimeSpan.FromSeconds(4);
     private readonly ILslMonitorService _monitorService;
+    private readonly ILslStreamDiscoveryService _streamDiscoveryService;
     private readonly IStudyClockAlignmentService _clockAlignmentService;
     private readonly ITestLslSignalService _testSignalService;
     private readonly ITwinModeBridge _twinBridge;
@@ -38,6 +38,7 @@ public sealed class WindowsEnvironmentAnalysisService
 
     public WindowsEnvironmentAnalysisService(
         ILslMonitorService monitorService,
+        ILslStreamDiscoveryService streamDiscoveryService,
         IStudyClockAlignmentService clockAlignmentService,
         ITestLslSignalService testSignalService,
         ITwinModeBridge twinBridge,
@@ -50,6 +51,7 @@ public sealed class WindowsEnvironmentAnalysisService
         Func<DateTimeOffset>? utcNow = null)
     {
         _monitorService = monitorService ?? throw new ArgumentNullException(nameof(monitorService));
+        _streamDiscoveryService = streamDiscoveryService ?? throw new ArgumentNullException(nameof(streamDiscoveryService));
         _clockAlignmentService = clockAlignmentService ?? throw new ArgumentNullException(nameof(clockAlignmentService));
         _testSignalService = testSignalService ?? throw new ArgumentNullException(nameof(testSignalService));
         _twinBridge = twinBridge ?? throw new ArgumentNullException(nameof(twinBridge));
@@ -320,87 +322,64 @@ public sealed class WindowsEnvironmentAnalysisService
             ? HrvBiofeedbackStreamContract.StreamType
             : request.ExpectedLslStreamType.Trim();
 
-        if (!_monitorService.RuntimeState.Available)
+        if (!_streamDiscoveryService.RuntimeState.Available)
         {
             return new WindowsEnvironmentCheckResult(
                 "expected-stream",
                 "Expected Sussex LSL stream",
                 OperationOutcomeKind.Warning,
                 "Expected Sussex LSL stream could not be probed.",
-                $"The Windows LSL monitor runtime is unavailable, so the app could not probe {streamName} / {streamType} on this PC.");
+                $"The Windows LSL discovery runtime is unavailable, so the app could not probe {streamName} / {streamType} on this PC.");
         }
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(StreamProbeTimeout);
 
         try
         {
-            await foreach (var reading in _monitorService
-                               .MonitorAsync(new LslMonitorSubscription(streamName, streamType, HrvBiofeedbackStreamContract.DefaultChannelIndex), timeoutCts.Token)
-                               .WithCancellation(timeoutCts.Token)
-                               .ConfigureAwait(false))
+            var matches = await Task.Run(
+                    () => _streamDiscoveryService.Discover(new LslStreamDiscoveryRequest(streamName, streamType)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (matches.Count == 0)
             {
-                if (string.Equals(reading.Status, "LSL stream connected.", StringComparison.Ordinal))
-                {
-                    return new WindowsEnvironmentCheckResult(
-                        "expected-stream",
-                        "Expected Sussex LSL stream",
-                        OperationOutcomeKind.Success,
-                        $"{streamName} / {streamType} is visible on Windows.",
-                        reading.Detail);
-                }
-
-                if (string.Equals(reading.Status, "Streaming LSL sample.", StringComparison.Ordinal))
-                {
-                    var detail = string.IsNullOrWhiteSpace(reading.Detail)
-                        ? $"Received a sample from {streamName} / {streamType}."
-                        : reading.Detail;
-                    return new WindowsEnvironmentCheckResult(
-                        "expected-stream",
-                        "Expected Sussex LSL stream",
-                        OperationOutcomeKind.Success,
-                        $"{streamName} / {streamType} is visible and streaming on Windows.",
-                        detail);
-                }
-
-                if (string.Equals(reading.Status, "LSL stream not found.", StringComparison.Ordinal))
-                {
-                    return new WindowsEnvironmentCheckResult(
-                        "expected-stream",
-                        "Expected Sussex LSL stream",
-                        OperationOutcomeKind.Warning,
-                        $"{streamName} / {streamType} is not currently visible on Windows.",
-                        $"{reading.Detail} Fix: start the upstream sender on this PC, or verify that the external sender is publishing the expected name/type contract.");
-                }
-
-                if (string.Equals(reading.Status, "LSL unavailable.", StringComparison.Ordinal) ||
-                    string.Equals(reading.Status, "LSL monitor error.", StringComparison.Ordinal) ||
-                    string.Equals(reading.Status, "LSL channel unavailable.", StringComparison.Ordinal))
-                {
-                    return new WindowsEnvironmentCheckResult(
-                        "expected-stream",
-                        "Expected Sussex LSL stream",
-                        OperationOutcomeKind.Failure,
-                        $"{streamName} / {streamType} could not be probed.",
-                        reading.Detail);
-                }
+                return new WindowsEnvironmentCheckResult(
+                    "expected-stream",
+                    "Expected Sussex LSL stream",
+                    OperationOutcomeKind.Warning,
+                    $"{streamName} / {streamType} is not currently visible on Windows.",
+                    $"No visible source matched {streamName} / {streamType}. Fix: start the upstream sender on this PC, or verify that the external sender is publishing the expected name/type contract.");
             }
+
+            var detail = string.Join(
+                Environment.NewLine,
+                matches.Select(static stream =>
+                    $"{stream.Name} / {stream.Type} | source_id `{(string.IsNullOrWhiteSpace(stream.SourceId) ? "n/a" : stream.SourceId)}` | channels {stream.ChannelCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} | nominal {stream.SampleRateHz.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} Hz"));
+
+            return matches.Count == 1
+                ? new WindowsEnvironmentCheckResult(
+                    "expected-stream",
+                    "Expected Sussex LSL stream",
+                    OperationOutcomeKind.Success,
+                    $"{streamName} / {streamType} is visible on Windows.",
+                    detail)
+                : new WindowsEnvironmentCheckResult(
+                    "expected-stream",
+                    "Expected Sussex LSL stream",
+                    OperationOutcomeKind.Warning,
+                    $"Multiple {streamName} / {streamType} sources are visible on Windows.",
+                    $"More than one matching source is advertising the expected upstream contract. This can make sender switching unreliable. Visible matches:{Environment.NewLine}{detail}");
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             return new WindowsEnvironmentCheckResult(
                 "expected-stream",
                 "Expected Sussex LSL stream",
-                OperationOutcomeKind.Warning,
-                $"{streamName} / {streamType} probe timed out.",
-                $"The app waited {StreamProbeTimeout.TotalSeconds:0} seconds and did not resolve a definitive state for the expected stream. If an external sender should be running, verify it is publishing the expected contract and that liblsl can still resolve it on this PC.");
+                OperationOutcomeKind.Failure,
+                $"{streamName} / {streamType} could not be probed.",
+                ex.Message);
         }
-
-        return new WindowsEnvironmentCheckResult(
-            "expected-stream",
-            "Expected Sussex LSL stream",
-            OperationOutcomeKind.Warning,
-            $"{streamName} / {streamType} probe ended without a clear result.",
-            "The Windows LSL probe did not return a connected, streaming, or not-found state before it stopped.");
     }
 }

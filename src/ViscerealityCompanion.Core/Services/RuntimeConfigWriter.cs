@@ -9,10 +9,7 @@ public sealed class RuntimeConfigWriter
 
     public RuntimeConfigWriter(string? outputRoot = null)
     {
-        _outputRoot = outputRoot ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "runtime-config");
+        _outputRoot = outputRoot ?? CompanionOperatorDataLayout.RuntimeConfigRootPath;
     }
 
     public async Task<string> WriteAsync(

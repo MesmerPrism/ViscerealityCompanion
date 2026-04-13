@@ -186,7 +186,8 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
      `SessionManifestWriter`.
    - Start and stop it from the Sussex shell commands.
    - Store one folder per participant session under
-     `%LOCALAPPDATA%\ViscerealityCompanion\study-data\sussex-university\<participant>\<session-start-utc>\`.
+     the current operator-data root under
+     `...\ViscerealityCompanion\study-data\sussex-university\<participant>\<session-start-utc>\`.
 
 6. Session settings snapshot
    - Write one immutable settings snapshot per participant run.
@@ -259,7 +260,7 @@ evolving CSV. The row shape should stay stable across signals.
 ### Folder shape
 
 ```text
-%LOCALAPPDATA%\ViscerealityCompanion\study-data\sussex-university\
+<operator-data-root>\study-data\sussex-university\
   participant-0007\
     20260329T141530Z\
       device-session-pull\

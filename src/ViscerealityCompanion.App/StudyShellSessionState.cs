@@ -1,14 +1,12 @@
 using System.IO;
 using System.Text.Json;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App;
 
 internal sealed record StudyShellSessionState(IReadOnlyDictionary<string, string>? ApkPaths)
 {
-    private static readonly string SessionDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ViscerealityCompanion",
-        "session");
+    private static readonly string SessionDirectory = CompanionOperatorDataLayout.SessionRootPath;
 
     private static readonly string StatePath = Path.Combine(SessionDirectory, "study-shell-state.json");
 

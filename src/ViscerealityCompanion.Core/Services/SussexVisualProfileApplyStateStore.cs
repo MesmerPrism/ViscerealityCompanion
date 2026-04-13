@@ -20,10 +20,7 @@ public sealed class SussexVisualProfileApplyStateStore
             throw new ArgumentException("A study id is required for the Sussex visual apply-state store.", nameof(studyId));
         }
 
-        var root = stateRoot ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "session");
+        var root = stateRoot ?? CompanionOperatorDataLayout.SessionRootPath;
         Directory.CreateDirectory(root);
         _statePath = Path.Combine(root, $"sussex-visual-apply-{SanitizeToken(studyId)}.json");
     }

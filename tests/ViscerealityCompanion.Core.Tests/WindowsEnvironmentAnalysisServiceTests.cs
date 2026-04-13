@@ -16,12 +16,18 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             0.63f,
             10f,
             DateTimeOffset.UtcNow));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [
+                new LslVisibleStreamInfo("HRV_Biofeedback", "HRV", "external.sender.primary", 1, 10f, 100d)
+            ]);
 
         using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
         using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."));
         var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
         var service = new WindowsEnvironmentAnalysisService(
             monitor,
+            discovery,
             clockAlignment,
             testSender,
             bridge,
@@ -41,7 +47,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         var streamCheck = Assert.Single(result.Checks, check => check.Id == "expected-stream");
         Assert.Equal(OperationOutcomeKind.Success, streamCheck.Level);
-        Assert.Contains("visible and streaming", streamCheck.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("visible on Windows", streamCheck.Summary, StringComparison.OrdinalIgnoreCase);
 
         var bundledLslCheck = Assert.Single(result.Checks, check => check.Id == "bundled-liblsl");
         Assert.Equal(OperationOutcomeKind.Success, bundledLslCheck.Level);
@@ -57,12 +63,16 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             null,
             0f,
             DateTimeOffset.UtcNow));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            []);
 
         using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(false, "Clock alignment runtime missing."));
         using var testSender = new FakeTestLslSignalService(new LslRuntimeState(false, "TEST sender runtime missing."));
         var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(false, false, "Twin bridge unavailable.", "quest_twin_state is not being bridged."));
         var service = new WindowsEnvironmentAnalysisService(
             monitor,
+            discovery,
             clockAlignment,
             testSender,
             bridge,
@@ -99,6 +109,41 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         var bundledLslCheck = Assert.Single(result.Checks, check => check.Id == "bundled-liblsl");
         Assert.Equal(OperationOutcomeKind.Warning, bundledLslCheck.Level);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ReturnsWarning_WhenMultipleExpectedStreamsAreVisible()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [
+                new LslVisibleStreamInfo("HRV_Biofeedback", "HRV", "external.sender.primary", 1, 10f, 100d),
+                new LslVisibleStreamInfo("HRV_Biofeedback", "HRV", "viscereality.companion.study-shell.test.sussex", 1, 10f, 101d)
+            ]);
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."));
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 45, 0, TimeSpan.Zero));
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
+
+        var streamCheck = Assert.Single(result.Checks, check => check.Id == "expected-stream");
+        Assert.Equal(OperationOutcomeKind.Warning, streamCheck.Level);
+        Assert.Contains("Multiple HRV_Biofeedback / HRV sources are visible", streamCheck.Summary, StringComparison.Ordinal);
+        Assert.Contains("sender switching unreliable", streamCheck.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     private static OfficialQuestToolingStatus CreateToolingStatus(bool isReady)
@@ -165,6 +210,28 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class FakeLslStreamDiscoveryService(
+        LslRuntimeState runtimeState,
+        IReadOnlyList<LslVisibleStreamInfo> visibleStreams) : ILslStreamDiscoveryService
+    {
+        public LslRuntimeState RuntimeState { get; } = runtimeState;
+
+        public IReadOnlyList<LslVisibleStreamInfo> Discover(LslStreamDiscoveryRequest request)
+        {
+            var matches = visibleStreams
+                .Where(stream =>
+                    (string.IsNullOrWhiteSpace(request.StreamName) || string.Equals(stream.Name, request.StreamName, StringComparison.Ordinal)) &&
+                    (string.IsNullOrWhiteSpace(request.StreamType) || string.Equals(stream.Type, request.StreamType, StringComparison.Ordinal)) &&
+                    (string.IsNullOrWhiteSpace(request.ExactSourceId) || string.Equals(stream.SourceId, request.ExactSourceId, StringComparison.Ordinal)) &&
+                    (string.IsNullOrWhiteSpace(request.SourceIdPrefix) || stream.SourceId.StartsWith(request.SourceIdPrefix, StringComparison.Ordinal)))
+                .ToArray();
+
+            return request.PreferNewestFirst
+                ? matches.OrderByDescending(stream => stream.CreatedAtSeconds).ToArray()
+                : matches.OrderBy(stream => stream.SourceId, StringComparer.Ordinal).ToArray();
         }
     }
 

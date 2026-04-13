@@ -242,9 +242,11 @@ orientation-first Sussex home view:
     guide has passed
 - it keeps participant entry, `Start Recording`, `Stop Recording`, live
   telemetry, clock/network consistency, recenter, particle toggles,
-  screenshot capture, quick access to the Windows session folder, the pulled
-  Quest backup folder, the generated `session_review_report.pdf`, and the
-  condensed operator log on one low-distraction popout
+  screenshot capture, direct `Start Dynamic-Axis Calibration`, `Start
+  Fixed-Axis Calibration`, `Reset Calibration`, quick access to the Windows
+  session folder, the pulled Quest backup folder, the generated
+  `session_review_report.pdf`, and the condensed operator log on one
+  low-distraction popout
 - one saved launch profile:
   - this is the pinned saved profile the shell stages to the device-side
     startup CSV before Sussex launches
@@ -411,6 +413,20 @@ gets an explicit diagnosis of:
 - the fresh return path back to Windows on `quest_twin_state / quest.twin.state`
 - the companion's operator-to-headset channels on `quest_twin_commands / quest.twin.command` and `quest_hotload_config / quest.config`
 
+The Sussex `Pre-session` Bench-tools card now also includes a dedicated
+`Machine LSL State` panel. Use that panel when the operator needs the
+Windows-side view instead of the headset-side view. It compares:
+
+- the currently visible `HRV_Biofeedback / HRV` publishers on Windows
+- the companion-owned TEST sender and twin outlets
+- the clock-alignment probe transport
+- the passive upstream monitor used during recording
+
+That makes duplicate upstream senders and stale companion-owned streams visible
+without guessing from partial symptoms. If switching between the built-in TEST
+sender and an external Python sender becomes unreliable, refresh `Machine LSL
+State` first and then run `Analyze Windows Environment`.
+
 The validation step now keeps the timing workflow inside the same guide
 surface. Instead of opening a separate timing window, step 12 shows:
 
@@ -447,12 +463,23 @@ controls in one place during the participant run:
 - breathing-driver and coherence state
 - recenter status and fresh Quest screenshot capture
 - clock/network consistency plus the latest clock-alignment status
+- one-click dynamic-axis and fixed-axis calibration start buttons plus reset
+  calibration
+- `Detail` foldouts on the operator cards so failures can be debugged without
+  leaving the session window
 - the collapsible operator log for deeper troubleshooting without taking over
   the main live-monitoring layout
 
 The embedded `During session` surface remains available when the operator wants
 broader shell context or deeper inspection, but the popout is now the preferred
 live-run window.
+
+Packaged installs now resolve operator data through the host-visible packaged
+root (`%LOCALAPPDATA%\Packages\<package-family>\LocalCache\Local\ViscerealityCompanion\...`)
+instead of exposing raw app-container aliases. That is the path the session
+folder, pulled Quest backup, screenshots, logs, tooling cache, and local agent
+workspace buttons now open. Unpackaged/source builds still use the normal
+`%LOCALAPPDATA%\ViscerealityCompanion\...` root.
 
 The Sussex shell now uses the bundled APK path from the app payload on
 startup, so packaged Windows installs do not depend on a machine-local Astral

@@ -22,6 +22,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
     private const int StreamChannelCount = 1;
     private const int OutletChunkSize = 1;
     private const int OutletMaxBuffered = 1;
+    private static readonly TimeSpan StopWaitTimeout = TimeSpan.FromSeconds(2);
     private readonly Lock _sync = new();
     private nint _streamInfo;
     private nint _outlet;
@@ -152,6 +153,7 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
     public OperationOutcome Stop()
     {
         CancellationTokenSource? pumpCts;
+        Task? pumpTask;
 
         lock (_sync)
         {
@@ -164,22 +166,54 @@ public sealed class WindowsTestLslSignalService : ITestLslSignalService
             }
 
             pumpCts = _pumpCts;
+            pumpTask = _pumpTask;
             _pumpCts = null;
             _pumpTask = null;
         }
 
         pumpCts?.Cancel();
+        var stoppedCleanly = true;
+        string? stopIssue = null;
+        if (pumpTask is not null)
+        {
+            try
+            {
+                stoppedCleanly = pumpTask.Wait(StopWaitTimeout);
+                if (!stoppedCleanly)
+                {
+                    stopIssue = $"The sender loop did not stop within {StopWaitTimeout.TotalSeconds:0.#} seconds. Native handles were still asked to close.";
+                }
+            }
+            catch (AggregateException ex) when (ex.InnerExceptions.All(static inner => inner is OperationCanceledException))
+            {
+                stoppedCleanly = true;
+            }
+            catch (Exception ex)
+            {
+                stoppedCleanly = false;
+                stopIssue = ex.GetBaseException().Message;
+            }
+        }
 
         lock (_sync)
         {
             DisposeNativeHandles();
         }
 
+        pumpCts?.Dispose();
+
         RaiseStateChanged();
-        return new OperationOutcome(
-            OperationOutcomeKind.Success,
-            "Windows TEST sender stopped.",
-            "Synthetic smoothed-HRV publishing has stopped.");
+        return stoppedCleanly
+            ? new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Windows TEST sender stopped.",
+                "Synthetic smoothed-HRV publishing has stopped.")
+            : new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Windows TEST sender stop needs attention.",
+                string.IsNullOrWhiteSpace(stopIssue)
+                    ? "Synthetic smoothed-HRV publishing was asked to stop, but the sender loop did not confirm a clean shutdown."
+                    : stopIssue);
     }
 
     public void Dispose()

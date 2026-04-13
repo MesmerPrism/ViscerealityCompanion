@@ -684,10 +684,7 @@ public sealed class WindowsHzdbService : IHzdbService
 
     private static string CreatePerfTraceOutputPath(string deviceSerial)
     {
-        var outputDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ViscerealityCompanion",
-            "perf-traces");
+        var outputDirectory = CompanionOperatorDataLayout.PerfTraceRootPath;
         Directory.CreateDirectory(outputDirectory);
 
         var sanitizedDeviceSerial = new string(deviceSerial

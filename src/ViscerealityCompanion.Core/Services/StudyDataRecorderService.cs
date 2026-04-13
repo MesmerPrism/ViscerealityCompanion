@@ -68,10 +68,7 @@ public sealed class StudyDataRecorderService
     public StudyDataRecorderService(string? rootPath = null)
     {
         RootPath = string.IsNullOrWhiteSpace(rootPath)
-            ? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "ViscerealityCompanion",
-                "study-data")
+            ? CompanionOperatorDataLayout.StudyDataRootPath
             : Path.GetFullPath(rootPath);
     }
 

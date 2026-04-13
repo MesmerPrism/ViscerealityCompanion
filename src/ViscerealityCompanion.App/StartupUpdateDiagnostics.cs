@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App;
 
@@ -9,10 +10,7 @@ internal static class StartupUpdateDiagnostics
     {
         try
         {
-            var logDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "ViscerealityCompanion",
-                "logs");
+            var logDirectory = CompanionOperatorDataLayout.LogsRootPath;
             Directory.CreateDirectory(logDirectory);
 
             var logPath = Path.Combine(logDirectory, "startup-update.log");

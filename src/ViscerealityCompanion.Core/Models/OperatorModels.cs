@@ -129,6 +129,14 @@ public sealed record LslMonitorSubscription(
     string? SourceIdPrefix = null,
     bool PreferNewestMatch = true);
 
+public sealed record LslStreamDiscoveryRequest(
+    string? StreamName,
+    string? StreamType,
+    string? ExactSourceId = null,
+    string? SourceIdPrefix = null,
+    int Limit = 16,
+    bool PreferNewestFirst = true);
+
 public enum LslChannelFormat
 {
     Unknown,
@@ -148,6 +156,14 @@ public sealed record LslMonitorReading(
     double? SampleTimestampSeconds = null,
     double? ObservedLocalClockSeconds = null,
     string? ResolvedSourceId = null);
+
+public sealed record LslVisibleStreamInfo(
+    string Name,
+    string Type,
+    string SourceId,
+    int ChannelCount,
+    float SampleRateHz,
+    double CreatedAtSeconds);
 
 public sealed record TwinModeCommand(string ActionId, string DisplayName)
 {

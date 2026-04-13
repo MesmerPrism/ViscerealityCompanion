@@ -362,9 +362,7 @@ internal sealed class PersistentTwinCommandSequenceStore : ITwinCommandSequenceS
     internal PersistentTwinCommandSequenceStore()
         : this(
             Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "ViscerealityCompanion",
-                "session",
+                CompanionOperatorDataLayout.SessionRootPath,
                 "twin-command-sequence.txt"),
             @"Local\ViscerealityCompanion.TwinCommandSequence")
     {

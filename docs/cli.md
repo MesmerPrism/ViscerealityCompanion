@@ -13,14 +13,19 @@ The `viscereality` CLI mirrors the WPF desktop app's capabilities for
 scripting, automation, and headless operation.
 
 Installed Sussex preview builds now expose a local agent workspace under
-`%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace`. The Sussex shell Home
-page includes `Open Agent Workspace` plus `Copy Local Agent Prompt` so
-installed-app users can hand a local agent a bundled `viscereality` command,
-the mirrored CLI docs, and the Sussex example catalogs without pointing it at
-the protected WindowsApps payload. The generated workspace includes
-`cli/current/viscereality.exe` plus `viscereality.ps1` and `viscereality.cmd`
-wrapper scripts that preload the mirrored sample-root overrides and point
-`VISCEREALITY_LSL_DLL` at the bundled workspace copy when it is present.
+the current operator-data root. For unpackaged/source builds that is typically
+`%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace`; for packaged MSIX
+installs it is the host-visible packaged path under
+`%LOCALAPPDATA%\Packages\<package-family>\LocalCache\Local\ViscerealityCompanion\agent-workspace`.
+The Sussex shell Home page includes `Open Agent Workspace` plus `Copy Local
+Agent Prompt` so installed-app users can hand a local agent a bundled
+`viscereality` command, the mirrored CLI docs, and the Sussex example
+catalogs without pointing it at the protected WindowsApps payload. The
+generated workspace includes `cli/current/viscereality.exe` plus
+`viscereality.ps1` and `viscereality.cmd` wrapper scripts that preload the
+mirrored sample-root overrides, point `VISCEREALITY_LSL_DLL` at the bundled
+workspace copy when it is present, and export `VISCEREALITY_OPERATOR_DATA_ROOT`
+so the bundled CLI uses the same host-visible operator-data root as the app.
 
 For source builds, the simplest way to stage the official Quest-side developer
 tools the app expects is:
@@ -42,8 +47,9 @@ GUI surfaces:
 - `Experiment Session` window:
   - the live participant-run surface for participant id entry, `Start
     Recording`, `Stop Recording`, live telemetry, clock/network consistency,
-    recenter, particle toggles, screenshots, and quick access to the session
-    folder, pulled Quest backup, and session review PDF
+    recenter, particle toggles, screenshots, direct dynamic-axis / fixed-axis
+    calibration start controls, and quick access to the session folder, pulled
+    Quest backup, and session review PDF
 
 The CLI currently mirrors the setup and profile side of Sussex. It does not
 yet replace the participant-run `Start Recording` / `Stop Recording` flow in
@@ -54,7 +60,7 @@ inside the same participant session folder.
 ## Running
 
 From the guided-install local agent workspace under
-`%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace`, prefer:
+the current operator-data root, prefer:
 
 ```powershell
 .\viscereality.ps1 --help
@@ -62,7 +68,9 @@ From the guided-install local agent workspace under
 
 That wrapper preloads the mirrored sample-root overrides before invoking the
 bundled CLI under `cli/current`, and it now exports the bundled workspace
-`lsl.dll` path automatically when that copy is present.
+`lsl.dll` path automatically when that copy is present. It also exports
+`VISCEREALITY_OPERATOR_DATA_ROOT` so the CLI keeps using the same host-visible
+operator-data root as the packaged app.
 
 From a source checkout, run:
 
@@ -218,7 +226,7 @@ viscereality sussex controller update "<profile>" `
 |---------|-------------|
 | `tooling status` | Show the local managed official Quest tooling cache state |
 | `tooling status --check-upstream` | Also query the latest published upstream versions |
-| `tooling install-official` | Install or update Meta `hzdb` plus Android platform-tools into `%LOCALAPPDATA%\ViscerealityCompanion\tooling` |
+| `tooling install-official` | Install or update Meta `hzdb` plus Android platform-tools into the current operator-data root under `...\ViscerealityCompanion\tooling` |
 
 `tooling status` only covers the managed official Quest tool cache. It does not
 decide whether liblsl is available in the current process layout.
@@ -227,13 +235,14 @@ decide whether liblsl is available in the current process layout.
 
 | Command | Description |
 |---------|-------------|
-| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, the local twin bridge, the exported agent workspace, and the expected upstream LSL stream |
+| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, the local twin bridge, the exported agent workspace, and the expected upstream LSL stream. The check now warns if multiple matching upstream sources are visible on Windows because sender switching can become unreliable in that state. |
 
 ## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
 | `VISCEREALITY_QUEST_SESSION_KIT_ROOT` | Override catalog root directory |
+| `VISCEREALITY_OPERATOR_DATA_ROOT` | Override the host-visible operator-data root used for session state, study data, screenshots, tooling, and agent-workspace compatibility |
 | `VISCEREALITY_ADB_EXE` | Override the `adb.exe` path the app and CLI should use |
 | `VISCEREALITY_HZDB_EXE` | Override the `hzdb.exe` path the app and CLI should use |
 | `VISCEREALITY_LSL_DLL` | Path to `lsl.dll` for LSL features |

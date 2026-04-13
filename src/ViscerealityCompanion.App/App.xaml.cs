@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App;
 
@@ -45,10 +46,7 @@ public partial class App : Application
     {
         try
         {
-            var logDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "ViscerealityCompanion",
-                "logs");
+            var logDirectory = CompanionOperatorDataLayout.LogsRootPath;
             Directory.CreateDirectory(logDirectory);
 
             var logPath = Path.Combine(
