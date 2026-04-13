@@ -164,6 +164,14 @@ jobs:
             -PackageCertificatePassword $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD `
             -PackageCertificateTimestampUrl $env:WINDOWS_PACKAGE_TIMESTAMP_URL
 
+      - name: Validate release asset signatures
+        shell: pwsh
+        run: |
+          & powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1 `
+            -PreviewSetupPath "artifacts\windows-installer\$env:PREVIEW_SETUP_FILE_NAME" `
+            -PackagePath "artifacts\windows-installer\$env:PACKAGE_FILE_NAME" `
+            -AllowSelfSigned
+
       - name: Package portable release assets
         shell: pwsh
         run: |

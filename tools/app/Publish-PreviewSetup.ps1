@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('win-x64')]
     [string]$RuntimeIdentifier = 'win-x64',
-    [string]$Version = '0.1.41.0',
+    [string]$Version = '0.1.42.0',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
     [string]$FileName = 'ViscerealityCompanion-Preview-Setup.exe',
     [string]$PackageCertificatePath,
@@ -18,6 +18,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$defaultTimestampUrl = 'http://timestamp.digicert.com'
 
 function Resolve-SignToolPath {
     $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
@@ -54,6 +56,12 @@ $publishPath = Join-Path $outputPath 'preview-setup-publish'
 
 if (-not (Test-Path $projectPath)) {
     throw "Preview setup project not found at $projectPath"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePath) -and
+    [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
+    $PackageCertificateTimestampUrl = $defaultTimestampUrl
+    Write-Host "No timestamp URL was provided. Defaulting to $PackageCertificateTimestampUrl for preview-setup signing." -ForegroundColor Yellow
 }
 
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null

@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
-    [string]$Version = '0.1.41.0',
+    [string]$Version = '0.1.42.0',
     [string]$PackageId = 'MesmerPrism.ViscerealityCompanion',
     [string]$Publisher = 'CN=MesmerPrism',
     [string]$DisplayName = 'Viscereality Companion',
@@ -30,6 +30,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$defaultTimestampUrl = 'http://timestamp.digicert.com'
 
 function Find-MSBuild {
     $command = Get-Command msbuild -ErrorAction SilentlyContinue
@@ -266,6 +268,11 @@ if (-not $Unsigned) {
     }
 
     $PackageCertificatePassword = $PackageCertificatePassword.TrimEnd("`r", "`n")
+
+    if ([string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
+        $PackageCertificateTimestampUrl = $defaultTimestampUrl
+        Write-Host "No timestamp URL was provided. Defaulting to $PackageCertificateTimestampUrl for package signing." -ForegroundColor Yellow
+    }
 }
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')

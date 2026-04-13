@@ -149,6 +149,36 @@ If no signed preview release exists, use the source-build path from
 [Getting Started](getting-started.md) or build an unsigned package locally with
 `tools/app/Build-App-Package.ps1 -Unsigned`.
 
+## Smart App Control blocks the guided setup helper
+
+This is usually not evidence that the release asset is unsigned. The current
+preview helper EXE is Authenticode-signed, but with the repo's self-issued
+preview certificate. Windows Smart App Control evaluates the downloaded EXE
+*before* the helper can add that certificate to `Trusted People`, so fresh
+machines can still block the helper outright.
+
+Use this order:
+
+1. Install the preview certificate from `ViscerealityCompanion.cer` into `Local Machine > Trusted People`.
+2. Open the downloaded `ViscerealityCompanion.appinstaller` file from disk.
+3. If App Installer itself still refuses the feed, install the `.msix` directly.
+
+For release debugging, validate the shipped EXE and MSIX signatures locally:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1 `
+  -PreviewSetupPath .\artifacts\windows-installer\ViscerealityCompanion-Preview-Setup.exe `
+  -PackagePath .\artifacts\windows-installer\ViscerealityCompanion.msix `
+  -AllowSelfSigned
+```
+
+Current release builds now require an RFC3161 timestamp on both assets. That
+improves signature durability, but it does **not** make the helper Smart App
+Control-compliant on fresh machines by itself. To make the helper broadly
+trusted under Smart App Control, the release workflow must be given a
+certificate from a trusted public provider or moved to Microsoft's Trusted
+Signing flow.
+
 ## The repo-local pinned launcher opens an error instead of the app
 
 Refresh the verified single-file launcher path instead of trusting an older

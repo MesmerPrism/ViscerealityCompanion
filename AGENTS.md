@@ -249,6 +249,20 @@ Astral/companion sync.
 Freshly republished local harness executables can still be blocked by Windows
 Application Control on this machine; treat that as a launcher-path issue, not
 as evidence that the Sussex APK, scene config, or LSL contract regressed.
+For packaged preview installs on other Windows machines, do not assume the
+guided setup helper EXE is Smart App Control-safe just because it is
+Authenticode-signed. The current public preview certificate is still a
+self-issued preview cert, which is enough for the MSIX after explicit trust but
+not enough to guarantee helper-EXE admission under Smart App Control.
+Cross-machine operator instructions should currently prefer the manual
+`ViscerealityCompanion.cer` + `ViscerealityCompanion.appinstaller` path.
+When checking a release-signing regression, run
+`powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1`
+against the built `ViscerealityCompanion-Preview-Setup.exe` and
+`ViscerealityCompanion.msix`. Treat missing RFC3161 timestamps as a packaging
+bug. Treat Smart App Control blocking a self-signed helper as a trust/reputation
+limitation until a trusted-provider certificate or Trusted Signing is wired
+into the release workflow.
 For Quest wake / Guardian tracking-loss debugging, keep
 `docs/quest-adb-hzdb-recovery-notes.md` up to date. It is the repo-local memory
 for tested `adb` / `hzdb` commands, observed shell states, and the current best
