@@ -17,16 +17,25 @@ $ErrorActionPreference = 'Stop'
 function Get-SigningReport {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+        [switch]$AllowSelfSigned
     )
 
     $resolvedPath = (Resolve-Path $Path).Path
     $signature = Get-AuthenticodeSignature -FilePath $resolvedPath
-    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+    $signerCertificate = $signature.SignerCertificate
+    $selfIssued = $null -ne $signerCertificate -and
+        [string]::Equals($signerCertificate.Subject, $signerCertificate.Issuer, [System.StringComparison]::OrdinalIgnoreCase)
+    $isAllowedSelfSignedTrustFailure =
+        $AllowSelfSigned -and
+        $selfIssued -and
+        $signature.Status -eq [System.Management.Automation.SignatureStatus]::UnknownError -and
+        $signature.StatusMessage -match 'not trusted by the trust provider'
+
+    if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -and -not $isAllowedSelfSignedTrustFailure) {
         throw "Authenticode validation failed for ${resolvedPath}: $($signature.Status) $($signature.StatusMessage)"
     }
 
-    $signerCertificate = $signature.SignerCertificate
     if ($null -eq $signerCertificate) {
         throw "No signer certificate was found on $resolvedPath."
     }
@@ -43,13 +52,13 @@ function Get-SigningReport {
         Thumbprint    = $signerCertificate.Thumbprint
         HasTimestamp  = $hasTimestamp
         TimestampBy   = $signature.TimeStamperCertificate.Subject
-        SelfIssued    = [string]::Equals($signerCertificate.Subject, $signerCertificate.Issuer, [System.StringComparison]::OrdinalIgnoreCase)
+        SelfIssued    = $selfIssued
     }
 }
 
 $reports = @(
-    Get-SigningReport -Path $PreviewSetupPath
-    Get-SigningReport -Path $PackagePath
+    Get-SigningReport -Path $PreviewSetupPath -AllowSelfSigned:$AllowSelfSigned
+    Get-SigningReport -Path $PackagePath -AllowSelfSigned:$AllowSelfSigned
 )
 
 $selfIssuedReports = $reports | Where-Object { $_.SelfIssued }

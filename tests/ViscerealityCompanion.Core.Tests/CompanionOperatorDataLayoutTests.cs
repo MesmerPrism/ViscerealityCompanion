@@ -49,7 +49,7 @@ public sealed class CompanionOperatorDataLayoutTests
     public void TryReadPackagedFamilyNameFromProcessPath_ParsesWindowsAppsDirectory()
     {
         var familyName = CompanionOperatorDataLayout.TryReadPackagedFamilyNameFromProcessPath(
-            @"C:\Program Files\WindowsApps\MesmerPrism.ViscerealityCompanion_0.1.42.0_x64__8wekyb3d8bbwe\ViscerealityCompanion.App\ViscerealityCompanion.exe");
+            @"C:\Program Files\WindowsApps\MesmerPrism.ViscerealityCompanion_0.1.43.0_x64__8wekyb3d8bbwe\ViscerealityCompanion.App\ViscerealityCompanion.exe");
 
         Assert.Equal("MesmerPrism.ViscerealityCompanion_8wekyb3d8bbwe", familyName);
     }
