@@ -28,18 +28,23 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             toolingStatusProvider: () => CreateToolingStatus(isReady: true),
             adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
             hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
         Assert.Equal(OperationOutcomeKind.Success, result.Level);
         Assert.Equal("Windows environment analysis passed.", result.Summary);
-        Assert.Equal("Checks ok/warn/fail: 9/0/0.", result.Detail);
+        Assert.Equal("Checks ok/warn/fail: 10/0/0.", result.Detail);
         Assert.Equal(new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero), result.CompletedAtUtc);
 
         var streamCheck = Assert.Single(result.Checks, check => check.Id == "expected-stream");
         Assert.Equal(OperationOutcomeKind.Success, streamCheck.Level);
         Assert.Contains("visible and streaming", streamCheck.Summary, StringComparison.OrdinalIgnoreCase);
+
+        var bundledLslCheck = Assert.Single(result.Checks, check => check.Id == "bundled-liblsl");
+        Assert.Equal(OperationOutcomeKind.Success, bundledLslCheck.Level);
     }
 
     [Fact]
@@ -64,13 +69,15 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             toolingStatusProvider: () => CreateToolingStatus(isReady: false),
             adbLocator: () => null,
             hzdbLocator: () => null,
+            bundledLslLocator: () => null,
+            agentWorkspacePresent: () => false,
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 30, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
         Assert.Equal(OperationOutcomeKind.Failure, result.Level);
         Assert.Equal("Windows environment analysis found blocking issues.", result.Summary);
-        Assert.Equal("Checks ok/warn/fail: 2/3/4.", result.Detail);
+        Assert.Equal("Checks ok/warn/fail: 2/4/4.", result.Detail);
 
         var adbCheck = Assert.Single(result.Checks, check => check.Id == "adb");
         Assert.Equal(OperationOutcomeKind.Failure, adbCheck.Level);
@@ -89,6 +96,9 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         var bridgeCheck = Assert.Single(result.Checks, check => check.Id == "twin-bridge");
         Assert.Equal(OperationOutcomeKind.Failure, bridgeCheck.Level);
+
+        var bundledLslCheck = Assert.Single(result.Checks, check => check.Id == "bundled-liblsl");
+        Assert.Equal(OperationOutcomeKind.Warning, bundledLslCheck.Level);
     }
 
     private static OfficialQuestToolingStatus CreateToolingStatus(bool isReady)

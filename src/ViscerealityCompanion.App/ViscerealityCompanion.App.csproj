@@ -65,10 +65,20 @@
       <_BundledCliRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_BundledCliRuntimeIdentifier>
       <_BundledCliRuntimeIdentifier Condition="'$(_BundledCliRuntimeIdentifier)' == ''">win-x64</_BundledCliRuntimeIdentifier>
       <_BundledCliPublishDir>$([System.IO.Path]::Combine('$(PublishDir)', 'cli', 'current'))</_BundledCliPublishDir>
+      <_BundledCliLslSource>$([System.IO.Path]::Combine('$(PublishDir)', 'runtimes', 'win-x64', 'native', 'lsl.dll'))</_BundledCliLslSource>
+      <_BundledCliRuntimeNativeDir>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'runtimes', 'win-x64', 'native'))</_BundledCliRuntimeNativeDir>
     </PropertyGroup>
     <MakeDir Directories="$(_BundledCliPublishDir)" />
     <Exec Command="dotnet publish &quot;$(BundledCliProjectPath)&quot; --configuration &quot;$(Configuration)&quot; --runtime &quot;$(_BundledCliRuntimeIdentifier)&quot; -p:PublishSingleFile=true -p:SelfContained=true --output &quot;$(_BundledCliPublishDir)&quot;"
           WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <MakeDir Directories="$(_BundledCliRuntimeNativeDir)"
+             Condition="Exists('$(_BundledCliLslSource)')" />
+    <Copy SourceFiles="$(_BundledCliLslSource)"
+          DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'lsl.dll'))"
+          Condition="Exists('$(_BundledCliLslSource)')" />
+    <Copy SourceFiles="$(_BundledCliLslSource)"
+          DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliRuntimeNativeDir)', 'lsl.dll'))"
+          Condition="Exists('$(_BundledCliLslSource)')" />
   </Target>
 
 </Project>

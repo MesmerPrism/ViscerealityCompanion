@@ -31,6 +31,9 @@ public sealed class WindowsEnvironmentAnalysisService
     private readonly Func<OfficialQuestToolingStatus> _toolingStatusProvider;
     private readonly Func<string?> _adbLocator;
     private readonly Func<string?> _hzdbLocator;
+    private readonly Func<string?> _bundledLslLocator;
+    private readonly Func<string?> _agentWorkspaceLslLocator;
+    private readonly Func<bool> _agentWorkspacePresent;
     private readonly Func<DateTimeOffset> _utcNow;
 
     public WindowsEnvironmentAnalysisService(
@@ -41,6 +44,9 @@ public sealed class WindowsEnvironmentAnalysisService
         Func<OfficialQuestToolingStatus>? toolingStatusProvider = null,
         Func<string?>? adbLocator = null,
         Func<string?>? hzdbLocator = null,
+        Func<string?>? bundledLslLocator = null,
+        Func<string?>? agentWorkspaceLslLocator = null,
+        Func<bool>? agentWorkspacePresent = null,
         Func<DateTimeOffset>? utcNow = null)
     {
         _monitorService = monitorService ?? throw new ArgumentNullException(nameof(monitorService));
@@ -50,6 +56,9 @@ public sealed class WindowsEnvironmentAnalysisService
         _toolingStatusProvider = toolingStatusProvider ?? GetLocalToolingStatus;
         _adbLocator = adbLocator ?? AdbExecutableLocator.TryLocate;
         _hzdbLocator = hzdbLocator ?? WindowsHzdbService.ResolveHzdbCommandPath;
+        _bundledLslLocator = bundledLslLocator ?? ResolveBundledLslPath;
+        _agentWorkspaceLslLocator = agentWorkspaceLslLocator ?? ResolveAgentWorkspaceLslPath;
+        _agentWorkspacePresent = agentWorkspacePresent ?? IsAgentWorkspacePresent;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -65,12 +74,14 @@ public sealed class WindowsEnvironmentAnalysisService
             BuildManagedToolCacheCheck(_toolingStatusProvider()),
             BuildAdbCheck(),
             BuildHzdbCheck(),
+            BuildBundledLslCheck(_bundledLslLocator(), _monitorService.RuntimeState),
             BuildRuntimeCheck(
                 id: "lsl-monitor-runtime",
                 label: "Windows liblsl monitor runtime",
                 runtimeState: _monitorService.RuntimeState,
                 required: true,
                 fixHint: "Make sure an official liblsl runtime is available to the app, either from the packaged copy or %VISCEREALITY_LSL_DLL%."),
+            BuildAgentWorkspaceLslCheck(_agentWorkspacePresent(), _agentWorkspaceLslLocator()),
             BuildRuntimeCheck(
                 id: "clock-alignment-runtime",
                 label: "Windows clock-alignment runtime",
@@ -138,6 +149,15 @@ public sealed class WindowsEnvironmentAnalysisService
         return toolingService.GetLocalStatus();
     }
 
+    private static string? ResolveBundledLslPath()
+        => LslRuntimeLayout.TryResolveExistingLocalPath(AppContext.BaseDirectory);
+
+    private static string? ResolveAgentWorkspaceLslPath()
+        => LslRuntimeLayout.TryResolveExistingLocalPath(LocalAgentWorkspaceLayout.BundledCliRootPath);
+
+    private static bool IsAgentWorkspacePresent()
+        => Directory.Exists(LocalAgentWorkspaceLayout.RootPath);
+
     private static WindowsEnvironmentCheckResult BuildManagedToolCacheCheck(OfficialQuestToolingStatus localStatus)
     {
         if (localStatus.IsReady)
@@ -156,6 +176,60 @@ public sealed class WindowsEnvironmentAnalysisService
             OperationOutcomeKind.Warning,
             "Managed Quest tooling cache is incomplete.",
             $"Run guided setup or `viscereality tooling install-official` so the app can rely on the LocalAppData-managed official Meta hzdb and Google platform-tools copies under {OfficialQuestToolingLayout.RootPath}.");
+    }
+
+    private static WindowsEnvironmentCheckResult BuildBundledLslCheck(string? bundledLslPath, LslRuntimeState runtimeState)
+    {
+        if (!string.IsNullOrWhiteSpace(bundledLslPath))
+        {
+            return new WindowsEnvironmentCheckResult(
+                "bundled-liblsl",
+                "Bundled liblsl copy",
+                OperationOutcomeKind.Success,
+                "Bundled liblsl copy is present.",
+                $"Resolved process-local liblsl at {bundledLslPath}.");
+        }
+
+        var expectedPaths = string.Join(" or ", LslRuntimeLayout.GetLocalCandidatePaths(AppContext.BaseDirectory));
+        var detail = runtimeState.Available
+            ? $"The current process can still load liblsl, but not from a bundled local copy. {runtimeState.Detail} Expected local paths: {expectedPaths}."
+            : $"No bundled local liblsl copy was found for the current process. Expected local paths: {expectedPaths}.";
+        return new WindowsEnvironmentCheckResult(
+            "bundled-liblsl",
+            "Bundled liblsl copy",
+            OperationOutcomeKind.Warning,
+            "Bundled liblsl copy is not present in this process layout.",
+            detail);
+    }
+
+    private static WindowsEnvironmentCheckResult BuildAgentWorkspaceLslCheck(bool agentWorkspacePresent, string? agentWorkspaceLslPath)
+    {
+        if (!agentWorkspacePresent)
+        {
+            return new WindowsEnvironmentCheckResult(
+                "agent-workspace-liblsl",
+                "Local agent workspace liblsl export",
+                OperationOutcomeKind.Preview,
+                "Local agent workspace not created yet.",
+                $"Once the workspace exists under {LocalAgentWorkspaceLayout.RootPath}, it should export liblsl alongside the bundled CLI for installed-app agent use.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(agentWorkspaceLslPath))
+        {
+            return new WindowsEnvironmentCheckResult(
+                "agent-workspace-liblsl",
+                "Local agent workspace liblsl export",
+                OperationOutcomeKind.Success,
+                "Local agent workspace exports liblsl.",
+                $"Agent workspace CLI can resolve liblsl from {agentWorkspaceLslPath}.");
+        }
+
+        return new WindowsEnvironmentCheckResult(
+            "agent-workspace-liblsl",
+            "Local agent workspace liblsl export",
+            OperationOutcomeKind.Warning,
+            "Local agent workspace is missing its bundled liblsl export.",
+            $"Expected {LocalAgentWorkspaceLayout.BundledCliLslDllPath} or {LocalAgentWorkspaceLayout.BundledCliRuntimeLslDllPath}. Reopen the workspace from the packaged app or refresh the installed build so the exported CLI mirrors the bundled liblsl runtime.");
     }
 
     private WindowsEnvironmentCheckResult BuildAdbCheck()

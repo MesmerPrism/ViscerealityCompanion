@@ -81,8 +81,10 @@ internal static class LslNativeLibraryResolver
         }
 
         AddIfPresent(Environment.GetEnvironmentVariable("VISCEREALITY_LSL_DLL"));
-        AddIfPresent(Path.Combine(AppContext.BaseDirectory, "lsl.dll"));
-        AddIfPresent(Path.Combine(AppContext.BaseDirectory, "runtimes", "win-x64", "native", "lsl.dll"));
+        foreach (var candidate in LslRuntimeLayout.GetLocalCandidatePaths(AppContext.BaseDirectory))
+        {
+            AddIfPresent(candidate);
+        }
 
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         AddUserToolsLiblslCandidates(candidates, userProfile);

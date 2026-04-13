@@ -24,6 +24,7 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         WriteFile(Path.Combine(docsRoot, "monitoring-and-control.md"), "# Monitoring");
         WriteFile(Path.Combine(cliRoot, "viscereality.exe"), "stub-cli");
         WriteFile(Path.Combine(cliRoot, "cli.runtimeconfig.json"), "{}");
+        WriteFile(Path.Combine(cliRoot, "lsl.dll"), "stub-lsl");
 
         WriteFile(Path.Combine(questRoot, "README.md"), "# Session Kit");
         WriteFile(Path.Combine(questRoot, "APKs", "library.json"), "{}");
@@ -65,6 +66,7 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "docs", "cli.md")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "viscereality.exe")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "cli.runtimeconfig.json")));
+        Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "lsl.dll")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "samples", "quest-session-kit", "HotloadProfiles", "baseline.csv")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "samples", "study-shells", "sussex-university", "visual-profiles", "baseline.json")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "samples", "oscillator-config", "llm-tuning", "sussex-visual-tuning-v1.template.json")));
@@ -74,15 +76,19 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         Assert.Contains("comprehensive explanation of what can be controlled from the CLI today", promptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(workspaceRoot, promptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(".\\viscereality.ps1 --help", promptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(".\\viscereality.ps1 windows-env analyze", promptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(".\\viscereality.ps1 study probe-connection sussex-university", promptText, StringComparison.OrdinalIgnoreCase);
 
         var envScript = File.ReadAllText(snapshot.PowerShellEnvScriptPath);
         Assert.Contains("VISCEREALITY_QUEST_SESSION_KIT_ROOT", envScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(Path.Combine(workspaceRoot, "samples", "quest-session-kit"), envScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(Path.Combine(workspaceRoot, "cli", "current"), envScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("VISCEREALITY_LSL_DLL", envScript, StringComparison.OrdinalIgnoreCase);
 
         var wrapperScript = File.ReadAllText(snapshot.PowerShellCliWrapperPath);
         Assert.Contains("viscereality.exe", wrapperScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("VISCEREALITY_STUDY_SHELL_ROOT", wrapperScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("VISCEREALITY_LSL_DLL", wrapperScript, StringComparison.OrdinalIgnoreCase);
     }
 
     public void Dispose()

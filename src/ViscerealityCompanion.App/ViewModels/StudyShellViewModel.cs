@@ -8867,6 +8867,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     ? $"Latest {TwinStateStreamName} / {TwinStateStreamType} frame {lastStateReceivedAt.Value.ToLocalTime():HH:mm:ss}."
                     : $"{TwinStateStreamName} / {TwinStateStreamType} is active."
                 : $"Latest {TwinStateStreamName} / {TwinStateStreamType} frame {lastStateReceivedAt!.Value.ToLocalTime():HH:mm:ss}; the return path is stale.";
+        var testSenderHint = _testLslSignalService?.IsRunning == true
+            ? " Companion TEST sender is active on Windows. If Analyze Windows Environment is also green, focus next on the headset-side scene state, Wi-Fi client-isolation, or whether this Quest build is publishing quest_twin_state."
+            : string.Empty;
         var connectedFlag = ParseBool(GetFirstValue("study.lsl.connected"));
         var connectedCount = ParseInt(GetFirstValue("connection.lsl.connected_count"));
         var hasConnectedInput = connectedFlag == true
@@ -8903,7 +8906,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return (
                 OperationOutcomeKind.Warning,
                 "Quest inlet is connected, but Windows is not receiving a fresh return path yet.",
-                detail,
+                detail + testSenderHint,
                 false);
         }
 
@@ -8912,7 +8915,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return (
                 OperationOutcomeKind.Warning,
                 "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet.",
-                detail,
+                detail + testSenderHint,
                 false);
         }
 
@@ -8921,7 +8924,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             IsStudyRuntimeForeground()
                 ? "Sussex is in front, but neither the LSL inlet nor the Windows return path is confirmed."
                 : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.",
-            detail,
+            detail + testSenderHint,
             false);
     }
 

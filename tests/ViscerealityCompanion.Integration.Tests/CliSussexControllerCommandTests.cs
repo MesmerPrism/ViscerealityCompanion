@@ -5,8 +5,6 @@ namespace ViscerealityCompanion.Integration.Tests;
 
 public sealed class CliSussexControllerCommandTests
 {
-    private static readonly SemaphoreSlim ConsoleGate = new(1, 1);
-
     [Fact]
     public async Task Sussex_controller_fields_use_public_template_metadata()
     {
@@ -49,7 +47,7 @@ public sealed class CliSussexControllerCommandTests
 
     private static async Task<string> InvokeCliAsync(params string[] args)
     {
-        await ConsoleGate.WaitAsync();
+        await CliConsoleTestGate.Instance.WaitAsync();
         var originalOut = Console.Out;
         var originalError = Console.Error;
         using var writer = new StringWriter();
@@ -66,7 +64,7 @@ public sealed class CliSussexControllerCommandTests
         {
             Console.SetOut(originalOut);
             Console.SetError(originalError);
-            ConsoleGate.Release();
+            CliConsoleTestGate.Instance.Release();
         }
     }
 }

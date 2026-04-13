@@ -19,7 +19,8 @@ installed-app users can hand a local agent a bundled `viscereality` command,
 the mirrored CLI docs, and the Sussex example catalogs without pointing it at
 the protected WindowsApps payload. The generated workspace includes
 `cli/current/viscereality.exe` plus `viscereality.ps1` and `viscereality.cmd`
-wrapper scripts that preload the mirrored sample-root overrides.
+wrapper scripts that preload the mirrored sample-root overrides and point
+`VISCEREALITY_LSL_DLL` at the bundled workspace copy when it is present.
 
 For source builds, the simplest way to stage the official Quest-side developer
 tools the app expects is:
@@ -60,7 +61,8 @@ From the guided-install local agent workspace under
 ```
 
 That wrapper preloads the mirrored sample-root overrides before invoking the
-bundled CLI under `cli/current`.
+bundled CLI under `cli/current`, and it now exports the bundled workspace
+`lsl.dll` path automatically when that copy is present.
 
 From a source checkout, run:
 
@@ -134,6 +136,7 @@ Options:
 | `study launch <study>` | Launch the pinned study runtime using the study kiosk policy. The command now refuses to launch while the headset reports asleep; wake the headset first. |
 | `study stop <study>` | Stop the pinned study runtime using the study kiosk-exit policy |
 | `study status <study>` | Compare current headset state against the pinned study baseline |
+| `study probe-connection <study>` | Mirror the Step 9 `Probe Connection` check: inspect the expected inlet, `quest_twin_state` return path, and twin transport detail |
 
 For Sussex, the study id is currently `sussex-university`.
 
@@ -217,6 +220,15 @@ viscereality sussex controller update "<profile>" `
 | `tooling status --check-upstream` | Also query the latest published upstream versions |
 | `tooling install-official` | Install or update Meta `hzdb` plus Android platform-tools into `%LOCALAPPDATA%\ViscerealityCompanion\tooling` |
 
+`tooling status` only covers the managed official Quest tool cache. It does not
+decide whether liblsl is available in the current process layout.
+
+### Windows Environment
+
+| Command | Description |
+|---------|-------------|
+| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, the local twin bridge, the exported agent workspace, and the expected upstream LSL stream |
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -243,6 +255,8 @@ viscereality monitor --stream quest_monitor --type quest.telemetry
 
 ```powershell
 viscereality study status sussex-university
+viscereality windows-env analyze
+viscereality study probe-connection sussex-university
 viscereality study install sussex-university
 viscereality study apply-profile sussex-university
 viscereality study launch sussex-university

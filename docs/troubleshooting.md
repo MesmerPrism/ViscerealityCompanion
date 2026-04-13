@@ -68,6 +68,19 @@ The packaged preview and portable Windows zip now bundle the official Windows
 x64 `lsl.dll`. On those builds, live LSL features should work without a
 separate liblsl install.
 
+The exported local agent workspace now mirrors that bundled liblsl copy beside
+the bundled CLI and sets `VISCEREALITY_LSL_DLL` in `viscereality.ps1` /
+`viscereality.cmd` automatically. If an installed-app local agent still reports
+that LSL is missing, do not rely on `tooling status` alone because that command
+only reports the managed `hzdb` plus Android platform-tools cache.
+
+Use these instead:
+
+```powershell
+.\viscereality.ps1 windows-env analyze
+.\viscereality.ps1 study probe-connection sussex-university
+```
+
 If LSL still stays unavailable, confirm `lsl.dll` is reachable through one of
 the expected locations:
 

@@ -101,7 +101,7 @@ If you know exactly which file you want, use these direct links:
 - the bundled Windows x64 `lsl.dll` runtime used by the built-in TEST sender and live LSL monitor path
 - the pinned Quest device profile and study-specific monitoring surface
 - the install assets needed to put the Windows app on another machine
-- the app-bundled CLI payload used to seed `%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace` with `viscereality.ps1`, `viscereality.cmd`, and a ready-made local-agent prompt after first launch
+- the app-bundled CLI payload used to seed `%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace` with `viscereality.ps1`, `viscereality.cmd`, the bundled workspace `lsl.dll`, and a ready-made local-agent prompt after first launch
 
 Sussex operators should not need a separate APK download if they are using the
 packaged preview install.

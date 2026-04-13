@@ -32,6 +32,7 @@ public static class Program
         rootCommand.AddCommand(BuildSussexCommand());
         rootCommand.AddCommand(BuildHzdbCommand());
         rootCommand.AddCommand(BuildToolingCommand());
+        rootCommand.AddCommand(BuildWindowsEnvironmentCommand());
         rootCommand.AddCommand(BuildUtilityCommand());
 
         return await rootCommand.InvokeAsync(args);
@@ -567,12 +568,32 @@ public static class Program
             }
         });
 
+        var probeJsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+        var probeWaitOption = new Option<int>("--wait-seconds", () => 4, "How long to wait for fresh quest_twin_state after opening the local bridge.");
+        var probeConnectionCommand = new Command("probe-connection", "Probe the Sussex LSL inlet and quest_twin_state return path, mirroring the Step 9 guide check") { studyArg, rootOption, probeJsonOption, probeWaitOption };
+        probeConnectionCommand.Handler = CommandHandler.Create(async (string study, string? root, bool json, int waitSeconds, string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var service = CreateQuestService(device);
+            var waitDuration = TimeSpan.FromSeconds(Math.Max(0, waitSeconds));
+            var result = await DiagnosticsCliSupport.ProbeStudyConnectionAsync(definition, service, device, waitDuration).ConfigureAwait(false);
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(result);
+                return;
+            }
+
+            DiagnosticsCliSupport.PrintStudyConnectionProbe(result);
+        });
+
         studyCommand.AddCommand(listCommand);
         studyCommand.AddCommand(installCommand);
         studyCommand.AddCommand(profileCommand);
         studyCommand.AddCommand(launchCommand);
         studyCommand.AddCommand(stopCommand);
         studyCommand.AddCommand(statusCommand);
+        studyCommand.AddCommand(probeConnectionCommand);
         return studyCommand;
     }
 
@@ -1313,7 +1334,7 @@ public static class Program
         var toolingCommand = new Command("tooling", "Manage the official Quest developer tooling used by the companion");
         var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
 
-        var statusCommand = new Command("status", "Show the managed official Quest tooling state");
+        var statusCommand = new Command("status", "Show the managed official Quest tooling state for hzdb plus Android platform-tools");
         var checkUpstreamOption = new Option<bool>("--check-upstream", "Check the latest published upstream versions as well as the local managed installs.");
         statusCommand.Add(jsonOption);
         statusCommand.Add(checkUpstreamOption);
@@ -1355,6 +1376,59 @@ public static class Program
         toolingCommand.AddCommand(statusCommand);
         toolingCommand.AddCommand(installCommand);
         return toolingCommand;
+    }
+
+    private static Command BuildWindowsEnvironmentCommand()
+    {
+        var windowsEnvCommand = new Command("windows-env", "CLI mirror of Analyze Windows Environment for liblsl, twin transport, and expected upstream stream checks");
+        var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+        var streamOption = new Option<string>("--expected-stream", () => HrvBiofeedbackStreamContract.StreamName, "Expected upstream LSL stream name to probe.");
+        var typeOption = new Option<string>("--expected-type", () => HrvBiofeedbackStreamContract.StreamType, "Expected upstream LSL stream type to probe.");
+        var skipStreamProbeOption = new Option<bool>("--skip-stream-probe", "Skip probing the expected upstream LSL stream.");
+
+        var analyzeCommand = new Command("analyze", "Mirror the GUI Analyze Windows Environment check for Windows tooling, liblsl runtimes, the twin bridge, and expected upstream stream visibility")
+        {
+            jsonOption,
+            streamOption,
+            typeOption,
+            skipStreamProbeOption
+        };
+
+        analyzeCommand.Handler = CommandHandler.Create(async (bool json, string expectedStream, string expectedType, bool skipStreamProbe) =>
+        {
+            using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
+            using var testSender = TestLslSignalServiceFactory.CreateDefault();
+            var bridge = TwinModeBridgeFactory.CreateDefault();
+            try
+            {
+                var service = new WindowsEnvironmentAnalysisService(
+                    CreateMonitorService(),
+                    clockAlignment,
+                    testSender,
+                    bridge);
+                var result = await service.AnalyzeAsync(
+                        new WindowsEnvironmentAnalysisRequest(
+                            expectedStream,
+                            expectedType,
+                            ProbeExpectedLslStream: !skipStreamProbe))
+                    .ConfigureAwait(false);
+
+                if (json)
+                {
+                    SussexCliSupport.WriteJson(result);
+                    return;
+                }
+
+                DiagnosticsCliSupport.PrintWindowsEnvironmentAnalysis(result);
+            }
+            finally
+            {
+                (bridge as IDisposable)?.Dispose();
+            }
+        });
+
+        windowsEnvCommand.AddCommand(analyzeCommand);
+        return windowsEnvCommand;
     }
 
     private static string ResolveDeviceSerial(string? device)
@@ -1421,6 +1495,9 @@ public static class Program
         PrintToolingComponent(status.Hzdb, includeUpstream);
         Console.WriteLine();
         PrintToolingComponent(status.PlatformTools, includeUpstream);
+        Console.WriteLine();
+        Console.WriteLine("LSL note: liblsl is bundled with packaged installs and exported agent workspaces, but it is not part of the managed official Quest tool cache.");
+        Console.WriteLine("Use `viscereality windows-env analyze` to inspect the active liblsl runtime path and expected stream visibility.");
     }
 
     private static void PrintToolingComponent(OfficialQuestToolStatus component, bool includeUpstream)
