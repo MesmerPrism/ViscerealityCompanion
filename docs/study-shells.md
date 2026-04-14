@@ -83,7 +83,7 @@ toggle rather than a plain launch/stop button:
   and pins it with `am task lock <TASK_ID>`
 - if the headset reports asleep, the launch surface now blocks the action and
   tells the operator `Wake the headset to enable launching`
-- if Guardian or another Meta visual blocker is active, the launch surface also
+- if a concrete Guardian, tracking-loss, or ClearActivity blocker is active, the launch surface also
   stays blocked until that blocker is cleared in-headset
 - `Exit Kiosk Runtime` sends the confirmed Home-return stack:
   `automation_disable -> task lock stop -> HomeActivity -> force-stop Sussex`

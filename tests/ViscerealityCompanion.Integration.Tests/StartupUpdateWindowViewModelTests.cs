@@ -10,7 +10,7 @@ public sealed class StartupUpdateWindowViewModelTests
     public async Task Primary_action_refreshes_tooling_cards_to_post_install_versions()
     {
         var snapshot = new StartupUpdateSnapshot(
-            PublishedPreviewUpdateService.BuildStatus("0.1.45.0", isPackaged: true, availableVersion: "0.1.45.0"),
+            PublishedPreviewUpdateService.BuildStatus("0.1.46.0", isPackaged: true, availableVersion: "0.1.46.0"),
             new OfficialQuestToolingStatus(
                 new OfficialQuestToolStatus(
                     Id: "meta-hzdb",

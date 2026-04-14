@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ViscerealityCompanion.App;
@@ -57,6 +58,8 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-home-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-tab.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-applied.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-calibration-workspace.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-experiment-session-calibration.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-automatic.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-paused.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
@@ -125,6 +128,7 @@ public static class HarnessScenarioRunner
     private static async Task ExecuteScenarioAsync(Window window, string repoRoot, string outputRoot, FloatLslTestOutlet outlet)
     {
         var useValidationCapture = ReadBoolEnvironmentVariable("VC_USE_VALIDATION_CAPTURE");
+        var calibrationOnly = ReadBoolEnvironmentVariable("VC_CALIBRATION_ONLY");
         var skipKioskExit = ReadBoolEnvironmentVariable("VC_SKIP_KIOSK_EXIT");
 
         if (window.DataContext is not MainWindowViewModel mainViewModel)
@@ -180,6 +184,28 @@ public static class HarnessScenarioRunner
             allowOffFaceRecovery: skipKioskExit);
 
         await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
+
+        if (calibrationOnly)
+        {
+            var controllerProfileApplyResult = await RunControllerBreathingProfilePhaseAsync(
+                studyViewModel,
+                window,
+                outputRoot);
+            var calibrationCommandResult = await RunCalibrationCommandsPhaseAsync(
+                studyViewModel,
+                window,
+                outputRoot);
+            CaptureWindow(window, Path.Combine(outputRoot, "sussex-main-window-live.png"));
+
+            await File.WriteAllTextAsync(
+                Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
+                BuildCalibrationOnlyReport(
+                    mainViewModel,
+                    studyViewModel,
+                    controllerProfileApplyResult,
+                    calibrationCommandResult));
+            return;
+        }
 
         await WarmUpLslAsync(outlet, studyViewModel);
         await Task.Delay(TimeSpan.FromSeconds(4));
@@ -1380,6 +1406,48 @@ public static class HarnessScenarioRunner
         return builder.ToString();
     }
 
+    private static string BuildCalibrationOnlyReport(
+        MainWindowViewModel mainViewModel,
+        StudyShellViewModel studyViewModel,
+        ObservationResult controllerBreathingProfileResult,
+        ObservationResult calibrationCommandResult)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"Timestamp: {DateTimeOffset.Now:O}");
+        builder.AppendLine("Mode: Calibration-only harness");
+        builder.AppendLine($"Main mode: {mainViewModel.CurrentModeLabel}");
+        builder.AppendLine($"Main mode detail: {mainViewModel.CurrentModeDetail}");
+        builder.AppendLine($"Quest: {studyViewModel.QuestStatusSummary}");
+        builder.AppendLine($"Connection: {studyViewModel.ConnectionSummary}");
+        builder.AppendLine($"Connection transport: {studyViewModel.ConnectionTransportSummary}");
+        builder.AppendLine($"Pinned build: {studyViewModel.PinnedBuildSummary}");
+        builder.AppendLine($"Installed build: {studyViewModel.InstalledApkSummary}");
+        builder.AppendLine($"Device profile: {studyViewModel.DeviceProfileSummary}");
+        builder.AppendLine($"Live runtime: {studyViewModel.LiveRuntimeSummary}");
+        builder.AppendLine($"Controller: {studyViewModel.ControllerSummary}");
+        builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
+        builder.AppendLine($"Last action detail: {studyViewModel.LastActionDetail}");
+        builder.AppendLine();
+        builder.AppendLine("Calibration observations:");
+        builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
+        builder.AppendLine($"- {calibrationCommandResult.Label}: {calibrationCommandResult.Detail}");
+        builder.AppendLine();
+        builder.AppendLine("Relevant live keys:");
+        foreach (var entry in GetRelevantLiveKeys(studyViewModel))
+        {
+            builder.AppendLine($"- {entry.Key}: {entry.Value}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Operator log:");
+        foreach (var entry in studyViewModel.Logs.Take(12))
+        {
+            builder.AppendLine($"- {entry.Timestamp:O} {entry.Level}: {entry.Message} :: {entry.Detail}");
+        }
+
+        return builder.ToString();
+    }
+
     private static string BuildValidationCaptureReport(
         MainWindowViewModel mainViewModel,
         StudyShellViewModel studyViewModel,
@@ -1740,6 +1808,112 @@ public static class HarnessScenarioRunner
             $"Created temporary baseline/apply profiles ({baselineProfileId}, {appliedProfileId}), applied bool/int/float controller-tuning values, captured {appliedQuestScreenshotPath}, then restored baseline. Apply readback: {applyReadbackDetail}. Restore readback: {restoreReadbackDetail}. Summary: {applySummary}");
     }
 
+    private static async Task<ObservationResult> RunCalibrationCommandsPhaseAsync(
+        StudyShellViewModel studyViewModel,
+        Window mainWindow,
+        string outputRoot)
+    {
+        var workspace = studyViewModel.ControllerBreathingProfiles;
+        if (!workspace.IsAvailable)
+        {
+            throw new InvalidOperationException("Controller-breathing workspace is not available in the Sussex shell.");
+        }
+
+        var initialDynamicMode = TryReadControllerCalibrationMode(studyViewModel.ReportedTwinStateSnapshot);
+
+        await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.SelectedPhaseTabIndex = 4);
+        await Task.Delay(TimeSpan.FromMilliseconds(450));
+        CaptureWindow(mainWindow, Path.Combine(outputRoot, "sussex-main-window-calibration-workspace.png"));
+
+        await ExecuteStandaloneCommandAsync(
+            workspace.UseDynamicAxisCalibrationCommand,
+            "Use Dynamic Motion Axis",
+            TimeSpan.FromSeconds(45));
+        await WaitForControllerBreathingHotloadValuesAsync(
+            studyViewModel,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["study_controller_breathing_use_principal_axis_calibration"] = "true"
+            },
+            TimeSpan.FromSeconds(20));
+        var workspaceDynamicSummary = await Application.Current.Dispatcher.InvokeAsync(() => workspace.ApplySummary);
+        var workspaceDynamicDetail = await Application.Current.Dispatcher.InvokeAsync(() => workspace.ApplyDetail);
+
+        await ExecuteStandaloneCommandAsync(
+            workspace.UseFixedOrientationCalibrationCommand,
+            "Use Fixed Controller Orientation",
+            TimeSpan.FromSeconds(45));
+        await WaitForControllerBreathingHotloadValuesAsync(
+            studyViewModel,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["study_controller_breathing_use_principal_axis_calibration"] = "false"
+            },
+            TimeSpan.FromSeconds(20));
+        var workspaceFixedSummary = await Application.Current.Dispatcher.InvokeAsync(() => workspace.ApplySummary);
+        var workspaceFixedDetail = await Application.Current.Dispatcher.InvokeAsync(() => workspace.ApplyDetail);
+
+        if (!studyViewModel.OpenExperimentSessionWindowCommand.CanExecute(null))
+        {
+            throw new InvalidOperationException("Open Experiment Session Window was not available for the calibration harness.");
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.OpenExperimentSessionWindowCommand.Execute(null));
+        var experimentWindow = await WaitForExperimentSessionWindowAsync();
+        await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            _ = experimentWindow.FindName("StartDynamicAxisCalibrationButton") as Button
+                ?? throw new InvalidOperationException("Experiment Session window did not expose StartDynamicAxisCalibrationButton.");
+            _ = experimentWindow.FindName("StartFixedAxisCalibrationButton") as Button
+                ?? throw new InvalidOperationException("Experiment Session window did not expose StartFixedAxisCalibrationButton.");
+        });
+        CaptureWindow(experimentWindow, Path.Combine(outputRoot, "sussex-experiment-session-calibration.png"));
+
+        var dynamicExperimentResult = await ExecuteExperimentCalibrationStartCommandAsync(
+            studyViewModel,
+            studyViewModel.StartDynamicAxisCalibrationCommand,
+            "Start Dynamic-Axis Calibration",
+            expectDynamicMode: true);
+        var fixedExperimentResult = await ExecuteExperimentCalibrationStartCommandAsync(
+            studyViewModel,
+            studyViewModel.StartFixedAxisCalibrationCommand,
+            "Start Fixed-Axis Calibration",
+            expectDynamicMode: false);
+
+        string restoreDetail;
+        if (initialDynamicMode is bool restoreDynamicMode)
+        {
+            await ExecuteStandaloneCommandAsync(
+                restoreDynamicMode
+                    ? workspace.UseDynamicAxisCalibrationCommand
+                    : workspace.UseFixedOrientationCalibrationCommand,
+                restoreDynamicMode
+                    ? "Restore Dynamic Motion Axis"
+                    : "Restore Fixed Controller Orientation",
+                TimeSpan.FromSeconds(45));
+            await WaitForControllerBreathingHotloadValuesAsync(
+                studyViewModel,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["study_controller_breathing_use_principal_axis_calibration"] = restoreDynamicMode ? "true" : "false"
+                },
+                TimeSpan.FromSeconds(20));
+            restoreDetail = $"Restored the initial calibration mode to {(restoreDynamicMode ? "dynamic motion axis" : "fixed controller orientation")}.";
+        }
+        else
+        {
+            restoreDetail = "Initial runtime calibration mode was not exposed in quest_twin_state, so no restore step was attempted.";
+        }
+
+        var success =
+            dynamicExperimentResult.Success &&
+            fixedExperimentResult.Success;
+        return new ObservationResult(
+            "Calibration command transport",
+            success,
+            $"Workspace dynamic toggle: {workspaceDynamicSummary} {workspaceDynamicDetail} Workspace fixed toggle: {workspaceFixedSummary} {workspaceFixedDetail} Experiment-session dynamic start: {dynamicExperimentResult.Detail} Experiment-session fixed start: {fixedExperimentResult.Detail} {restoreDetail}".Trim());
+    }
+
     private static async Task WaitForControllerBreathingHotloadValuesAsync(
         StudyShellViewModel studyViewModel,
         IReadOnlyDictionary<string, string> expectedValues,
@@ -1766,6 +1940,44 @@ public static class HarnessScenarioRunner
             },
             timeout,
             $"Controller-breathing hotload confirmation did not reach the expected values: {string.Join(", ", expectedValues.Select(pair => pair.Key + '=' + pair.Value))}");
+    }
+
+    private static async Task<ObservationResult> ExecuteExperimentCalibrationStartCommandAsync(
+        StudyShellViewModel studyViewModel,
+        AsyncRelayCommand command,
+        string actionLabel,
+        bool expectDynamicMode)
+    {
+        var previousConfirmation = CaptureLatestStudyActionConfirmation(studyViewModel);
+
+        await ExecuteCommandAsync(
+            command,
+            studyViewModel,
+            actionLabel,
+            TimeSpan.FromSeconds(45));
+
+        await WaitForControllerBreathingHotloadValuesAsync(
+            studyViewModel,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["study_controller_breathing_use_principal_axis_calibration"] = expectDynamicMode ? "true" : "false"
+            },
+            TimeSpan.FromSeconds(20));
+
+        var confirmation = await WaitForFreshStudyActionConfirmationAsync(
+            studyViewModel,
+            previousConfirmation.Sequence,
+            TimeSpan.FromSeconds(20),
+            $"{actionLabel} did not produce a fresh study.command.last_action_sequence confirmation.");
+
+        var source = string.IsNullOrWhiteSpace(confirmation.Source) ? "n/a" : confirmation.Source;
+        var reportedLabel = string.IsNullOrWhiteSpace(confirmation.Label) ? "n/a" : confirmation.Label;
+        var reportedActionId = string.IsNullOrWhiteSpace(confirmation.ActionId) ? "n/a" : confirmation.ActionId;
+        var reportedTime = string.IsNullOrWhiteSpace(confirmation.TimestampRaw) ? "n/a" : confirmation.TimestampRaw;
+        return new ObservationResult(
+            actionLabel,
+            true,
+            $"Confirmed seq {confirmation.Sequence?.ToString() ?? "n/a"} with headset label '{reportedLabel}', action id {reportedActionId}, source '{source}', at {reportedTime}.");
     }
 
     private static async Task<ObservationResult> RunAutomaticBreathingPhaseAsync(
@@ -2066,6 +2278,64 @@ public static class HarnessScenarioRunner
         };
     }
 
+    private static bool? TryReadControllerCalibrationMode(IReadOnlyDictionary<string, string> snapshot)
+        => TryGetTwinValue(snapshot, "study_controller_breathing_use_principal_axis_calibration", out var raw)
+            ? ParseBool(raw)
+            : null;
+
+    private static async Task<StudyActionConfirmationSnapshot> WaitForFreshStudyActionConfirmationAsync(
+        StudyShellViewModel studyViewModel,
+        long? previousSequence,
+        TimeSpan timeout,
+        string error)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var confirmation = CaptureLatestStudyActionConfirmation(studyViewModel);
+            if (confirmation.Sequence.HasValue &&
+                (!previousSequence.HasValue || confirmation.Sequence.Value > previousSequence.Value))
+            {
+                return confirmation;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
+
+        throw new TimeoutException(error);
+    }
+
+    private static StudyActionConfirmationSnapshot CaptureLatestStudyActionConfirmation(StudyShellViewModel studyViewModel)
+    {
+        var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+        return new StudyActionConfirmationSnapshot(
+            GetTwinLongValue(studyViewModel, "study.command.last_action_sequence"),
+            TryGetTwinValue(snapshot, "study.command.last_action_id", out var actionId) ? actionId : string.Empty,
+            TryGetTwinValue(snapshot, "study.command.last_action_label", out var label) ? label : string.Empty,
+            TryGetTwinValue(snapshot, "study.command.last_action_source", out var source) ? source : string.Empty,
+            TryGetTwinValue(snapshot, "study.command.last_action_at_utc", out var timestampRaw) ? timestampRaw : string.Empty);
+    }
+
+    private static async Task<StudyExperimentSessionWindow> WaitForExperimentSessionWindowAsync()
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var window = await Application.Current.Dispatcher.InvokeAsync(() =>
+                Application.Current.Windows
+                    .OfType<StudyExperimentSessionWindow>()
+                    .FirstOrDefault(candidate => candidate.IsLoaded));
+            if (window is not null)
+            {
+                return window;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
+
+        throw new InvalidOperationException("Experiment Session window did not open for the calibration harness.");
+    }
+
     private static void CaptureWindow(Window window, string path)
     {
         if (window.Content is not FrameworkElement root)
@@ -2320,6 +2590,7 @@ public static class HarnessScenarioRunner
     private sealed record LatencyResult(float Value, DateTimeOffset SentAt, DateTimeOffset? ObservedAt, string SourceKey, double? LatencyMs);
     private sealed record ObservedValueResult(DateTimeOffset? Timestamp, string SourceKey);
     private sealed record ObservationResult(string Label, bool Success, string Detail);
+    private sealed record StudyActionConfirmationSnapshot(long? Sequence, string ActionId, string Label, string Source, string TimestampRaw);
     private sealed record StopAppVerificationResult(OperationOutcomeKind Level, string Detail, string HomeScreenshotPath);
     private sealed record VerificationPersistenceResult(bool Persisted, string Summary, string Detail, StudyVerificationBaseline? Baseline);
     private sealed record FileInspectionResult(string Path, bool Exists, long LengthBytes, string Preview);

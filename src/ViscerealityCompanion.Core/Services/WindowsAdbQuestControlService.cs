@@ -2520,7 +2520,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         if (!string.IsNullOrWhiteSpace(wakeLimboComponent))
         {
             detailParts.Add($"foreground {wakeLimboComponent}");
-            detailParts.Add("Meta visual blocker active");
+            detailParts.Add("Guardian or tracking blocker active");
         }
 
         var detail = detailParts.Count == 0
@@ -2899,16 +2899,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
            (component.Contains(QuestClearActivityPackage, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
-            component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase) ||
-            component.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase));
+            component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsVisibleWakeBlockingComponent(string? component)
         => !string.IsNullOrWhiteSpace(component) &&
            (component.Contains(QuestClearActivityPackage, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
-            component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase) ||
-            component.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase));
+            component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsVisibleWakeBlockingOverlayComponent(string? component)
         => !string.IsNullOrWhiteSpace(component) &&
@@ -2922,16 +2920,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
            (readiness.WakeLimboComponent.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
             readiness.WakeLimboComponent.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase) ||
             readiness.WakeLimboComponent.Contains(QuestClearActivityPackage, StringComparison.OrdinalIgnoreCase) ||
-            readiness.WakeLimboComponent.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase) ||
-            readiness.WakeLimboComponent.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase));
+            readiness.WakeLimboComponent.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsGuardianAutomationRecoveryCandidate(QuestWakeReadiness readiness)
         => !string.IsNullOrWhiteSpace(readiness.WakeLimboComponent) &&
            (readiness.WakeLimboComponent.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
             readiness.WakeLimboComponent.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase) ||
             readiness.WakeLimboComponent.Contains(QuestClearActivityPackage, StringComparison.OrdinalIgnoreCase) ||
-            readiness.WakeLimboComponent.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase) ||
-            readiness.WakeLimboComponent.Contains(QuestFocusPlaceholderActivity, StringComparison.OrdinalIgnoreCase));
+            readiness.WakeLimboComponent.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsQuestHomeShellComponent(string? component)
         => !string.IsNullOrWhiteSpace(component) &&
@@ -3110,7 +3106,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     internal static OperationOutcome BuildVisualBlockedLaunchOutcome(QuestAppTarget target, QuestWakeReadiness readiness)
         => Failure(
             $"Launch blocked for {target.Label}.",
-            $"{readiness.Detail} Clear the current Guardian or Meta visual blocker before launching. Do not start Sussex while the headset is in this blocked visual state.",
+            $"{readiness.Detail} Clear the current Guardian, tracking-loss, or ClearActivity blocker before launching. Do not start Sussex while the headset is in this blocked visual state.",
             packageId: target.PackageId);
 
     private static string FormatControllerDetail(QuestControllerStatus status)

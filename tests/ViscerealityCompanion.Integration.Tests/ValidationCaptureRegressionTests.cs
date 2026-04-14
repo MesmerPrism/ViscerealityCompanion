@@ -230,6 +230,24 @@ public sealed class ValidationCaptureRegressionTests
     }
 
     [Fact]
+    public void ControllerCalibrationModeReadback_UsesHotloadFallbackKey()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        SetPrivateField(
+            viewModel,
+            "_reportedTwinState",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["hotload.study_controller_breathing_use_principal_axis_calibration"] = "false"
+            });
+
+        var method = GetPrivateMethod("TryGetCurrentControllerCalibrationModeSelection");
+        var actual = (bool?)method.Invoke(viewModel, []);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
     public void ValidationCaptureActionSummary_ExplainsWhyTheInlineRunButtonIsDisabledWithoutSubjectId()
     {
         var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));

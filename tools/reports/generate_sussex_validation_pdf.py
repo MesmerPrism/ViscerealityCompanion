@@ -9,7 +9,7 @@ import sys
 import textwrap
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -151,7 +151,7 @@ def parse_iso_timestamp(value: str) -> float:
 def format_utc(value: float | None) -> str:
     if value is None:
         return "n/a"
-    return datetime.fromtimestamp(value, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def parse_numeric_like(raw: str) -> float:

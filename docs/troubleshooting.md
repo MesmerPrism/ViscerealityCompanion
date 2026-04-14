@@ -190,6 +190,25 @@ generated wrappers (`viscereality.ps1`, `viscereality.cmd`, `agent-env.ps1`,
 uses that same host-visible root instead of drifting back to a different bare
 LocalAppData path.
 
+## The Sussex validation PDF fails even though the Windows session folder exists
+
+This is separate from Quest pullback. The PDF is generated from the Windows
+session folder after the run, so it can fail even when `Open Windows Session
+Folder` works.
+
+Older public builds could fail on machines where `py -3` resolved to an older
+Anaconda or system Python that did not support `datetime.UTC`, which produced
+an import error at startup. Current builds now use a version-compatible UTC
+import in the bundled generator script, so that specific failure should no
+longer happen on Python versions below 3.11.
+
+If PDF generation still fails, the remaining likely causes are:
+
+- no runnable Windows Python 3 interpreter on the machine
+- a Python install without the generator dependencies such as `matplotlib`
+
+The failure detail will include the exact launcher and traceback that failed.
+
 ## The packaged launcher path is not available yet
 
 If no signed preview release exists, use the source-build path from

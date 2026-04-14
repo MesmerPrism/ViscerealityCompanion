@@ -334,7 +334,7 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.True(viewModel.IsLaunchBlockedByHeadsetVisualBlocker);
         Assert.False(viewModel.CanLaunchStudyRuntime);
         Assert.False(viewModel.CanToggleStudyRuntime);
-        Assert.Equal("Clear Headset Blocker Before Launching", viewModel.StudyRuntimeActionLabel);
+        Assert.Equal("Clear Guardian Blocker Before Launching", viewModel.StudyRuntimeActionLabel);
     }
 
     private static StudyShellViewModel CreateViewModel(StudyShellDefinition study)

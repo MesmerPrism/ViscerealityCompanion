@@ -381,7 +381,7 @@ public sealed class WindowsAdbQuestControlServiceTests
     }
 
     [Fact]
-    public void EvaluateWakeReadiness_flags_focus_placeholder_as_slumber()
+    public void EvaluateWakeReadiness_keeps_primary_focus_placeholder_awake_when_no_guardian_or_clearactivity_is_visible()
     {
         var powerStatus = new WindowsAdbQuestControlService.QuestPowerStatus(
             "Awake",
@@ -400,9 +400,9 @@ public sealed class WindowsAdbQuestControlServiceTests
 
         var readiness = WindowsAdbQuestControlService.EvaluateWakeReadiness(powerStatus, snapshot);
 
-        Assert.False(readiness.IsAwake);
-        Assert.True(readiness.IsInWakeLimbo);
-        Assert.Contains("FocusPlaceholderActivity", readiness.Detail);
+        Assert.True(readiness.IsAwake);
+        Assert.False(readiness.IsInWakeLimbo);
+        Assert.DoesNotContain("FocusPlaceholderActivity", readiness.Detail);
     }
 
     [Fact]
@@ -488,14 +488,14 @@ public sealed class WindowsAdbQuestControlServiceTests
             IsAwake: false,
             IsInWakeLimbo: true,
             WakeLimboComponent: "com.oculus.guardian/com.oculus.vrguardianservice.guardiandialog.GuardianDialogActivity",
-            Detail: "wakefulness Awake; interactive true; display ON; foreground com.oculus.guardian/com.oculus.vrguardianservice.guardiandialog.GuardianDialogActivity; Meta visual blocker active");
+            Detail: "wakefulness Awake; interactive true; display ON; foreground com.oculus.guardian/com.oculus.vrguardianservice.guardiandialog.GuardianDialogActivity; Guardian or tracking blocker active");
 
         var outcome = WindowsAdbQuestControlService.BuildVisualBlockedLaunchOutcome(target, readiness);
 
         Assert.Equal(OperationOutcomeKind.Failure, outcome.Kind);
         Assert.Equal("Launch blocked for Sussex Experiment.", outcome.Summary);
         Assert.Equal(target.PackageId, outcome.PackageId);
-        Assert.Contains("Clear the current Guardian or Meta visual blocker before launching", outcome.Detail, StringComparison.Ordinal);
+        Assert.Contains("Clear the current Guardian, tracking-loss, or ClearActivity blocker before launching", outcome.Detail, StringComparison.Ordinal);
     }
 
     [Fact]

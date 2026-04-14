@@ -13,7 +13,7 @@ public sealed class ActionLabelToIsEnablingConverterTests
     [InlineData("Stop Recording", false)]
     [InlineData("Launch Kiosk Runtime", true)]
     [InlineData("Wake Headset To Enable Launching", true)]
-    [InlineData("Clear Headset Blocker Before Launching", true)]
+    [InlineData("Clear Guardian Blocker Before Launching", true)]
     [InlineData("Exit Kiosk Runtime", false)]
     [InlineData("Particles On", true)]
     [InlineData("Particles Off", false)]

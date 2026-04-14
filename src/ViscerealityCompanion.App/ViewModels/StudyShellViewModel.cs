@@ -58,9 +58,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds;
     private const int WorkflowClockAlignmentInitialBackgroundProbeDelaySeconds = 1;
     private const string LaunchSleepBlockButtonLabel = "Wake Headset To Enable Launching";
-    private const string LaunchVisualBlockButtonLabel = "Clear Headset Blocker Before Launching";
+    private const string LaunchVisualBlockButtonLabel = "Clear Guardian Blocker Before Launching";
     private const string LaunchSleepBlockInstruction = "Wake the headset to enable launching.";
-    private const string LaunchVisualBlockInstruction = "Clear Guardian or any other Meta visual blocker before launching.";
+    private const string LaunchVisualBlockInstruction = "Clear the current Guardian, tracking-loss, or ClearActivity blocker before launching.";
     private const string KioskMenuButtonAdvisory = "On the current Meta OS build, kiosk is best-effort task pinning only and does not reliably disable the controller Meta/menu button.";
     private const string TwinCommandStreamName = "quest_twin_commands";
     private const string TwinCommandStreamType = "quest.twin.command";
@@ -68,11 +68,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const string TwinStateStreamType = "quest.twin.state";
     private const string TwinConfigStreamName = "quest_hotload_config";
     private const string TwinConfigStreamType = "quest.config";
+    private const string ControllerCalibrationModeHotloadKey = "study_controller_breathing_use_principal_axis_calibration";
     private const string ParticipantSessionReviewPdfFileName = "session_review_report.pdf";
     private static readonly TimeSpan WorkflowClockAlignmentSparseProbeDuration = TimeSpan.FromSeconds(2.5);
     private static readonly TimeSpan WorkflowClockAlignmentRunSafetyMargin = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan WorkflowClockAlignmentStopTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan WorkflowUpstreamMonitorStopTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan ControllerCalibrationModeConfirmationTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan ControllerCalibrationModeConfirmationPollInterval = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan WorkflowValidationPdfTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan WorkflowHzdbListTimeout = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan WorkflowHzdbPullTimeout = TimeSpan.FromSeconds(20);
@@ -4053,7 +4056,47 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var modeConfirmationOutcome = await WaitForControllerCalibrationModeConfirmationAsync(
+                useDynamicMotionAxis,
+                actionLabel)
+            .ConfigureAwait(false);
+        if (modeConfirmationOutcome is not null)
+        {
+            await ApplyOutcomeAsync(actionLabel, modeConfirmationOutcome).ConfigureAwait(false);
+            return;
+        }
+
         await SendStudyTwinCommandCoreAsync(_study.Controls.StartBreathingCalibrationActionId, actionLabel).ConfigureAwait(false);
+    }
+
+    private async Task<OperationOutcome?> WaitForControllerCalibrationModeConfirmationAsync(
+        bool expectedDynamicMotionAxis,
+        string actionLabel)
+    {
+        var deadline = DateTimeOffset.UtcNow + ControllerCalibrationModeConfirmationTimeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var actualMode = await DispatchAsync(TryGetCurrentControllerCalibrationModeSelection).ConfigureAwait(false);
+            if (actualMode == expectedDynamicMotionAxis)
+            {
+                return null;
+            }
+
+            await Task.Delay(ControllerCalibrationModeConfirmationPollInterval).ConfigureAwait(false);
+        }
+
+        var finalMode = await DispatchAsync(TryGetCurrentControllerCalibrationModeSelection).ConfigureAwait(false);
+        var expectedModeLabel = expectedDynamicMotionAxis ? "dynamic motion axis" : "fixed controller orientation";
+        var actualModeLabel = finalMode is null
+            ? "unknown"
+            : finalMode.Value
+                ? "dynamic motion axis"
+                : "fixed controller orientation";
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            $"{actionLabel} is waiting for calibration mode confirmation.",
+            $"The companion requested {expectedModeLabel}, but quest_twin_state did not confirm that controller-calibration mode within {ControllerCalibrationModeConfirmationTimeout.TotalSeconds:0} seconds. The latest reported mode is {actualModeLabel}. Wait for the live mode switch to land, then try the calibration start again.");
     }
 
     public async Task ToggleAutomaticBreathingModeAsync()
@@ -4624,6 +4667,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             var coherencePlot = await Task.Run(() => LoadCoherenceValidationCapturePlot(completedLocalFolder)).ConfigureAwait(false);
             var pdfReportOutcome = await GenerateValidationCapturePdfAsync(completedLocalFolder).ConfigureAwait(false);
             var pdfPath = pdfReportOutcome.Items?.FirstOrDefault() ?? string.Empty;
+            var pdfGenerated = pdfReportOutcome.Kind == OperationOutcomeKind.Success && !string.IsNullOrWhiteSpace(pdfPath);
+            summary = completed
+                ? pdfGenerated
+                    ? $"Validation capture completed for {participantId}."
+                    : "Validation capture completed, but the validation PDF could not be generated automatically."
+                : pdfGenerated
+                    ? "Validation capture finished, but the Quest pullback is incomplete."
+                    : "Validation capture finished, but the Quest pullback is incomplete and the validation PDF could not be generated automatically.";
             if (pdfReportOutcome.Kind == OperationOutcomeKind.Success)
             {
                 detail = string.IsNullOrWhiteSpace(detail)
@@ -5110,8 +5161,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var outputPdfPath = Path.Combine(localSessionFolderPath, outputPdfFileName);
         var pythonCommands = new[]
         {
-            ("python", $"\"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\""),
-            ("py", $"-3 \"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\"")
+            ("py", $"-3 \"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\""),
+            ("python", $"\"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\"")
         };
 
         var errors = new List<string>();
@@ -6671,8 +6722,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             else if (_headsetStatus.IsInWakeLimbo)
             {
                 HeadsetAwakeLevel = OperationOutcomeKind.Warning;
-                HeadsetAwakeSummary = "Meta shell wake blocker active.";
-                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but a Meta visual blocker is still active, so the visible headset scene can still be black or Guardian-blocked even though Android says it is awake. {LaunchVisualBlockInstruction} Use Capture Quest Screenshot to confirm the actual visible state before deciding whether to launch or exit kiosk mode. {proximityContext}".Trim();
+                HeadsetAwakeSummary = "Guardian or tracking blocker active.";
+                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but Android still sees a concrete Guardian, tracking-loss, or ClearActivity blocker in front of the usable scene. {LaunchVisualBlockInstruction} Use Capture Quest Screenshot to confirm the actual visible state before deciding whether to launch or exit kiosk mode. {proximityContext}".Trim();
             }
             else if (_headsetStatus.IsAwake == true)
             {
@@ -12576,6 +12627,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         return null;
     }
+
+    private bool? TryGetCurrentControllerCalibrationModeSelection()
+        => ParseBool(GetFirstValue(
+            ControllerCalibrationModeHotloadKey,
+            "hotload." + ControllerCalibrationModeHotloadKey));
 
     private bool TryGetConfiguredUnitIntervalValue(IReadOnlyList<string> keys, out double value, out string sourceKey)
     {
