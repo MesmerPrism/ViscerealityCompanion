@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.43.0`.
+`0.1.44.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -77,7 +77,7 @@ terms; this repo does not relicense them under MIT.
     <ol class="step-list">
       <li>Download and run <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe"><code>ViscerealityCompanion-Preview-Setup.exe</code></a>.</li>
       <li>If Windows allows it, let the helper trust the preview certificate, refresh the managed official Quest tooling cache, and install or update the packaged app directly.</li>
-      <li>When the helper finishes, launch <strong>Viscereality Companion</strong> from the Start menu.</li>
+      <li>When the helper finishes, it should try to open <strong>Viscereality Companion</strong> automatically. If Windows does not bring it forward, launch it from the Start menu.</li>
       <li>Inside the app, stay in <code>Sussex University experiment mode</code> and use the sequential guide.</li>
     </ol>
     <p>If Windows Smart App Control blocks the helper, stop there and use the manual install path above.</p>
@@ -160,7 +160,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed preview
-   should identify itself as `Published install 0.1.43.0`; unpackaged local
+   should identify itself as `Published install 0.1.44.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an

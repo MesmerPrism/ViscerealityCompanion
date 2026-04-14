@@ -38,6 +38,40 @@ dotnet run --project src/ViscerealityCompanion.Cli -- tooling install-official
 If this machine is using the Unity-bundled `adb.exe`, add that folder to
 `PATH` or install the normal platform-tools package.
 
+## The Companion Updates window still shows `Installed: n/a` after I refreshed the official Quest tools
+
+If the same dialog also says something like:
+
+```text
+Official Quest tooling updated
+hzdb 1.0.1 | Android platform-tools 37.0.0
+```
+
+then the install itself probably succeeded and the dialog was only still
+showing its original pre-install snapshot.
+
+That older packaged-window bug affected the per-tool status cards, not the
+actual managed tooling cache. The real files and metadata live under the
+current operator-data root:
+
+```text
+...\ViscerealityCompanion\tooling\hzdb\current\metadata.json
+...\ViscerealityCompanion\tooling\platform-tools\current\metadata.json
+```
+
+Current builds refresh those cards immediately after the in-app tooling update
+completes. If you are validating an older build, confirm the real state with:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- tooling status
+```
+
+or, from the packaged local-agent workspace:
+
+```powershell
+.\viscereality.ps1 tooling status
+```
+
 If Wi-Fi ADB only works after manual `adb kill-server` / `adb start-server`
 recovery in `cmd`, update to the latest packaged preview first. The Sussex
 Wi-Fi bootstrap now restarts the local ADB server automatically and falls back
@@ -61,6 +95,19 @@ Refresh it with the guided setup helper or:
 ```powershell
 dotnet run --project src/ViscerealityCompanion.Cli -- tooling install-official
 ```
+
+## The guided setup helper finished but the app did not open
+
+Current helper builds now try to launch the packaged app automatically through
+its Windows `AppsFolder` target after the MSIX install finishes. If that still
+does not bring the app forward on a given machine, treat it as a Windows shell
+activation problem, not as proof that the install failed.
+
+Use the normal fallback:
+
+1. Open `Viscereality Companion` from the Start menu.
+2. If you want to verify the installed build explicitly, check `Get-AppxPackage MesmerPrism.ViscerealityCompanion` in PowerShell.
+3. If the app opens and the operator-data root contains the managed tooling metadata shown above, the packaged install succeeded.
 
 ## The app launches but live LSL features stay unavailable
 

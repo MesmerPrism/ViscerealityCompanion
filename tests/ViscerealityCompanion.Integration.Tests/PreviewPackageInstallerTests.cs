@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ViscerealityCompanion.PreviewInstaller;
 
 namespace ViscerealityCompanion.Integration.Tests;
@@ -15,9 +16,9 @@ public sealed class PreviewPackageInstallerTests
                 appInstallerPath,
                 """
                 <?xml version="1.0" encoding="utf-8"?>
-                <AppInstaller xmlns="http://schemas.microsoft.com/appx/appinstaller/2018" Version="0.1.43.0">
+                <AppInstaller xmlns="http://schemas.microsoft.com/appx/appinstaller/2018" Version="0.1.44.0">
                   <MainPackage Name="MesmerPrism.ViscerealityCompanion"
-                               Version="0.1.43.0"
+                               Version="0.1.44.0"
                                Publisher="CN=MesmerPrism"
                                ProcessorArchitecture="x64"
                                Uri="https://example.invalid/ViscerealityCompanion.msix" />
@@ -28,7 +29,7 @@ public sealed class PreviewPackageInstallerTests
 
             Assert.Equal("MesmerPrism.ViscerealityCompanion", identity.Name);
             Assert.Equal("CN=MesmerPrism", identity.Publisher);
-            Assert.Equal("0.1.43.0", identity.Version);
+            Assert.Equal("0.1.44.0", identity.Version);
             Assert.Equal(new Uri(appInstallerPath, UriKind.Absolute), identity.AppInstallerUri);
         }
         finally
@@ -43,7 +44,7 @@ public sealed class PreviewPackageInstallerTests
         var packageIdentity = new PreviewPackageIdentity(
             "MesmerPrism.ViscerealityCompanion",
             "CN=MesmerPrism",
-            "0.1.43.0",
+            "0.1.44.0",
             new Uri("file:///C:/Temp/ViscerealityCompanion.appinstaller"));
 
         var package = PreviewPackageInstaller.FindExistingPackage(
@@ -54,21 +55,48 @@ public sealed class PreviewPackageInstallerTests
                     "MesmerPrism.ViscerealityCompanion_0.1.36.0_x64__zcnfcs118r0y",
                     "MesmerPrism.ViscerealityCompanion",
                     "CN=MesmerPrism",
-                    "0.1.36.0"),
+                    "0.1.36.0",
+                    "MesmerPrism.ViscerealityCompanion_zcnfcs118r0y"),
                 new PreviewPackageCandidate(
                     "MesmerPrism.ViscerealityCompanion_0.1.37.0_x64__zcnfcs118r0y",
                     "MesmerPrism.ViscerealityCompanion",
                     "CN=MesmerPrism",
-                    "0.1.37.0"),
+                    "0.1.37.0",
+                    "MesmerPrism.ViscerealityCompanion_zcnfcs118r0y"),
                 new PreviewPackageCandidate(
                     "MesmerPrism.ViscerealityCompanion_0.1.99.0_x64__otherpublisher",
                     "MesmerPrism.ViscerealityCompanion",
                     "CN=OtherPublisher",
-                    "0.1.99.0")
+                    "0.1.99.0",
+                    "MesmerPrism.ViscerealityCompanion_otherpublisher")
             });
 
         Assert.NotNull(package);
         Assert.Equal("MesmerPrism.ViscerealityCompanion_0.1.37.0_x64__zcnfcs118r0y", package!.FullName);
         Assert.Equal("0.1.37.0", package.Version);
+        Assert.Equal("MesmerPrism.ViscerealityCompanion_zcnfcs118r0y", package.FamilyName);
+    }
+
+    [Fact]
+    public void TryLaunchInstalledPackage_uses_apps_folder_target()
+    {
+        ProcessStartInfo? capturedStartInfo = null;
+
+        var launched = PreviewPackageInstaller.TryLaunchInstalledPackage(
+            new ExistingPreviewPackage(
+                "MesmerPrism.ViscerealityCompanion_0.1.44.0_x64__zcnfcs118r0y",
+                "0.1.44.0",
+                "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y"),
+            out var detail,
+            startInfo => capturedStartInfo = startInfo);
+
+        Assert.True(launched);
+        Assert.Contains("open the installed app automatically", detail, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(capturedStartInfo);
+        Assert.Equal("explorer.exe", capturedStartInfo!.FileName);
+        Assert.Equal(
+            @"shell:AppsFolder\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y!App",
+            capturedStartInfo.Arguments);
+        Assert.True(capturedStartInfo.UseShellExecute);
     }
 }

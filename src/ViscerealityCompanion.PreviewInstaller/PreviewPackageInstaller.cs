@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Xml.Linq;
 using Windows.ApplicationModel;
 using Windows.Foundation;
@@ -15,11 +16,13 @@ internal sealed record PreviewPackageCandidate(
     string FullName,
     string Name,
     string Publisher,
-    string Version);
+    string Version,
+    string FamilyName);
 
 internal sealed record ExistingPreviewPackage(
     string FullName,
-    string Version);
+    string Version,
+    string FamilyName);
 
 internal sealed record PreviewPackageInstallResult(
     bool UpdatedExistingInstall,
@@ -29,6 +32,8 @@ internal sealed record PreviewPackageInstallResult(
 
 internal sealed class PreviewPackageInstaller
 {
+    internal const string MainApplicationId = "App";
+
     internal static PreviewPackageIdentity ParseAppInstallerManifest(string appInstallerPath)
     {
         var xml = File.ReadAllText(appInstallerPath);
@@ -67,7 +72,8 @@ internal sealed class PreviewPackageInstaller
                 candidate.Id.FullName ?? string.Empty,
                 candidate.Id.Name ?? string.Empty,
                 candidate.Id.Publisher ?? string.Empty,
-                candidate.Id.Version.ToString() ?? string.Empty)));
+                candidate.Id.Version.ToString() ?? string.Empty,
+                candidate.Id.FamilyName ?? string.Empty)));
     }
 
     internal static ExistingPreviewPackage? FindExistingPackage(
@@ -85,7 +91,58 @@ internal sealed class PreviewPackageInstaller
             ? null
             : new ExistingPreviewPackage(
                 package.FullName,
-                package.Version);
+                package.Version,
+                package.FamilyName);
+    }
+
+    internal static string BuildAppsFolderLaunchTarget(string packageFamilyName, string applicationId = MainApplicationId)
+        => $@"shell:AppsFolder\{packageFamilyName}!{applicationId}";
+
+    internal static ProcessStartInfo CreateLaunchStartInfo(string packageFamilyName, string applicationId = MainApplicationId)
+        => new()
+        {
+            FileName = "explorer.exe",
+            Arguments = BuildAppsFolderLaunchTarget(packageFamilyName, applicationId),
+            UseShellExecute = true
+        };
+
+    internal static bool TryLaunchInstalledPackage(
+        ExistingPreviewPackage? package,
+        out string detail,
+        Action<ProcessStartInfo>? startProcess = null)
+    {
+        if (package is null)
+        {
+            detail = "The package is installed, but the helper could not resolve its packaged app registration afterward. Launch Viscereality Companion from the Start menu.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(package.FamilyName))
+        {
+            detail = "The package is installed, but Windows did not report a usable package family name for automatic launch. Launch Viscereality Companion from the Start menu.";
+            return false;
+        }
+
+        try
+        {
+            var startInfo = CreateLaunchStartInfo(package.FamilyName);
+            if (startProcess is null)
+            {
+                Process.Start(startInfo);
+            }
+            else
+            {
+                startProcess(startInfo);
+            }
+
+            detail = "The helper then asked Windows to open the installed app automatically.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            detail = $"The package is installed, but Windows did not accept the automatic launch request ({exception.Message}). Launch Viscereality Companion from the Start menu.";
+            return false;
+        }
     }
 
     public async Task<PreviewPackageInstallResult> InstallOrUpdateAsync(

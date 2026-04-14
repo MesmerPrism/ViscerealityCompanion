@@ -373,7 +373,7 @@ internal sealed class InstallerStatusForm : Form
             _summaryLabel.Text = result.Summary;
             _detailLabel.Text = result.Detail;
             _footerLabel.Text = string.IsNullOrWhiteSpace(result.ToolingWarning)
-                ? "The packaged install is ready. Launch Viscereality Companion from the Start menu and stay in the Sussex shell for the guided workflow."
+                ? "The packaged install is ready. The helper attempted to open Viscereality Companion automatically. If Windows does not bring it forward, launch it from the Start menu and stay in the Sussex shell for the guided workflow."
                 : $"{result.ToolingWarning} You can rerun the helper later or use `viscereality tooling install-official` after the app is installed.";
             _closeButton.Visible = true;
         }

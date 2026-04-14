@@ -256,6 +256,16 @@ self-issued preview cert, which is enough for the MSIX after explicit trust but
 not enough to guarantee helper-EXE admission under Smart App Control.
 Cross-machine operator instructions should currently prefer the manual
 `ViscerealityCompanion.cer` + `ViscerealityCompanion.appinstaller` path.
+Current helper builds do now attempt to launch the packaged app automatically
+through its Windows `AppsFolder` target after install, but manual Start-menu
+launch remains the fallback if Windows suppresses that activation.
+If an older packaged `Companion Updates` window reports
+`Official Quest tooling updated` with explicit version numbers like
+`hzdb 1.0.1 | Android platform-tools 37.0.0` while the per-tool cards still
+show `Installed: n/a`, treat that as a stale dialog snapshot first, not as
+proof that the managed tooling cache is missing. Confirm the actual state with
+`tooling status` or the metadata files under the current host-visible
+operator-data root.
 When checking a release-signing regression, run
 `powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1`
 against the built `ViscerealityCompanion-Preview-Setup.exe` and

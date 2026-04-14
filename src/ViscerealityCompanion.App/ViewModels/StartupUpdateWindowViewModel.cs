@@ -4,9 +4,13 @@ namespace ViscerealityCompanion.App.ViewModels;
 
 internal sealed class StartupUpdateWindowViewModel : ObservableObject
 {
-    private readonly StartupUpdateSnapshot _snapshot;
+    private readonly Func<IProgress<OfficialQuestToolingProgress>?, CancellationToken, Task<OfficialQuestToolingInstallResult>> _installToolingAsync;
+    private readonly Func<string, IProgress<PackagedAppUpdateProgress>?, CancellationToken, Task> _applyPackagedAppUpdateAsync;
+    private PublishedAppUpdateStatus _appStatus;
+    private OfficialQuestToolingStatus _toolingStatus;
     private bool _isBusy;
     private bool _isCompleted;
+    private string _heading;
     private string _summary;
     private string _detail;
     private string _progressStatus = string.Empty;
@@ -17,7 +21,34 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
 
     public StartupUpdateWindowViewModel(StartupUpdateSnapshot snapshot)
     {
-        _snapshot = snapshot;
+        _appStatus = snapshot.App;
+        _toolingStatus = snapshot.Tooling;
+        _installToolingAsync = async (progress, cancellationToken) =>
+        {
+            using var tooling = new OfficialQuestToolingService();
+            return await tooling.InstallOrUpdateAsync(progress, cancellationToken).ConfigureAwait(false);
+        };
+        _applyPackagedAppUpdateAsync = (appInstallerUri, progress, cancellationToken) =>
+            new PackagedAppUpdateInstaller().ApplyPublishedUpdateAsync(appInstallerUri, progress, cancellationToken);
+        _heading = BuildInitialHeading(snapshot);
+        _summary = BuildInitialSummary(snapshot);
+        _detail = BuildInitialDetail(snapshot);
+
+        PrimaryActionCommand = new AsyncRelayCommand(ExecutePrimaryActionAsync, () => !IsBusy);
+        DismissActionCommand = new AsyncRelayCommand(DismissAsync, () => !IsBusy);
+        OpenReleasesCommand = new AsyncRelayCommand(OpenReleasesAsync, () => !IsBusy);
+    }
+
+    internal StartupUpdateWindowViewModel(
+        StartupUpdateSnapshot snapshot,
+        Func<IProgress<OfficialQuestToolingProgress>?, CancellationToken, Task<OfficialQuestToolingInstallResult>> installToolingAsync,
+        Func<string, IProgress<PackagedAppUpdateProgress>?, CancellationToken, Task> applyPackagedAppUpdateAsync)
+    {
+        _appStatus = snapshot.App;
+        _toolingStatus = snapshot.Tooling;
+        _installToolingAsync = installToolingAsync ?? throw new ArgumentNullException(nameof(installToolingAsync));
+        _applyPackagedAppUpdateAsync = applyPackagedAppUpdateAsync ?? throw new ArgumentNullException(nameof(applyPackagedAppUpdateAsync));
+        _heading = BuildInitialHeading(snapshot);
         _summary = BuildInitialSummary(snapshot);
         _detail = BuildInitialDetail(snapshot);
 
@@ -35,11 +66,10 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
     public string WindowTitle => "Companion Updates";
 
     public string Heading
-        => _snapshot.App.UpdateAvailable && _snapshot.HasToolingUpdates
-            ? "App and tooling updates are available"
-            : _snapshot.App.UpdateAvailable
-                ? "A Windows package update is available"
-                : "Official Quest tooling updates are available";
+    {
+        get => _heading;
+        private set => SetProperty(ref _heading, value);
+    }
 
     public string Summary
     {
@@ -76,7 +106,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
 
     public bool ShowProgress => IsBusy;
     public bool ShowDismissAction => _showDismissAction;
-    public bool ShowOpenReleasesAction => _snapshot.App.IsApplicable;
+    public bool ShowOpenReleasesAction => _appStatus.IsApplicable;
 
     public string PrimaryActionLabel
     {
@@ -102,24 +132,24 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         private set => SetProperty(ref _progressPercent, value);
     }
 
-    public bool ShowAppSection => _snapshot.App.IsApplicable;
-    public bool AppUpdateAvailable => _snapshot.App.UpdateAvailable;
-    public string AppStatusLabel => _snapshot.App.UpdateAvailable ? "Update ready" : "Current";
-    public string AppCurrentVersion => _snapshot.App.CurrentVersion ?? "n/a";
-    public string AppAvailableVersion => _snapshot.App.AvailableVersion ?? "n/a";
-    public string AppDetail => _snapshot.App.Detail;
+    public bool ShowAppSection => _appStatus.IsApplicable;
+    public bool AppUpdateAvailable => _appStatus.UpdateAvailable;
+    public string AppStatusLabel => _appStatus.UpdateAvailable ? "Update ready" : "Current";
+    public string AppCurrentVersion => _appStatus.CurrentVersion ?? "n/a";
+    public string AppAvailableVersion => _appStatus.AvailableVersion ?? "n/a";
+    public string AppDetail => _appStatus.Detail;
 
-    public bool HzdbUpdateAvailable => _snapshot.Tooling.Hzdb.UpdateAvailable;
-    public string HzdbStatusLabel => _snapshot.Tooling.Hzdb.UpdateAvailable ? "Update ready" : "Current";
-    public string HzdbCurrentVersion => _snapshot.Tooling.Hzdb.InstalledVersion ?? "n/a";
-    public string HzdbAvailableVersion => _snapshot.Tooling.Hzdb.AvailableVersion ?? "n/a";
-    public string HzdbDetail => $"Managed path: {_snapshot.Tooling.Hzdb.InstallPath}";
+    public bool HzdbUpdateAvailable => _toolingStatus.Hzdb.UpdateAvailable;
+    public string HzdbStatusLabel => _toolingStatus.Hzdb.UpdateAvailable ? "Update ready" : "Current";
+    public string HzdbCurrentVersion => _toolingStatus.Hzdb.InstalledVersion ?? "n/a";
+    public string HzdbAvailableVersion => _toolingStatus.Hzdb.AvailableVersion ?? "n/a";
+    public string HzdbDetail => $"Managed path: {_toolingStatus.Hzdb.InstallPath}";
 
-    public bool PlatformToolsUpdateAvailable => _snapshot.Tooling.PlatformTools.UpdateAvailable;
-    public string PlatformToolsStatusLabel => _snapshot.Tooling.PlatformTools.UpdateAvailable ? "Update ready" : "Current";
-    public string PlatformToolsCurrentVersion => _snapshot.Tooling.PlatformTools.InstalledVersion ?? "n/a";
-    public string PlatformToolsAvailableVersion => _snapshot.Tooling.PlatformTools.AvailableVersion ?? "n/a";
-    public string PlatformToolsDetail => $"Managed path: {_snapshot.Tooling.PlatformTools.InstallPath}";
+    public bool PlatformToolsUpdateAvailable => _toolingStatus.PlatformTools.UpdateAvailable;
+    public string PlatformToolsStatusLabel => _toolingStatus.PlatformTools.UpdateAvailable ? "Update ready" : "Current";
+    public string PlatformToolsCurrentVersion => _toolingStatus.PlatformTools.InstalledVersion ?? "n/a";
+    public string PlatformToolsAvailableVersion => _toolingStatus.PlatformTools.AvailableVersion ?? "n/a";
+    public string PlatformToolsDetail => $"Managed path: {_toolingStatus.PlatformTools.InstallPath}";
 
     private async Task ExecutePrimaryActionAsync()
     {
@@ -132,16 +162,15 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         IsBusy = true;
         ProgressPercent = 5;
         ProgressStatus = "Preparing updates";
-        ProgressDetail = _snapshot.App.UpdateAvailable
+        ProgressDetail = _appStatus.UpdateAvailable
             ? "The companion will refresh the managed official Quest tooling cache first, then install the published Windows package directly without opening the App Installer UI."
             : "The companion will refresh the managed official Quest tooling cache in place.";
 
         string toolingMessage;
         try
         {
-            if (_snapshot.HasToolingUpdates)
+            if (_toolingStatus.Hzdb.UpdateAvailable || _toolingStatus.PlatformTools.UpdateAvailable)
             {
-                using var tooling = new OfficialQuestToolingService();
                 var toolingProgress = new Progress<OfficialQuestToolingProgress>(update =>
                 {
                     ProgressStatus = update.Status;
@@ -149,7 +178,8 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
                     ProgressPercent = Math.Clamp(update.PercentComplete, 5, 95);
                 });
 
-                var toolingResult = await tooling.InstallOrUpdateAsync(toolingProgress).ConfigureAwait(true);
+                var toolingResult = await _installToolingAsync(toolingProgress, CancellationToken.None).ConfigureAwait(true);
+                ApplyToolingStatus(toolingResult.Status);
                 toolingMessage = toolingResult.Detail;
             }
             else
@@ -157,13 +187,12 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
                 toolingMessage = "Official Quest tooling was already current.";
             }
 
-            if (_snapshot.App.UpdateAvailable)
+            if (_appStatus.UpdateAvailable)
             {
                 ProgressStatus = "Installing Windows package update";
                 ProgressDetail = "Downloading and staging the published MSIX update directly from the App Installer feed.";
                 ProgressPercent = 96;
 
-                var installer = new PackagedAppUpdateInstaller();
                 var appProgress = new Progress<PackagedAppUpdateProgress>(update =>
                 {
                     ProgressStatus = update.Status;
@@ -171,15 +200,17 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
                     ProgressPercent = Math.Clamp(update.PercentComplete, 1, 99);
                 });
 
-                await installer
-                    .ApplyPublishedUpdateAsync(_snapshot.App.AppInstallerUri, appProgress)
+                await _applyPackagedAppUpdateAsync(_appStatus.AppInstallerUri, appProgress, CancellationToken.None)
                     .ConfigureAwait(true);
+                ApplyPublishedAppUpdateStatus();
 
+                Heading = "Windows package update applied";
                 Summary = "Windows package update applied";
                 Detail = $"{toolingMessage} If the updated app does not reopen automatically, launch it again from Start.";
             }
             else
             {
+                Heading = "Official Quest tooling updated";
                 Summary = "Official Quest tooling updated";
                 Detail = toolingMessage;
             }
@@ -191,6 +222,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         }
         catch (Exception exception)
         {
+            Heading = "Update failed";
             Summary = "Update failed";
             Detail = exception.Message;
             ProgressStatus = "Update failed";
@@ -213,11 +245,58 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
     {
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
-            FileName = _snapshot.App.ReleasePageUri,
+            FileName = _appStatus.ReleasePageUri,
             UseShellExecute = true
         });
         return Task.CompletedTask;
     }
+
+    private void ApplyToolingStatus(OfficialQuestToolingStatus status)
+    {
+        _toolingStatus = status;
+        RefreshDisplayedStatusProperties();
+    }
+
+    private void ApplyPublishedAppUpdateStatus()
+    {
+        var currentVersion = _appStatus.AvailableVersion ?? _appStatus.CurrentVersion;
+        _appStatus = _appStatus with
+        {
+            CurrentVersion = currentVersion,
+            UpdateAvailable = false,
+            Summary = "Windows package is current.",
+            Detail = $"Installed package {currentVersion ?? "n/a"} matches the latest published .appinstaller metadata."
+        };
+        RefreshDisplayedStatusProperties();
+    }
+
+    private void RefreshDisplayedStatusProperties()
+    {
+        OnPropertyChanged(nameof(ShowAppSection));
+        OnPropertyChanged(nameof(ShowOpenReleasesAction));
+        OnPropertyChanged(nameof(AppUpdateAvailable));
+        OnPropertyChanged(nameof(AppStatusLabel));
+        OnPropertyChanged(nameof(AppCurrentVersion));
+        OnPropertyChanged(nameof(AppAvailableVersion));
+        OnPropertyChanged(nameof(AppDetail));
+        OnPropertyChanged(nameof(HzdbUpdateAvailable));
+        OnPropertyChanged(nameof(HzdbStatusLabel));
+        OnPropertyChanged(nameof(HzdbCurrentVersion));
+        OnPropertyChanged(nameof(HzdbAvailableVersion));
+        OnPropertyChanged(nameof(HzdbDetail));
+        OnPropertyChanged(nameof(PlatformToolsUpdateAvailable));
+        OnPropertyChanged(nameof(PlatformToolsStatusLabel));
+        OnPropertyChanged(nameof(PlatformToolsCurrentVersion));
+        OnPropertyChanged(nameof(PlatformToolsAvailableVersion));
+        OnPropertyChanged(nameof(PlatformToolsDetail));
+    }
+
+    private static string BuildInitialHeading(StartupUpdateSnapshot snapshot)
+        => snapshot.App.UpdateAvailable && snapshot.HasToolingUpdates
+            ? "App and tooling updates are available"
+            : snapshot.App.UpdateAvailable
+                ? "A Windows package update is available"
+                : "Official Quest tooling updates are available";
 
     private static string BuildInitialSummary(StartupUpdateSnapshot snapshot)
     {
