@@ -313,11 +313,19 @@ public sealed class WindowsHzdbService : IHzdbService
         using var process = Process.Start(CreateProcessStartInfo(arguments))
             ?? throw new InvalidOperationException("Failed to start hzdb process.");
 
-        var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
+            return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            throw;
+        }
     }
 
     private async Task<OperationOutcome> CaptureScreenshotViaHzdbAsync(
@@ -389,11 +397,19 @@ public sealed class WindowsHzdbService : IHzdbService
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start adb process.");
 
-        var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
-        return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
+            return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            throw;
+        }
     }
 
     private static async Task<OperationOutcome> CaptureScreenshotViaAdbAsync(

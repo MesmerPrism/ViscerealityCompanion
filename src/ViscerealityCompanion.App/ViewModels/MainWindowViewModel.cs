@@ -918,8 +918,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string CurrentModeDetail
         => ActiveStudyShell is not null
             ? IsStudyModeLocked
-                ? $"{ActiveStudyShell.StudyPartner}. This package stays inside one pinned study shell with pre-session, during-session, and inspect views. The full operator tabs and the exit path are hidden for this build."
-                : $"{ActiveStudyShell.StudyPartner}. Study mode now stays inside one pinned study shell with pre-session, during-session, and inspect views, while the generic tabs stay hidden until you exit study mode."
+                ? $"{ActiveStudyShell.StudyPartner}. This package stays inside one pinned study shell with pre-session, during-session, inspect, and Windows environment views. The full operator tabs and the exit path are hidden for this build."
+                : $"{ActiveStudyShell.StudyPartner}. Study mode now stays inside one pinned study shell with pre-session, during-session, inspect, and Windows environment views, while the generic tabs stay hidden until you exit study mode."
             : ShowStudyShellStartupLoading
                 ? "This package is configured to open directly into the pinned study shell instead of the general operator workspace."
                 : "Use Start Here for the direct operator path, or open the pinned study mode when a session needs one controlled surface.";

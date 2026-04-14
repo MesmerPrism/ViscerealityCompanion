@@ -753,6 +753,8 @@
                         <ColumnDefinition Width="10" />
                         <ColumnDefinition Width="0.95*" />
                         <ColumnDefinition Width="10" />
+                        <ColumnDefinition Width="0.95*" />
+                        <ColumnDefinition Width="10" />
                         <ColumnDefinition Width="0.9*" />
                     </Grid.ColumnDefinitions>
                     <Border Width="252"
@@ -924,6 +926,61 @@
                     </Border>
 
                     <Border Grid.Column="4"
+                            Margin="0"
+                            Style="{StaticResource StatusBandPanelStyle}"
+                            Padding="10"
+                            Background="{Binding ActiveStudyShell.WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                            BorderBrush="{Binding ActiveStudyShell.WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                        <StackPanel>
+                            <TextBlock Text="Windows environment" Style="{StaticResource EyebrowStyle}" />
+                            <TextBlock Text="{Binding ActiveStudyShell.WindowsEnvironmentCardSummary}"
+                                       FontSize="14"
+                                       FontWeight="Bold"
+                                       Foreground="{Binding ActiveStudyShell.WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="Review managed tooling, liblsl, current Windows-visible LSL publishers, and the shared guided-installer paths before blaming the headset."
+                                       Style="{StaticResource MicroCaptionStyle}"
+                                       Margin="0,6,0,0"
+                                       TextWrapping="Wrap" />
+                            <WrapPanel Margin="0,10,0,0">
+                                <Button Content="Open windows environment page"
+                                        Command="{Binding ActiveStudyShell.OpenWindowsEnvironmentPageCommand}" />
+                                <Button Content="Analyze now"
+                                        Command="{Binding ActiveStudyShell.AnalyzeWindowsEnvironmentCommand}" />
+                            </WrapPanel>
+                            <Expander Style="{StaticResource CompactStatusExpanderStyle}">
+                                <Expander.Header>
+                                    <TextBlock Text="Details" Style="{StaticResource EyebrowStyle}" />
+                                </Expander.Header>
+                                <StackPanel Margin="0,6,0,0">
+                                    <TextBlock Text="{Binding ActiveStudyShell.WindowsEnvironmentCardDetail}"
+                                               Style="{StaticResource MicroCaptionStyle}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.MachineLslStateSummary}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,8,0,0"
+                                               FontWeight="SemiBold"
+                                               Foreground="{Binding ActiveStudyShell.MachineLslStateLevel, Converter={StaticResource OutcomeKindToBrush}}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.MachineLslStateTimestampLabel}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,4,0,0" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.LslRuntimeLibrarySummary}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,8,0,0"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.OperatorDataRootPath}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,4,0,0"
+                                               FontFamily="{StaticResource MonoFont}" />
+                                    <TextBlock Text="{Binding ActiveStudyShell.LocalAgentWorkspacePath}"
+                                               Style="{StaticResource MicroCaptionStyle}"
+                                               Margin="0,4,0,0"
+                                               FontFamily="{StaticResource MonoFont}" />
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="6"
                             Margin="0"
                             Style="{StaticResource StatusBandPanelStyle}"
                             Padding="10"

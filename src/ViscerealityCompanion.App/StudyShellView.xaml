@@ -309,11 +309,11 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Controller breathing card -->
+                            <!-- Breathing profiles card -->
                             <Border Grid.Row="2" Grid.Column="2"
                                     Style="{StaticResource StudyInsetPanelStyle}">
                                 <StackPanel>
-                                    <TextBlock Text="Controller breathing" Style="{StaticResource InfoLabelStyle}" />
+                                    <TextBlock Text="Breathing profiles" Style="{StaticResource InfoLabelStyle}" />
                                     <TextBlock Text="Tune controller-breathing sensitivity and calibration parameters for the study's breathing-to-particle pipeline."
                                                Style="{StaticResource CompactCaptionStyle}" />
                                 </StackPanel>
@@ -747,7 +747,7 @@
                                                        FontWeight="Bold"
                                                        Foreground="{Binding BenchToolsCardLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                        Style="{StaticResource CompactCaptionStyle}" />
-                                            <TextBlock Text="Use these only for headset bench checks."
+                                            <TextBlock Text="Use these only for headset-side bench checks. Windows-only diagnostics now live on the dedicated Windows environment page."
                                                        Style="{StaticResource CompactCaptionStyle}"
                                                        Margin="0,4,0,0" />
 
@@ -818,145 +818,28 @@
 
                                             <Border Margin="0,10,0,0"
                                                     Padding="10"
-                                                    Background="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
-                                                    BorderBrush="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                    Background="{Binding WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                                    BorderBrush="{Binding WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                     BorderThickness="1"
                                                     CornerRadius="8">
                                                 <StackPanel>
-                                                    <TextBlock Text="Windows TEST LSL Sender" Style="{StaticResource InfoLabelStyle}" />
-                                                    <TextBlock Text="{Binding TestLslSenderSummary}"
+                                                    <TextBlock Text="Windows-side diagnostics moved" Style="{StaticResource InfoLabelStyle}" />
+                                                    <TextBlock Text="{Binding WindowsEnvironmentCardSummary}"
                                                                FontSize="14"
                                                                FontWeight="Bold"
-                                                               Foreground="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                                               Foreground="{Binding WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                                                TextWrapping="Wrap" />
-                                                    <TextBlock Text="{Binding TestLslSenderValueLabel}"
+                                                    <TextBlock Text="{Binding WindowsEnvironmentCardDetail}"
                                                                Style="{StaticResource CompactCaptionStyle}"
-                                                               Margin="0,6,0,0" />
-                                                    <TextBlock Text="{Binding LslRuntimeLibrarySummary}"
+                                                               Margin="0,6,0,0"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="TEST sender, Machine LSL State, and Analyze Windows Environment now live on their own page so the Pre-session setup column stays readable."
                                                                Style="{StaticResource CompactCaptionStyle}"
                                                                Margin="0,4,0,0" />
-                                                    <TextBlock Text="{Binding TestLslSenderDetail}"
-                                                               Style="{StaticResource CompactCaptionStyle}"
-                                                               Margin="0,4,0,0" />
-                                                    <TextBlock Text="{Binding LslRuntimeLibraryDetail}"
-                                                               Style="{StaticResource CompactCaptionStyle}"
-                                                               Margin="0,6,0,0"
-                                                               FontFamily="{StaticResource MonoFont}"
-                                                               TextWrapping="Wrap" />
-                                                    <Button Content="{Binding TestLslSenderActionLabel}"
-                                                            Command="{Binding ToggleTestLslSenderCommand}"
-                                                            Style="{StaticResource StateActionButtonStyle}"
-                                                            Tag="{Binding TestLslSenderActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
-                                                            IsEnabled="{Binding CanToggleTestLslSender}"
+                                                    <Button x:Name="OpenWindowsEnvironmentPageButton"
+                                                            Content="Open Windows Environment Page"
+                                                            Command="{Binding OpenWindowsEnvironmentPageCommand}"
                                                             Margin="0,10,0,0" />
-                                                </StackPanel>
-                                            </Border>
-
-                                            <Border Margin="0,10,0,0"
-                                                    Padding="10"
-                                                    Background="{Binding MachineLslStateLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
-                                                    BorderBrush="{Binding MachineLslStateLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="8">
-                                                <StackPanel>
-                                                    <TextBlock Text="Machine LSL State" Style="{StaticResource InfoLabelStyle}" />
-                                                    <TextBlock Text="{Binding MachineLslStateSummary}"
-                                                               FontSize="14"
-                                                               FontWeight="Bold"
-                                                               Foreground="{Binding MachineLslStateLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                                               TextWrapping="Wrap" />
-                                                    <TextBlock Text="{Binding MachineLslStateTimestampLabel}"
-                                                               Style="{StaticResource CompactCaptionStyle}"
-                                                               Margin="0,6,0,0" />
-                                                    <TextBlock Text="{Binding MachineLslStateDetail}"
-                                                               Style="{StaticResource CompactCaptionStyle}"
-                                                               Margin="0,6,0,0"
-                                                               TextWrapping="Wrap" />
-                                                    <Button x:Name="RefreshMachineLslStateButton"
-                                                            Content="Refresh Machine LSL State"
-                                                            Command="{Binding RefreshMachineLslStateCommand}"
-                                                            Style="{StaticResource StateActionButtonStyle}"
-                                                            Margin="0,10,0,0" />
-                                                    <ItemsControl ItemsSource="{Binding MachineLslStateChecks}"
-                                                                  Margin="0,10,0,0"
-                                                                  Visibility="{Binding MachineLslStateHasRun, Converter={StaticResource BoolToVisibility}}">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <Border Margin="0,0,0,8"
-                                                                        Padding="8"
-                                                                        Background="{Binding Level, Converter={StaticResource OutcomeKindToSoftBrush}}"
-                                                                        BorderBrush="{Binding Level, Converter={StaticResource OutcomeKindToBrush}}"
-                                                                        BorderThickness="1"
-                                                                        CornerRadius="8">
-                                                                    <StackPanel>
-                                                                        <TextBlock Text="{Binding Label}" Style="{StaticResource InfoLabelStyle}" />
-                                                                        <TextBlock Text="{Binding Summary}"
-                                                                                   FontSize="13"
-                                                                                   FontWeight="Bold"
-                                                                                   Foreground="{StaticResource InkBrush}"
-                                                                                   TextWrapping="Wrap" />
-                                                                        <TextBlock Text="{Binding Detail}"
-                                                                                   Style="{StaticResource CompactCaptionStyle}"
-                                                                                   Margin="0,4,0,0"
-                                                                                   TextWrapping="Wrap" />
-                                                                    </StackPanel>
-                                                                </Border>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
-                                                </StackPanel>
-                                            </Border>
-
-                                            <Border Margin="0,10,0,0"
-                                                    Padding="10"
-                                                    Background="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
-                                                    BorderBrush="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="8">
-                                                <StackPanel>
-                                                    <TextBlock Text="Windows Environment Analysis" Style="{StaticResource InfoLabelStyle}" />
-                                                    <TextBlock Text="{Binding WindowsEnvironmentAnalysisSummary}"
-                                                               FontSize="14"
-                                                               FontWeight="Bold"
-                                                               Foreground="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToBrush}}"
-                                                               TextWrapping="Wrap" />
-                                                    <TextBlock Text="{Binding WindowsEnvironmentAnalysisTimestampLabel}"
-                                                               Style="{StaticResource CompactCaptionStyle}"
-                                                               Margin="0,6,0,0" />
-                                                    <TextBlock Text="{Binding WindowsEnvironmentAnalysisDetail}"
-                                                               Style="{StaticResource CompactCaptionStyle}"
-                                                               Margin="0,6,0,0"
-                                                               TextWrapping="Wrap" />
-                                                    <Button Content="Analyze Windows Environment"
-                                                            Command="{Binding AnalyzeWindowsEnvironmentCommand}"
-                                                            Style="{StaticResource StateActionButtonStyle}"
-                                                            Margin="0,10,0,0" />
-                                                    <ItemsControl ItemsSource="{Binding WindowsEnvironmentChecks}"
-                                                                  Margin="0,10,0,0">
-                                                        <ItemsControl.ItemTemplate>
-                                                            <DataTemplate>
-                                                                <Border Margin="0,0,0,8"
-                                                                        Padding="8"
-                                                                        Background="{Binding Level, Converter={StaticResource OutcomeKindToSoftBrush}}"
-                                                                        BorderBrush="{Binding Level, Converter={StaticResource OutcomeKindToBrush}}"
-                                                                        BorderThickness="1"
-                                                                        CornerRadius="8">
-                                                                    <StackPanel>
-                                                                        <TextBlock Text="{Binding Label}" Style="{StaticResource InfoLabelStyle}" />
-                                                                        <TextBlock Text="{Binding Summary}"
-                                                                                   FontSize="13"
-                                                                                   FontWeight="Bold"
-                                                                                   Foreground="{StaticResource InkBrush}"
-                                                                                   TextWrapping="Wrap" />
-                                                                        <TextBlock Text="{Binding Detail}"
-                                                                                   Style="{StaticResource CompactCaptionStyle}"
-                                                                                   Margin="0,4,0,0"
-                                                                                   TextWrapping="Wrap" />
-                                                                    </StackPanel>
-                                                                </Border>
-                                                            </DataTemplate>
-                                                        </ItemsControl.ItemTemplate>
-                                                    </ItemsControl>
                                                 </StackPanel>
                                             </Border>
                                         </StackPanel>
@@ -1724,7 +1607,7 @@
                 </TabItem>
 
                 <TabItem x:Name="ControllerBreathingTab"
-                         Header="Controller Breathing"
+                         Header="Breathing Profiles"
                          DataContext="{Binding ControllerBreathingProfiles}">
                     <Grid Margin="0,8,0,0">
                         <Grid.ColumnDefinitions>
@@ -2302,6 +2185,238 @@
                             </Border>
                         </StackPanel>
                     </Grid>
+                </TabItem>
+
+                <TabItem Header="Windows environment">
+                    <StackPanel Margin="0,8,0,0">
+                        <Border Style="{StaticResource StudyPanelStyle}"
+                                Background="{Binding WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Windows environment" Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding WindowsEnvironmentCardSummary}"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding WindowsEnvironmentCardLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding WindowsEnvironmentCardDetail}"
+                                           Style="{StaticResource SectionCaptionStyle}"
+                                           Margin="0,6,0,0" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button x:Name="AnalyzeWindowsEnvironmentOverviewButton"
+                                            Content="Analyze Windows Environment"
+                                            Command="{Binding AnalyzeWindowsEnvironmentCommand}" />
+                                    <Button Content="Refresh Machine LSL State"
+                                            Command="{Binding RefreshMachineLslStateCommand}" />
+                                    <Button Content="{Binding TestLslSenderActionLabel}"
+                                            Command="{Binding ToggleTestLslSenderCommand}"
+                                            Style="{StaticResource StateActionButtonStyle}"
+                                            Tag="{Binding TestLslSenderActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
+                                            IsEnabled="{Binding CanToggleTestLslSender}" />
+                                    <Button Content="Open Agent Workspace"
+                                            Command="{Binding OpenLocalAgentWorkspaceCommand}" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0"
+                                    Style="{StaticResource StudyPanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Host-visible paths" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="These are the Windows-side paths the packaged app, guided installer, and exported local-agent workspace should share on this machine."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+
+                                    <TextBlock Text="Operator data root"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               Margin="0,10,0,6" />
+                                    <TextBlock Text="{Binding OperatorDataRootPath}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               TextWrapping="Wrap" />
+
+                                    <TextBlock Text="Managed tooling root"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               Margin="0,10,0,6" />
+                                    <TextBlock Text="{Binding ManagedToolingRootPath}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               TextWrapping="Wrap" />
+
+                                    <TextBlock Text="Local agent workspace"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               Margin="0,10,0,6" />
+                                    <TextBlock Text="{Binding LocalAgentWorkspacePath}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding LocalAgentWorkspaceDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               TextWrapping="Wrap" />
+
+                                    <TextBlock Text="Current liblsl runtime"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               Margin="0,10,0,6" />
+                                    <TextBlock Text="{Binding LslRuntimeLibrarySummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               FontWeight="Bold"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding LslRuntimeLibraryDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="2"
+                                    Style="{StaticResource StudyPanelStyle}"
+                                    Background="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Windows TEST LSL Sender" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding TestLslSenderSummary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding TestLslSenderLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding TestLslSenderValueLabel}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding TestLslSenderDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding LslRuntimeLibrarySummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0" />
+                                    <TextBlock Text="{Binding LslRuntimeLibraryDetail}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,6,0,0"
+                                               FontFamily="{StaticResource MonoFont}"
+                                               TextWrapping="Wrap" />
+                                    <Button Content="{Binding TestLslSenderActionLabel}"
+                                            Command="{Binding ToggleTestLslSenderCommand}"
+                                            Style="{StaticResource StateActionButtonStyle}"
+                                            Tag="{Binding TestLslSenderActionLabel, Converter={StaticResource ActionLabelToIsEnabling}}"
+                                            IsEnabled="{Binding CanToggleTestLslSender}"
+                                            Margin="0,10,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <Border Style="{StaticResource StudyPanelStyle}"
+                                Margin="0,12,0,0"
+                                Background="{Binding MachineLslStateLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding MachineLslStateLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Machine LSL State" Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding MachineLslStateSummary}"
+                                           FontSize="16"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding MachineLslStateLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding MachineLslStateTimestampLabel}"
+                                           Style="{StaticResource CompactCaptionStyle}"
+                                           Margin="0,6,0,0" />
+                                <TextBlock Text="{Binding MachineLslStateDetail}"
+                                           Style="{StaticResource CompactCaptionStyle}"
+                                           Margin="0,6,0,0"
+                                           TextWrapping="Wrap" />
+                                <Button x:Name="RefreshMachineLslStateButton"
+                                        Content="Refresh Machine LSL State"
+                                        Command="{Binding RefreshMachineLslStateCommand}"
+                                        Style="{StaticResource StateActionButtonStyle}"
+                                        Margin="0,10,0,0" />
+                                <ItemsControl ItemsSource="{Binding MachineLslStateChecks}"
+                                              Margin="0,10,0,0"
+                                              Visibility="{Binding MachineLslStateHasRun, Converter={StaticResource BoolToVisibility}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,0,8"
+                                                    Padding="8"
+                                                    Background="{Binding Level, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                                    BorderBrush="{Binding Level, Converter={StaticResource OutcomeKindToBrush}}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Label}" Style="{StaticResource InfoLabelStyle}" />
+                                                    <TextBlock Text="{Binding Summary}"
+                                                               FontSize="13"
+                                                               FontWeight="Bold"
+                                                               Foreground="{StaticResource InkBrush}"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Detail}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,4,0,0"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource StudyPanelStyle}"
+                                Margin="0,12,0,0"
+                                Background="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                BorderBrush="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                            <StackPanel>
+                                <TextBlock Text="Windows Environment Analysis" Style="{StaticResource SectionTitleStyle}" />
+                                <TextBlock Text="{Binding WindowsEnvironmentAnalysisSummary}"
+                                           FontSize="16"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding WindowsEnvironmentAnalysisLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding WindowsEnvironmentAnalysisTimestampLabel}"
+                                           Style="{StaticResource CompactCaptionStyle}"
+                                           Margin="0,6,0,0" />
+                                <TextBlock Text="{Binding WindowsEnvironmentAnalysisDetail}"
+                                           Style="{StaticResource CompactCaptionStyle}"
+                                           Margin="0,6,0,0"
+                                           TextWrapping="Wrap" />
+                                <Button x:Name="AnalyzeWindowsEnvironmentButton"
+                                        Content="Analyze Windows Environment"
+                                        Command="{Binding AnalyzeWindowsEnvironmentCommand}"
+                                        Style="{StaticResource StateActionButtonStyle}"
+                                        Margin="0,10,0,0" />
+                                <ItemsControl ItemsSource="{Binding WindowsEnvironmentChecks}"
+                                              Margin="0,10,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,0,8"
+                                                    Padding="8"
+                                                    Background="{Binding Level, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                                    BorderBrush="{Binding Level, Converter={StaticResource OutcomeKindToBrush}}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="8">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Label}" Style="{StaticResource InfoLabelStyle}" />
+                                                    <TextBlock Text="{Binding Summary}"
+                                                               FontSize="13"
+                                                               FontWeight="Bold"
+                                                               Foreground="{StaticResource InkBrush}"
+                                                               TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Detail}"
+                                                               Style="{StaticResource CompactCaptionStyle}"
+                                                               Margin="0,4,0,0"
+                                                               TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                 </TabItem>
             </TabControl>
         </Grid>

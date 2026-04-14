@@ -50,11 +50,11 @@ cross-project patterns, or central-bureau maintenance, use
   current ADB-backed headset snapshot and then reports the expected inlet,
   runtime target, connected inlet, connection counts, and whether fresh
   `quest_twin_state / quest.twin.state` frames are returning to Windows.
-- For companion-side LSL troubleshooting, prefer the Sussex `Pre-session`
-  Bench-tools `Machine LSL State` panel before assuming the Quest side is at
-  fault. It compares the companion-owned TEST sender, twin outlets, clock
-  probe transport, passive monitor tasks, and the currently visible Windows
-  `HRV_Biofeedback / HRV` publishers.
+- For companion-side LSL troubleshooting, prefer the Sussex dedicated
+  `Windows environment` page before assuming the Quest side is at fault. Its
+  `Machine LSL State` panel compares the companion-owned TEST sender, twin
+  outlets, clock probe transport, passive monitor tasks, and the currently
+  visible Windows `HRV_Biofeedback / HRV` publishers.
 - If `Machine LSL State` or `windows-env analyze` shows multiple visible
   `HRV_Biofeedback / HRV` sources on Windows, treat that as a likely cause of
   unreliable switching between the built-in TEST sender and external Python
@@ -254,8 +254,10 @@ guided setup helper EXE is Smart App Control-safe just because it is
 Authenticode-signed. The current public preview certificate is still a
 self-issued preview cert, which is enough for the MSIX after explicit trust but
 not enough to guarantee helper-EXE admission under Smart App Control.
-Cross-machine operator instructions should currently prefer the manual
-`ViscerealityCompanion.cer` + `ViscerealityCompanion.appinstaller` path.
+Cross-machine operator instructions should currently start with the guided
+setup helper and only fall back to the manual
+`ViscerealityCompanion.cer` + `ViscerealityCompanion.appinstaller` path if
+Windows blocks the helper EXE.
 Current helper builds do now attempt to launch the packaged app automatically
 through its Windows `AppsFolder` target after install, but manual Start-menu
 launch remains the fallback if Windows suppresses that activation.

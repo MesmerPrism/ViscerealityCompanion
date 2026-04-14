@@ -71,7 +71,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         lock (_sync)
         {
             _lastUsbSelector = usbDevices[0].Serial;
-            _activeSelector ??= _lastUsbSelector;
+            _activeSelector = _lastUsbSelector;
         }
 
         return new OperationOutcome(
@@ -2041,9 +2041,9 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var candidates = new List<string>(3);
         lock (_sync)
         {
-            AddSelectorCandidate(candidates, _lastTcpSelector);
             AddSelectorCandidate(candidates, _activeSelector);
             AddSelectorCandidate(candidates, _lastUsbSelector);
+            AddSelectorCandidate(candidates, _lastTcpSelector);
         }
 
         foreach (var candidate in candidates)

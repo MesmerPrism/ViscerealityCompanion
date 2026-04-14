@@ -34,6 +34,7 @@ internal static class Program
 public static class HarnessScenarioRunner
 {
     private static readonly TimeSpan MockHeartbeatInterval = TimeSpan.FromMilliseconds(910);
+    private static readonly TimeSpan QuestScreenshotProofTimeout = TimeSpan.FromSeconds(15);
     private static readonly float[] ValidationCaptureLslSequence = [0.19f, 0.48f, 0.77f, 0.31f, 0.66f, 0.28f];
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -49,6 +50,7 @@ public static class HarnessScenarioRunner
         Directory.CreateDirectory(outputRoot);
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-study-mode-error.txt"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-study-mode-report.txt"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-screenshot-warnings.txt"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-initial.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-live.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-kiosk-proof.png"));
@@ -76,6 +78,9 @@ public static class HarnessScenarioRunner
             HrvBiofeedbackStreamContract.StreamType,
             "viscereality.sussex.harness");
 
+        Environment.SetEnvironmentVariable(
+            ViscerealityCompanion.App.App.SuppressStartupWindowEnvironmentVariable,
+            "1");
         var app = new ViscerealityCompanion.App.App();
         app.InitializeComponent();
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -143,7 +148,15 @@ public static class HarnessScenarioRunner
         var studyViewModel = mainViewModel.ActiveStudyShell
                              ?? throw new InvalidOperationException("Study mode did not create an active study shell.");
 
-        await ExecuteCommandAsync(studyViewModel.ProbeUsbCommand, studyViewModel, "Probe USB");
+        // Continuous ADB snapshot polling causes visible headset hitches on this
+        // HorizonOS build and can destabilize the live validation path.
+        studyViewModel.RegularAdbSnapshotEnabled = false;
+
+        await ExecuteCommandAsync(
+            studyViewModel.ProbeUsbCommand,
+            studyViewModel,
+            "Probe USB",
+            TimeSpan.FromSeconds(45));
         await ExecuteCommandAsync(
             studyViewModel.EnableWifiCommand,
             studyViewModel,
@@ -574,29 +587,80 @@ public static class HarnessScenarioRunner
         string questScreenshotFileName,
         string windowScreenshotFileName)
     {
-        var previousPath = studyViewModel.QuestScreenshotPath;
-        var outcome = await studyViewModel.CaptureQuestScreenshotForVerificationAsync(wakeBeforeCapture: false);
-        if (outcome.Kind == OperationOutcomeKind.Failure)
+        var windowProofPath = Path.Combine(outputRoot, windowScreenshotFileName);
+        try
         {
-            throw new InvalidOperationException($"Quest screenshot proof capture failed: {outcome.Detail}");
+            var previousPath = studyViewModel.QuestScreenshotPath;
+            var outcome = await studyViewModel.CaptureQuestScreenshotForVerificationAsync(
+                wakeBeforeCapture: false,
+                captureTimeout: QuestScreenshotProofTimeout);
+            if (outcome.Kind == OperationOutcomeKind.Failure)
+            {
+                CaptureWindow(window, windowProofPath);
+                RecordQuestScreenshotWarning(outputRoot, questScreenshotFileName, outcome.Detail);
+                return string.Empty;
+            }
+
+            await WaitForConditionAsync(
+                () =>
+                {
+                    var currentPath = studyViewModel.QuestScreenshotPath;
+                    return !string.IsNullOrWhiteSpace(currentPath)
+                        && File.Exists(currentPath)
+                        && !string.Equals(currentPath, previousPath, StringComparison.OrdinalIgnoreCase);
+                },
+                TimeSpan.FromSeconds(10),
+                "Quest screenshot capture did not produce a new screenshot file.");
+
+            var questScreenshotPath = studyViewModel.QuestScreenshotPath;
+            var proofPath = Path.Combine(outputRoot, questScreenshotFileName);
+            File.Copy(questScreenshotPath, proofPath, overwrite: true);
+            CaptureWindow(window, windowProofPath);
+            if (outcome.Kind == OperationOutcomeKind.Warning)
+            {
+                RecordQuestScreenshotWarning(outputRoot, questScreenshotFileName, outcome.Detail);
+            }
+
+            return proofPath;
+        }
+        catch (Exception ex)
+        {
+            CaptureWindow(window, windowProofPath);
+            RecordQuestScreenshotWarning(outputRoot, questScreenshotFileName, ex.Message);
+            return string.Empty;
+        }
+    }
+
+    private static void RecordQuestScreenshotWarning(string outputRoot, string questScreenshotFileName, string detail)
+    {
+        var warningPath = Path.Combine(outputRoot, "quest-screenshot-warnings.txt");
+        var entry = $"[{DateTimeOffset.Now:O}] {questScreenshotFileName}: {detail}{Environment.NewLine}";
+        File.AppendAllText(warningPath, entry);
+    }
+
+    private static void AppendQuestScreenshotWarnings(StringBuilder builder)
+    {
+        var warningPath = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "artifacts",
+            "verify",
+            "sussex-study-mode-live",
+            "quest-screenshot-warnings.txt");
+
+        if (!File.Exists(warningPath))
+        {
+            return;
         }
 
-        await WaitForConditionAsync(
-            () =>
+        builder.AppendLine();
+        builder.AppendLine("Quest screenshot warnings:");
+        foreach (var line in File.ReadAllLines(warningPath))
+        {
+            if (!string.IsNullOrWhiteSpace(line))
             {
-                var currentPath = studyViewModel.QuestScreenshotPath;
-                return !string.IsNullOrWhiteSpace(currentPath)
-                    && File.Exists(currentPath)
-                    && !string.Equals(currentPath, previousPath, StringComparison.OrdinalIgnoreCase);
-            },
-            TimeSpan.FromSeconds(10),
-            "Quest screenshot capture did not produce a new screenshot file.");
-
-        var questScreenshotPath = studyViewModel.QuestScreenshotPath;
-        var proofPath = Path.Combine(outputRoot, questScreenshotFileName);
-        File.Copy(questScreenshotPath, proofPath, overwrite: true);
-        CaptureWindow(window, Path.Combine(outputRoot, windowScreenshotFileName));
-        return proofPath;
+                builder.AppendLine($"- {line}");
+            }
+        }
     }
 
     private static async Task EnsureStudyRuntimeLaunchedForHarnessAsync(
@@ -678,6 +742,14 @@ public static class HarnessScenarioRunner
         var lslCountBefore = GetTwinLongValue(studyViewModel, "study.lsl.received_sample_count");
 
         await studyViewModel.StartExperimentAsync();
+        if (!studyViewModel.IsRecordingToggleState &&
+            string.Equals(studyViewModel.LastActionLabel, "Start Participant Run", StringComparison.Ordinal) &&
+            studyViewModel.LastActionLevel == OperationOutcomeKind.Failure)
+        {
+            throw new InvalidOperationException(
+                $"Participant run start failed before Quest recording activation: {studyViewModel.LastActionDetail}");
+        }
+
         await WaitForConditionAsync(
             () =>
             {
@@ -1214,6 +1286,7 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
         builder.AppendLine($"Quest kiosk screenshot: {kioskScreenshotPath}");
         builder.AppendLine($"Quest final screenshot: {homeScreenshotPath}");
+        AppendQuestScreenshotWarnings(builder);
         builder.AppendLine();
         builder.AppendLine("Command observations:");
         builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
@@ -1351,6 +1424,7 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
         builder.AppendLine($"Quest kiosk screenshot: {kioskScreenshotPath}");
         builder.AppendLine($"Quest final screenshot: {homeScreenshotPath}");
+        AppendQuestScreenshotWarnings(builder);
         builder.AppendLine();
         builder.AppendLine("Command observations:");
         builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
@@ -1493,12 +1567,28 @@ public static class HarnessScenarioRunner
 
         await Application.Current.Dispatcher.InvokeAsync(() => command.Execute(null));
 
-        await WaitForConditionAsync(
-            () => command.CanExecute(null)
-                  && (string.IsNullOrWhiteSpace(expectedActionLabel)
-                      || string.Equals(studyViewModel.LastActionLabel, expectedActionLabel, StringComparison.Ordinal)),
-            timeout ?? TimeSpan.FromSeconds(20),
-            $"GUI command '{expectedActionLabel ?? "anonymous"}' did not complete.");
+        var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(20);
+        try
+        {
+            await WaitForConditionAsync(
+                () => command.CanExecute(null)
+                      && (string.IsNullOrWhiteSpace(expectedActionLabel)
+                          || string.Equals(studyViewModel.LastActionLabel, expectedActionLabel, StringComparison.Ordinal)),
+                effectiveTimeout,
+                $"GUI command '{expectedActionLabel ?? "anonymous"}' did not complete.");
+        }
+        catch (TimeoutException ex)
+        {
+            var timeoutDetail =
+                $"CommandIsRunning={command.IsRunning}; " +
+                $"DeviceSnapshotRefreshPhase='{studyViewModel.DeviceSnapshotRefreshPhase}'; " +
+                $"LastActionLabel='{studyViewModel.LastActionLabel}'; " +
+                $"LastActionLevel={studyViewModel.LastActionLevel}; " +
+                $"LastActionDetail='{studyViewModel.LastActionDetail}'; " +
+                $"ConnectionSummary='{studyViewModel.ConnectionSummary}'; " +
+                $"EndpointDraft='{studyViewModel.EndpointDraft}'.";
+            throw new TimeoutException($"{ex.Message} {timeoutDetail}", ex);
+        }
     }
 
     private static async Task ExecuteStandaloneCommandAsync(

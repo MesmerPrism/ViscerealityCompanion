@@ -145,8 +145,8 @@ the headset-side Sussex inlet is broken.
 
 Start with these checks in order:
 
-1. In the Sussex `Pre-session` Bench-tools card, run `Refresh Machine LSL State`.
-2. In the same card, run `Analyze Windows Environment`.
+1. Open the Sussex `Windows environment` page and run `Refresh Machine LSL State`.
+2. On the same page, run `Analyze Windows Environment`.
 3. If the headset path itself is under suspicion, run `Probe Connection` from
    Step 9 in the sequential guide or `study probe-connection sussex-university`
    from the CLI.

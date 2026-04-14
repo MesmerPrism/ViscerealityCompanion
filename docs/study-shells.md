@@ -73,7 +73,7 @@ It currently pins:
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
-- profile workspaces: `Visual Profiles` and `Controller Breathing`
+- profile workspaces: `Visual Profiles` and `Breathing Profiles`
 - runtime launch mode: `launchInKioskMode=true`
 
 For the committed Sussex shell, the runtime toggle is intentionally a kiosk
@@ -413,9 +413,13 @@ gets an explicit diagnosis of:
 - the fresh return path back to Windows on `quest_twin_state / quest.twin.state`
 - the companion's operator-to-headset channels on `quest_twin_commands / quest.twin.command` and `quest_hotload_config / quest.config`
 
-The Sussex `Pre-session` Bench-tools card now also includes a dedicated
-`Machine LSL State` panel. Use that panel when the operator needs the
-Windows-side view instead of the headset-side view. It compares:
+The Sussex shell now exposes a dedicated `Windows environment` page so the
+Windows-side diagnostics no longer crowd the `Pre-session` setup column. That
+page includes the `Machine LSL State` and `Analyze Windows Environment`
+surfaces, plus the host-visible operator-data, tooling, workspace, and liblsl
+paths the guided installer is supposed to keep aligned. Use that page when the
+operator needs the Windows-side view instead of the headset-side view. It
+compares:
 
 - the currently visible `HRV_Biofeedback / HRV` publishers on Windows
 - the companion-owned TEST sender and twin outlets

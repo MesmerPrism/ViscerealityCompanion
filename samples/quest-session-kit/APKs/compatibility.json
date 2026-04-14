@@ -1,17 +1,27 @@
-﻿{
-    "apps":  [
-                 {
-                     "sha256":  "CFDD4038C46A07A0824A0C51DEFEE9D7A21ADD06F937E9A2E8A0FCD24759E5B4",
-                     "status":  "compatible",
-                     "label":  "Sussex experiment build",
-                     "notes":  "Bundled Sussex Experiment runtime. Matches the approved Sussex study shell hash.",
-                     "tags":  [
-                                  "viscereality",
-                                  "runtime",
-                                  "lsl",
-                                  "twin",
-                                  "sussex"
-                              ]
-                 }
-             ]
+{
+  "apps": [
+    {
+      "sha256": "4050CEF3E5A343555C2D75864FF87AD8838A73085BE04D3578E93FE854246860",
+      "status": "compatible",
+      "label": "Sussex experiment build",
+      "notes": "Bundled Sussex Experiment runtime. Matches the approved Sussex study shell hash.",
+      "tags": [
+        "viscereality",
+        "runtime",
+        "lsl",
+        "twin",
+        "sussex"
+      ],
+      "verification": {
+        "apkSha256": "4050CEF3E5A343555C2D75864FF87AD8838A73085BE04D3578E93FE854246860",
+        "softwareVersion": "14",
+        "buildId": "2921110053000610",
+        "displayId": "UP1A.231005.007.A1",
+        "deviceProfileId": "sussex-study-profile",
+        "environmentHash": "57CC4A31CEC5E8CC8A741106F165F52714E45706064FF07666EAD0287110896A",
+        "verifiedAtUtc": "2026-04-14T11:09:43.3335879\u002B00:00",
+        "verifiedBy": "tools/ViscerealityCompanion.VerificationHarness"
+      }
+    }
+  ]
 }

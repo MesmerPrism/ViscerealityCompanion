@@ -19,7 +19,7 @@ public sealed class StudyShellMachineLslStatePanelTests
     }
 
     [Fact]
-    public async Task Study_shell_pre_session_tab_exposes_machine_lsl_state_panel()
+    public async Task Study_shell_windows_environment_page_exposes_machine_lsl_state_panel()
     {
         var studyId = $"study-shell-lsl-panel-{Guid.NewGuid():N}";
 
@@ -61,9 +61,78 @@ public sealed class StudyShellMachineLslStatePanelTests
                 view.UpdateLayout();
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
 
+                var openPageButton = (Button?)view.FindName("OpenWindowsEnvironmentPageButton");
+                Assert.NotNull(openPageButton);
+                Assert.Equal("Open Windows Environment Page", openPageButton!.Content);
+
+                tabs.SelectedIndex = 6;
+                view.UpdateLayout();
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+
                 var refreshButton = (Button?)view.FindName("RefreshMachineLslStateButton");
                 Assert.NotNull(refreshButton);
                 Assert.Equal("Refresh Machine LSL State", refreshButton!.Content);
+
+                var analyzeButton = (Button?)view.FindName("AnalyzeWindowsEnvironmentButton");
+                Assert.NotNull(analyzeButton);
+                Assert.Equal("Analyze Windows Environment", analyzeButton!.Content);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Open_windows_environment_command_selects_windows_environment_tab()
+    {
+        await fixture.InvokeAsync(async () =>
+        {
+            var app = fixture.Application;
+            if (app.Dispatcher.CheckAccess())
+            {
+                app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            }
+
+            using var viewModel = new StudyShellViewModel(CreateStudy($"study-shell-windows-env-{Guid.NewGuid():N}"));
+            var view = new StudyShellView
+            {
+                DataContext = viewModel
+            };
+            var window = new Window
+            {
+                Content = view,
+                Width = 1800,
+                Height = 1200,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen
+            };
+
+            try
+            {
+                window.Show();
+                await WaitForConditionAsync(() => view.IsLoaded && window.IsVisible, TimeSpan.FromSeconds(5));
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+
+                var tabs = (TabControl)view.FindName("StudyPhaseTabs")!;
+                tabs.SelectedIndex = 1;
+                view.UpdateLayout();
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+
+                var openPageButton = (Button?)view.FindName("OpenWindowsEnvironmentPageButton");
+                Assert.NotNull(openPageButton);
+
+                var command = Assert.IsAssignableFrom<System.Windows.Input.ICommand>(openPageButton!.Command);
+                Assert.True(command.CanExecute(openPageButton.CommandParameter));
+                command.Execute(openPageButton.CommandParameter);
+
+                await WaitForConditionAsync(() => viewModel.SelectedPhaseTabIndex == 6, TimeSpan.FromSeconds(2));
+                view.UpdateLayout();
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+
+                Assert.Equal(6, tabs.SelectedIndex);
+                Assert.Equal(6, viewModel.SelectedPhaseTabIndex);
             }
             finally
             {

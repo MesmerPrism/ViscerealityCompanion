@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -40,9 +41,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
     private const int WorkflowTabIndex = 0;
     private const int PreSessionTabIndex = 1;
-    private const int VisualProfilesTabIndex = 3;
-    private const int ControllerBreathingProfilesTabIndex = 4;
-    private const int InspectTabIndex = 5;
+    private const int WindowsEnvironmentTabIndex = 6;
     private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
     // Keep verified-baseline tracking in code, but do not surface it in the operator shell for now.
     private static bool SurfaceVerifiedBaselineInShell => false;
@@ -166,6 +165,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private bool _twinRefreshPending;
     private bool _proximityRefreshPending;
     private bool _deviceSnapshotRefreshPending;
+    private string _deviceSnapshotRefreshPhase = string.Empty;
     private bool _startupHotloadSyncDeferredUntilStudyStops;
     private string _activeFocusSectionId = string.Empty;
     private IReadOnlyDictionary<string, string> _reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -230,6 +230,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private OperationOutcomeKind _testLslSenderLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _machineLslStateLevel = OperationOutcomeKind.Preview;
     private OperationOutcomeKind _windowsEnvironmentAnalysisLevel = OperationOutcomeKind.Preview;
+    private OperationOutcomeKind _windowsEnvironmentCardLevel = OperationOutcomeKind.Warning;
     private OperationOutcomeKind _benchToolsCardLevel = OperationOutcomeKind.Warning;
     private string _deviceProfileSummary = "Pinned device profile has not been checked yet.";
     private string _deviceProfileDetail = "Refresh the study status after connecting to the headset.";
@@ -276,6 +277,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _machineLslStateDetail = "Refresh Machine LSL State to compare companion-owned LSL services against the streams currently visible on this Windows machine. Use it to catch duplicate upstream senders, stale companion outlets, or cleanup leaks.";
     private string _machineLslStateTimestampLabel = "Not checked yet.";
     private bool _machineLslStateHasRun;
+    private string _windowsEnvironmentCardSummary = "Run the dedicated Windows environment checks before blaming the headset.";
+    private string _windowsEnvironmentCardDetail = "Use the dedicated Windows environment page to inspect managed tooling, liblsl, machine-visible LSL streams, and the host-visible operator-data paths exported by the guided installer.";
     private string _testLslSenderSummary = "Windows TEST sender off.";
     private string _testLslSenderDetail = "Start the Windows TEST sender only for bench checks. It publishes smoothed HRV biofeedback samples on an irregular heartbeat-timed profile; Sussex treats packet arrival as heartbeat timing and the payload as the routed coherence value.";
     private string _testLslSenderValueLabel = "Not running";
@@ -520,6 +523,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ProbeLslConnectionCommand = new AsyncRelayCommand(ProbeLslConnectionAsync);
         RefreshMachineLslStateCommand = new AsyncRelayCommand(RefreshMachineLslStateAsync);
         AnalyzeWindowsEnvironmentCommand = new AsyncRelayCommand(AnalyzeWindowsEnvironmentAsync);
+        OpenWindowsEnvironmentPageCommand = new AsyncRelayCommand(OpenWindowsEnvironmentPageAsync);
         BrowseApkCommand = new AsyncRelayCommand(BrowseApkAsync);
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
         LaunchStudyAppCommand = new AsyncRelayCommand(LaunchStudyAppAsync, () => CanLaunchStudyRuntime);
@@ -574,6 +578,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string PublishedBuildSummary => AppBuildIdentity.Current.Summary;
     public string PublishedBuildDetail => AppBuildIdentity.Current.Detail;
     public string ExperimentSessionWindowTitle => $"Sussex Experiment Session ({AppBuildIdentity.Current.ShortId})";
+    public string OperatorDataRootPath => CompanionOperatorDataLayout.RootPath;
+    public string ManagedToolingRootPath => OfficialQuestToolingLayout.RootPath;
     public string LocalAgentWorkspacePath => _localAgentWorkspaceService.RootPath;
     public string LocalAgentWorkspaceSummary =>
         "Use this folder as the environment for a local agent instead of the protected WindowsApps install. The companion mirrors a bundled CLI, the CLI docs, and the Sussex example catalogs there under the host-visible operator-data root.";
@@ -581,6 +587,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         "Open the folder, then paste the built-in prompt into your local agent. The workspace includes `viscereality.ps1`, `viscereality.cmd`, and the bundled CLI payload under `cli\\current`, and the wrappers keep the CLI pointed at the same host-visible operator-data root as the installed app.";
     public SussexVisualProfilesWorkspaceViewModel VisualProfiles => _visualProfiles;
     public SussexControllerBreathingProfilesWorkspaceViewModel ControllerBreathingProfiles => _controllerBreathingProfiles;
+    public string DeviceSnapshotRefreshPhase => _deviceSnapshotRefreshPhase;
 
     private void RegisterWorkflowGuideCommands()
     {
@@ -975,6 +982,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _windowsEnvironmentAnalysisLevel;
         private set => SetProperty(ref _windowsEnvironmentAnalysisLevel, value);
+    }
+
+    public OperationOutcomeKind WindowsEnvironmentCardLevel
+    {
+        get => _windowsEnvironmentCardLevel;
+        private set => SetProperty(ref _windowsEnvironmentCardLevel, value);
     }
 
     public OperationOutcomeKind BenchToolsCardLevel
@@ -1597,6 +1610,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _benchToolsSummary, value);
     }
 
+    public string WindowsEnvironmentCardSummary
+    {
+        get => _windowsEnvironmentCardSummary;
+        private set => SetProperty(ref _windowsEnvironmentCardSummary, value);
+    }
+
     public string WindowsEnvironmentAnalysisSummary
     {
         get => _windowsEnvironmentAnalysisSummary;
@@ -1625,6 +1644,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _machineLslStateHasRun;
         private set => SetProperty(ref _machineLslStateHasRun, value);
+    }
+
+    public string WindowsEnvironmentCardDetail
+    {
+        get => _windowsEnvironmentCardDetail;
+        private set => SetProperty(ref _windowsEnvironmentCardDetail, value);
     }
 
     public string WindowsEnvironmentAnalysisDetail
@@ -2300,6 +2325,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ProbeLslConnectionCommand { get; }
     public AsyncRelayCommand RefreshMachineLslStateCommand { get; }
     public AsyncRelayCommand AnalyzeWindowsEnvironmentCommand { get; }
+    public AsyncRelayCommand OpenWindowsEnvironmentPageCommand { get; }
     public AsyncRelayCommand BrowseApkCommand { get; }
     public AsyncRelayCommand InstallStudyAppCommand { get; }
     public AsyncRelayCommand LaunchStudyAppCommand { get; }
@@ -2446,12 +2472,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public async Task RefreshStatusAsync()
     {
         await RefreshLocalApkStatusAsync().ConfigureAwait(false);
-        await RefreshDeviceSnapshotBundleAsync(forceProximity: true).ConfigureAwait(false);
+        await RefreshDeviceSnapshotBundleAsync(
+            forceProximity: true,
+            includeHostWifiStatus: true,
+            forceInstalledAppStatusRefresh: false).ConfigureAwait(false);
     }
 
     public async Task RefreshDeviceSnapshotAsync()
     {
-        var started = await RefreshDeviceSnapshotBundleAsync(forceProximity: true).ConfigureAwait(false);
+        var started = await RefreshDeviceSnapshotBundleAsync(
+            forceProximity: true,
+            includeHostWifiStatus: true,
+            forceInstalledAppStatusRefresh: false).ConfigureAwait(false);
         if (started)
         {
             return;
@@ -2563,6 +2595,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public Task RefreshMachineLslStateAsync()
         => RefreshMachineLslStateCoreAsync(reportOutcome: true);
+
+    public Task OpenWindowsEnvironmentPageAsync()
+    {
+        SelectedPhaseTabIndex = WindowsEnvironmentTabIndex;
+        return Task.CompletedTask;
+    }
 
     private void QueueMachineLslStateRefresh(TimeSpan? delay = null)
     {
@@ -3055,6 +3093,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         var outcome = await _questService.InstallAppAsync(CreateStudyTarget(localPath)).ConfigureAwait(false);
         await ApplyOutcomeAsync("Install Sussex APK", outcome).ConfigureAwait(false);
+        await RefreshInstalledAppStatusAsync().ConfigureAwait(false);
         await RefreshStatusAsync().ConfigureAwait(false);
     }
 
@@ -3438,10 +3477,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private async Task CaptureQuestScreenshotAsync()
     {
-        await CaptureQuestScreenshotForVerificationAsync(wakeBeforeCapture: true).ConfigureAwait(false);
+        await CaptureQuestScreenshotForVerificationAsync(
+                wakeBeforeCapture: true,
+                captureTimeout: TimeSpan.FromSeconds(15))
+            .ConfigureAwait(false);
     }
 
-    public async Task<OperationOutcome> CaptureQuestScreenshotForVerificationAsync(bool wakeBeforeCapture)
+    public async Task<OperationOutcome> CaptureQuestScreenshotForVerificationAsync(bool wakeBeforeCapture, TimeSpan? captureTimeout = null)
     {
         if (wakeBeforeCapture)
         {
@@ -3494,9 +3536,27 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 var outputPath = BuildQuestScreenshotOutputPath();
                 attemptedPaths.Add(outputPath);
 
-                outcome = await _hzdbService
-                    .CaptureScreenshotAsync(selector, outputPath, method)
-                    .ConfigureAwait(false);
+                try
+                {
+                    using var captureTimeoutCts = captureTimeout.HasValue
+                        ? new CancellationTokenSource(captureTimeout.Value)
+                        : null;
+                    outcome = await _hzdbService
+                        .CaptureScreenshotAsync(
+                            selector,
+                            outputPath,
+                            method,
+                            captureTimeoutCts?.Token ?? CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    TryDeleteFile(outputPath);
+                    outcome = new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Quest screenshot timed out.",
+                        $"{method} capture on {DescribeSelectorTransport(selector)} did not complete within {(captureTimeout ?? TimeSpan.Zero).TotalSeconds:0.#} seconds.");
+                }
 
                 if (outcome.Kind != OperationOutcomeKind.Success || !File.Exists(outputPath))
                 {
@@ -5623,6 +5683,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         try
         {
+            await DispatchAsync(() => _deviceSnapshotRefreshPhase = "headset-status").ConfigureAwait(false);
             await RefreshHeadsetStatusAsync(includeHostWifiStatus).ConfigureAwait(false);
             if (ShouldRefreshInstalledAppStatusForSnapshot(
                     forceRefresh: forceInstalledAppStatusRefresh,
@@ -5630,10 +5691,17 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     currentStagedApkPath: _stagedApkPath,
                     lastQueriedStagedApkPath: _lastInstalledAppStatusStagedApkPath))
             {
+                await DispatchAsync(() => _deviceSnapshotRefreshPhase = "installed-app-status").ConfigureAwait(false);
                 await RefreshInstalledAppStatusAsync().ConfigureAwait(false);
             }
+
+            await DispatchAsync(() => _deviceSnapshotRefreshPhase = "device-profile-status").ConfigureAwait(false);
             await RefreshDeviceProfileStatusAsync().ConfigureAwait(false);
+
+            await DispatchAsync(() => _deviceSnapshotRefreshPhase = "proximity-status").ConfigureAwait(false);
             await RefreshProximityStatusAsync(force: forceProximity).ConfigureAwait(false);
+
+            await DispatchAsync(() => _deviceSnapshotRefreshPhase = "ui-update").ConfigureAwait(false);
             await DispatchAsync(() =>
             {
                 UpdatePinnedBuildStatus();
@@ -5645,7 +5713,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            await DispatchAsync(() => _deviceSnapshotRefreshPending = false).ConfigureAwait(false);
+            await DispatchAsync(() =>
+            {
+                _deviceSnapshotRefreshPending = false;
+                _deviceSnapshotRefreshPhase = string.Empty;
+            }).ConfigureAwait(false);
         }
 
         return true;
@@ -6503,6 +6575,80 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         BenchToolsSummary = "Bench tools need attention.";
     }
 
+    private void UpdateWindowsEnvironmentCardState()
+    {
+        if (WindowsEnvironmentAnalysisHasRun && WindowsEnvironmentAnalysisLevel == OperationOutcomeKind.Failure)
+        {
+            WindowsEnvironmentCardLevel = OperationOutcomeKind.Failure;
+            WindowsEnvironmentCardSummary = WindowsEnvironmentAnalysisSummary;
+            WindowsEnvironmentCardDetail = $"{WindowsEnvironmentAnalysisTimestampLabel} {WindowsEnvironmentAnalysisDetail}".Trim();
+            return;
+        }
+
+        if (MachineLslStateHasRun && MachineLslStateLevel == OperationOutcomeKind.Failure)
+        {
+            WindowsEnvironmentCardLevel = OperationOutcomeKind.Failure;
+            WindowsEnvironmentCardSummary = MachineLslStateSummary;
+            WindowsEnvironmentCardDetail = $"{MachineLslStateTimestampLabel} {MachineLslStateDetail}".Trim();
+            return;
+        }
+
+        if (TestLslSenderLevel == OperationOutcomeKind.Failure)
+        {
+            WindowsEnvironmentCardLevel = OperationOutcomeKind.Failure;
+            WindowsEnvironmentCardSummary = TestLslSenderSummary;
+            WindowsEnvironmentCardDetail = TestLslSenderDetail;
+            return;
+        }
+
+        if (_testLslSignalService.IsRunning)
+        {
+            WindowsEnvironmentCardLevel = OperationOutcomeKind.Warning;
+            WindowsEnvironmentCardSummary = "Companion TEST sender is active on Windows.";
+            WindowsEnvironmentCardDetail = MachineLslStateHasRun
+                ? $"{MachineLslStateSummary} {MachineLslStateTimestampLabel}".Trim()
+                : "Stop the built-in TEST sender before switching to another upstream publisher so the Windows-side LSL inventory can settle cleanly.";
+            return;
+        }
+
+        if (WindowsEnvironmentAnalysisHasRun && WindowsEnvironmentAnalysisLevel == OperationOutcomeKind.Warning)
+        {
+            WindowsEnvironmentCardLevel = OperationOutcomeKind.Warning;
+            WindowsEnvironmentCardSummary = WindowsEnvironmentAnalysisSummary;
+            WindowsEnvironmentCardDetail = $"{WindowsEnvironmentAnalysisTimestampLabel} {WindowsEnvironmentAnalysisDetail}".Trim();
+            return;
+        }
+
+        if (MachineLslStateHasRun && MachineLslStateLevel == OperationOutcomeKind.Warning)
+        {
+            WindowsEnvironmentCardLevel = OperationOutcomeKind.Warning;
+            WindowsEnvironmentCardSummary = MachineLslStateSummary;
+            WindowsEnvironmentCardDetail = $"{MachineLslStateTimestampLabel} {MachineLslStateDetail}".Trim();
+            return;
+        }
+
+        if (WindowsEnvironmentAnalysisHasRun || MachineLslStateHasRun)
+        {
+            WindowsEnvironmentCardLevel = OperationOutcomeKind.Success;
+            WindowsEnvironmentCardSummary = WindowsEnvironmentAnalysisHasRun
+                ? WindowsEnvironmentAnalysisSummary
+                : "Windows environment checks are ready.";
+            WindowsEnvironmentCardDetail = string.Join(
+                " ",
+                new[]
+                {
+                    WindowsEnvironmentAnalysisHasRun ? WindowsEnvironmentAnalysisTimestampLabel : string.Empty,
+                    MachineLslStateHasRun ? MachineLslStateTimestampLabel : string.Empty,
+                    "Managed tooling, liblsl, machine-visible LSL state, and the guided-installer workspace paths all live on the dedicated Windows environment page."
+                }.Where(static part => !string.IsNullOrWhiteSpace(part)));
+            return;
+        }
+
+        WindowsEnvironmentCardLevel = OperationOutcomeKind.Warning;
+        WindowsEnvironmentCardSummary = "Run the dedicated Windows environment checks before blaming the headset.";
+        WindowsEnvironmentCardDetail = "Use the dedicated Windows environment page to inspect managed tooling, liblsl, machine-visible LSL streams, and the host-visible operator-data paths exported by the guided installer.";
+    }
+
     private void UpdateHeadsetAwakeStatus(string selector, TrackedQuestProximityState tracked, QuestProximityStatus? liveStatus)
     {
         if (_headsetStatus?.IsConnected != true)
@@ -6591,6 +6737,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         UpdateQuestScreenshotCard();
         UpdateTestLslSenderCard();
         UpdateBenchToolsCardState();
+        UpdateWindowsEnvironmentCardState();
         UpdateBenchRefreshTimerState();
         OnPropertyChanged(nameof(CanStartBreathingCalibration));
         OnPropertyChanged(nameof(CanStartDynamicAxisCalibration));

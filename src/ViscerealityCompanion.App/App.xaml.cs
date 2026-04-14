@@ -9,11 +9,31 @@ namespace ViscerealityCompanion.App;
 
 public partial class App : Application
 {
+    public const string SuppressStartupWindowEnvironmentVariable = "VISCEREALITY_SUPPRESS_STARTUP_WINDOW";
+
     public App()
     {
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnTaskSchedulerUnobservedTaskException;
+    }
+
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+
+        if (ShouldSuppressStartupWindow())
+        {
+            return;
+        }
+
+        if (MainWindow is not null)
+        {
+            return;
+        }
+
+        MainWindow = new MainWindow();
+        MainWindow.Show();
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
@@ -41,6 +61,12 @@ public partial class App : Application
         WriteUnhandledExceptionLog("task", e.Exception, isTerminating: false);
         e.SetObserved();
     }
+
+    private static bool ShouldSuppressStartupWindow()
+        => string.Equals(
+            Environment.GetEnvironmentVariable(SuppressStartupWindowEnvironmentVariable),
+            "1",
+            StringComparison.Ordinal);
 
     private static string WriteUnhandledExceptionLog(string source, Exception exception, bool isTerminating)
     {
