@@ -36,6 +36,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero));
 
@@ -43,7 +44,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         Assert.Equal(OperationOutcomeKind.Success, result.Level);
         Assert.Equal("Windows environment analysis passed.", result.Summary);
-        Assert.Equal("Checks ok/warn/fail: 12/0/0.", result.Detail);
+        Assert.Equal("Checks ok/warn/fail: 13/0/0.", result.Detail);
         Assert.Equal(new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero), result.CompletedAtUtc);
 
         var streamCheck = Assert.Single(result.Checks, check => check.Id == "expected-stream");
@@ -58,6 +59,10 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         var discoveryHealthCheck = Assert.Single(result.Checks, check => check.Id == "lsl-discovery-health");
         Assert.Equal(OperationOutcomeKind.Success, discoveryHealthCheck.Level);
+
+        var loopbackCheck = Assert.Single(result.Checks, check => check.Id == "lsl-loopback-outlet");
+        Assert.Equal(OperationOutcomeKind.Success, loopbackCheck.Level);
+        Assert.Contains("rediscover", loopbackCheck.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -88,6 +93,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             hzdbLocator: () => null,
             bundledLslLocator: () => null,
             agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 30, 0, TimeSpan.Zero));
 
@@ -95,7 +101,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         Assert.Equal(OperationOutcomeKind.Failure, result.Level);
         Assert.Equal("Windows environment analysis found blocking issues.", result.Summary);
-        Assert.Equal("Checks ok/warn/fail: 4/4/4.", result.Detail);
+        Assert.Equal("Checks ok/warn/fail: 5/4/4.", result.Detail);
 
         var adbCheck = Assert.Single(result.Checks, check => check.Id == "adb");
         Assert.Equal(OperationOutcomeKind.Failure, adbCheck.Level);
@@ -144,6 +150,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 45, 0, TimeSpan.Zero));
 
@@ -179,6 +186,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () =>
             [
                 new WindowsNetworkAdapterSnapshot(
@@ -236,6 +244,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
@@ -245,6 +254,82 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
         Assert.Equal(OperationOutcomeKind.Failure, discoveryHealthCheck.Level);
         Assert.Contains("Windows socket/adapter", discoveryHealthCheck.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("VPN/virtual adapters", discoveryHealthCheck.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_FailsLoopback_WhenTemporaryOutletCannotBeRediscovered()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [
+                new LslVisibleStreamInfo("HRV_Biofeedback", "HRV", "external.sender.primary", 1, 10f, 100d)
+            ],
+            includeLoopback: false);
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."), isRunning: true);
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
+
+        Assert.Equal(OperationOutcomeKind.Failure, result.Level);
+        var loopbackCheck = Assert.Single(result.Checks, check => check.Id == "lsl-loopback-outlet");
+        Assert.Equal(OperationOutcomeKind.Failure, loopbackCheck.Level);
+        Assert.Contains("temporary LSL outlet", loopbackCheck.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TEST sender currently reports active", loopbackCheck.Detail, StringComparison.Ordinal);
+        Assert.Contains("Windows LSL advertisement/discovery problem", loopbackCheck.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_ExplainsActiveTestSender_WhenExpectedStreamIsMissing()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            []);
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."), isRunning: true);
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
+
+        Assert.Equal(OperationOutcomeKind.Warning, result.Level);
+        var loopbackCheck = Assert.Single(result.Checks, check => check.Id == "lsl-loopback-outlet");
+        Assert.Equal(OperationOutcomeKind.Success, loopbackCheck.Level);
+
+        var streamCheck = Assert.Single(result.Checks, check => check.Id == "expected-stream");
+        Assert.Equal(OperationOutcomeKind.Warning, streamCheck.Level);
+        Assert.Contains("TEST sender reports active", streamCheck.Detail, StringComparison.Ordinal);
+        Assert.Contains("loopback outlet self-check", streamCheck.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("adapter/firewall", streamCheck.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     private static OfficialQuestToolingStatus CreateToolingStatus(bool isReady)
@@ -286,6 +371,9 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
                 IPv4Addresses: ["192.168.0.22"],
                 Gateways: ["192.168.0.1"])
         ];
+
+    private static Func<ILslOutletService> CreateLoopbackOutletFactory()
+        => () => new FakeLslOutletService(new LslRuntimeState(true, "Fake outlet runtime ready."));
 
     private sealed class FakeMonitorService(LslRuntimeState runtimeState) : ILslMonitorService
     {
@@ -332,7 +420,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
     private sealed class FakeLslStreamDiscoveryService(
         LslRuntimeState runtimeState,
         IReadOnlyList<LslVisibleStreamInfo> visibleStreams,
-        Exception? exception = null) : ILslStreamDiscoveryService
+        Exception? exception = null,
+        bool includeLoopback = true) : ILslStreamDiscoveryService
     {
         public LslRuntimeState RuntimeState { get; } = runtimeState;
 
@@ -341,6 +430,21 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             if (exception is not null)
             {
                 throw exception;
+            }
+
+            if (includeLoopback &&
+                request.StreamName?.StartsWith("viscereality_lsl_loopback_self_check_", StringComparison.Ordinal) == true)
+            {
+                return
+                [
+                    new LslVisibleStreamInfo(
+                        request.StreamName,
+                        request.StreamType ?? "viscereality.loopback",
+                        string.IsNullOrWhiteSpace(request.ExactSourceId) ? "viscereality.companion.test.loopback" : request.ExactSourceId,
+                        1,
+                        0f,
+                        200d)
+                ];
             }
 
             var matches = visibleStreams
@@ -357,7 +461,41 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
         }
     }
 
-    private sealed class FakeTestLslSignalService(LslRuntimeState runtimeState) : ITestLslSignalService
+    private sealed class FakeLslOutletService(LslRuntimeState runtimeState) : ILslOutletService
+    {
+        public LslRuntimeState RuntimeState { get; } = runtimeState;
+        public bool IsOpen { get; private set; }
+
+        public OperationOutcome Open(string streamName, string streamType, int channelCount)
+        {
+            if (!RuntimeState.Available)
+            {
+                return new OperationOutcome(OperationOutcomeKind.Failure, "Outlet unavailable.", RuntimeState.Detail);
+            }
+
+            IsOpen = true;
+            return new OperationOutcome(OperationOutcomeKind.Success, "Outlet opened.", "test");
+        }
+
+        public void Close() => IsOpen = false;
+
+        public void PushSample(string[] values)
+        {
+        }
+
+        public OperationOutcome PublishConfigSnapshot(IReadOnlyList<RuntimeConfigEntry> entries)
+            => new(OperationOutcomeKind.Success, "Published config.", "test");
+
+        public OperationOutcome PublishCommand(TwinModeCommand command, int sequence)
+            => new(OperationOutcomeKind.Success, "Published command.", "test");
+
+        public void Dispose() => Close();
+    }
+
+    private sealed class FakeTestLslSignalService(
+        LslRuntimeState runtimeState,
+        bool isRunning = false,
+        string lastFaultDetail = "") : ITestLslSignalService
     {
         public event EventHandler? StateChanged
         {
@@ -366,10 +504,10 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
         }
 
         public LslRuntimeState RuntimeState { get; } = runtimeState;
-        public bool IsRunning => false;
+        public bool IsRunning { get; } = isRunning;
         public float LastValue => 0f;
         public DateTimeOffset? LastSentAtUtc => null;
-        public string LastFaultDetail => string.Empty;
+        public string LastFaultDetail { get; } = lastFaultDetail;
 
         public OperationOutcome Start(string streamName, string streamType, string sourceId)
             => new(OperationOutcomeKind.Success, "Started.", "test");

@@ -455,14 +455,16 @@ operator needs the Windows-side view instead of the headset-side view. It
 compares:
 
 - the currently visible `HRV_Biofeedback / HRV` publishers on Windows
+- a temporary local LSL outlet that should be rediscoverable from the same PC
 - the companion-owned TEST sender and twin outlets
 - the clock-alignment probe transport
 - the passive upstream monitor used during recording
 
-That makes duplicate upstream senders and stale companion-owned streams visible
-without guessing from partial symptoms. If switching between the built-in TEST
-sender and an external Python sender becomes unreliable, refresh `Machine LSL
-State` first and then run `Analyze Windows Environment`.
+That makes duplicate upstream senders, stale companion-owned streams, and local
+LSL advertisement/discovery failures visible without guessing from partial
+symptoms. If switching between the built-in TEST sender and an external Python
+sender becomes unreliable, refresh `Machine LSL State` first and then run
+`Analyze Windows Environment`.
 
 The validation step now keeps the timing workflow inside the same guide
 surface. Instead of opening a separate timing window, step 12 shows:

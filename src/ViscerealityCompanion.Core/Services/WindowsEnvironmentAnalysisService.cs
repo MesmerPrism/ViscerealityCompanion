@@ -38,12 +38,17 @@ public sealed class WindowsEnvironmentAnalysisService
 {
     private const string LslDiscoveryProbeName = "viscereality_lsl_discovery_self_check";
     private const string LslDiscoveryProbeType = "viscereality.diagnostics";
+    private const string LslLoopbackProbeNamePrefix = "viscereality_lsl_loopback_self_check_";
+    private const string LslLoopbackProbeType = "viscereality.loopback";
+    private const int LslLoopbackProbeAttempts = 3;
+    private static readonly TimeSpan LslLoopbackProbeRetryDelay = TimeSpan.FromMilliseconds(250);
 
     private readonly ILslMonitorService _monitorService;
     private readonly ILslStreamDiscoveryService _streamDiscoveryService;
     private readonly IStudyClockAlignmentService _clockAlignmentService;
     private readonly ITestLslSignalService _testSignalService;
     private readonly ITwinModeBridge _twinBridge;
+    private readonly Func<ILslOutletService> _loopbackOutletFactory;
     private readonly Func<OfficialQuestToolingStatus> _toolingStatusProvider;
     private readonly Func<string?> _adbLocator;
     private readonly Func<string?> _hzdbLocator;
@@ -65,6 +70,7 @@ public sealed class WindowsEnvironmentAnalysisService
         Func<string?>? bundledLslLocator = null,
         Func<string?>? agentWorkspaceLslLocator = null,
         Func<bool>? agentWorkspacePresent = null,
+        Func<ILslOutletService>? loopbackOutletFactory = null,
         Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>>? networkAdapterSnapshotProvider = null,
         Func<DateTimeOffset>? utcNow = null)
     {
@@ -73,6 +79,7 @@ public sealed class WindowsEnvironmentAnalysisService
         _clockAlignmentService = clockAlignmentService ?? throw new ArgumentNullException(nameof(clockAlignmentService));
         _testSignalService = testSignalService ?? throw new ArgumentNullException(nameof(testSignalService));
         _twinBridge = twinBridge ?? throw new ArgumentNullException(nameof(twinBridge));
+        _loopbackOutletFactory = loopbackOutletFactory ?? LslOutletServiceFactory.CreateDefault;
         _toolingStatusProvider = toolingStatusProvider ?? GetLocalToolingStatus;
         _adbLocator = adbLocator ?? AdbExecutableLocator.TryLocate;
         _hzdbLocator = hzdbLocator ?? WindowsHzdbService.ResolveHzdbCommandPath;
@@ -120,6 +127,7 @@ public sealed class WindowsEnvironmentAnalysisService
         };
 
         checks.Add(await ProbeLslDiscoveryHealthAsync(cancellationToken).ConfigureAwait(false));
+        checks.Add(await ProbeLslLoopbackAdvertisementAsync(cancellationToken).ConfigureAwait(false));
 
         if (request.ProbeExpectedLslStream)
         {
@@ -561,6 +569,112 @@ public sealed class WindowsEnvironmentAnalysisService
         }
     }
 
+    private async Task<WindowsEnvironmentCheckResult> ProbeLslLoopbackAdvertisementAsync(
+        CancellationToken cancellationToken)
+    {
+        if (!_streamDiscoveryService.RuntimeState.Available)
+        {
+            return new WindowsEnvironmentCheckResult(
+                "lsl-loopback-outlet",
+                "Windows LSL loopback outlet self-check",
+                OperationOutcomeKind.Warning,
+                "Windows LSL loopback outlet self-check could not run.",
+                $"The discovery runtime is unavailable. {_streamDiscoveryService.RuntimeState.Detail}");
+        }
+
+        try
+        {
+            using var outlet = _loopbackOutletFactory();
+            if (!outlet.RuntimeState.Available)
+            {
+                return new WindowsEnvironmentCheckResult(
+                    "lsl-loopback-outlet",
+                    "Windows LSL loopback outlet self-check",
+                    OperationOutcomeKind.Failure,
+                    "Windows could not open a temporary local LSL outlet.",
+                    $"The outlet runtime is unavailable. {outlet.RuntimeState.Detail}");
+            }
+
+            var streamName = $"{LslLoopbackProbeNamePrefix}{Guid.NewGuid():N}";
+            var sourceId = TwinLslSourceId.BuildCompanionSourceId(streamName, LslLoopbackProbeType, Environment.MachineName);
+            var open = outlet.Open(streamName, LslLoopbackProbeType, 1);
+            if (open.Kind == OperationOutcomeKind.Failure)
+            {
+                return new WindowsEnvironmentCheckResult(
+                    "lsl-loopback-outlet",
+                    "Windows LSL loopback outlet self-check",
+                    OperationOutcomeKind.Failure,
+                    "Windows could not open a temporary local LSL outlet.",
+                    $"{open.Summary} {open.Detail}");
+            }
+
+            if (open.Kind != OperationOutcomeKind.Success)
+            {
+                return new WindowsEnvironmentCheckResult(
+                    "lsl-loopback-outlet",
+                    "Windows LSL loopback outlet self-check",
+                    OperationOutcomeKind.Warning,
+                    "Windows LSL loopback outlet self-check ran in preview mode.",
+                    $"{open.Summary} {open.Detail}");
+            }
+
+            outlet.PushSample(["ping"]);
+
+            for (var attempt = 1; attempt <= LslLoopbackProbeAttempts; attempt++)
+            {
+                if (attempt > 1)
+                {
+                    await Task.Delay(LslLoopbackProbeRetryDelay, cancellationToken).ConfigureAwait(false);
+                }
+
+                var matches = await Task.Run(
+                        () => _streamDiscoveryService.Discover(new LslStreamDiscoveryRequest(
+                            streamName,
+                            LslLoopbackProbeType,
+                            ExactSourceId: sourceId,
+                            Limit: 4)),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (matches.Count > 0)
+                {
+                    return new WindowsEnvironmentCheckResult(
+                        "lsl-loopback-outlet",
+                        "Windows LSL loopback outlet self-check",
+                        OperationOutcomeKind.Success,
+                        "Windows can advertise and rediscover a local LSL outlet.",
+                        $"Temporary outlet {streamName} / {LslLoopbackProbeType} was rediscovered with source_id `{sourceId}` on attempt {attempt.ToString(System.Globalization.CultureInfo.InvariantCulture)}. This proves the companion's local LSL outlet advertisement path is discoverable on this PC.");
+                }
+            }
+
+            var activeSenderHint = _testSignalService.IsRunning
+                ? " The companion TEST sender currently reports active, so a missing HRV stream alongside this failure points to a Windows LSL advertisement/discovery problem rather than a Quest inlet problem."
+                : string.Empty;
+            return new WindowsEnvironmentCheckResult(
+                "lsl-loopback-outlet",
+                "Windows LSL loopback outlet self-check",
+                OperationOutcomeKind.Failure,
+                "Windows could not rediscover its own temporary LSL outlet.",
+                $"The analyzer opened a temporary local LSL outlet but liblsl discovery did not find it after {LslLoopbackProbeAttempts.ToString(System.Globalization.CultureInfo.InvariantCulture)} attempts.{activeSenderHint} Fix this before debugging the headset: disable unused VPN/virtual adapters, confirm the active Wi-Fi network is Private, allow the app through Windows Firewall on Private networks, and rerun Analyze Windows Environment.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var hazardHint = IsLikelySocketAdapterFailure(ex.Message)
+                ? " The error text matches a Windows socket/adapter context failure, which often points to VPN, virtual adapter, multicast, firewall, or network-profile state."
+                : string.Empty;
+            return new WindowsEnvironmentCheckResult(
+                "lsl-loopback-outlet",
+                "Windows LSL loopback outlet self-check",
+                OperationOutcomeKind.Failure,
+                "Windows LSL loopback outlet self-check failed.",
+                $"{ex.Message}{hazardHint} If the TEST sender reports active but HRV_Biofeedback / HRV is still missing, debug this Windows-side LSL advertisement path before debugging the Quest.");
+        }
+    }
+
     private static bool IsLikelySocketAdapterFailure(string? message)
         => !string.IsNullOrWhiteSpace(message) &&
            (message.Contains("set_option", StringComparison.OrdinalIgnoreCase) ||
@@ -599,12 +713,15 @@ public sealed class WindowsEnvironmentAnalysisService
 
             if (matches.Count == 0)
             {
+                var activeSenderHint = _testSignalService.IsRunning
+                    ? " The companion TEST sender reports active, so if this remains missing, check the Windows LSL loopback outlet self-check and local adapter/firewall state before assuming the headset failed."
+                    : string.Empty;
                 return new WindowsEnvironmentCheckResult(
                     "expected-stream",
                     "Expected Sussex LSL stream",
                     OperationOutcomeKind.Warning,
                     $"{streamName} / {streamType} is not currently visible on Windows.",
-                    $"No visible source matched {streamName} / {streamType}. Fix: start the upstream sender on this PC, or verify that the external sender is publishing the expected name/type contract.");
+                    $"No visible source matched {streamName} / {streamType}. Fix: start the upstream sender on this PC, or verify that the external sender is publishing the expected name/type contract.{activeSenderHint}");
             }
 
             var detail = string.Join(

@@ -274,23 +274,24 @@ decide whether liblsl is available in the current process layout.
 
 | Command | Description |
 |---------|-------------|
-| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, Windows network-adapter hazards, the local twin bridge, the exported agent workspace, liblsl discovery health, and the expected upstream LSL stream. The check warns if multiple matching upstream sources are visible on Windows because sender switching can become unreliable in that state. |
+| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, Windows network-adapter hazards, the local twin bridge, the exported agent workspace, liblsl discovery health, a temporary local LSL outlet rediscovery check, and the expected upstream LSL stream. The check warns if multiple matching upstream sources are visible on Windows because sender switching can become unreliable in that state. |
 
-`windows-env analyze` separates three related LSL questions:
+`windows-env analyze` separates four related LSL questions:
 
 - whether this Windows process can load the liblsl runtime
 - whether liblsl discovery can run at all without a socket / adapter error
+- whether this PC can advertise a temporary local LSL outlet and rediscover it
 - whether the expected `HRV_Biofeedback / HRV` sender is currently visible on
   Windows
 
 That distinction matters because the Quest can sometimes receive a sender while
 the Windows-side discovery inventory is failing. When the discovery self-check
-reports `set_option` or "requested address is not valid in its context", treat
-that as a Windows adapter / multicast / firewall-profile hazard first. The
-analysis also lists active IPv4 adapters and warns about common instability
-sources such as VPN, Tailscale, WireGuard, Hyper-V, Docker, WSL, TAP/Wintun,
-VirtualBox, VMware, multiple default gateways, and adapters without multicast
-support.
+reports `set_option` or "requested address is not valid in its context", or
+when the local loopback outlet cannot be rediscovered, treat that as a Windows
+adapter / multicast / firewall-profile hazard first. The analysis also lists
+active IPv4 adapters and warns about common instability sources such as VPN,
+Tailscale, WireGuard, Hyper-V, Docker, WSL, TAP/Wintun, VirtualBox, VMware,
+multiple default gateways, and adapters without multicast support.
 
 Use `study probe-connection sussex-university --wait-seconds 15` for the
 headset-side half. That probe now reports the pinned Sussex build match and the

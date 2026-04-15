@@ -212,6 +212,10 @@ hazard checks:
   before checking `HRV_Biofeedback / HRV`. If this fails with `set_option` or
   `The requested address is not valid in its context`, the Windows LSL
   inventory is unhealthy even if the Quest still receives samples from a sender.
+- `Windows LSL loopback outlet self-check` opens a temporary local LSL outlet
+  and tries to rediscover it from the same process. If the TEST sender says it
+  is active but this loopback check fails, debug Windows LSL advertisement,
+  firewall/profile, and adapter state before debugging the Quest inlet.
 - `Expected Sussex LSL stream` then reports whether the actual upstream
   `HRV_Biofeedback / HRV` source is visible to Windows.
 
