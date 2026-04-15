@@ -36,13 +36,14 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
         Assert.Equal(OperationOutcomeKind.Success, result.Level);
         Assert.Equal("Windows environment analysis passed.", result.Summary);
-        Assert.Equal("Checks ok/warn/fail: 10/0/0.", result.Detail);
+        Assert.Equal("Checks ok/warn/fail: 12/0/0.", result.Detail);
         Assert.Equal(new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero), result.CompletedAtUtc);
 
         var streamCheck = Assert.Single(result.Checks, check => check.Id == "expected-stream");
@@ -51,6 +52,12 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         var bundledLslCheck = Assert.Single(result.Checks, check => check.Id == "bundled-liblsl");
         Assert.Equal(OperationOutcomeKind.Success, bundledLslCheck.Level);
+
+        var adapterCheck = Assert.Single(result.Checks, check => check.Id == "network-adapters");
+        Assert.Equal(OperationOutcomeKind.Success, adapterCheck.Level);
+
+        var discoveryHealthCheck = Assert.Single(result.Checks, check => check.Id == "lsl-discovery-health");
+        Assert.Equal(OperationOutcomeKind.Success, discoveryHealthCheck.Level);
     }
 
     [Fact]
@@ -81,13 +88,14 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             hzdbLocator: () => null,
             bundledLslLocator: () => null,
             agentWorkspacePresent: () => false,
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 30, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
         Assert.Equal(OperationOutcomeKind.Failure, result.Level);
         Assert.Equal("Windows environment analysis found blocking issues.", result.Summary);
-        Assert.Equal("Checks ok/warn/fail: 2/4/4.", result.Detail);
+        Assert.Equal("Checks ok/warn/fail: 4/4/4.", result.Detail);
 
         var adbCheck = Assert.Single(result.Checks, check => check.Id == "adb");
         Assert.Equal(OperationOutcomeKind.Failure, adbCheck.Level);
@@ -136,6 +144,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 45, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
@@ -144,6 +153,98 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
         Assert.Equal(OperationOutcomeKind.Warning, streamCheck.Level);
         Assert.Contains("Multiple HRV_Biofeedback / HRV sources are visible", streamCheck.Summary, StringComparison.Ordinal);
         Assert.Contains("sender switching unreliable", streamCheck.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_Warns_WhenNetworkAdaptersCanDestabilizeLslDiscovery()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [
+                new LslVisibleStreamInfo("HRV_Biofeedback", "HRV", "external.sender.primary", 1, 10f, 100d)
+            ]);
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."));
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            networkAdapterSnapshotProvider: () =>
+            [
+                new WindowsNetworkAdapterSnapshot(
+                    "Wi-Fi",
+                    "Intel Wi-Fi",
+                    "Wireless80211",
+                    IsUp: true,
+                    IsLoopback: false,
+                    IsTunnel: false,
+                    SupportsMulticast: true,
+                    IPv4Addresses: ["192.168.0.22"],
+                    Gateways: ["192.168.0.1"]),
+                new WindowsNetworkAdapterSnapshot(
+                    "Tailscale",
+                    "Tailscale Tunnel",
+                    "Tunnel",
+                    IsUp: true,
+                    IsLoopback: false,
+                    IsTunnel: true,
+                    SupportsMulticast: false,
+                    IPv4Addresses: ["100.101.102.103"],
+                    Gateways: [])
+            ]);
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
+
+        Assert.Equal(OperationOutcomeKind.Warning, result.Level);
+        var adapterCheck = Assert.Single(result.Checks, check => check.Id == "network-adapters");
+        Assert.Equal(OperationOutcomeKind.Warning, adapterCheck.Level);
+        Assert.Contains("VPN or virtual adapters", adapterCheck.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("multiple active IPv4 adapters", adapterCheck.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("multicast", adapterCheck.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_FailsDiscoverySelfCheck_WhenLiblslResolverThrowsSocketError()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [],
+            new InvalidOperationException("Could not resolve visible LSL streams (internal error): set_option: The requested address is not valid in its context."));
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."));
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
+
+        Assert.Equal(OperationOutcomeKind.Failure, result.Level);
+        var discoveryHealthCheck = Assert.Single(result.Checks, check => check.Id == "lsl-discovery-health");
+        Assert.Equal(OperationOutcomeKind.Failure, discoveryHealthCheck.Level);
+        Assert.Contains("Windows socket/adapter", discoveryHealthCheck.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("VPN/virtual adapters", discoveryHealthCheck.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     private static OfficialQuestToolingStatus CreateToolingStatus(bool isReady)
@@ -170,6 +271,21 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
                 "https://example.invalid/platform-tools",
                 "Test license",
                 "https://example.invalid/license"));
+
+    private static IReadOnlyList<WindowsNetworkAdapterSnapshot> SinglePhysicalAdapter()
+        =>
+        [
+            new WindowsNetworkAdapterSnapshot(
+                "Wi-Fi",
+                "Intel Wi-Fi",
+                "Wireless80211",
+                IsUp: true,
+                IsLoopback: false,
+                IsTunnel: false,
+                SupportsMulticast: true,
+                IPv4Addresses: ["192.168.0.22"],
+                Gateways: ["192.168.0.1"])
+        ];
 
     private sealed class FakeMonitorService(LslRuntimeState runtimeState) : ILslMonitorService
     {
@@ -215,12 +331,18 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
     private sealed class FakeLslStreamDiscoveryService(
         LslRuntimeState runtimeState,
-        IReadOnlyList<LslVisibleStreamInfo> visibleStreams) : ILslStreamDiscoveryService
+        IReadOnlyList<LslVisibleStreamInfo> visibleStreams,
+        Exception? exception = null) : ILslStreamDiscoveryService
     {
         public LslRuntimeState RuntimeState { get; } = runtimeState;
 
         public IReadOnlyList<LslVisibleStreamInfo> Discover(LslStreamDiscoveryRequest request)
         {
+            if (exception is not null)
+            {
+                throw exception;
+            }
+
             var matches = visibleStreams
                 .Where(stream =>
                     (string.IsNullOrWhiteSpace(request.StreamName) || string.Equals(stream.Name, request.StreamName, StringComparison.Ordinal)) &&

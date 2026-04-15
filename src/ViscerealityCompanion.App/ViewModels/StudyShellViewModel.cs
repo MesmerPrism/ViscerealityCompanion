@@ -9953,10 +9953,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             || !string.Equals(LslConnectedStreamLabel, "Connected stream n/a", StringComparison.OrdinalIgnoreCase);
         var inletReady = LslLevel == OperationOutcomeKind.Success || hasConnectedInput;
         var returnPathReady = twinStateFresh;
+        var pinnedBuildReady = PinnedBuildLevel == OperationOutcomeKind.Success;
+        var pinnedBuildBlocksProbe = PinnedBuildLevel == OperationOutcomeKind.Failure || InstalledApkLevel == OperationOutcomeKind.Failure;
+        var deviceProfileReady = DeviceProfileLevel == OperationOutcomeKind.Success;
 
         var detail = BuildGuideDetailLines(
             ("Selector", string.IsNullOrWhiteSpace(selectorLabel) ? "n/a" : selectorLabel),
             ("Foreground + snapshot", HeadsetForegroundLabel),
+            ("Pinned build", $"{PinnedBuildSummary} {ShortHashLabel("pinned", _study.App.Sha256)} {ShortHashLabel("installed", InstalledApkHash)}".Trim()),
+            ("Device profile", $"{DeviceProfileSummary} {DeviceProfileDetail}".Trim()),
             ("Expected inlet", LslExpectedStreamLabel),
             ("Runtime target", LslRuntimeTargetLabel),
             ("Connected inlet", LslConnectedStreamLabel),
@@ -9968,13 +9973,38 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ("Hotload channel", $"{TwinConfigStreamName} / {TwinConfigStreamType}"),
             ("Transport detail", BuildTwinCommandTransportDetail()));
 
-        if (inletReady && returnPathReady)
+        if (pinnedBuildBlocksProbe)
         {
             return (
-                OperationOutcomeKind.Success,
-                "Quest inlet is connected and the Windows return path is live.",
-                detail,
-                true);
+                OperationOutcomeKind.Failure,
+                "Pinned Sussex APK is not installed or does not match the study shell baseline.",
+                detail + " Install the pinned Sussex APK before debugging LSL.",
+                false);
+        }
+
+        if (inletReady && returnPathReady)
+        {
+            var successSummary = !pinnedBuildReady
+                ? "Quest path is live, but the pinned Sussex APK is not fully verified yet."
+                : deviceProfileReady
+                    ? "Quest inlet is connected and the Windows return path is live."
+                    : "Quest path is live, but the required Sussex device profile still needs attention.";
+            var successDetail = detail;
+            if (!pinnedBuildReady)
+            {
+                successDetail += " Refresh or reinstall the pinned Sussex APK before participant validation.";
+            }
+
+            if (!deviceProfileReady)
+            {
+                successDetail += " Apply the Sussex study device profile before participant validation.";
+            }
+
+            return (
+                pinnedBuildReady && deviceProfileReady ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+                successSummary,
+                successDetail,
+                pinnedBuildReady && deviceProfileReady);
         }
 
         if (inletReady)
@@ -13389,6 +13419,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         => !string.IsNullOrWhiteSpace(left)
             && !string.IsNullOrWhiteSpace(right)
             && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+
+    private static string ShortHashLabel(string label, string? hash)
+        => $"{label} {ShortHash(hash)}";
+
+    private static string ShortHash(string? hash)
+        => string.IsNullOrWhiteSpace(hash)
+            ? "n/a"
+            : hash.Length <= 12
+                ? hash
+                : hash[..12];
 
     private static OperationOutcomeKind NormalizePreSessionLevel(OperationOutcomeKind level)
         => level switch

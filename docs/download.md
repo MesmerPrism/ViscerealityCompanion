@@ -18,12 +18,19 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.47.0`.
+`0.1.48.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
 and immediate access to the bundled Sussex APK and bundled Windows liblsl
 runtime inside the app payload.
+
+This preview also expands the Sussex diagnostics used by the sequential guide
+and packaged CLI. `Analyze Windows Environment` now checks local liblsl
+discovery health plus active Windows adapter hazards, while `Probe Connection`
+now reports the pinned Sussex APK match, pinned device profile state,
+headset Wi-Fi snapshot context, runtime inlet, and `quest_twin_state` return
+path in one place.
 
 The release ships **both** install paths:
 
@@ -169,7 +176,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed preview
-   should identify itself as `Published install 0.1.47.0`; unpackaged local
+   should identify itself as `Published install 0.1.48.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an

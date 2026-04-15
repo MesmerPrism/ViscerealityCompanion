@@ -155,7 +155,7 @@ Options:
 | `study launch <study>` | Launch the pinned study runtime using the study kiosk policy. The command now refuses to launch while the headset reports asleep; wake the headset first. |
 | `study stop <study>` | Stop the pinned study runtime using the study kiosk-exit policy |
 | `study status <study>` | Compare current headset state against the pinned study baseline |
-| `study probe-connection <study>` | Mirror the Step 9 `Probe Connection` check: inspect the expected inlet, `quest_twin_state` return path, and twin transport detail |
+| `study probe-connection <study>` | Mirror the Step 9 `Probe Connection` check: inspect the pinned APK match, pinned device profile state, expected inlet, `quest_twin_state` return path, Wi-Fi snapshot context, and twin transport detail |
 
 For Sussex, the study id is currently `sussex-university`.
 
@@ -274,7 +274,30 @@ decide whether liblsl is available in the current process layout.
 
 | Command | Description |
 |---------|-------------|
-| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, the local twin bridge, the exported agent workspace, and the expected upstream LSL stream. The check now warns if multiple matching upstream sources are visible on Windows because sender switching can become unreliable in that state. |
+| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, Windows network-adapter hazards, the local twin bridge, the exported agent workspace, liblsl discovery health, and the expected upstream LSL stream. The check warns if multiple matching upstream sources are visible on Windows because sender switching can become unreliable in that state. |
+
+`windows-env analyze` separates three related LSL questions:
+
+- whether this Windows process can load the liblsl runtime
+- whether liblsl discovery can run at all without a socket / adapter error
+- whether the expected `HRV_Biofeedback / HRV` sender is currently visible on
+  Windows
+
+That distinction matters because the Quest can sometimes receive a sender while
+the Windows-side discovery inventory is failing. When the discovery self-check
+reports `set_option` or "requested address is not valid in its context", treat
+that as a Windows adapter / multicast / firewall-profile hazard first. The
+analysis also lists active IPv4 adapters and warns about common instability
+sources such as VPN, Tailscale, WireGuard, Hyper-V, Docker, WSL, TAP/Wintun,
+VirtualBox, VMware, multiple default gateways, and adapters without multicast
+support.
+
+Use `study probe-connection sussex-university --wait-seconds 15` for the
+headset-side half. That probe now reports the pinned Sussex build match and the
+required device profile before it reports the runtime inlet and
+`quest_twin_state` return path. If the Quest visibly reacts to the TEST sender
+but `Probe Connection` says no `quest_twin_state` has reached Windows, treat
+that as a return-telemetry problem rather than a forward-LSL problem.
 
 ## Environment Variables
 

@@ -68,8 +68,9 @@ itself: start burst first, the 20 second capture in the middle with sparse
 drift probes armed in the background, then the matching end burst before
 pullback and PDF generation. The LSL step now also includes `Probe Connection`,
 which refreshes the ADB-backed headset snapshot and then reports the Quest inlet
-target, the currently connected inlet stream, and whether fresh
-`quest_twin_state / quest.twin.state` frames are making it back to Windows.
+target, pinned APK/profile readiness, the currently connected inlet stream, and
+whether fresh `quest_twin_state / quest.twin.state` frames are making it back to
+Windows.
 
 When the guide reaches the final reset-and-handoff step, use `Open Experiment
 Session Window` for the real participant. That dedicated popout is now the

@@ -1,3 +1,5 @@
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.Core.Services;
@@ -21,8 +23,22 @@ public sealed record WindowsEnvironmentAnalysisResult(
     IReadOnlyList<WindowsEnvironmentCheckResult> Checks,
     DateTimeOffset CompletedAtUtc);
 
+public sealed record WindowsNetworkAdapterSnapshot(
+    string Name,
+    string Description,
+    string InterfaceType,
+    bool IsUp,
+    bool IsLoopback,
+    bool IsTunnel,
+    bool SupportsMulticast,
+    IReadOnlyList<string> IPv4Addresses,
+    IReadOnlyList<string> Gateways);
+
 public sealed class WindowsEnvironmentAnalysisService
 {
+    private const string LslDiscoveryProbeName = "viscereality_lsl_discovery_self_check";
+    private const string LslDiscoveryProbeType = "viscereality.diagnostics";
+
     private readonly ILslMonitorService _monitorService;
     private readonly ILslStreamDiscoveryService _streamDiscoveryService;
     private readonly IStudyClockAlignmentService _clockAlignmentService;
@@ -34,6 +50,7 @@ public sealed class WindowsEnvironmentAnalysisService
     private readonly Func<string?> _bundledLslLocator;
     private readonly Func<string?> _agentWorkspaceLslLocator;
     private readonly Func<bool> _agentWorkspacePresent;
+    private readonly Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>> _networkAdapterSnapshotProvider;
     private readonly Func<DateTimeOffset> _utcNow;
 
     public WindowsEnvironmentAnalysisService(
@@ -48,6 +65,7 @@ public sealed class WindowsEnvironmentAnalysisService
         Func<string?>? bundledLslLocator = null,
         Func<string?>? agentWorkspaceLslLocator = null,
         Func<bool>? agentWorkspacePresent = null,
+        Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>>? networkAdapterSnapshotProvider = null,
         Func<DateTimeOffset>? utcNow = null)
     {
         _monitorService = monitorService ?? throw new ArgumentNullException(nameof(monitorService));
@@ -61,6 +79,7 @@ public sealed class WindowsEnvironmentAnalysisService
         _bundledLslLocator = bundledLslLocator ?? ResolveBundledLslPath;
         _agentWorkspaceLslLocator = agentWorkspaceLslLocator ?? ResolveAgentWorkspaceLslPath;
         _agentWorkspacePresent = agentWorkspacePresent ?? IsAgentWorkspacePresent;
+        _networkAdapterSnapshotProvider = networkAdapterSnapshotProvider ?? SnapshotNetworkAdapters;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -73,6 +92,7 @@ public sealed class WindowsEnvironmentAnalysisService
         var checks = new List<WindowsEnvironmentCheckResult>
         {
             BuildWindowsPlatformCheck(),
+            BuildNetworkAdapterHazardCheck(_networkAdapterSnapshotProvider()),
             BuildManagedToolCacheCheck(_toolingStatusProvider()),
             BuildAdbCheck(),
             BuildHzdbCheck(),
@@ -98,6 +118,8 @@ public sealed class WindowsEnvironmentAnalysisService
                 fixHint: "The Sussex bench sender is optional, but if you use it the same liblsl runtime must be available locally."),
             BuildTwinBridgeCheck()
         };
+
+        checks.Add(await ProbeLslDiscoveryHealthAsync(cancellationToken).ConfigureAwait(false));
 
         if (request.ProbeExpectedLslStream)
         {
@@ -159,6 +181,186 @@ public sealed class WindowsEnvironmentAnalysisService
 
     private static bool IsAgentWorkspacePresent()
         => Directory.Exists(LocalAgentWorkspaceLayout.RootPath);
+
+    private static IReadOnlyList<WindowsNetworkAdapterSnapshot> SnapshotNetworkAdapters()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return [];
+        }
+
+        var snapshots = new List<WindowsNetworkAdapterSnapshot>();
+        foreach (var adapter in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            try
+            {
+                var properties = adapter.GetIPProperties();
+                var ipv4 = properties.UnicastAddresses
+                    .Where(address => address.Address.AddressFamily == AddressFamily.InterNetwork)
+                    .Select(address => address.Address.ToString())
+                    .Where(static address => !string.IsNullOrWhiteSpace(address))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Order(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var gateways = properties.GatewayAddresses
+                    .Where(address => address.Address.AddressFamily == AddressFamily.InterNetwork)
+                    .Select(address => address.Address.ToString())
+                    .Where(static address => !string.IsNullOrWhiteSpace(address) && address != "0.0.0.0")
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Order(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                snapshots.Add(new WindowsNetworkAdapterSnapshot(
+                    adapter.Name,
+                    adapter.Description,
+                    adapter.NetworkInterfaceType.ToString(),
+                    adapter.OperationalStatus == OperationalStatus.Up,
+                    adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback,
+                    adapter.NetworkInterfaceType == NetworkInterfaceType.Tunnel,
+                    adapter.SupportsMulticast,
+                    ipv4,
+                    gateways));
+            }
+            catch
+            {
+                snapshots.Add(new WindowsNetworkAdapterSnapshot(
+                    adapter.Name,
+                    adapter.Description,
+                    adapter.NetworkInterfaceType.ToString(),
+                    adapter.OperationalStatus == OperationalStatus.Up,
+                    adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback,
+                    adapter.NetworkInterfaceType == NetworkInterfaceType.Tunnel,
+                    adapter.SupportsMulticast,
+                    [],
+                    []));
+            }
+        }
+
+        return snapshots;
+    }
+
+    private static WindowsEnvironmentCheckResult BuildNetworkAdapterHazardCheck(
+        IReadOnlyList<WindowsNetworkAdapterSnapshot> adapters)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return new WindowsEnvironmentCheckResult(
+                "network-adapters",
+                "Windows network adapter hazards",
+                OperationOutcomeKind.Preview,
+                "Network adapter hazard scan is Windows-only.",
+                "The public Sussex operator flow is Windows-first; this check is only active on Windows.");
+        }
+
+        var activeIpv4 = adapters
+            .Where(static adapter => adapter.IsUp && !adapter.IsLoopback && adapter.IPv4Addresses.Count > 0)
+            .OrderBy(static adapter => adapter.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (activeIpv4.Length == 0)
+        {
+            return new WindowsEnvironmentCheckResult(
+                "network-adapters",
+                "Windows network adapter hazards",
+                OperationOutcomeKind.Failure,
+                "No active non-loopback IPv4 adapter is visible.",
+                "LSL discovery and Wi-Fi ADB need a usable Windows network adapter on the same network as the Quest. Connect Wi-Fi or Ethernet before running the Sussex checks.");
+        }
+
+        var virtualOrVpn = activeIpv4.Where(LooksLikeVirtualOrVpnAdapter).ToArray();
+        var multicastDisabled = activeIpv4.Where(static adapter => !adapter.SupportsMulticast).ToArray();
+        var gatewayAdapters = activeIpv4.Where(static adapter => adapter.Gateways.Count > 0).ToArray();
+
+        var hazards = new List<string>();
+        if (activeIpv4.Length > 1)
+        {
+            hazards.Add("multiple active IPv4 adapters are up");
+        }
+
+        if (virtualOrVpn.Length > 0)
+        {
+            hazards.Add("VPN or virtual adapters are active");
+        }
+
+        if (multicastDisabled.Length > 0)
+        {
+            hazards.Add("at least one active adapter does not report multicast support");
+        }
+
+        if (gatewayAdapters.Length == 0)
+        {
+            hazards.Add("no active IPv4 adapter reports a default gateway");
+        }
+        else if (gatewayAdapters.Length > 1)
+        {
+            hazards.Add("multiple active adapters report default gateways");
+        }
+
+        var adapterLines = activeIpv4
+            .Take(12)
+            .Select(adapter =>
+                $"- {adapter.Name} ({adapter.InterfaceType}) IPv4 {JoinOrNone(adapter.IPv4Addresses)} gateway {JoinOrNone(adapter.Gateways)} multicast {(adapter.SupportsMulticast ? "yes" : "no")}{(LooksLikeVirtualOrVpnAdapter(adapter) ? " virtual/vpn-like" : string.Empty)}")
+            .ToArray();
+        var detail =
+            $"Active IPv4 adapters:{Environment.NewLine}{string.Join(Environment.NewLine, adapterLines)}";
+
+        if (activeIpv4.Length > adapterLines.Length)
+        {
+            detail += $"{Environment.NewLine}- ... {activeIpv4.Length - adapterLines.Length} more active adapter(s)";
+        }
+
+        if (hazards.Count == 0)
+        {
+            return new WindowsEnvironmentCheckResult(
+                "network-adapters",
+                "Windows network adapter hazards",
+                OperationOutcomeKind.Success,
+                "Network adapter shape looks simple.",
+                $"{detail}{Environment.NewLine}This does not prove multicast is perfect, but the common multi-adapter and VPN/virtual-adapter hazards are not visible.");
+        }
+
+        return new WindowsEnvironmentCheckResult(
+            "network-adapters",
+            "Windows network adapter hazards",
+            OperationOutcomeKind.Warning,
+            "Network adapter shape can make LSL discovery inconsistent.",
+            $"{detail}{Environment.NewLine}Hazards: {string.Join("; ", hazards)}. If Sussex works intermittently, disable unused VPN, Hyper-V, Docker, WSL, TAP/Wintun, VirtualBox, VMware, or other virtual adapters during the run, keep the Quest and PC on the same Wi-Fi, and use a Private Windows network profile.");
+    }
+
+    private static bool LooksLikeVirtualOrVpnAdapter(WindowsNetworkAdapterSnapshot adapter)
+    {
+        if (adapter.IsTunnel)
+        {
+            return true;
+        }
+
+        var text = $"{adapter.Name} {adapter.Description} {adapter.InterfaceType}".ToLowerInvariant();
+        string[] markers =
+        [
+            "vpn",
+            "tailscale",
+            "zerotier",
+            "wireguard",
+            "wintun",
+            "tap",
+            "tun ",
+            "hyper-v",
+            "vethernet",
+            "docker",
+            "wsl",
+            "virtualbox",
+            "vmware",
+            "npcap",
+            "loopback",
+            "teredo",
+            "isatap"
+        ];
+
+        return markers.Any(marker => text.Contains(marker, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string JoinOrNone(IReadOnlyList<string> values)
+        => values.Count == 0 ? "none" : string.Join(", ", values);
 
     private static WindowsEnvironmentCheckResult BuildManagedToolCacheCheck(OfficialQuestToolingStatus localStatus)
     {
@@ -310,6 +512,62 @@ public sealed class WindowsEnvironmentAnalysisService
             status.Summary,
             status.Detail);
     }
+
+    private async Task<WindowsEnvironmentCheckResult> ProbeLslDiscoveryHealthAsync(
+        CancellationToken cancellationToken)
+    {
+        if (!_streamDiscoveryService.RuntimeState.Available)
+        {
+            return new WindowsEnvironmentCheckResult(
+                "lsl-discovery-health",
+                "Windows liblsl discovery self-check",
+                OperationOutcomeKind.Warning,
+                "Windows liblsl discovery self-check could not run.",
+                $"The discovery runtime is unavailable. {_streamDiscoveryService.RuntimeState.Detail}");
+        }
+
+        try
+        {
+            _ = await Task.Run(
+                    () => _streamDiscoveryService.Discover(new LslStreamDiscoveryRequest(
+                        LslDiscoveryProbeName,
+                        LslDiscoveryProbeType,
+                        Limit: 1)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return new WindowsEnvironmentCheckResult(
+                "lsl-discovery-health",
+                "Windows liblsl discovery self-check",
+                OperationOutcomeKind.Success,
+                "Windows liblsl discovery API returned normally.",
+                "A deliberately unique diagnostic stream lookup completed without a liblsl resolver/socket error. This only proves local discovery did not fail immediately; it does not prove the expected HRV stream is currently visible.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var hazardHint = IsLikelySocketAdapterFailure(ex.Message)
+                ? " The error text matches a Windows socket/adapter context failure, which often points to VPN, virtual adapter, multicast, firewall, or network-profile state."
+                : string.Empty;
+            return new WindowsEnvironmentCheckResult(
+                "lsl-discovery-health",
+                "Windows liblsl discovery self-check",
+                OperationOutcomeKind.Failure,
+                "Windows liblsl discovery failed before stream matching.",
+                $"{ex.Message}{hazardHint} Try disabling unused VPN/virtual adapters, confirm the active Wi-Fi network is Private, and rerun Analyze Windows Environment before blaming the Quest inlet.");
+        }
+    }
+
+    private static bool IsLikelySocketAdapterFailure(string? message)
+        => !string.IsNullOrWhiteSpace(message) &&
+           (message.Contains("set_option", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("requested address is not valid in its context", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("socket", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("multicast", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("adapter", StringComparison.OrdinalIgnoreCase));
 
     private async Task<WindowsEnvironmentCheckResult> ProbeExpectedStreamAsync(
         WindowsEnvironmentAnalysisRequest request,

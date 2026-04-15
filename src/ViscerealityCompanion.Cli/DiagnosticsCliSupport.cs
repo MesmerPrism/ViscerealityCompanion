@@ -14,8 +14,12 @@ internal static class DiagnosticsCliSupport
         string Detail,
         bool InletReady,
         bool ReturnPathReady,
+        bool PinnedBuildReady,
+        bool DeviceProfileReady,
         string Selector,
         string ForegroundAndSnapshot,
+        string PinnedBuild,
+        string DeviceProfile,
         string ExpectedInlet,
         string RuntimeTarget,
         string ConnectedInlet,
@@ -53,8 +57,15 @@ internal static class DiagnosticsCliSupport
         CancellationToken cancellationToken = default)
     {
         var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
+        var profile = StudyShellOperatorBindings.CreateDeviceProfile(definition);
         var headset = await questService
             .QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        var installed = await questService
+            .QueryInstalledAppAsync(target, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        var profileStatus = await questService
+            .QueryDeviceProfileStatusAsync(profile, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
         var checkedAtUtc = DateTimeOffset.UtcNow;
@@ -69,8 +80,12 @@ internal static class DiagnosticsCliSupport
                     bridge.Status.Detail,
                     InletReady: false,
                     ReturnPathReady: false,
+                    PinnedBuildReady: IsPinnedBuildReady(definition, installed),
+                    DeviceProfileReady: profileStatus.IsActive,
                     Selector: BuildSelectorLabel(device, headset),
                     ForegroundAndSnapshot: BuildForegroundAndSnapshotLabel(headset),
+                    PinnedBuild: BuildPinnedBuildLabel(definition, installed),
+                    DeviceProfile: BuildDeviceProfileLabel(profileStatus),
                     ExpectedInlet: $"{definition.Monitoring.ExpectedLslStreamName} / {definition.Monitoring.ExpectedLslStreamType}",
                     RuntimeTarget: "Runtime target n/a",
                     ConnectedInlet: "Connected stream n/a",
@@ -88,7 +103,7 @@ internal static class DiagnosticsCliSupport
             var openOutcome = lslBridge.Open();
             await WaitForTwinStateAsync(lslBridge, waitDuration, cancellationToken).ConfigureAwait(false);
 
-            var state = BuildStudyConnectionProbeState(definition, headset, device, lslBridge, checkedAtUtc);
+            var state = BuildStudyConnectionProbeState(definition, headset, installed, profileStatus, device, lslBridge, checkedAtUtc);
             return openOutcome.Kind == OperationOutcomeKind.Failure
                 ? state with
                 {
@@ -111,6 +126,8 @@ internal static class DiagnosticsCliSupport
         Console.WriteLine();
         Console.WriteLine($"Selector:               {result.Selector}");
         Console.WriteLine($"Foreground + snapshot:  {result.ForegroundAndSnapshot}");
+        Console.WriteLine($"Pinned build:           {result.PinnedBuild}");
+        Console.WriteLine($"Device profile:         {result.DeviceProfile}");
         Console.WriteLine($"Expected inlet:         {result.ExpectedInlet}");
         Console.WriteLine($"Runtime target:         {result.RuntimeTarget}");
         Console.WriteLine($"Connected inlet:        {result.ConnectedInlet}");
@@ -127,6 +144,8 @@ internal static class DiagnosticsCliSupport
     private static StudyConnectionProbeResult BuildStudyConnectionProbeState(
         StudyShellDefinition definition,
         HeadsetAppStatus headset,
+        InstalledAppStatus installed,
+        DeviceProfileStatus profileStatus,
         string? device,
         LslTwinModeBridge bridge,
         DateTimeOffset checkedAtUtc)
@@ -197,18 +216,20 @@ internal static class DiagnosticsCliSupport
             && (string.IsNullOrWhiteSpace(expectedType) || string.Equals(streamType, expectedType, StringComparison.OrdinalIgnoreCase));
         var inletReady = hasConnectedInput && streamMatches;
         var headsetForeground = string.Equals(headset.ForegroundPackageId, definition.App.PackageId, StringComparison.OrdinalIgnoreCase);
+        var pinnedBuildReady = IsPinnedBuildReady(definition, installed);
+        var deviceProfileReady = profileStatus.IsActive;
 
-        var summary = inletReady && returnPathReady
+        var connectionSummary = inletReady && returnPathReady
             ? "Quest inlet is connected and the Windows return path is live."
             : inletReady
                 ? "Quest inlet is connected, but Windows is not receiving a fresh return path yet."
                 : returnPathReady
                     ? "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet."
                     : headsetForeground
-                        ? "Sussex is in front, but neither the LSL inlet nor the Windows return path is confirmed."
-                        : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.";
+                    ? "Sussex is in front, but neither the LSL inlet nor the Windows return path is confirmed."
+                    : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.";
 
-        var level = inletReady && returnPathReady
+        var connectionLevel = inletReady && returnPathReady
             ? OperationOutcomeKind.Success
             : inletReady || returnPathReady
                 ? OperationOutcomeKind.Warning
@@ -216,7 +237,28 @@ internal static class DiagnosticsCliSupport
                     ? OperationOutcomeKind.Failure
                     : OperationOutcomeKind.Warning;
 
+        var summary = !pinnedBuildReady
+            ? "Pinned Sussex APK is not installed or does not match the study shell baseline."
+            : !deviceProfileReady && connectionLevel == OperationOutcomeKind.Success
+                ? "Quest path is live, but the required Sussex device profile still needs attention."
+                : connectionSummary;
+        var level = !pinnedBuildReady
+            ? OperationOutcomeKind.Failure
+            : !deviceProfileReady && connectionLevel == OperationOutcomeKind.Success
+                ? OperationOutcomeKind.Warning
+                : connectionLevel;
+
         var detailParts = new List<string>();
+        if (!pinnedBuildReady)
+        {
+            detailParts.Add($"Install the pinned Sussex APK before debugging LSL; expected {ShortHash(definition.App.Sha256)}, found {ShortHash(installed.InstalledSha256)}.");
+        }
+
+        if (!deviceProfileReady)
+        {
+            detailParts.Add("Apply the Sussex study device profile before participant validation so Wi-Fi ADB, profile guards, and startup assumptions match the release baseline.");
+        }
+
         if (!inletReady && returnPathReady)
         {
             detailParts.Add("The headset is publishing twin state back to Windows, but it has not reported an active Sussex inlet connection yet.");
@@ -247,8 +289,12 @@ internal static class DiagnosticsCliSupport
             string.Join(" ", detailParts),
             inletReady,
             returnPathReady,
+            pinnedBuildReady,
+            deviceProfileReady,
             Selector: BuildSelectorLabel(device, headset),
             ForegroundAndSnapshot: BuildForegroundAndSnapshotLabel(headset),
+            PinnedBuild: BuildPinnedBuildLabel(definition, installed),
+            DeviceProfile: BuildDeviceProfileLabel(profileStatus),
             ExpectedInlet: $"{expectedName} / {expectedType}",
             RuntimeTarget: runtimeTarget,
             ConnectedInlet: connectedInlet,
@@ -293,8 +339,79 @@ internal static class DiagnosticsCliSupport
     private static string BuildForegroundAndSnapshotLabel(HeadsetAppStatus headset)
     {
         var foreground = string.IsNullOrWhiteSpace(headset.ForegroundPackageId) ? "Foreground n/a" : headset.ForegroundPackageId;
-        return $"{foreground} | snapshot {headset.Timestamp.ToLocalTime():HH:mm:ss}";
+        var parts = new List<string>
+        {
+            foreground,
+            $"snapshot {headset.Timestamp.ToLocalTime():HH:mm:ss}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(headset.HeadsetWifiSsid) || !string.IsNullOrWhiteSpace(headset.HeadsetWifiIpAddress))
+        {
+            parts.Add($"headset Wi-Fi {JoinNetworkLabel(headset.HeadsetWifiSsid, headset.HeadsetWifiIpAddress)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(headset.HostWifiSsid))
+        {
+            parts.Add($"host Wi-Fi {headset.HostWifiSsid}");
+        }
+
+        if (headset.WifiSsidMatchesHost.HasValue)
+        {
+            parts.Add($"Wi-Fi SSID match {headset.WifiSsidMatchesHost.Value}");
+        }
+
+        return string.Join(" | ", parts);
     }
+
+    private static string BuildPinnedBuildLabel(StudyShellDefinition definition, InstalledAppStatus installed)
+    {
+        var expected = ShortHash(definition.App.Sha256);
+        if (!installed.IsInstalled)
+        {
+            return $"Not installed; pinned {expected}.";
+        }
+
+        var actual = ShortHash(installed.InstalledSha256);
+        var version = string.IsNullOrWhiteSpace(installed.VersionName)
+            ? "version n/a"
+            : $"version {installed.VersionName}";
+        return $"Installed match {IsPinnedBuildReady(definition, installed)}; pinned {expected}, installed {actual}, {version}.";
+    }
+
+    private static string BuildDeviceProfileLabel(DeviceProfileStatus profileStatus)
+    {
+        var blockingMismatches = profileStatus.Properties.Count(property => property.BlocksActivation && !property.Matches);
+        return blockingMismatches > 0
+            ? $"{profileStatus.Summary} Active {profileStatus.IsActive}; {blockingMismatches} blocking mismatch(es)."
+            : $"{profileStatus.Summary} Active {profileStatus.IsActive}.";
+    }
+
+    private static string JoinNetworkLabel(string ssid, string ipAddress)
+    {
+        if (string.IsNullOrWhiteSpace(ssid))
+        {
+            return string.IsNullOrWhiteSpace(ipAddress) ? "n/a" : ipAddress;
+        }
+
+        return string.IsNullOrWhiteSpace(ipAddress)
+            ? ssid
+            : $"{ssid} / {ipAddress}";
+    }
+
+    private static bool IsPinnedBuildReady(StudyShellDefinition definition, InstalledAppStatus installed)
+        => installed.IsInstalled && MatchesHash(installed.InstalledSha256, definition.App.Sha256);
+
+    private static bool MatchesHash(string? left, string? right)
+        => !string.IsNullOrWhiteSpace(left)
+            && !string.IsNullOrWhiteSpace(right)
+            && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+
+    private static string ShortHash(string? hash)
+        => string.IsNullOrWhiteSpace(hash)
+            ? "n/a"
+            : hash.Length <= 12
+                ? hash
+                : hash[..12];
 
     private static async Task WaitForTwinStateAsync(LslTwinModeBridge bridge, TimeSpan waitDuration, CancellationToken cancellationToken)
     {

@@ -208,6 +208,11 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         SetPrivateField(viewModel, "_lslStatusLineLabel", "Runtime matched expected inlet.");
         SetPrivateField(viewModel, "_lslEchoStateLabel", "Connected, but this public build does not echo the routed inlet value yet.");
         SetPrivateField(viewModel, "_lslBenchStateLabel", "Windows TEST sender active. Latest local send 0.336 at 13:07:28.");
+        SetPrivateField(viewModel, "_pinnedBuildLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_pinnedBuildSummary", "Pinned Sussex APK matches the recorded Sussex build.");
+        SetPrivateField(viewModel, "_deviceProfileLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_deviceProfileSummary", "Pinned Quest device profile is active.");
+        SetPrivateField(viewModel, "_deviceProfileDetail", "Pinned Quest properties match.");
 
         var checks = InvokePrivateMethod<IReadOnlyList<WorkflowGuideCheckItem>>(viewModel, "BuildWorkflowGuideCheckItems", 8);
 
@@ -220,6 +225,8 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.Equal("Windows return path", checks[2].Label);
         Assert.Equal(OperationOutcomeKind.Success, checks[2].Level);
         Assert.Contains("Selector:", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Contains("Pinned build:", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Contains("Device profile:", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("Return path:", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("quest_twin_state / quest.twin.state", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("quest_twin_commands / quest.twin.command", checks[2].Detail, StringComparison.Ordinal);

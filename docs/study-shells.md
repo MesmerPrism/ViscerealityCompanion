@@ -437,6 +437,9 @@ sniff raw LSL packets directly from Android. Instead, it combines the current
 ADB-backed headset snapshot with the live Sussex twin telemetry so the operator
 gets an explicit diagnosis of:
 
+- whether the installed Sussex APK matches the pinned release hash
+- whether the pinned Sussex device profile is active
+- the current foreground, snapshot, and Wi-Fi context
 - the expected Quest inlet stream name/type
 - the runtime target currently configured on the headset
 - the currently connected inlet stream and connection counts

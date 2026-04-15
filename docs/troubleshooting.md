@@ -164,6 +164,28 @@ Current builds now wait for the local TEST sender loop to unwind on stop and
 warn when the Windows inventory still shows stale companion-owned streams or
 multiple matching upstream publishers.
 
+The two probes deliberately cover different halves of the fault tree:
+
+- `Analyze Windows Environment` checks the local Windows machine: liblsl load
+  path, active IPv4 adapters, VPN or virtual adapter hazards, multicast support,
+  local liblsl discovery health, twin bridge availability, and whether
+  `HRV_Biofeedback / HRV` is visible to this PC.
+- `Probe Connection` checks the headset path: the installed Sussex APK hash
+  against the pinned release, the required Quest device profile, the current
+  foreground/snapshot Wi-Fi context, the Sussex inlet reported by the runtime,
+  and whether fresh `quest_twin_state / quest.twin.state` frames are returning
+  to Windows.
+
+That split is important. A Quest can visibly consume the TEST sender while
+Windows-side stream discovery fails with a socket/adapter `set_option` error,
+or while the Quest-to-Windows `quest_twin_state` return path is missing. In the
+first case, reduce Windows adapter variables first: disable unused VPN or
+virtual adapters, keep the active Wi-Fi network Private, allow the packaged app
+through Windows Firewall on Private networks, and confirm the router is not
+using client isolation. In the second case, keep Sussex visibly foregrounded and
+debug the return telemetry before trusting calibration, recording confirmation,
+or routed coherence readback in the GUI.
+
 That duplicate-source warning is advisory for the Windows-side inventory. The
 Experiment Session coherence card follows the Quest-reported routed value from
 `quest_twin_state`, including the newer `study.lsl.latest_default_value` /
@@ -178,6 +200,27 @@ During participant recordings, `upstream_lsl_monitor.csv` now includes the
 resolved LSL `source_id` for the passive Windows-side inlet. Use that column to
 confirm which publisher Windows latched onto when duplicate
 `HRV_Biofeedback / HRV` sources were visible.
+
+Current builds also split `Analyze Windows Environment` into more precise LSL
+hazard checks:
+
+- `Windows network adapter hazards` lists active IPv4 adapters and warns when
+  VPN, Tailscale, WireGuard, Hyper-V, Docker, WSL, TAP/Wintun, VirtualBox,
+  VMware, multiple default gateways, or adapters without multicast support are
+  visible.
+- `Windows liblsl discovery self-check` runs a deliberately unique local lookup
+  before checking `HRV_Biofeedback / HRV`. If this fails with `set_option` or
+  `The requested address is not valid in its context`, the Windows LSL
+  inventory is unhealthy even if the Quest still receives samples from a sender.
+- `Expected Sussex LSL stream` then reports whether the actual upstream
+  `HRV_Biofeedback / HRV` source is visible to Windows.
+
+This separation is important for intermittent lab machines. A headset can
+consume the TEST sender while the Windows GUI cannot reliably enumerate streams
+or receive `quest_twin_state`. In that case, focus first on Windows network
+shape: disable unused VPN/virtual adapters, keep only the lab Wi-Fi/Ethernet
+path active if possible, set the active network profile to Private, and allow
+the packaged app through Windows Firewall on Private networks.
 
 ## Stop Recording reports that the operation was canceled
 
