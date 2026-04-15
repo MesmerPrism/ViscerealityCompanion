@@ -296,9 +296,16 @@ multiple default gateways, and adapters without multicast support.
 Use `study probe-connection sussex-university --wait-seconds 15` for the
 headset-side half. That probe now reports the pinned Sussex build match and the
 required device profile before it reports the runtime inlet and
-`quest_twin_state` return path. If the Quest visibly reacts to the TEST sender
-but `Probe Connection` says no `quest_twin_state` has reached Windows, treat
-that as a return-telemetry problem rather than a forward-LSL problem.
+`quest_twin_state` return path. It also inventories the Windows-visible
+`quest_twin_state / quest.twin.state` publisher and prints the source id that
+the companion expects from the pinned Sussex APK. If the Quest visibly reacts
+to the TEST sender but `Probe Connection` says no `quest_twin_state` has reached
+Windows, treat that as a return-telemetry problem rather than a forward-LSL
+problem. If the new `Twin-state outlet` line says no publisher is visible, look
+at Quest-to-Windows multicast/client-isolation or whether the Sussex scene is
+publishing the twin-state outlet. If it shows a visible outlet with a different
+source id, reinstall the pinned APK and capture the CLI JSON because that points
+at a Quest build/source-id contract mismatch.
 
 ## Environment Variables
 

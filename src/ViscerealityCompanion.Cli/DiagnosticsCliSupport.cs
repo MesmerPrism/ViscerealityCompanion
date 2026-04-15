@@ -27,6 +27,7 @@ internal static class DiagnosticsCliSupport
         string QuestStatus,
         string QuestEcho,
         string ReturnPath,
+        string TwinStatePublisher,
         string CommandChannel,
         string HotloadChannel,
         string TransportDetail,
@@ -74,6 +75,9 @@ internal static class DiagnosticsCliSupport
         {
             if (bridge is not LslTwinModeBridge lslBridge)
             {
+                var previewTwinStatePublisher = QuestTwinStatePublisherInventoryService.Inspect(
+                    LslStreamDiscoveryServiceFactory.CreateDefault(),
+                    definition.App.PackageId);
                 return new StudyConnectionProbeResult(
                     OperationOutcomeKind.Preview,
                     "Twin bridge transport is unavailable in this environment.",
@@ -93,6 +97,7 @@ internal static class DiagnosticsCliSupport
                     QuestStatus: "Twin bridge unavailable.",
                     QuestEcho: "No inlet value reported yet.",
                     ReturnPath: "No quest_twin_state / quest.twin.state frame has reached Windows yet.",
+                    TwinStatePublisher: QuestTwinStatePublisherInventoryService.RenderForOperator(previewTwinStatePublisher),
                     CommandChannel: "quest_twin_commands / quest.twin.command",
                     HotloadChannel: "quest_hotload_config / quest.config",
                     TransportDetail: bridge.Status.Detail,
@@ -102,8 +107,11 @@ internal static class DiagnosticsCliSupport
             lslBridge.ConfigureExpectedQuestStateSource(definition.App.PackageId);
             var openOutcome = lslBridge.Open();
             await WaitForTwinStateAsync(lslBridge, waitDuration, cancellationToken).ConfigureAwait(false);
+            var twinStatePublisher = QuestTwinStatePublisherInventoryService.Inspect(
+                LslStreamDiscoveryServiceFactory.CreateDefault(),
+                definition.App.PackageId);
 
-            var state = BuildStudyConnectionProbeState(definition, headset, installed, profileStatus, device, lslBridge, checkedAtUtc);
+            var state = BuildStudyConnectionProbeState(definition, headset, installed, profileStatus, device, lslBridge, twinStatePublisher, checkedAtUtc);
             return openOutcome.Kind == OperationOutcomeKind.Failure
                 ? state with
                 {
@@ -135,6 +143,7 @@ internal static class DiagnosticsCliSupport
         Console.WriteLine($"Quest status:           {result.QuestStatus}");
         Console.WriteLine($"Quest echo:             {result.QuestEcho}");
         Console.WriteLine($"Return path:            {result.ReturnPath}");
+        Console.WriteLine($"Twin-state outlet:      {result.TwinStatePublisher}");
         Console.WriteLine($"Command channel:        {result.CommandChannel}");
         Console.WriteLine($"Hotload channel:        {result.HotloadChannel}");
         Console.WriteLine($"Transport detail:       {result.TransportDetail}");
@@ -148,6 +157,7 @@ internal static class DiagnosticsCliSupport
         DeviceProfileStatus profileStatus,
         string? device,
         LslTwinModeBridge bridge,
+        QuestTwinStatePublisherInventory twinStatePublisher,
         DateTimeOffset checkedAtUtc)
     {
         var expectedName = definition.Monitoring.ExpectedLslStreamName;
@@ -272,6 +282,11 @@ internal static class DiagnosticsCliSupport
             detailParts.Add("Windows-side transport can be healthy while this still fails; this state usually means the headset runtime has not published Sussex LSL or twin-state telemetry yet.");
         }
 
+        if (!returnPathReady)
+        {
+            detailParts.Add(QuestTwinStatePublisherInventoryService.RenderForOperator(twinStatePublisher));
+        }
+
         if (headsetForeground)
         {
             detailParts.Add("The Sussex package is foregrounded per ADB, so this is no longer just a launch-selection problem.");
@@ -302,6 +317,7 @@ internal static class DiagnosticsCliSupport
             QuestStatus: questStatus,
             QuestEcho: questEcho,
             ReturnPath: returnPath,
+            TwinStatePublisher: QuestTwinStatePublisherInventoryService.RenderForOperator(twinStatePublisher),
             CommandChannel: "quest_twin_commands / quest.twin.command",
             HotloadChannel: "quest_hotload_config / quest.config",
             TransportDetail: bridge.Status.Detail,

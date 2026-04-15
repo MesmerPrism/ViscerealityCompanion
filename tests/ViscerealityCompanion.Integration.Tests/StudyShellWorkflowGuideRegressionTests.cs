@@ -228,6 +228,7 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.Contains("Pinned build:", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("Device profile:", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("Return path:", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Contains("Twin-state outlet:", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("quest_twin_state / quest.twin.state", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("quest_twin_commands / quest.twin.command", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("quest_hotload_config / quest.config", checks[2].Detail, StringComparison.Ordinal);
@@ -254,6 +255,7 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.Equal(OperationOutcomeKind.Warning, gate.Level);
         Assert.Contains("Selector:", gate.Detail, StringComparison.Ordinal);
         Assert.Contains("Return path:", gate.Detail, StringComparison.Ordinal);
+        Assert.Contains("Twin-state outlet:", gate.Detail, StringComparison.Ordinal);
         Assert.Contains("quest_twin_state / quest.twin.state", gate.Detail, StringComparison.Ordinal);
         Assert.Contains("must turn green", gate.Detail, StringComparison.OrdinalIgnoreCase);
     }

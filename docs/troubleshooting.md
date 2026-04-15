@@ -173,8 +173,9 @@ The two probes deliberately cover different halves of the fault tree:
 - `Probe Connection` checks the headset path: the installed Sussex APK hash
   against the pinned release, the required Quest device profile, the current
   foreground/snapshot Wi-Fi context, the Sussex inlet reported by the runtime,
-  and whether fresh `quest_twin_state / quest.twin.state` frames are returning
-  to Windows.
+  whether fresh `quest_twin_state / quest.twin.state` frames are returning to
+  Windows, and whether Windows can even see the Quest-owned twin-state outlet
+  plus its `source_id`.
 
 That split is important. A Quest can visibly consume the TEST sender while
 Windows-side stream discovery fails with a socket/adapter `set_option` error,
@@ -185,6 +186,23 @@ through Windows Firewall on Private networks, and confirm the router is not
 using client isolation. In the second case, keep Sussex visibly foregrounded and
 debug the return telemetry before trusting calibration, recording confirmation,
 or routed coherence readback in the GUI.
+
+For the return-path case, read the `Twin-state outlet` line in `Probe
+Connection` or `viscereality study probe-connection ... --json`:
+
+- `No Quest twin-state outlet is visible on Windows` means the forward
+  `HRV_Biofeedback / HRV` path may still be working, but the Quest-originated
+  LSL publisher is not being discovered by Windows. Check router client
+  isolation, Quest foreground/awake state, and whether the Sussex scene has
+  fully started its twin-state outlet.
+- `Quest twin-state outlet is visible, but not from the expected Sussex
+  source_id` means Windows can see a Quest publisher, but the companion's strict
+  bridge will ignore it because it does not match the pinned package/source-id
+  contract. Reinstall the pinned APK and capture the JSON output for the exact
+  observed source id.
+- `A twin-state stream is visible, but it does not match the Quest source-id
+  contract` usually points at an older or hand-built runtime still advertising
+  a legacy source id such as `quest.twin.state`.
 
 That duplicate-source warning is advisory for the Windows-side inventory. The
 Experiment Session coherence card follows the Quest-reported routed value from

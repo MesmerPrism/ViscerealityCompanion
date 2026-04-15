@@ -288,6 +288,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _machineLslStateDetail = "Refresh Machine LSL State to compare companion-owned LSL services against the streams currently visible on this Windows machine. Use it to catch duplicate upstream senders, stale companion outlets, or cleanup leaks.";
     private string _machineLslStateTimestampLabel = "Not checked yet.";
     private bool _machineLslStateHasRun;
+    private string _questTwinStatePublisherInventoryDetail = "Quest twin-state outlet inventory has not run yet.";
     private string _windowsEnvironmentCardSummary = "Run the dedicated Windows environment checks before blaming the headset.";
     private string _windowsEnvironmentCardDetail = "Use the dedicated Windows environment page to inspect managed tooling, liblsl, machine-visible LSL streams, and the host-visible operator-data paths exported by the guided installer.";
     private string _testLslSenderSummary = "Windows TEST sender off.";
@@ -2546,7 +2547,36 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        await RefreshQuestTwinStatePublisherInventoryAsync().ConfigureAwait(false);
         await ApplyOutcomeAsync("Probe Connection", BuildLslConnectionProbeOutcome()).ConfigureAwait(false);
+    }
+
+    private async Task RefreshQuestTwinStatePublisherInventoryAsync()
+    {
+        QuestTwinStatePublisherInventory inventory;
+        try
+        {
+            inventory = await Task
+                .Run(() => QuestTwinStatePublisherInventoryService.Inspect(_lslStreamDiscoveryService, _study.App.PackageId))
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            inventory = new QuestTwinStatePublisherInventory(
+                OperationOutcomeKind.Warning,
+                "Quest twin-state outlet inventory failed.",
+                exception.Message,
+                AnyPublisherVisible: false,
+                ExpectedPublisherVisible: false,
+                ExpectedSourceId: string.Empty,
+                ExpectedSourceIdPrefix: string.Empty,
+                VisiblePublishers: []);
+        }
+
+        await DispatchAsync(() =>
+        {
+            _questTwinStatePublisherInventoryDetail = QuestTwinStatePublisherInventoryService.RenderForOperator(inventory);
+        }).ConfigureAwait(false);
     }
 
     public async Task AnalyzeWindowsEnvironmentAsync()
@@ -9969,6 +9999,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ("Quest status", LslStatusLineLabel),
             ("Quest echo", LslEchoStateLabel),
             ("Return path", twinStateSummary),
+            ("Twin-state outlet", string.IsNullOrWhiteSpace(_questTwinStatePublisherInventoryDetail)
+                ? "Quest twin-state outlet inventory has not run yet."
+                : _questTwinStatePublisherInventoryDetail),
             ("Command channel", $"{TwinCommandStreamName} / {TwinCommandStreamType}"),
             ("Hotload channel", $"{TwinConfigStreamName} / {TwinConfigStreamType}"),
             ("Transport detail", BuildTwinCommandTransportDetail()));

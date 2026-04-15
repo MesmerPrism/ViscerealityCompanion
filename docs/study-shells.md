@@ -444,6 +444,8 @@ gets an explicit diagnosis of:
 - the runtime target currently configured on the headset
 - the currently connected inlet stream and connection counts
 - the fresh return path back to Windows on `quest_twin_state / quest.twin.state`
+- the Windows-visible Quest twin-state outlet inventory, including whether the
+  source id matches the pinned Sussex package contract
 - the companion's operator-to-headset channels on `quest_twin_commands / quest.twin.command` and `quest_hotload_config / quest.config`
 
 The Sussex shell now exposes a dedicated `Windows environment` page so the

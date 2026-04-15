@@ -165,6 +165,16 @@ public sealed record LslVisibleStreamInfo(
     float SampleRateHz,
     double CreatedAtSeconds);
 
+public sealed record QuestTwinStatePublisherInventory(
+    OperationOutcomeKind Level,
+    string Summary,
+    string Detail,
+    bool AnyPublisherVisible,
+    bool ExpectedPublisherVisible,
+    string ExpectedSourceId,
+    string ExpectedSourceIdPrefix,
+    IReadOnlyList<LslVisibleStreamInfo> VisiblePublishers);
+
 public sealed record TwinModeCommand(string ActionId, string DisplayName)
 {
     public override string ToString() => DisplayName;
