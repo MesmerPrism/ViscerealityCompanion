@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.CommandLine.NamingConventionBinder;
+using System.Diagnostics;
 using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
 
@@ -630,6 +631,91 @@ public static class Program
             DiagnosticsCliSupport.PrintStudyConnectionProbe(result);
         });
 
+        var reportJsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+        var reportWaitOption = new Option<int>("--wait-seconds", () => 12, "How long to wait for fresh quest_twin_state before classifying the return path.");
+        var reportOutputOption = new Option<string?>("--output-dir", "Directory for the generated JSON, LaTeX source, and PDF report. Defaults to the operator diagnostics folder.");
+        var reportSkipCommandOption = new Option<bool>("--skip-command-check", "Skip the safe particle-off twin command acknowledgement probe.");
+        var reportNoPdfOption = new Option<bool>("--no-pdf", "Write JSON and LaTeX only; skip PDF generation.");
+        var diagnosticsReportCommand = new Command("diagnostics-report", "Generate a shareable Sussex LSL/twin diagnostics report as JSON, LaTeX source, and PDF")
+        {
+            studyArg,
+            rootOption,
+            reportJsonOption,
+            reportWaitOption,
+            reportOutputOption,
+            reportSkipCommandOption,
+            reportNoPdfOption
+        };
+        diagnosticsReportCommand.Handler = CommandHandler.Create(async (
+            string study,
+            string? root,
+            bool json,
+            int waitSeconds,
+            string? outputDir,
+            bool skipCommandCheck,
+            bool noPdf,
+            string? device) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var questService = CreateQuestService(device);
+            using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
+            using var testSender = TestLslSignalServiceFactory.CreateDefault();
+            var streamDiscovery = LslStreamDiscoveryServiceFactory.CreateDefault();
+            var bridge = TwinModeBridgeFactory.CreateDefault();
+            try
+            {
+                var windowsEnvironment = new WindowsEnvironmentAnalysisService(
+                    CreateMonitorService(),
+                    streamDiscovery,
+                    clockAlignment,
+                    testSender,
+                    bridge);
+                var reportService = new SussexDiagnosticsReportService(
+                    questService,
+                    windowsEnvironment,
+                    streamDiscovery,
+                    testSender,
+                    bridge);
+                var result = await reportService.GenerateAsync(
+                        new SussexDiagnosticsReportRequest(
+                            definition,
+                            DeviceSelector: device,
+                            OutputDirectory: outputDir,
+                            ProbeWaitDuration: TimeSpan.FromSeconds(Math.Max(0, waitSeconds)),
+                            RunCommandAcceptanceCheck: !skipCommandCheck))
+                    .ConfigureAwait(false);
+
+                OperationOutcome? pdfOutcome = null;
+                if (!noPdf)
+                {
+                    pdfOutcome = await GenerateSussexDiagnosticsPdfAsync(result.JsonPath, result.PdfPath).ConfigureAwait(false);
+                }
+
+                if (json)
+                {
+                    SussexCliSupport.WriteJson(new
+                    {
+                        result.Level,
+                        result.Summary,
+                        result.Detail,
+                        result.ReportDirectory,
+                        result.JsonPath,
+                        result.TexPath,
+                        result.PdfPath,
+                        PdfOutcome = pdfOutcome,
+                        result.Report
+                    });
+                    return;
+                }
+
+                DiagnosticsCliSupport.PrintSussexDiagnosticsReport(result, pdfOutcome);
+            }
+            finally
+            {
+                (bridge as IDisposable)?.Dispose();
+            }
+        });
+
         studyCommand.AddCommand(listCommand);
         studyCommand.AddCommand(installCommand);
         studyCommand.AddCommand(profileCommand);
@@ -637,6 +723,7 @@ public static class Program
         studyCommand.AddCommand(stopCommand);
         studyCommand.AddCommand(statusCommand);
         studyCommand.AddCommand(probeConnectionCommand);
+        studyCommand.AddCommand(diagnosticsReportCommand);
         return studyCommand;
     }
 
@@ -1473,6 +1560,129 @@ public static class Program
 
         windowsEnvCommand.AddCommand(analyzeCommand);
         return windowsEnvCommand;
+    }
+
+    private static async Task<OperationOutcome> GenerateSussexDiagnosticsPdfAsync(
+        string inputJsonPath,
+        string outputPdfPath)
+    {
+        var scriptPath = TryResolveSussexDiagnosticsPdfScriptPath();
+        if (string.IsNullOrWhiteSpace(scriptPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Diagnostics PDF generator was not found.",
+                "JSON and LaTeX reports were written, but the bundled PDF script could not be resolved.");
+        }
+
+        var attempts = new[]
+        {
+            ("py", new[] { "-3", scriptPath }),
+            ("python", new[] { scriptPath })
+        };
+
+        foreach (var (exe, prefixArgs) in attempts)
+        {
+            try
+            {
+                var startInfo = new ProcessStartInfo(exe)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                foreach (var arg in prefixArgs)
+                {
+                    startInfo.ArgumentList.Add(arg);
+                }
+
+                startInfo.ArgumentList.Add("--input-json");
+                startInfo.ArgumentList.Add(inputJsonPath);
+                startInfo.ArgumentList.Add("--output-pdf");
+                startInfo.ArgumentList.Add(outputPdfPath);
+
+                using var process = Process.Start(startInfo);
+                if (process is null)
+                {
+                    continue;
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+                var completed = await Task.Run(() => process.WaitForExit(45000)).ConfigureAwait(false);
+                if (!completed)
+                {
+                    try
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch
+                    {
+                    }
+
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Diagnostics PDF generation timed out.",
+                        $"The LaTeX source and JSON report are still available. Timed out running {exe}.");
+                }
+
+                var stdout = await outputTask.ConfigureAwait(false);
+                var stderr = await errorTask.ConfigureAwait(false);
+                if (process.ExitCode == 0 && File.Exists(outputPdfPath))
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Success,
+                        "Diagnostics PDF generated.",
+                        string.IsNullOrWhiteSpace(stdout) ? outputPdfPath : stdout.Trim(),
+                        Items: [outputPdfPath]);
+                }
+
+                if (exe == "python")
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Diagnostics PDF generation failed.",
+                        string.Join(Environment.NewLine, new[] { stdout, stderr }.Where(text => !string.IsNullOrWhiteSpace(text))).Trim());
+                }
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
+            {
+                if (exe == "python")
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Python was not available for diagnostics PDF generation.",
+                        "JSON and LaTeX reports were written. Install Python with matplotlib to generate the PDF locally, or share the JSON/TEX artifacts.");
+                }
+            }
+        }
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            "Diagnostics PDF was not generated.",
+            "JSON and LaTeX reports were written, but no Python runtime completed the bundled PDF script.");
+    }
+
+    private static string? TryResolveSussexDiagnosticsPdfScriptPath()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "tools", "reports", "generate_sussex_diagnostics_pdf.py"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "tools", "reports", "generate_sussex_diagnostics_pdf.py")),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "tools", "reports", "generate_sussex_diagnostics_pdf.py")),
+            Path.Combine(Directory.GetCurrentDirectory(), "tools", "reports", "generate_sussex_diagnostics_pdf.py"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "ViscerealityCompanion",
+                "tools",
+                "reports",
+                "generate_sussex_diagnostics_pdf.py")
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
     }
 
     private static string ResolveDeviceSerial(string? device)

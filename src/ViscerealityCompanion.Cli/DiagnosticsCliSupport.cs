@@ -150,6 +150,34 @@ internal static class DiagnosticsCliSupport
         Console.WriteLine($"Checked at:             {result.CheckedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}");
     }
 
+    internal static void PrintSussexDiagnosticsReport(
+        SussexDiagnosticsReportResult result,
+        OperationOutcome? pdfOutcome)
+    {
+        Console.WriteLine($"[{RenderLevel(result.Level)}] {result.Summary}");
+        Console.WriteLine(result.Detail);
+        Console.WriteLine();
+        Console.WriteLine($"Report folder:       {result.ReportDirectory}");
+        Console.WriteLine($"JSON report:         {result.JsonPath}");
+        Console.WriteLine($"LaTeX source:        {result.TexPath}");
+        Console.WriteLine($"PDF report:          {result.PdfPath}");
+        if (pdfOutcome is not null)
+        {
+            Console.WriteLine($"PDF status:          [{RenderLevel(pdfOutcome.Kind)}] {pdfOutcome.Summary}");
+            if (!string.IsNullOrWhiteSpace(pdfOutcome.Detail))
+            {
+                Console.WriteLine($"                     {pdfOutcome.Detail}");
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"Windows environment: {RenderLevel(result.Report.WindowsEnvironment.Level)} - {result.Report.WindowsEnvironment.Summary}");
+        Console.WriteLine($"Machine LSL state:   {RenderLevel(result.Report.MachineLslState.Level)} - {result.Report.MachineLslState.Summary}");
+        Console.WriteLine($"Twin return path:    {RenderLevel(result.Report.TwinConnection.Level)} - {result.Report.TwinConnection.Summary}");
+        Console.WriteLine($"Command acceptance:  {RenderLevel(result.Report.CommandAcceptance.Level)} - {result.Report.CommandAcceptance.Summary}");
+        Console.WriteLine($"Generated at:        {result.CompletedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}");
+    }
+
     private static StudyConnectionProbeResult BuildStudyConnectionProbeState(
         StudyShellDefinition definition,
         HeadsetAppStatus headset,

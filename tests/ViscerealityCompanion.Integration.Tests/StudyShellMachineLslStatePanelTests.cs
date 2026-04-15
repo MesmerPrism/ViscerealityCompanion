@@ -76,6 +76,10 @@ public sealed class StudyShellMachineLslStatePanelTests
                 var analyzeButton = (Button?)view.FindName("AnalyzeWindowsEnvironmentButton");
                 Assert.NotNull(analyzeButton);
                 Assert.Equal("Analyze Windows Environment", analyzeButton!.Content);
+
+                var diagnosticsButton = (Button?)view.FindName("GenerateDiagnosticsReportButton");
+                Assert.NotNull(diagnosticsButton);
+                Assert.Equal("Generate Diagnostics Report", diagnosticsButton!.Content);
             }
             finally
             {

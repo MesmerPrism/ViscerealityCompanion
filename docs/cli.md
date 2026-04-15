@@ -156,6 +156,7 @@ Options:
 | `study stop <study>` | Stop the pinned study runtime using the study kiosk-exit policy |
 | `study status <study>` | Compare current headset state against the pinned study baseline |
 | `study probe-connection <study>` | Mirror the Step 9 `Probe Connection` check: inspect the pinned APK match, pinned device profile state, expected inlet, `quest_twin_state` return path, Wi-Fi snapshot context, and twin transport detail |
+| `study diagnostics-report <study>` | Run the Windows LSL, machine inventory, Quest setup, twin return-path, and safe command-acceptance diagnostics and write a shareable JSON/LaTeX/PDF report folder |
 
 For Sussex, the study id is currently `sussex-university`.
 
@@ -307,6 +308,16 @@ publishing the twin-state outlet. If it shows a visible outlet with a different
 source id, reinstall the pinned APK and capture the CLI JSON because that points
 at a Quest build/source-id contract mismatch.
 
+Use `study diagnostics-report sussex-university --wait-seconds 15` when you
+need one artifact to send to another maintainer. The command writes a
+timestamped folder under the operator-data diagnostics root containing
+`sussex_lsl_twin_diagnostics.json`, `sussex_lsl_twin_diagnostics.tex`, and,
+when Python plus matplotlib are available, `sussex_lsl_twin_diagnostics.pdf`.
+The report combines `windows-env analyze`, machine-visible LSL inventory, the
+Quest pinned APK/profile snapshot, `quest_twin_state` publisher visibility, the
+Step 9 return-path interpretation, and a safe particle-off command
+acknowledgement probe. Use `--skip-command-check` for passive inspection only.
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -336,6 +347,7 @@ viscereality monitor --stream quest_monitor --type quest.telemetry
 viscereality study status sussex-university
 viscereality windows-env analyze
 viscereality study probe-connection sussex-university
+viscereality study diagnostics-report sussex-university --wait-seconds 15
 viscereality study install sussex-university
 viscereality study apply-profile sussex-university
 viscereality study launch sussex-university

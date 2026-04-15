@@ -23,6 +23,7 @@ public static class CompanionOperatorDataLayout
     public static string SussexVisualProfilesRootPath => Path.Combine(RootPath, "sussex-visual-profiles");
     public static string SussexControllerBreathingProfilesRootPath => Path.Combine(RootPath, "sussex-controller-breathing-profiles");
     public static string PerfTraceRootPath => Path.Combine(RootPath, "perf-traces");
+    public static string DiagnosticsRootPath => Path.Combine(RootPath, "diagnostics");
 
     public static string NormalizeHostVisiblePath(string? path)
     {

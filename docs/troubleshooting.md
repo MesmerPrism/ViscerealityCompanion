@@ -151,6 +151,19 @@ Start with these checks in order:
    Step 9 in the sequential guide or `study probe-connection sussex-university`
    from the CLI.
 
+If you need to send the full state to a maintainer, press `Generate Diagnostics
+Report` on the same Windows environment page or run:
+
+```powershell
+.\viscereality.ps1 study diagnostics-report sussex-university --wait-seconds 15
+```
+
+Share the generated report folder, especially `sussex_lsl_twin_diagnostics.pdf`
+and `sussex_lsl_twin_diagnostics.json`. That report captures the Windows LSL
+checks, duplicate stream inventory, Quest APK/profile state, `quest_twin_state`
+publisher visibility, return-path interpretation, and a safe twin command
+acknowledgement probe without relying on cropped screenshots.
+
 `Machine LSL State` is the companion-side view. It compares what the app
 believes it owns locally against what Windows currently resolves over liblsl.
 The most common failure mode is more than one visible

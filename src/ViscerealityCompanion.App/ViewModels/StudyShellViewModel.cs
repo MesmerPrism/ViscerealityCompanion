@@ -288,6 +288,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _machineLslStateDetail = "Refresh Machine LSL State to compare companion-owned LSL services against the streams currently visible on this Windows machine. Use it to catch duplicate upstream senders, stale companion outlets, or cleanup leaks.";
     private string _machineLslStateTimestampLabel = "Not checked yet.";
     private bool _machineLslStateHasRun;
+    private OperationOutcomeKind _diagnosticsReportLevel = OperationOutcomeKind.Preview;
+    private string _diagnosticsReportSummary = "No Sussex diagnostics report has been generated yet.";
+    private string _diagnosticsReportDetail = "Generate a shareable report when LSL, quest_twin_state, or twin command acceptance needs to be diagnosed without relying on screenshots.";
+    private string _diagnosticsReportTimestampLabel = "Not generated yet.";
+    private string _diagnosticsReportFolderPath = string.Empty;
+    private string _diagnosticsReportPdfPath = string.Empty;
     private string _questTwinStatePublisherInventoryDetail = "Quest twin-state outlet inventory has not run yet.";
     private string _windowsEnvironmentCardSummary = "Run the dedicated Windows environment checks before blaming the headset.";
     private string _windowsEnvironmentCardDetail = "Use the dedicated Windows environment page to inspect managed tooling, liblsl, machine-visible LSL streams, and the host-visible operator-data paths exported by the guided installer.";
@@ -535,6 +541,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ProbeLslConnectionCommand = new AsyncRelayCommand(ProbeLslConnectionAsync);
         RefreshMachineLslStateCommand = new AsyncRelayCommand(RefreshMachineLslStateAsync);
         AnalyzeWindowsEnvironmentCommand = new AsyncRelayCommand(AnalyzeWindowsEnvironmentAsync);
+        GenerateDiagnosticsReportCommand = new AsyncRelayCommand(GenerateDiagnosticsReportAsync);
         OpenWindowsEnvironmentPageCommand = new AsyncRelayCommand(OpenWindowsEnvironmentPageAsync);
         BrowseApkCommand = new AsyncRelayCommand(BrowseApkAsync);
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
@@ -1658,6 +1665,51 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _machineLslStateHasRun, value);
     }
 
+    public OperationOutcomeKind DiagnosticsReportLevel
+    {
+        get => _diagnosticsReportLevel;
+        private set => SetProperty(ref _diagnosticsReportLevel, value);
+    }
+
+    public string DiagnosticsReportSummary
+    {
+        get => _diagnosticsReportSummary;
+        private set => SetProperty(ref _diagnosticsReportSummary, value);
+    }
+
+    public string DiagnosticsReportDetail
+    {
+        get => _diagnosticsReportDetail;
+        private set => SetProperty(ref _diagnosticsReportDetail, value);
+    }
+
+    public string DiagnosticsReportTimestampLabel
+    {
+        get => _diagnosticsReportTimestampLabel;
+        private set => SetProperty(ref _diagnosticsReportTimestampLabel, value);
+    }
+
+    public string DiagnosticsReportFolderPath
+    {
+        get => _diagnosticsReportFolderPath;
+        private set => SetProperty(ref _diagnosticsReportFolderPath, NormalizeHostVisibleOperatorPath(value));
+    }
+
+    public string DiagnosticsReportPdfPath
+    {
+        get => _diagnosticsReportPdfPath;
+        private set
+        {
+            if (SetProperty(ref _diagnosticsReportPdfPath, NormalizeHostVisibleOperatorPath(value)))
+            {
+                OnPropertyChanged(nameof(CanOpenDiagnosticsReportPdf));
+            }
+        }
+    }
+
+    public bool CanOpenDiagnosticsReportPdf
+        => CompanionOperatorDataLayout.TryResolveExistingFile(DiagnosticsReportPdfPath, out _);
+
     public string WindowsEnvironmentCardDetail
     {
         get => _windowsEnvironmentCardDetail;
@@ -2361,6 +2413,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ProbeLslConnectionCommand { get; }
     public AsyncRelayCommand RefreshMachineLslStateCommand { get; }
     public AsyncRelayCommand AnalyzeWindowsEnvironmentCommand { get; }
+    public AsyncRelayCommand GenerateDiagnosticsReportCommand { get; }
     public AsyncRelayCommand OpenWindowsEnvironmentPageCommand { get; }
     public AsyncRelayCommand BrowseApkCommand { get; }
     public AsyncRelayCommand InstallStudyAppCommand { get; }
@@ -2612,6 +2665,106 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 result.Level,
                 result.Summary,
                 BuildWindowsEnvironmentActionDetail(result))).ConfigureAwait(false);
+    }
+
+    private async Task GenerateDiagnosticsReportAsync()
+    {
+        await DispatchAsync(() =>
+        {
+            DiagnosticsReportLevel = OperationOutcomeKind.Preview;
+            DiagnosticsReportSummary = "Generating Sussex diagnostics report...";
+            DiagnosticsReportDetail = "Collecting Windows LSL inventory, Quest setup, quest_twin_state return path, and command acknowledgement evidence.";
+            DiagnosticsReportTimestampLabel = $"Started {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+        }).ConfigureAwait(false);
+
+        SussexDiagnosticsReportResult result;
+        OperationOutcome pdfOutcome;
+        try
+        {
+            var reportService = new SussexDiagnosticsReportService(
+                _questService,
+                _windowsEnvironmentAnalysisService,
+                _lslStreamDiscoveryService,
+                _testLslSignalService,
+                _twinBridge);
+            result = await reportService
+                .GenerateAsync(new SussexDiagnosticsReportRequest(
+                    _study,
+                    DeviceSelector: ResolveHeadsetActionSelector(),
+                    ProbeWaitDuration: TimeSpan.FromSeconds(12)))
+                .ConfigureAwait(false);
+            pdfOutcome = await GenerateDiagnosticsReportPdfAsync(result.JsonPath, result.PdfPath).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await DispatchAsync(() =>
+            {
+                DiagnosticsReportLevel = OperationOutcomeKind.Failure;
+                DiagnosticsReportSummary = "Sussex diagnostics report failed.";
+                DiagnosticsReportDetail = exception.Message;
+                DiagnosticsReportTimestampLabel = $"Failed {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+            }).ConfigureAwait(false);
+            await ApplyOutcomeAsync(
+                "Generate Diagnostics Report",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Sussex diagnostics report failed.",
+                    exception.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        var displayLevel = result.Level == OperationOutcomeKind.Success && pdfOutcome.Kind == OperationOutcomeKind.Warning
+            ? OperationOutcomeKind.Warning
+            : result.Level;
+        var pdfDetail = pdfOutcome.Kind == OperationOutcomeKind.Success
+            ? $"PDF ready: {NormalizeHostVisibleOperatorPath(result.PdfPath)}"
+            : $"PDF issue: {pdfOutcome.Summary} {pdfOutcome.Detail}".Trim();
+
+        await DispatchAsync(() =>
+        {
+            ApplyWindowsEnvironmentAnalysisResult(result.Report.WindowsEnvironment);
+            ApplyMachineLslStateResult(new LslMachineStateResult(
+                result.Report.MachineLslState.Level,
+                result.Report.MachineLslState.Summary,
+                result.Report.MachineLslState.Detail,
+                result.Report.MachineLslState.Checks
+                    .Select(check => new LslMachineCheckResult(check.Label, check.Level, check.Summary, check.Detail))
+                    .ToArray(),
+                result.Report.MachineLslState.CompletedAtUtc));
+            DiagnosticsReportLevel = displayLevel;
+            DiagnosticsReportSummary = result.Summary;
+            DiagnosticsReportDetail =
+                $"{result.Detail} {pdfDetail} Folder: {NormalizeHostVisibleOperatorPath(result.ReportDirectory)}";
+            DiagnosticsReportTimestampLabel = $"Generated {result.CompletedAtUtc.ToLocalTime():HH:mm:ss}.";
+            DiagnosticsReportFolderPath = result.ReportDirectory;
+            DiagnosticsReportPdfPath = result.PdfPath;
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+
+        await ApplyOutcomeAsync(
+            "Generate Diagnostics Report",
+            new OperationOutcome(
+                displayLevel,
+                result.Summary,
+                DiagnosticsReportDetail,
+                Items: [result.PdfPath, result.TexPath, result.JsonPath, result.ReportDirectory])).ConfigureAwait(false);
+
+        if (pdfOutcome.Kind == OperationOutcomeKind.Success && CompanionOperatorDataLayout.TryResolveExistingFile(result.PdfPath, out _))
+        {
+            await OpenValidationCaptureFileAsync(
+                result.PdfPath,
+                "Open Diagnostics Report",
+                "Diagnostics report PDF is not available yet.",
+                "Generate the diagnostics report first so the shareable PDF exists.").ConfigureAwait(false);
+        }
+        else
+        {
+            await OpenValidationCaptureFolderAsync(
+                result.ReportDirectory,
+                "Open Diagnostics Report Folder",
+                "Diagnostics report folder is not available yet.",
+                "Generate the diagnostics report first so the JSON and LaTeX artifacts exist.").ConfigureAwait(false);
+        }
     }
 
     private WindowsEnvironmentAnalysisRequest BuildWindowsEnvironmentAnalysisRequest()
@@ -4993,6 +5146,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         .Select(Path.GetFullPath)
         .FirstOrDefault();
 
+    private static string? TryResolveDiagnosticsPdfScriptPath()
+        => new[]
+        {
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "tools", "reports", "generate_sussex_diagnostics_pdf.py")),
+            Path.Combine(AppContext.BaseDirectory, "tools", "reports", "generate_sussex_diagnostics_pdf.py"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "source",
+                "repos",
+                "ViscerealityCompanion",
+                "tools",
+                "reports",
+                "generate_sussex_diagnostics_pdf.py")
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        .Select(Path.GetFullPath)
+        .FirstOrDefault();
+
     private static ValidationCapturePlotLoadResult LoadValidationCapturePlot(
         string localSessionFolderPath,
         string fileName,
@@ -5301,6 +5472,112 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private Task<OperationOutcome> GenerateValidationCapturePdfAsync(string localSessionFolderPath)
         => GenerateSessionReviewPdfAsync(localSessionFolderPath, "validation_capture_preview.pdf");
+
+    private async Task<OperationOutcome> GenerateDiagnosticsReportPdfAsync(string jsonPath, string outputPdfPath)
+    {
+        if (string.IsNullOrWhiteSpace(jsonPath) || !File.Exists(jsonPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Diagnostics PDF skipped.",
+                "The diagnostics JSON report was not written.");
+        }
+
+        var scriptPath = TryResolveDiagnosticsPdfScriptPath();
+        if (string.IsNullOrWhiteSpace(scriptPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Diagnostics PDF generator was not found.",
+                "The JSON and LaTeX diagnostics reports were written, but the bundled PDF script could not be resolved.");
+        }
+
+        foreach (var (fileName, prefixArgs) in new[]
+                 {
+                     ("py", new[] { "-3", scriptPath }),
+                     ("python", new[] { scriptPath })
+                 })
+        {
+            try
+            {
+                using var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = fileName,
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    }
+                };
+
+                foreach (var arg in prefixArgs)
+                {
+                    process.StartInfo.ArgumentList.Add(arg);
+                }
+
+                process.StartInfo.ArgumentList.Add("--input-json");
+                process.StartInfo.ArgumentList.Add(jsonPath);
+                process.StartInfo.ArgumentList.Add("--output-pdf");
+                process.StartInfo.ArgumentList.Add(outputPdfPath);
+
+                process.Start();
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                var stderrTask = process.StandardError.ReadToEndAsync();
+                var completed = await Task.Run(() => process.WaitForExit((int)WorkflowValidationPdfTimeout.TotalMilliseconds)).ConfigureAwait(false);
+                if (!completed)
+                {
+                    try
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch
+                    {
+                    }
+
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Diagnostics PDF generation timed out.",
+                        "The JSON and LaTeX diagnostics reports were written; open the report folder to share those files.");
+                }
+
+                var stdout = await stdoutTask.ConfigureAwait(false);
+                var stderr = await stderrTask.ConfigureAwait(false);
+                if (process.ExitCode == 0 && File.Exists(outputPdfPath))
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Success,
+                        "Diagnostics PDF generated.",
+                        string.IsNullOrWhiteSpace(stdout) ? outputPdfPath : stdout.Trim(),
+                        Items: [outputPdfPath]);
+                }
+
+                if (fileName == "python")
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Diagnostics PDF generation failed.",
+                        string.Join(Environment.NewLine, new[] { stdout, stderr }.Where(text => !string.IsNullOrWhiteSpace(text))).Trim());
+                }
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
+            {
+                if (fileName == "python")
+                {
+                    return new OperationOutcome(
+                        OperationOutcomeKind.Warning,
+                        "Python was not available for diagnostics PDF generation.",
+                        "The JSON and LaTeX diagnostics reports were written. Install Python with matplotlib to generate the PDF locally.");
+                }
+            }
+        }
+
+        return new OperationOutcome(
+            OperationOutcomeKind.Warning,
+            "Diagnostics PDF was not generated.",
+            "The JSON and LaTeX diagnostics reports were written, but no Python runtime completed the bundled PDF script.");
+    }
 
     private async Task<OperationOutcome> GenerateSessionReviewPdfAsync(string localSessionFolderPath, string outputPdfFileName)
     {

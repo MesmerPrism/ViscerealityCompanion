@@ -102,6 +102,18 @@ Those commands expose the bundled tooltip/effect/tradeoff metadata and the
 stable control ids needed to create, update, inspect, apply, import/export,
 and set next-launch/default Sussex profiles entirely through the CLI.
 
+For LSL/twin troubleshooting, the Sussex Windows environment page now has a
+single `Generate Diagnostics Report` action. The matching CLI command is:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- study diagnostics-report sussex-university --wait-seconds 15
+```
+
+It writes a timestamped diagnostics folder with JSON, LaTeX source, and a PDF
+when Python/matplotlib are available, covering Windows LSL discovery, duplicate
+stream inventory, Quest setup, `quest_twin_state`, and safe command
+acknowledgement.
+
 For local development:
 
 ```powershell

@@ -313,6 +313,7 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine($"- Managed hzdb path: `{OfficialQuestToolingLayout.HzdbExecutablePath}`");
         builder.AppendLine($"- Session state root: `{CompanionOperatorDataLayout.SessionRootPath}`");
         builder.AppendLine($"- Study data root: `{CompanionOperatorDataLayout.StudyDataRootPath}`");
+        builder.AppendLine($"- Diagnostics root: `{CompanionOperatorDataLayout.DiagnosticsRootPath}`");
         builder.AppendLine($"- Sussex visual profiles: `{CompanionOperatorDataLayout.SussexVisualProfilesRootPath}`");
         builder.AppendLine($"- Sussex controller profiles: `{CompanionOperatorDataLayout.SussexControllerBreathingProfilesRootPath}`");
         builder.AppendLine($"- Screenshots: `{CompanionOperatorDataLayout.ScreenshotsRootPath}`");
@@ -458,12 +459,13 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine("- `.\\viscereality.ps1 windows-env analyze`");
         builder.AppendLine("- `.\\viscereality.ps1 study --help`");
         builder.AppendLine("- `.\\viscereality.ps1 study probe-connection sussex-university`");
+        builder.AppendLine("- `.\\viscereality.ps1 study diagnostics-report sussex-university --wait-seconds 15`");
         builder.AppendLine("- `.\\viscereality.ps1 sussex --help`");
         builder.AppendLine("- `.\\viscereality.ps1 hzdb --help`");
         builder.AppendLine("- `.\\viscereality.ps1 tooling status`");
         builder.AppendLine();
         builder.AppendLine("The wrapper script preloads the mirrored sample-root overrides and the bundled liblsl path before invoking the bundled CLI under `cli/current`.");
-        builder.AppendLine("`tooling status` only reports the managed Quest tool cache. Use `windows-env analyze` for liblsl and expected-stream diagnostics.");
+        builder.AppendLine("`tooling status` only reports the managed Quest tool cache. Use `windows-env analyze` for liblsl and expected-stream diagnostics, or `study diagnostics-report sussex-university` when you need one shareable LSL/twin report folder.");
         builder.AppendLine("If the wrapper reports that the bundled CLI is unavailable, say that clearly and reason from the mirrored docs and examples instead of assuming repo source is available.");
         builder.AppendLine();
         builder.AppendLine("In your explanation, cover:");

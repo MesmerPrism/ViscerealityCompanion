@@ -18,4 +18,11 @@
     <ProjectReference Include="..\ViscerealityCompanion.Core\ViscerealityCompanion.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\tools\reports\generate_sussex_diagnostics_pdf.py"
+          Link="tools\reports\generate_sussex_diagnostics_pdf.py"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

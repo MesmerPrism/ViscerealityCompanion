@@ -451,10 +451,10 @@ gets an explicit diagnosis of:
 The Sussex shell now exposes a dedicated `Windows environment` page so the
 Windows-side diagnostics no longer crowd the `Pre-session` setup column. That
 page includes the `Machine LSL State` and `Analyze Windows Environment`
-surfaces, plus the host-visible operator-data, tooling, workspace, and liblsl
-paths the guided installer is supposed to keep aligned. Use that page when the
-operator needs the Windows-side view instead of the headset-side view. It
-compares:
+surfaces, a one-button `Generate Diagnostics Report` action, plus the
+host-visible operator-data, tooling, workspace, and liblsl paths the guided
+installer is supposed to keep aligned. Use that page when the operator needs
+the Windows-side view instead of the headset-side view. It compares:
 
 - the currently visible `HRV_Biofeedback / HRV` publishers on Windows
 - a temporary local LSL outlet that should be rediscoverable from the same PC
@@ -466,7 +466,12 @@ That makes duplicate upstream senders, stale companion-owned streams, and local
 LSL advertisement/discovery failures visible without guessing from partial
 symptoms. If switching between the built-in TEST sender and an external Python
 sender becomes unreliable, refresh `Machine LSL State` first and then run
-`Analyze Windows Environment`.
+`Analyze Windows Environment`. If another maintainer needs to inspect the same
+state, press `Generate Diagnostics Report`; the app writes a timestamped
+diagnostics folder with JSON, LaTeX source, and a PDF when Python/matplotlib
+are available. The report also includes the Quest pinned APK/profile snapshot,
+the `quest_twin_state` publisher inventory, the Step 9 return-path
+interpretation, and a safe particle-off twin command acknowledgement probe.
 
 The validation step now keeps the timing workflow inside the same guide
 surface. Instead of opening a separate timing window, step 12 shows:
