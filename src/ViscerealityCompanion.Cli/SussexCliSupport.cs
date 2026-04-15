@@ -12,6 +12,7 @@ internal static class SussexCliSupport
     internal const string DefaultStudyId = "sussex-university";
     internal const string VisualBundledBaselineId = "__bundled_sussex_visual_baseline__";
     internal const string VisualBundledProfileIdPrefix = "__bundled_sussex_visual_profile__::";
+    internal const string ControllerBundledProfileIdPrefix = "__bundled_sussex_controller_breathing_profile__::";
 
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -29,10 +30,11 @@ internal static class SussexCliSupport
 
     internal sealed record ControllerResolvedProfile(
         SussexControllerBreathingProfileRecord Record,
-        bool IsBaselineTemplate)
+        bool IsBaselineTemplate,
+        bool IsBundledProfile = false)
     {
         public string DisplayLabel => Record.Document.Profile.Name;
-        public bool IsWritableLocalProfile => !IsBaselineTemplate;
+        public bool IsWritableLocalProfile => !IsBaselineTemplate && !IsBundledProfile;
     }
 
     internal sealed record StartupSyncResult(
@@ -79,13 +81,16 @@ internal static class SussexCliSupport
         return profiles;
     }
 
-    internal static async Task<IReadOnlyList<ControllerResolvedProfile>> LoadControllerProfilesAsync(string studyId)
+    internal static async Task<IReadOnlyList<ControllerResolvedProfile>> LoadControllerProfilesAsync(string studyId, string? studyRoot = null)
     {
         var compiler = CreateControllerCompiler();
         var store = new SussexControllerBreathingProfileStore(compiler);
-        return (await store.LoadAllAsync().ConfigureAwait(false))
-            .Select(record => new ControllerResolvedProfile(record, IsBaselineTemplate: false))
-            .ToArray();
+        var profiles = new List<ControllerResolvedProfile>();
+        profiles.AddRange((await LoadBundledControllerProfilesAsync(compiler, studyRoot).ConfigureAwait(false))
+            .Select(record => new ControllerResolvedProfile(record, IsBaselineTemplate: false, IsBundledProfile: true)));
+        profiles.AddRange((await store.LoadAllAsync().ConfigureAwait(false))
+            .Select(record => new ControllerResolvedProfile(record, IsBaselineTemplate: false, IsBundledProfile: false)));
+        return profiles;
     }
 
     internal static SussexVisualTuningCompiler CreateVisualCompiler()
@@ -294,7 +299,7 @@ internal static class SussexCliSupport
     {
         if (!existing.IsWritableLocalProfile)
         {
-            throw new InvalidOperationException("The bundled controller-breathing baseline is read-only. Create a new local profile instead.");
+            throw new InvalidOperationException("Bundled controller-breathing profiles are read-only. Create a new local profile instead.");
         }
 
         return await store.SaveAsync(
@@ -443,7 +448,7 @@ internal static class SussexCliSupport
         var headset = await questService.QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false).ConfigureAwait(false);
 
         var visualProfiles = await LoadVisualProfilesAsync(studyId, studyRoot).ConfigureAwait(false);
-        var controllerProfiles = await LoadControllerProfilesAsync(studyId).ConfigureAwait(false);
+        var controllerProfiles = await LoadControllerProfilesAsync(studyId, studyRoot).ConfigureAwait(false);
 
         var visualStartup = TryCreateVisualStartupRecord(studyId, visualCompiler, visualProfiles);
         var controllerStartup = TryCreateControllerStartupRecord(studyId, controllerCompiler, controllerProfiles);
@@ -658,7 +663,7 @@ internal static class SussexCliSupport
             DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
             "study",
             false,
-            $"Compiled from {record.Document.Profile.Name}. Only the Sussex-approved controller-breathing approximation fields were changed.",
+            $"Compiled from {record.Document.Profile.Name}. Only the Sussex-approved controller-breathing and vibration fields were changed.",
             [record.Document.PackageId],
             compiled.Entries);
         var writer = new RuntimeConfigWriter();
@@ -777,7 +782,7 @@ internal static class SussexCliSupport
         var apply = new SussexControllerBreathingProfileApplyStateStore(studyId).Load();
         return new
         {
-            profile_kind = profile.IsBaselineTemplate ? "bundled-baseline" : "local-profile",
+            profile_kind = profile.IsBaselineTemplate ? "bundled-baseline" : profile.IsBundledProfile ? "bundled-profile" : "local-profile",
             id = profile.Record.Id,
             name = profile.Record.Document.Profile.Name,
             notes = profile.Record.Document.Profile.Notes,
@@ -842,7 +847,8 @@ internal static class SussexCliSupport
         foreach (var profile in profiles)
         {
             var startupMark = string.Equals(startup?.ProfileId, profile.Record.Id, StringComparison.OrdinalIgnoreCase) ? " [startup]" : string.Empty;
-            Console.WriteLine($"  {profile.Record.Id,-44} local            {profile.DisplayLabel}{startupMark}");
+            var kind = profile.IsBundledProfile ? "bundled" : "local";
+            Console.WriteLine($"  {profile.Record.Id,-44} {kind,-16} {profile.DisplayLabel}{startupMark}");
         }
     }
 
@@ -884,6 +890,42 @@ internal static class SussexCliSupport
                 var document = compiler.Parse(json);
                 records.Add(new SussexVisualProfileRecord(
                     VisualBundledProfileIdPrefix + Path.GetFileNameWithoutExtension(path),
+                    Path.GetFullPath(path),
+                    ComputeTextHash(json),
+                    File.GetLastWriteTimeUtc(path),
+                    document));
+            }
+            catch (InvalidDataException)
+            {
+                // Ignore broken bundled files so agent flows remain usable.
+            }
+        }
+
+        return records
+            .OrderBy(record => record.Document.Profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static async Task<IReadOnlyList<SussexControllerBreathingProfileRecord>> LoadBundledControllerProfilesAsync(
+        SussexControllerBreathingTuningCompiler compiler,
+        string? studyRoot)
+    {
+        var bundledRoot = TryResolveBundledSussexControllerBreathingProfilesRoot(studyRoot);
+        if (string.IsNullOrWhiteSpace(bundledRoot) || !Directory.Exists(bundledRoot))
+        {
+            return Array.Empty<SussexControllerBreathingProfileRecord>();
+        }
+
+        var records = new List<SussexControllerBreathingProfileRecord>();
+        foreach (var path in Directory.EnumerateFiles(bundledRoot, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                var json = await File.ReadAllTextAsync(path).ConfigureAwait(false);
+                var document = compiler.Parse(json);
+                records.Add(new SussexControllerBreathingProfileRecord(
+                    ControllerBundledProfileIdPrefix + Path.GetFileNameWithoutExtension(path),
                     Path.GetFullPath(path),
                     ComputeTextHash(json),
                     File.GetLastWriteTimeUtc(path),
@@ -1173,6 +1215,12 @@ internal static class SussexCliSupport
         => TryResolveExistingDirectory(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT"),
             Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "visual-profiles"));
+
+    private static string? TryResolveBundledSussexControllerBreathingProfilesRoot(string? studyRoot)
+        => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT"),
+            Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "sussex-controller-breathing-profiles"),
+            Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "controller-breathing-profiles"));
 
     private static string ResolveExistingDirectory(params string?[] candidates)
         => TryResolveExistingDirectory(candidates)

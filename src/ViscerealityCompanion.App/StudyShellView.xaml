@@ -314,7 +314,7 @@
                                     Style="{StaticResource StudyInsetPanelStyle}">
                                 <StackPanel>
                                     <TextBlock Text="Breathing profiles" Style="{StaticResource InfoLabelStyle}" />
-                                    <TextBlock Text="Tune controller-breathing sensitivity and calibration parameters for the study's breathing-to-particle pipeline."
+                                    <TextBlock Text="Tune controller-breathing sensitivity, calibration, and vibration parameters for the study's breathing-to-particle pipeline."
                                                Style="{StaticResource CompactCaptionStyle}" />
                                 </StackPanel>
                             </Border>

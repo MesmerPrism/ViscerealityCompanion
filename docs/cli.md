@@ -124,6 +124,17 @@ Options:
 | `twin send <action>` | Send a twin command (for example `twin-start`, `twin-pause`) |
 | `twin status` | Show twin bridge status and settings comparison |
 
+`twin send` is intentionally conservative for one-shot command testing. It now
+waits briefly after opening the LSL bridge before publishing and keeps the
+process alive briefly after publishing so the outlet has time to advertise and
+deliver the sample:
+
+- `--settle-ms <milliseconds>` controls the pre-send settle delay
+- `--hold-ms <milliseconds>` controls the post-send hold delay
+
+The defaults are suitable for normal local validation. Shorten them only when
+you already have a stable receiver path and need a faster scripted loop.
+
 ### Catalog
 
 | Command | Description |
@@ -186,6 +197,16 @@ same field catalog and profile commands:
   accepted calibration sample
 - `min_acceptable_travel=0.02` controls how much total travel calibration must
   see before it accepts the solve
+- `vibration_inhale_frequency` / `vibration_inhale_intensity` set the controller
+  vibration used while the runtime classifies inhale
+- `vibration_exhale_frequency` / `vibration_exhale_intensity` set the controller
+  vibration used while the runtime classifies exhale
+- `vibration_retention_frequency` / `vibration_retention_intensity` set the
+  tracked low-motion retention vibration
+
+Bad tracking has no vibration parameters. The Sussex runtime always disables
+controller vibration while tracking is bad, the selected controller is inactive,
+or controller-breathing calibration has not been accepted yet.
 
 Example:
 
@@ -197,6 +218,24 @@ viscereality sussex controller update "<profile>" `
   --set min_acceptable_travel=0.02 `
   --json
 ```
+
+The release also bundles two low-motion controller profiles derived from the
+bundled baseline:
+
+- `Small Motion Mild`
+- `Small Motion Conservative`
+
+`Small Motion Conservative` is the pinned startup controller profile for the
+current Sussex preview. Startup/default pinning and current-session hotload are
+separate:
+
+- `sussex controller set-startup "<profile>"` changes what the next Sussex
+  launch stages to the headset
+- `sussex controller apply-live "<profile>"` hotloads the currently running
+  Sussex session and does not rewrite the saved next-launch profile
+
+Both paths reset controller-breathing calibration in the runtime. Recalibrate
+on-headset afterward.
 
 ### Utilities
 
@@ -272,8 +311,10 @@ viscereality study launch sussex-university
 viscereality sussex visual fields --json
 viscereality sussex visual apply-live "<profile>" --json
 viscereality sussex controller fields --json
-viscereality sussex controller update "<profile>" --set use_principal_axis_calibration=off --set min_accepted_delta=0.0008 --set min_acceptable_travel=0.02 --json
-viscereality sussex controller apply-live "<profile>" --json
+viscereality sussex controller show "Small Motion Conservative" --json
+viscereality sussex controller set-startup "Small Motion Conservative" --json
+# Optional for a running, foreground Sussex session:
+viscereality sussex controller apply-live "Small Motion Conservative" --json
 ```
 
 After that deterministic CLI setup:

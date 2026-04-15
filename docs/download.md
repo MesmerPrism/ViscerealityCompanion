@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.46.0`.
+`0.1.47.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -100,6 +100,8 @@ If you know exactly which file you want, use these direct links:
 - the dedicated `Sussex University experiment mode` shell
 - the bundled Sussex APK used by the public Sussex study workflow
 - the bundled read-only Sussex visual profiles shipped in the release build
+- the bundled read-only Sussex controller-breathing profiles, including
+  `Small Motion Mild` and the pinned startup `Small Motion Conservative`
 - the bundled Windows x64 `lsl.dll` runtime used by the built-in TEST sender and live LSL monitor path
 - the pinned Quest device profile and study-specific monitoring surface
 - the install assets needed to put the Windows app on another machine
@@ -111,11 +113,15 @@ packaged preview install.
 The current Sussex preview also includes the updated Home/orientation shell,
 the sequential guide flow, the breathing-profiles tab, participant
 locked mode, Windows-plus-Quest session snapshots, the LSL/runtime hardening
-changes, and the refactored Sussex visual-profile workflow:
+changes, the controller-tracking calibration guards, and the refactored Sussex
+visual-profile workflow:
 
 - the dedicated `Experiment Session` operator popout for real participant runs
 - automatic Quest pullback into `device-session-pull` after normal participant recordings
 - automatic session review PDFs for both validation captures and normal participant runs
+- warning-only Quest backup pullback timeout reporting so a slow `hzdb` pull
+  does not hide the saved Windows session folder or poison the whole recorder
+  state as faulted
 - host-visible packaged operator-data paths for session folders, screenshots,
   logs, tooling, and the exported local agent workspace
 
@@ -133,7 +139,12 @@ changes, and the refactored Sussex visual-profile workflow:
 It also includes the dedicated Sussex breathing-driver controls with explicit
 controller-vs-automatic readback on the `During session` tab. The bundled
 Sussex APK in this package is `0.1.2` with SHA256
-`CFDD4038C46A07A0824A0C51DEFEE9D7A21ADD06F937E9A2E8A0FCD24759E5B4`.
+`EF7DD259FF3ED9101505CEC936585E7B20213993890090BAB3D2DC78C2A30E79`.
+Controller vibration is now scene-owned in Sussex and profile-driven for
+inhale, exhale, and tracked low-motion retention. Bad tracking and
+not-yet-calibrated controller breathing always mean no controller vibration.
+`Start Recording` preserves a calibration that the operator completed in the
+`Experiment Session` window before recording starts.
 
 The refreshed Sussex shell layout now puts the operator's high-level checklist
 on `Home`, while `During session` keeps Quest screenshot capture and LSL clock
@@ -158,7 +169,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed preview
-   should identify itself as `Published install 0.1.46.0`; unpackaged local
+   should identify itself as `Published install 0.1.47.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an

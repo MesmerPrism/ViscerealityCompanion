@@ -303,7 +303,7 @@ public sealed class StudyDataRecordingSession : IDisposable
         QueueWriteLine(_signalsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,lsl_timestamp_seconds,source,signal_group,signal_name,value_numeric,value_text,unit,sequence,quest_selector");
         QueueWriteLine(_breathingWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,breath_volume01,sphere_radius_progress01,sphere_radius_raw,controller_calibrated");
         QueueWriteLine(_clockAlignmentWriter, "participant_id,session_id,dataset_id,window_kind,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
-        QueueWriteLine(_upstreamLslMonitorWriter, "participant_id,session_id,dataset_id,recorded_at_utc,observed_local_clock_seconds,stream_sample_timestamp_seconds,stream_name,stream_type,channel_index,channel_format,value_numeric,value_text,sequence,status,detail");
+        QueueWriteLine(_upstreamLslMonitorWriter, "participant_id,session_id,dataset_id,recorded_at_utc,observed_local_clock_seconds,stream_sample_timestamp_seconds,stream_name,stream_type,channel_index,channel_format,value_numeric,value_text,sequence,status,detail,source_id");
 
         _settings = new StudyDataRecordingSettingsDocument(
             request.StudyId,
@@ -588,7 +588,8 @@ public sealed class StudyDataRecordingSession : IDisposable
                     Csv(observation.TextValue ?? string.Empty),
                     Csv(observation.Sequence.ToString(CultureInfo.InvariantCulture)),
                     Csv(observation.Status),
-                    Csv(observation.Detail)));
+                    Csv(observation.Detail),
+                    Csv(observation.SourceId ?? string.Empty)));
             _settings = _settings with
             {
                 UpstreamLslMonitorSampleCount = _settings.UpstreamLslMonitorSampleCount + 1
@@ -914,4 +915,5 @@ public sealed record StudyUpstreamLslObservation(
     string? TextValue,
     int Sequence,
     string Status,
-    string Detail);
+    string Detail,
+    string? SourceId = null);

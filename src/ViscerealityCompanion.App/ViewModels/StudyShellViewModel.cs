@@ -134,6 +134,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         "timing_markers.csv",
         "lsl_samples.csv"
     ];
+    private static readonly string[] WorkflowExpectedWindowsRecordingFiles =
+    [
+        "session_events.csv",
+        "signals_long.csv",
+        "breathing_trace.csv",
+        "clock_alignment_roundtrip.csv",
+        "upstream_lsl_monitor.csv"
+    ];
 
     private readonly StudyShellDefinition _study;
     private AppSessionState _appSessionState;
@@ -2317,6 +2325,30 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         sourceKey = string.Empty;
         return false;
     }
+
+    private bool TryGetRoutedCoherenceValue(bool routeMatchesExpectedDirectLsl, out double value, out string sourceKey)
+    {
+        if (routeMatchesExpectedDirectLsl &&
+            TryGetObservedLslValue(out value, out sourceKey))
+        {
+            return true;
+        }
+
+        if (TryGetConfiguredUnitIntervalValue(_study.Monitoring.CoherenceValueKeys, out value, out sourceKey))
+        {
+            return true;
+        }
+
+        value = 0d;
+        sourceKey = string.Empty;
+        return false;
+    }
+
+    private static string FormatSourceKeySuffix(string sourceKey)
+        => string.IsNullOrWhiteSpace(sourceKey)
+            ? string.Empty
+            : $" from `{sourceKey}`";
+
     public IReadOnlyDictionary<string, string> ReportedTwinStateSnapshot => _reportedTwinState;
 
     public AsyncRelayCommand ProbeUsbCommand { get; }
@@ -3993,8 +4025,27 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return new OperationOutcome(kind, first.Summary, detail);
     }
 
-    public Task StartBreathingCalibrationAsync()
-        => SendStudyTwinCommandAsync(_study.Controls.StartBreathingCalibrationActionId, "Start Breathing Calibration");
+    public async Task StartBreathingCalibrationAsync()
+    {
+        const string ActionLabel = "Start Breathing Calibration";
+        if (!CanStartBreathingCalibration)
+        {
+            await ApplyOutcomeAsync(
+                ActionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    $"{ActionLabel} unavailable.",
+                    "The current public runtime does not expose a breathing-calibration command yet.")).ConfigureAwait(false);
+            return;
+        }
+
+        if (!await EnsureControllerTrackedForCalibrationAsync(ActionLabel).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        await SendStudyTwinCommandAsync(_study.Controls.StartBreathingCalibrationActionId, ActionLabel).ConfigureAwait(false);
+    }
 
     public Task StartDynamicAxisCalibrationAsync()
         => StartBreathingCalibrationWithModeAsync(
@@ -4033,6 +4084,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (!await EnsureControllerTrackedForCalibrationAsync(actionLabel).ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (useDynamicMotionAxis)
         {
             await _controllerBreathingProfiles.UseDynamicAxisCalibrationAsync().ConfigureAwait(false);
@@ -4067,6 +4123,79 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         await SendStudyTwinCommandCoreAsync(_study.Controls.StartBreathingCalibrationActionId, actionLabel).ConfigureAwait(false);
+    }
+
+    private async Task<bool> EnsureControllerTrackedForCalibrationAsync(string actionLabel)
+    {
+        var failure = await DispatchAsync(() => BuildControllerTrackingPreflightFailure(actionLabel)).ConfigureAwait(false);
+        if (failure is null)
+        {
+            return true;
+        }
+
+        await ApplyOutcomeAsync(actionLabel, failure).ConfigureAwait(false);
+        return false;
+    }
+
+    private OperationOutcome? BuildControllerTrackingPreflightFailure(string actionLabel)
+    {
+        if (_reportedTwinState.Count == 0)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"{actionLabel} blocked until controller tracking is visible.",
+                "The shell has not received a live quest_twin_state frame yet, so it cannot verify that the active controller is connected and tracked. Probe the connection or wait for a fresh Sussex runtime frame, then try calibration again.");
+        }
+
+        var connected = ParseBool(GetFirstValue(
+            "tracker.breathing.controller.selected_controller_connected",
+            "study.pose.controller.connected"));
+        var tracked = ParseBool(GetFirstValue(
+            "tracker.breathing.controller.selected_controller_tracked",
+            "study.pose.controller.tracked"));
+        var hand = GetFirstValue(
+            "tracker.breathing.controller.active_hand",
+            "study.pose.controller.hand") ?? "controller";
+        var status = GetFirstValue(
+            "tracker.breathing.controller.tracking_status",
+            "study.pose.controller.tracking_status");
+        var blockedReason = GetFirstValue(
+            "study.session.calibration_blocked_reason",
+            "tracker.breathing.controller.failure_reason");
+
+        var frameLabel = string.IsNullOrWhiteSpace(LastTwinStateTimestampLabel)
+            ? "the latest live frame"
+            : LastTwinStateTimestampLabel;
+        var statusDetail = BuildControllerTrackingDetail(hand, connected, tracked, status);
+        var reasonDetail = string.IsNullOrWhiteSpace(blockedReason)
+            ? string.Empty
+            : $" Last runtime block reason: {blockedReason.Trim()}";
+
+        if (connected is null || tracked is null)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"{actionLabel} blocked until controller tracking is reported.",
+                $"The latest Sussex state frame does not include selected-controller connected/tracked fields, so the shell cannot verify calibration safety from {frameLabel}. {statusDetail}.{reasonDetail}".Trim());
+        }
+
+        if (connected == false)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"{actionLabel} blocked because the active controller is not connected.",
+                $"The latest Sussex state reports {statusDetail} in {frameLabel}. Connect or wake the selected controller, then try calibration again.{reasonDetail}".Trim());
+        }
+
+        if (tracked == false)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                $"{actionLabel} blocked because the active controller is not tracked.",
+                $"The latest Sussex state reports {statusDetail} in {frameLabel}. Move the selected controller back into tracking view, then try calibration again.{reasonDetail}".Trim());
+        }
+
+        return null;
     }
 
     private async Task<OperationOutcome?> WaitForControllerCalibrationModeConfirmationAsync(
@@ -4493,7 +4622,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         GetFirstValue("study.recording.device.session_dir") ?? _latestDeviceRecordingSessionDir)
                     .ConfigureAwait(false);
                 var closedAtUtc = DateTimeOffset.UtcNow;
-                await FinishParticipantRecordingAsync(
+                var finishOutcome = await FinishParticipantRecordingAsync(
                         activeSession,
                         closedAtUtc,
                         "recording.stopped",
@@ -4504,6 +4633,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         remoteSessionDir: remoteSessionDir ?? string.Empty,
                         generateSessionReviewPdf: !ValidationCaptureRunning)
                     .ConfigureAwait(false);
+                if (finishOutcome is not null)
+                {
+                    outcomes.Add(("Quest Backup Pullback", finishOutcome));
+                }
 
                 cleanupPermitted = endOutcome.Kind != OperationOutcomeKind.Failure;
             }
@@ -5278,8 +5411,31 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var localPullFolderPath = Path.Combine(localSessionFolderPath, "device-session-pull");
         Directory.CreateDirectory(localPullFolderPath);
 
-        using var listCts = new CancellationTokenSource(WorkflowHzdbListTimeout);
-        var listOutcome = await _hzdbService.ListFilesAsync(selector, remoteSessionDir, listCts.Token).ConfigureAwait(false);
+        var diagnostics = new List<string>();
+        var stoppedAfterCanceledPull = false;
+        var stoppedAfterTimedOutPull = false;
+        OperationOutcome listOutcome;
+        using (var listCts = new CancellationTokenSource(WorkflowHzdbListTimeout))
+        {
+            try
+            {
+                listOutcome = await _hzdbService.ListFilesAsync(selector, remoteSessionDir, listCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                var listCancelReason = listCts.IsCancellationRequested
+                    ? $"hzdb files ls exceeded {WorkflowHzdbListTimeout.TotalSeconds:0} seconds while listing {remoteSessionDir}"
+                    : $"hzdb files ls was canceled while listing {remoteSessionDir}";
+                diagnostics.Add($"{listCancelReason}; falling back to the known Sussex backup file names.");
+                listOutcome = new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    listCts.IsCancellationRequested
+                        ? "Quest backup listing timed out."
+                        : "Quest backup listing was canceled.",
+                    diagnostics[^1]);
+            }
+        }
+
         var remoteFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (listOutcome.Kind != OperationOutcomeKind.Failure)
         {
@@ -5305,9 +5461,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         foreach (var pair in remoteFiles.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
         {
             using var pullCts = new CancellationTokenSource(WorkflowHzdbPullTimeout);
-            var pullOutcome = await _hzdbService
-                .PullFileAsync(selector, pair.Value, Path.Combine(localPullFolderPath, pair.Key), pullCts.Token)
-                .ConfigureAwait(false);
+            OperationOutcome pullOutcome;
+            try
+            {
+                pullOutcome = await _hzdbService
+                    .PullFileAsync(selector, pair.Value, Path.Combine(localPullFolderPath, pair.Key), pullCts.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                var pullCancelReason = pullCts.IsCancellationRequested
+                    ? $"hzdb files pull exceeded {WorkflowHzdbPullTimeout.TotalSeconds:0} seconds"
+                    : "hzdb files pull was canceled";
+                failures.Add($"{pair.Key}: {pullCancelReason}. Remaining Quest backup files were not attempted to keep stop/close bounded.");
+                stoppedAfterCanceledPull = true;
+                stoppedAfterTimedOutPull = pullCts.IsCancellationRequested;
+                break;
+            }
+
             if (pullOutcome.Kind == OperationOutcomeKind.Success)
             {
                 pulledFiles.Add(pair.Key);
@@ -5318,32 +5489,121 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             }
         }
 
+        var pullbackDiagnostics = diagnostics.Count > 0
+            ? diagnostics
+            : listOutcome.Kind == OperationOutcomeKind.Success
+                ? []
+                : [listOutcome.Detail];
+
         if (pulledFiles.Count == 0)
         {
             TryDeleteEmptyDirectory(localPullFolderPath);
+            var noPullDetail = BuildQuestPullbackDetail(
+                localSessionFolderPath,
+                remoteSessionDir,
+                localPullFolderPath,
+                pulledFiles,
+                failures,
+                pullbackDiagnostics);
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Quest backup files were not pulled.",
-                $"No files were pulled from {remoteSessionDir}. {listOutcome.Detail}",
+                stoppedAfterTimedOutPull
+                    ? "Quest backup pullback timed out; Windows data saved."
+                    : stoppedAfterCanceledPull
+                        ? "Quest backup pullback was canceled; Windows data saved."
+                    : "Quest backup files were not pulled; Windows data saved.",
+                noPullDetail,
                 Items: []);
         }
 
-        var detailBuilder = new StringBuilder();
-        detailBuilder.Append($"Pulled {pulledFiles.Count} Quest file(s) into {localPullFolderPath}.");
-        if (failures.Count > 0)
-        {
-            detailBuilder.Append(' ');
-            detailBuilder.Append(string.Join(" ", failures));
-        }
+        var detail = BuildQuestPullbackDetail(
+            localSessionFolderPath,
+            remoteSessionDir,
+            localPullFolderPath,
+            pulledFiles,
+            failures,
+            pullbackDiagnostics);
 
         return new OperationOutcome(
             failures.Count == 0 ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
-            failures.Count == 0 ? "Quest backup files pulled." : "Quest backup files pulled with some gaps.",
-            detailBuilder.ToString(),
+            failures.Count == 0
+                ? "Quest backup files pulled."
+                : stoppedAfterTimedOutPull
+                    ? "Quest backup pullback timed out after partial pull; Windows data saved."
+                    : stoppedAfterCanceledPull
+                        ? "Quest backup pullback was canceled after partial pull; Windows data saved."
+                    : "Quest backup files pulled with some gaps.",
+            detail,
             Items:
             [
                 localPullFolderPath
             ]);
+    }
+
+    private static string BuildQuestPullbackDetail(
+        string localSessionFolderPath,
+        string remoteSessionDir,
+        string localPullFolderPath,
+        IReadOnlyList<string> pulledFiles,
+        IReadOnlyList<string> failures,
+        IReadOnlyList<string> diagnostics)
+    {
+        var detailBuilder = new StringBuilder();
+        detailBuilder.Append(BuildWindowsSessionInventoryDetail(localSessionFolderPath));
+        detailBuilder.Append(' ');
+        detailBuilder.Append($"Quest source folder: {remoteSessionDir}.");
+
+        if (pulledFiles.Count > 0)
+        {
+            detailBuilder.Append($" Pulled {pulledFiles.Count} Quest file(s) into {localPullFolderPath}: {string.Join(", ", pulledFiles)}.");
+        }
+        else
+        {
+            detailBuilder.Append($" No Quest backup files were pulled into {localPullFolderPath}.");
+        }
+
+        if (diagnostics.Count > 0)
+        {
+            detailBuilder.Append(' ');
+            detailBuilder.Append(string.Join(" ", diagnostics.Where(value => !string.IsNullOrWhiteSpace(value))));
+        }
+
+        if (failures.Count > 0)
+        {
+            detailBuilder.Append(" Pullback gaps: ");
+            detailBuilder.Append(string.Join(" ", failures.Where(value => !string.IsNullOrWhiteSpace(value))));
+        }
+
+        detailBuilder.Append(" Treat this as a Quest backup pullback issue, not as proof that Windows-side recorder data was lost.");
+        return detailBuilder.ToString();
+    }
+
+    private static string BuildWindowsSessionInventoryDetail(string localSessionFolderPath)
+    {
+        var normalizedPath = NormalizeHostVisibleOperatorPath(localSessionFolderPath);
+        if (string.IsNullOrWhiteSpace(normalizedPath) || !Directory.Exists(normalizedPath))
+        {
+            return $"Windows session folder is missing or unavailable: {normalizedPath}.";
+        }
+
+        var present = new List<string>();
+        var missing = new List<string>();
+        foreach (var fileName in WorkflowExpectedWindowsRecordingFiles)
+        {
+            var path = Path.Combine(normalizedPath, fileName);
+            if (File.Exists(path))
+            {
+                present.Add(fileName);
+            }
+            else
+            {
+                missing.Add(fileName);
+            }
+        }
+
+        var presentLabel = present.Count == 0 ? "none of the expected core files" : string.Join(", ", present);
+        var missingLabel = missing.Count == 0 ? "none" : string.Join(", ", missing);
+        return $"Windows data saved in {normalizedPath}. Core Windows files present: {presentLabel}. Missing: {missingLabel}.";
     }
 
     private static string ExtractDeviceListingFileName(string listedItem)
@@ -7025,7 +7285,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return recordingSession;
     }
 
-    private async Task FinishParticipantRecordingAsync(
+    private async Task<OperationOutcome?> FinishParticipantRecordingAsync(
         StudyDataRecordingSession recordingSession,
         DateTimeOffset endedAtUtc,
         string eventName,
@@ -7051,7 +7311,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             if (pullQuestArtifacts)
             {
-                questPullOutcome = await PullQuestRecordingArtifactsAsync(remoteSessionDir, recordingSession.SessionFolderPath).ConfigureAwait(false);
+                questPullOutcome = await TryPullQuestRecordingArtifactsAsync(remoteSessionDir, recordingSession.SessionFolderPath).ConfigureAwait(false);
                 recordingSession.RecordEvent(
                     "recording.device_pullback",
                     BuildRecorderEventDetail(questPullOutcome),
@@ -7065,7 +7325,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         catch (Exception exception)
         {
             await DispatchAsync(() => SetRecorderFault("Stop participant recording", exception)).ConfigureAwait(false);
-            return;
+            return new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                "Stop participant recording failed.",
+                exception.Message);
         }
 
         var completedDevicePullFolderPath = questPullOutcome?.Items?.FirstOrDefault() ?? string.Empty;
@@ -7097,6 +7360,39 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             UpdateParticipantSessionState();
             RefreshBenchToolsStatus();
         }).ConfigureAwait(false);
+
+        if (questPullOutcome is not null && questPullOutcome.Kind != OperationOutcomeKind.Success)
+        {
+            await DispatchAsync(() =>
+                AppendLog(
+                    MapLevel(questPullOutcome.Kind),
+                    questPullOutcome.Summary,
+                    questPullOutcome.Detail)).ConfigureAwait(false);
+        }
+
+        return questPullOutcome;
+    }
+
+    private async Task<OperationOutcome> TryPullQuestRecordingArtifactsAsync(string remoteSessionDir, string localSessionFolderPath)
+    {
+        try
+        {
+            return await PullQuestRecordingArtifactsAsync(remoteSessionDir, localSessionFolderPath).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Quest backup pullback was canceled; Windows data saved.",
+                $"{BuildWindowsSessionInventoryDetail(localSessionFolderPath)} Quest backup pullback was canceled before completion: {exception.Message}");
+        }
+        catch (Exception exception)
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Quest backup pullback failed; Windows data saved.",
+                $"{BuildWindowsSessionInventoryDetail(localSessionFolderPath)} Quest backup pullback failed before completion: {exception.Message}");
+        }
     }
 
     private StudyDataRecordingStartRequest CreateRecordingStartRequest(
@@ -7725,7 +8021,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     reading.TextValue,
                     observationSequence,
                     reading.Status,
-                    reading.Detail));
+                    reading.Detail,
+                    reading.ResolvedSourceId));
             }
         }
         catch (OperationCanceledException)
@@ -10960,6 +11257,34 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             requestedLabel,
             DateTimeOffset.UtcNow);
 
+    private static string BuildControllerTrackingDetail(
+        string? hand,
+        bool? connected,
+        bool? tracked,
+        string? status)
+    {
+        var handLabel = string.IsNullOrWhiteSpace(hand)
+            ? "controller"
+            : $"{hand.Trim()} controller";
+        var connectedLabel = connected switch
+        {
+            true => "connected",
+            false => "not connected",
+            _ => "connection n/a"
+        };
+        var trackedLabel = tracked switch
+        {
+            true => "tracked",
+            false => "not tracked",
+            _ => "tracking n/a"
+        };
+        var statusLabel = string.IsNullOrWhiteSpace(status)
+            ? string.Empty
+            : $" ({status.Trim()})";
+
+        return $"{handLabel} {connectedLabel}, {trackedLabel}{statusLabel}";
+    }
+
     private void UpdateControllerCard()
     {
         var automaticTelemetry = CaptureAutomaticBreathingTelemetry();
@@ -10977,6 +11302,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var validationFramesRejectedLowMotion = ParseInt(GetFirstValue("tracker.breathing.controller.validation_frames_rejected_low_motion"));
         var validationAcceptance = ParseUnitInterval(GetFirstValue("tracker.breathing.controller.validation_acceptance01"));
         var failureReason = GetFirstValue("tracker.breathing.controller.failure_reason");
+        var selectedConnected = ParseBool(GetFirstValue(
+            "tracker.breathing.controller.selected_controller_connected",
+            "study.pose.controller.connected"));
+        var selectedTracked = ParseBool(GetFirstValue(
+            "tracker.breathing.controller.selected_controller_tracked",
+            "study.pose.controller.tracked"));
+        var activeHand = GetFirstValue(
+            "tracker.breathing.controller.active_hand",
+            "study.pose.controller.hand");
+        var trackingStatus = GetFirstValue(
+            "tracker.breathing.controller.tracking_status",
+            "study.pose.controller.tracking_status");
         var routingLabel = GetFirstValue("routing.breathing.label");
         var routingMode = GetFirstValue("routing.breathing.mode");
 
@@ -11065,7 +11402,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var controllerStateDetail =
             $"Route {(string.IsNullOrWhiteSpace(routingLabel) ? "n/a" : routingLabel)} (mode {routingMode ?? "n/a"}). " +
             $"State {(string.IsNullOrWhiteSpace(state) ? "n/a" : state)}. " +
-            $"Controller value {ControllerValueLabel}.";
+            $"Controller value {ControllerValueLabel}. " +
+            $"Tracking {BuildControllerTrackingDetail(activeHand, selectedConnected, selectedTracked, trackingStatus)}.";
+
+        if (selectedConnected == false || selectedTracked == false)
+        {
+            ControllerLevel = OperationOutcomeKind.Warning;
+            ControllerSummary = selectedConnected == false
+                ? "Active controller is not connected."
+                : "Active controller is not currently tracked.";
+            ControllerDetail = $"{controllerStateDetail} Calibration buttons are blocked until controller tracking returns.".Trim();
+            return;
+        }
 
         if (calibrationQuality.Visible && calibrationQuality.Accepted)
         {
@@ -11462,8 +11810,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void UpdateCoherenceCard()
     {
-        var value = ParseUnitInterval(GetFirstValue(_study.Monitoring.CoherenceValueKeys));
-        var rawValue = GetFirstValue(_study.Monitoring.CoherenceValueKeys);
         var routeLabel = GetFirstValue("routing.coherence.label");
         var routeMode = GetFirstValue("routing.coherence.mode");
         var usesHeartbeat = GetFirstValue("routing.coherence.uses_heartbeat_source");
@@ -11473,9 +11819,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var routeMatchesExpected =
             string.Equals(routeLabel, _study.Monitoring.ExpectedCoherenceLabel, StringComparison.OrdinalIgnoreCase)
             || string.Equals(routeMode, TestSenderCoherenceMode, StringComparison.Ordinal);
+        var hasValue = TryGetRoutedCoherenceValue(routeMatchesExpected, out var value, out var sourceKey);
 
-        CoherencePercent = value.HasValue ? value.Value * 100d : 0d;
-        CoherenceValueLabel = value.HasValue ? $"{value.Value:0.000}" : rawValue ?? "n/a";
+        CoherencePercent = hasValue ? value * 100d : 0d;
+        CoherenceValueLabel = hasValue ? value.ToString("0.000", CultureInfo.InvariantCulture) : "n/a";
         CoherenceRouteSummary =
             $"Current route {(string.IsNullOrWhiteSpace(routeLabel) ? "n/a" : routeLabel)} (mode {routeMode ?? "n/a"}). Uses heartbeat source {usesHeartbeat ?? "n/a"}.";
 
@@ -11496,18 +11843,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        CoherenceLevel = value.HasValue || !string.IsNullOrWhiteSpace(rawValue)
+        CoherenceLevel = hasValue
             ? routeMatchesExpected ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning
             : OperationOutcomeKind.Warning;
-        CoherenceSummary = value.HasValue || !string.IsNullOrWhiteSpace(rawValue)
+        CoherenceSummary = hasValue
             ? $"Coherence live value: {CoherenceValueLabel}."
             : routeMatchesExpected
                 ? "Coherence route is LSL Direct, but no live routed biofeedback value is reported yet."
                 : "Coherence route visible, but no live coherence value yet.";
         CoherenceDetail = routeMatchesExpected
             ? _testLslSignalService.IsRunning
-                ? "The runtime is reporting the expected direct-LSL coherence route. This field shows the current Quest-reported routed biofeedback value, not the latest local TEST packet, so it can briefly lag or return to baseline between beats."
-                : "The runtime is reporting the expected direct-LSL coherence route."
+                ? $"The runtime is reporting the expected direct-LSL coherence route. This field shows the current Quest-reported routed biofeedback value{FormatSourceKeySuffix(sourceKey)}, not the latest local TEST packet, so it can briefly lag or return to baseline between beats."
+                : $"The runtime is reporting the expected direct-LSL coherence route. This field follows the Quest-reported routed biofeedback value{FormatSourceKeySuffix(sourceKey)}."
             : "The runtime is reporting a non-study coherence route.";
     }
 
@@ -12077,8 +12424,39 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             CreateStudyRow("Coherence route label", ["routing.coherence.label"], _study.Monitoring.ExpectedCoherenceLabel, "Runtime-reported coherence route label."),
             CreateStudyRow("Coherence route mode", ["routing.coherence.mode"], string.Empty, "Runtime-reported coherence route mode."),
             CreateStudyRow("Uses heartbeat source", ["routing.coherence.uses_heartbeat_source"], string.Empty, "Whether coherence derives from the active heartbeat source."),
-            CreateStudyRow("Coherence value", _study.Monitoring.CoherenceValueKeys, string.Empty, "Latest coherence value received by the runtime.")
+            CreateCoherenceValueRow()
         ];
+    }
+
+    private StudyStatusRow CreateCoherenceValueRow()
+    {
+        var routeLabel = GetFirstValue("routing.coherence.label");
+        var routeMode = GetFirstValue("routing.coherence.mode");
+        var routeMatchesExpected =
+            string.Equals(routeLabel, _study.Monitoring.ExpectedCoherenceLabel, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(routeMode, TestSenderCoherenceMode, StringComparison.Ordinal);
+        var configuredKey = _study.Monitoring.CoherenceValueKeys.FirstOrDefault() ?? "signal01.coherence_lsl";
+
+        if (TryGetRoutedCoherenceValue(routeMatchesExpected, out var value, out var sourceKey))
+        {
+            return new StudyStatusRow(
+                "Coherence value",
+                sourceKey,
+                value.ToString("0.000", CultureInfo.InvariantCulture),
+                string.Empty,
+                "Latest routed coherence value reported by quest_twin_state.",
+                routeMatchesExpected ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning);
+        }
+
+        return new StudyStatusRow(
+            "Coherence value",
+            configuredKey,
+            "Not reported",
+            string.Empty,
+            routeMatchesExpected
+                ? "The runtime is routed to LSL Direct, but no Quest-reported direct-LSL coherence value has appeared in the current twin-state frame."
+                : "Latest coherence value received by the runtime.",
+            OperationOutcomeKind.Preview);
     }
 
     private IReadOnlyList<StudyStatusRow> BuildPerformanceRows()

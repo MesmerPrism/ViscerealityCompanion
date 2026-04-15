@@ -59,7 +59,7 @@ operator workspace.
 For first-time Sussex setup, stay on the `Home` tab and use the
 `Open Sequential Guide` window there. It walks the operator through USB probe,
 Wi-Fi ADB handoff, Wi-Fi-only verification, APK/profile checks, kiosk launch,
-LSL confirmation, particle verification, an optional-for-now controller
+LSL confirmation, particle verification, a controller-tracking guarded
 calibration check, and the short 20 second validation capture. After that
 capture finishes, the guide now gives one-click access to the Windows session
 folder, the pulled Quest backup folder, and the formatted PDF preview report.
@@ -217,7 +217,8 @@ viscereality twin send twin-pause
 - if the launch button reads `Wake Headset To Enable Launching`, wake the headset first; Sussex launch is now blocked while the headset reports asleep
 - if launch stays disabled because Guardian or another Meta visual blocker is active, clear that blocker in-headset before trying again
 - on the current April 2026 Meta OS build, Sussex kiosk mode no longer reliably disables the controller Meta / menu button, so use screenshot/scene confirmation instead of menu-button behavior as the success signal
-- controller breathing calibration is still exposed in the guide, but it is currently optional until the Sussex runtime calibration path is stabilized
+- controller breathing calibration is guarded by live controller tracking; if the right controller is not tracked, the GUI reports that state and the runtime does not start calibration
+- calibrate from the `Experiment Session` window before `Start Recording` when the participant run should use controller breathing; `Start Recording` preserves the current controller calibration
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong
 - if the headset is already awake, normal Sussex command buttons should now react faster because the app no longer forces a full pre-send snapshot refresh before every command
 - the `Experiment Session` window now keeps Quest screenshot capture, LSL clock-alignment consistency, and the live participant-run controls on one focused operator surface

@@ -69,6 +69,66 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
     }
 
     [Fact]
+    public async Task Controller_workspace_loads_read_only_bundled_release_profiles_before_local_profiles()
+    {
+        var templatePath = AppAssetLocator.TryResolveSussexControllerBreathingTuningTemplatePath()
+            ?? throw new FileNotFoundException("Could not resolve the Sussex controller-breathing tuning template.");
+        var compiler = new SussexControllerBreathingTuningCompiler(File.ReadAllText(templatePath));
+        var store = new SussexControllerBreathingProfileStore(compiler);
+        var studyId = $"controller-bundled-profiles-{Guid.NewGuid():N}";
+        var bundledRoot = Path.Combine(Path.GetTempPath(), $"sussex-controller-bundle-{Guid.NewGuid():N}");
+        var previousBundleRoot = Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT");
+        var bundledName = $"ZZZ Bundled Controller {Guid.NewGuid():N}";
+        var localName = $"ZZZ Local Controller {Guid.NewGuid():N}";
+
+        SussexControllerBreathingProfileRecord? localRecord = null;
+        try
+        {
+            Directory.CreateDirectory(bundledRoot);
+            var bundledDocument = compiler.CreateDocument(
+                bundledName,
+                profileNotes: "Bundled controller release profile.",
+                new Dictionary<string, double>(compiler.TemplateDocument.ControlValues, StringComparer.OrdinalIgnoreCase)
+                {
+                    ["median_window"] = 7d,
+                    ["vibration_retention_intensity"] = 0.2d
+                });
+            await File.WriteAllTextAsync(
+                Path.Combine(bundledRoot, "bundled-controller-profile.json"),
+                compiler.Serialize(bundledDocument));
+
+            Environment.SetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT", bundledRoot);
+            localRecord = await store.CreateFromTemplateAsync(localName);
+
+            using var workspace = new SussexControllerBreathingProfilesWorkspaceViewModel(CreateStudy(studyId), new ConnectedQuestControlService());
+            await workspace.InitializeAsync();
+
+            var bundledProfile = workspace.Profiles.FirstOrDefault(profile => profile.IsBundledProfile);
+            Assert.NotNull(bundledProfile);
+            Assert.Equal(bundledName, bundledProfile!.DisplayLabel);
+            Assert.False(bundledProfile.IsWritableLocalProfile);
+            Assert.Contains("Bundled profile", bundledProfile.SecondaryLabel, StringComparison.Ordinal);
+
+            workspace.SelectedProfile = bundledProfile;
+
+            Assert.False(workspace.DeleteSelectedCommand.CanExecute(null));
+            Assert.True(workspace.SetStartupProfileCommand.CanExecute(null));
+            Assert.Equal(7d, FindControllerField(workspace, "median_window").Value, 6);
+            Assert.Equal(0.2d, FindControllerField(workspace, "vibration_retention_intensity").Value, 6);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT", previousBundleRoot);
+            DeleteFileIfPresent(localRecord?.FilePath);
+            DeleteDirectoryIfPresent(bundledRoot);
+            DeleteStudySessionArtifacts(
+                studyId,
+                "sussex-controller-breathing-startup",
+                "sussex-controller-breathing-apply");
+        }
+    }
+
+    [Fact]
     public async Task Visual_workspace_loads_the_pinned_launch_profile_into_the_runtime_draft_on_startup()
     {
         var templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath()
@@ -352,13 +412,13 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
             Assert.Equal("Use Dynamic Motion Axis", modeField.Label);
             Assert.Equal("Calibration Acceptance", deltaField.Group);
             Assert.Equal("Minimum Accepted Movement", deltaField.Label);
-            Assert.Equal(0.0008d, deltaField.BaselineValue, 4);
+            Assert.Equal(0.0004d, deltaField.BaselineValue, 4);
             Assert.Equal("Calibration Acceptance", travelField.Group);
             Assert.Equal("Minimum Calibration Travel", travelField.Label);
-            Assert.Equal(0.02d, travelField.BaselineValue, 3);
+            Assert.Equal(0.01d, travelField.BaselineValue, 3);
             Assert.Equal("Dynamic motion axis selected.", workspace.CalibrationModeSummary);
-            Assert.Contains("0.8 mm", workspace.CalibrationAcceptanceSummary, StringComparison.Ordinal);
-            Assert.Contains("2 cm", workspace.CalibrationAcceptanceSummary, StringComparison.Ordinal);
+            Assert.Contains("0.4 mm", workspace.CalibrationAcceptanceSummary, StringComparison.Ordinal);
+            Assert.Contains("1 cm", workspace.CalibrationAcceptanceSummary, StringComparison.Ordinal);
         }
         finally
         {

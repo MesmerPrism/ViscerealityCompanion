@@ -18,12 +18,12 @@ public sealed class CliSussexControllerCommandTests
         var deltaField = FindField(document, "min_accepted_delta");
         Assert.Equal("Calibration Acceptance", deltaField.GetProperty("Group").GetString());
         Assert.Equal("Minimum Accepted Movement", deltaField.GetProperty("Label").GetString());
-        Assert.Equal("0.0008", deltaField.GetProperty("Baseline").GetString());
+        Assert.Equal("0.0004", deltaField.GetProperty("Baseline").GetString());
 
         var travelField = FindField(document, "min_acceptable_travel");
         Assert.Equal("Calibration Acceptance", travelField.GetProperty("Group").GetString());
         Assert.Equal("Minimum Calibration Travel", travelField.GetProperty("Label").GetString());
-        Assert.Equal("0.02", travelField.GetProperty("Baseline").GetString());
+        Assert.Equal("0.01", travelField.GetProperty("Baseline").GetString());
     }
 
     [Fact]
@@ -31,13 +31,13 @@ public sealed class CliSussexControllerCommandTests
     {
         var createHelp = await InvokeCliAsync("sussex", "controller", "create", "--help");
         Assert.Contains("use_principal_axis_calibration=off", createHelp, StringComparison.Ordinal);
-        Assert.Contains("min_accepted_delta=0.0008", createHelp, StringComparison.Ordinal);
-        Assert.Contains("min_acceptable_travel=0.02", createHelp, StringComparison.Ordinal);
+        Assert.Contains("min_accepted_delta=0.0004", createHelp, StringComparison.Ordinal);
+        Assert.Contains("min_acceptable_travel=0.01", createHelp, StringComparison.Ordinal);
 
         var updateHelp = await InvokeCliAsync("sussex", "controller", "update", "--help");
         Assert.Contains("use_principal_axis_calibration=off", updateHelp, StringComparison.Ordinal);
-        Assert.Contains("min_accepted_delta=0.0008", updateHelp, StringComparison.Ordinal);
-        Assert.Contains("min_acceptable_travel=0.02", updateHelp, StringComparison.Ordinal);
+        Assert.Contains("min_accepted_delta=0.0004", updateHelp, StringComparison.Ordinal);
+        Assert.Contains("min_acceptable_travel=0.01", updateHelp, StringComparison.Ordinal);
     }
 
     private static JsonElement FindField(JsonDocument document, string id)

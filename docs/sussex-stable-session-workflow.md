@@ -34,8 +34,10 @@ workflow with explicit hazards and a concrete implementation backlog.
 - Do not treat kiosk mode as a reliable right-controller Meta / menu button
   lockout on the current April 2026 Meta OS build. Treat it as best-effort task
   pinning plus screenshot-confirmed foreground only.
-- Do not allow the experimenter's calibration to survive into the participant
-  run.
+- Do not allow an experimenter's bench calibration to survive into the
+  participant run. Calibration intentionally performed in the `Experiment
+  Session` window before `Start Recording` is participant calibration and must
+  survive the recording start command.
 - Keep the Sussex APK running across participants unless a real failure
   requires kiosk exit or runtime restart.
 
@@ -105,13 +107,17 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
 7. Enter the participant number in the `Experiment Session` window.
 8. If the participant number already exists on this Windows machine, show a
    warning but do not block the run.
-9. Press `Start Recording`.
-10. `Start Recording` should:
+9. If the run uses controller breathing, start dynamic-axis or fixed-axis
+   controller calibration from the `Experiment Session` window and wait for the
+   runtime to accept it.
+10. Press `Start Recording`.
+11. `Start Recording` should:
    - stamp participant and session metadata
-   - reset any stale recording state
-   - trigger the participant calibration and start path in the headset runtime
+   - reset stale recorder state only, not controller calibration
+   - preserve the current participant controller calibration
+   - trigger the headset-side experiment start path
    - start companion-side data capture immediately
-11. Keep the `Experiment Session` window open for the running session.
+12. Keep the `Experiment Session` window open for the running session.
 
 ### 5. Participant end
 
@@ -120,6 +126,8 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
    - stop companion-side data capture
    - send the headset-side stop and end command
    - pull the Quest-side backup into `device-session-pull`
+   - report Quest backup pullback timeout/cancel as a pullback warning while
+     preserving the Windows session folder and stopped recorder metadata
    - send `Reset Calibration`
    - send `Particles Off`
    - write final session metadata to disk

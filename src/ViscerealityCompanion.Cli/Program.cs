@@ -352,13 +352,56 @@ public static class Program
         var twinCommand = new Command("twin", "Twin mode operations");
 
         var actionArg = new Argument<string>("action", description: "Twin command action ID (e.g. twin-start, twin-pause)");
-        var sendCommand = new Command("send", "Send a twin command to the Quest") { actionArg };
-        sendCommand.Handler = CommandHandler.Create(async (string action) =>
+        var settleMsOption = new Option<int>(
+            "--settle-ms",
+            () => 1500,
+            "Milliseconds to advertise the LSL command outlet before publishing the command.");
+        var holdMsOption = new Option<int>(
+            "--hold-ms",
+            () => 3000,
+            "Milliseconds to keep the LSL command outlet alive after publishing the command.");
+        var sendCommand = new Command("send", "Send a twin command to the Quest")
+        {
+            actionArg,
+            settleMsOption,
+            holdMsOption
+        };
+        sendCommand.Handler = CommandHandler.Create(async (string action, int settleMs, int holdMs) =>
         {
             var bridge = TwinModeBridgeFactory.CreateDefault();
-            var twinCmd = new TwinModeCommand(action, action);
-            var result = await bridge.SendCommandAsync(twinCmd);
-            PrintOutcome(result);
+            try
+            {
+                if (bridge is LslTwinModeBridge lslBridge)
+                {
+                    var openResult = lslBridge.Open();
+                    if (openResult.Kind == OperationOutcomeKind.Failure)
+                    {
+                        PrintOutcome(openResult);
+                        return;
+                    }
+
+                    if (settleMs > 0)
+                    {
+                        await Task.Delay(Math.Min(settleMs, 30000));
+                    }
+                }
+
+                var twinCmd = new TwinModeCommand(action, action);
+                var result = await bridge.SendCommandAsync(twinCmd);
+                PrintOutcome(result);
+
+                if (holdMs > 0)
+                {
+                    await Task.Delay(Math.Min(holdMs, 30000));
+                }
+            }
+            finally
+            {
+                if (bridge is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
         });
 
         var statusCommand = new Command("status", "Show twin bridge status and settings comparison");
@@ -920,12 +963,12 @@ public static class Program
         Option<bool> jsonOption,
         Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
     {
-        var controller = new Command("controller", "Sussex controller-breathing profile commands, including calibration mode and accepted-motion thresholds.");
+        var controller = new Command("controller", "Sussex controller-breathing profile commands, including calibration mode, accepted-motion thresholds, and controller vibration.");
 
-        var list = new Command("list", "List local Sussex controller-breathing profiles");
-        list.Handler = CommandHandler.Create(async (string study, bool json) =>
+        var list = new Command("list", "List bundled and local Sussex controller-breathing profiles");
+        list.Handler = CommandHandler.Create(async (string study, string? root, bool json) =>
         {
-            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             if (json)
             {
                 SussexCliSupport.WriteJson(
@@ -937,7 +980,7 @@ public static class Program
                     {
                         id = profile.Record.Id,
                         name = profile.Record.Document.Profile.Name,
-                        kind = "local-profile",
+                        kind = profile.IsBundledProfile ? "bundled-profile" : "local-profile",
                         path = (string?)profile.Record.FilePath
                     })));
             }
@@ -947,7 +990,7 @@ public static class Program
             }
         });
 
-        var fields = new Command("fields", "List all Sussex controller-breathing field ids, including calibration mode and accepted-motion controls.");
+        var fields = new Command("fields", "List all Sussex controller-breathing field ids, including calibration mode, accepted-motion, and vibration controls.");
         fields.Handler = CommandHandler.Create((bool json) =>
         {
             var specs = SussexCliSupport.BuildControllerFieldSpecs();
@@ -963,9 +1006,9 @@ public static class Program
 
         var profileArg = new Argument<string>("profile", "Controller-breathing profile id or name.");
         var show = new Command("show", "Show one Sussex controller-breathing profile, including its field metadata") { profileArg };
-        show.Handler = CommandHandler.Create(async (string profile, string study) =>
+        show.Handler = CommandHandler.Create(async (string profile, string study, string? root) =>
         {
-            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var resolved = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
             SussexCliSupport.WriteJson(SussexCliSupport.BuildControllerProfileView(resolved, study));
         });
@@ -973,11 +1016,11 @@ public static class Program
         var fromOption = new Option<string>("--from", () => "bundled-baseline", "Source profile id/name, or bundled-baseline.");
         var nameOption = new Option<string>("--name", "New profile name.") { IsRequired = true };
         var notesOption = new Option<string?>("--notes", "Profile notes. Pass an empty string to clear notes.");
-        var setOption = createRepeatedAssignmentOption("--set", "Set one or more field values as id=value. Examples: use_principal_axis_calibration=off, min_accepted_delta=0.0008, min_acceptable_travel=0.02.");
+        var setOption = createRepeatedAssignmentOption("--set", "Set one or more field values as id=value. Examples: use_principal_axis_calibration=off, min_accepted_delta=0.0004, min_acceptable_travel=0.01.");
         var scaleOption = createRepeatedAssignmentOption("--scale", "Scale one or more numeric fields as id=factor. Use the fields command first for valid ids and safe ranges.");
         var setStartupOption = new Option<bool>("--set-startup", "Also save the resulting profile as the next-launch default.");
 
-        var create = new Command("create", "Create a new Sussex controller-breathing profile from baseline or another profile, including calibration mode and accepted-motion thresholds.");
+        var create = new Command("create", "Create a new Sussex controller-breathing profile from baseline or another profile, including calibration mode, accepted-motion thresholds, and vibration.");
         create.AddOption(fromOption);
         create.AddOption(nameOption);
         create.AddOption(notesOption);
@@ -988,7 +1031,7 @@ public static class Program
         {
             var compiler = SussexCliSupport.CreateControllerCompiler();
             var store = SussexCliSupport.CreateControllerStore(compiler);
-            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var source = SussexCliSupport.ResolveControllerProfile(profiles, from, allowBaselineTemplate: true);
             var document = SussexCliSupport.BuildControllerDocument(compiler, source.Record.Document, name, notes, set, scale);
             var saved = await SussexCliSupport.SaveControllerAsNewAsync(store, document);
@@ -1021,7 +1064,7 @@ public static class Program
             }
         });
 
-        var update = new Command("update", "Update an existing local Sussex controller-breathing profile, including calibration mode and accepted-motion thresholds.") { profileArg };
+        var update = new Command("update", "Update an existing local Sussex controller-breathing profile, including calibration mode, accepted-motion thresholds, and vibration.") { profileArg };
         update.AddOption(nameOption);
         update.AddOption(notesOption);
         update.AddOption(setOption);
@@ -1031,7 +1074,7 @@ public static class Program
         {
             var compiler = SussexCliSupport.CreateControllerCompiler();
             var store = SussexCliSupport.CreateControllerStore(compiler);
-            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: false);
             var startupBefore = new SussexControllerBreathingProfileStartupStateStore(study).Load();
             var document = SussexCliSupport.BuildControllerDocument(compiler, target.Record.Document, name, notes, set, scale);
@@ -1071,7 +1114,7 @@ public static class Program
         {
             var compiler = SussexCliSupport.CreateControllerCompiler();
             var store = SussexCliSupport.CreateControllerStore(compiler);
-            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: false);
             var startupBefore = new SussexControllerBreathingProfileStartupStateStore(study).Load();
             var shouldSyncStartup = string.Equals(startupBefore?.ProfileId, target.Record.Id, StringComparison.OrdinalIgnoreCase);
@@ -1119,10 +1162,10 @@ public static class Program
 
         var exportArg = new Argument<string>("path", "Destination JSON path.");
         var export = new Command("export", "Export one Sussex controller-breathing profile as JSON") { profileArg, exportArg };
-        export.Handler = CommandHandler.Create(async (string profile, string path, string study, bool json) =>
+        export.Handler = CommandHandler.Create(async (string profile, string path, string study, string? root, bool json) =>
         {
             var store = SussexCliSupport.CreateControllerStore(SussexCliSupport.CreateControllerCompiler());
-            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
             await store.ExportAsync(target.Record.Document, path);
             if (json)
@@ -1138,7 +1181,7 @@ public static class Program
         var setStartup = new Command("set-startup", "Set the next-launch Sussex controller-breathing profile") { profileArg };
         setStartup.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
         {
-            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
             SussexCliSupport.SaveControllerStartupState(study, target.IsBaselineTemplate ? null : target.Record);
             var definition = await ResolveStudyShellAsync(study, root);
@@ -1179,7 +1222,7 @@ public static class Program
         applyLive.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
         {
             var definition = await ResolveStudyShellAsync(study, root);
-            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study);
+            var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
             var result = await SussexCliSupport.ApplyControllerLiveAsync(definition, CreateQuestService(device), TwinModeBridgeFactory.CreateDefault(), study, target.Record);
             if (json)

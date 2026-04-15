@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using ViscerealityCompanion.App;
 using ViscerealityCompanion.App.ViewModels;
 using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
@@ -128,6 +129,31 @@ public sealed class ValidationCaptureRegressionTests
         Assert.Contains("Waiting for headset confirmation", viewModel.AutomaticBreathingSummary, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Pause Automatic", viewModel.AutomaticBreathingDetail, StringComparison.Ordinal);
         Assert.Contains("Waiting for the requested breathing-driver state", viewModel.AutomaticBreathingDetail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CoherenceCard_UsesQuestReportedLslLatestValue_WhenDirectLslSignalMirrorIsMissing()
+    {
+        using var viewModel = new StudyShellViewModel(CreateLslDirectStudyDefinition());
+        SetPrivateField(
+            viewModel,
+            "_reportedTwinState",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["routing.coherence.label"] = "LSL Direct",
+                ["routing.coherence.mode"] = "4",
+                ["study.lsl.connected"] = "true",
+                ["study.lsl.connected_name"] = "HRV_Biofeedback",
+                ["study.lsl.connected_type"] = "HRV",
+                ["study.lsl.latest_ch0_value"] = "0.712"
+            });
+
+        GetPrivateMethod("UpdateCoherenceCard").Invoke(viewModel, []);
+
+        Assert.Equal("0.712", viewModel.CoherenceValueLabel);
+        Assert.Equal(OperationOutcomeKind.Success, GetPropertyValue<OperationOutcomeKind>(viewModel, "CoherenceLevel"));
+        Assert.Contains("Coherence live value: 0.712.", viewModel.CoherenceSummary, StringComparison.Ordinal);
+        Assert.Contains("study.lsl.latest_ch0_value", viewModel.CoherenceDetail, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -305,6 +331,69 @@ public sealed class ValidationCaptureRegressionTests
 
             Assert.True(viewModel.CanOpenRecordingSessionDevicePullFolder);
             Assert.True(viewModel.CanOpenValidationCaptureDevicePullFolder);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StopParticipantRecording_CompletesLocalSession_WhenQuestPullbackIsCanceled()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"viscereality-stop-pullback-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var recorderService = new StudyDataRecorderService(tempRoot);
+            using var viewModel = new StudyShellViewModel(CreateMinimalStudyDefinition());
+            using var session = recorderService.StartSession(CreateRecordingStartRequest("regression"));
+            SetPrivateField(viewModel, "_hzdbService", new CancelingPullHzdbService());
+            SetPrivateField(viewModel, "_appSessionState", new AppSessionState("test-device", "test-device"));
+            SetPrivateField(viewModel, "_activeRecordingSession", session);
+            SetPrivateField(viewModel, "_participantRunStopping", true);
+
+            var method = GetPrivateMethod("FinishParticipantRecordingAsync");
+            var task = (Task<OperationOutcome?>)method.Invoke(
+                viewModel,
+                [
+                    session,
+                    DateTimeOffset.UtcNow,
+                    "recording.stopped",
+                    "Participant recording closed by regression test.",
+                    "warning",
+                    true,
+                    true,
+                    "/sdcard/Android/data/com.Viscereality.SussexExperiment/files/session-regression",
+                    false
+                ])!;
+
+            var pullbackOutcome = await task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.NotNull(pullbackOutcome);
+            Assert.Equal(OperationOutcomeKind.Warning, pullbackOutcome!.Kind);
+            Assert.Contains("Windows data saved", pullbackOutcome.Summary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("session_events.csv", pullbackOutcome.Detail, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Quest backup", pullbackOutcome.Detail, StringComparison.OrdinalIgnoreCase);
+
+            var events = File.ReadAllText(session.EventsCsvPath);
+            Assert.Contains("recording.device_pullback", events, StringComparison.Ordinal);
+            Assert.Contains("recording.stopped", events, StringComparison.Ordinal);
+            Assert.Contains("Windows data saved", events, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(string.Empty, GetFieldValue<string>(viewModel, "_recorderFaultDetail"));
+
+            var pullFolder = Path.Combine(session.SessionFolderPath, "device-session-pull");
+            Assert.False(Directory.Exists(pullFolder) && Directory.EnumerateFileSystemEntries(pullFolder).Any());
         }
         finally
         {
@@ -501,6 +590,87 @@ public sealed class ValidationCaptureRegressionTests
         }
     }
 
+    [Fact]
+    public async Task MonitorUpstreamLslAsync_PersistsResolvedSourceIdForDuplicateDiagnostics()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"viscereality-upstream-source-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var recorderService = new StudyDataRecorderService(tempRoot);
+            using var session = recorderService.StartSession(new StudyDataRecordingStartRequest(
+                "sussex-university",
+                "Sussex University",
+                "regression",
+                "session-upstream-source",
+                "dataset",
+                "dataset-hash",
+                "settings-hash",
+                "environment-hash",
+                DateTimeOffset.UtcNow,
+                "com.Viscereality.SussexExperiment",
+                "apk-hash",
+                "0.0.0",
+                "component",
+                "14",
+                "build",
+                "display",
+                "profile",
+                "Profile",
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                "HRV_Biofeedback",
+                "HRV",
+                0.2d,
+                "runtime-hash",
+                "profile-id",
+                "1",
+                "channel",
+                Environment.MachineName,
+                "selector",
+                "{\"SchemaVersion\":\"sussex-session-conditions-v1\"}"));
+
+            var monitor = new FakeMonitorService();
+            monitor.EnqueueReading(new LslMonitorReading(
+                "Streaming LSL sample.",
+                "Numeric sample from `HRV_Biofeedback` / `HRV`.",
+                0.55f,
+                10f,
+                DateTimeOffset.UtcNow,
+                SampleTimestampSeconds: 100.25d,
+                ObservedLocalClockSeconds: 100.30d,
+                ResolvedSourceId: "external.sender.primary"));
+
+            var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+            SetPrivateField(viewModel, "_upstreamLslMonitorService", monitor);
+            var method = GetPrivateMethod("MonitorUpstreamLslAsync");
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+            var task = (Task)method.Invoke(viewModel, [session, cts.Token])!;
+            await task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            session.Complete(DateTimeOffset.UtcNow);
+
+            var lines = File.ReadAllLines(session.UpstreamLslMonitorCsvPath);
+            Assert.Equal(2, lines.Length);
+            Assert.Contains("source_id", lines[0], StringComparison.Ordinal);
+            Assert.Contains("external.sender.primary", lines[1], StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     private static MethodInfo GetPrivateMethod(string name)
         => typeof(StudyShellViewModel).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
            ?? throw new InvalidOperationException($"Could not find {name} on {nameof(StudyShellViewModel)}.");
@@ -569,6 +739,38 @@ public sealed class ValidationCaptureRegressionTests
                ?? throw new InvalidOperationException("Could not create StudyTwinCommandRequest.");
     }
 
+    private static StudyDataRecordingStartRequest CreateRecordingStartRequest(string participantId)
+        => new(
+            "sussex-university",
+            "Sussex University",
+            participantId,
+            $"session-{Guid.NewGuid():N}",
+            "dataset",
+            "dataset-hash",
+            "settings-hash",
+            "environment-hash",
+            DateTimeOffset.UtcNow,
+            "com.Viscereality.SussexExperiment",
+            "apk-hash",
+            "0.0.0",
+            "component",
+            "14",
+            "build",
+            "display",
+            "profile",
+            "Profile",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            "HRV_Biofeedback",
+            "HRV",
+            0.2d,
+            "runtime-hash",
+            "profile-id",
+            "1",
+            "channel",
+            Environment.MachineName,
+            "test-device",
+            "{\"SchemaVersion\":\"sussex-session-conditions-v1\"}");
+
     private static StudyShellDefinition CreateMinimalStudyDefinition()
         => new(
             "sussex-university",
@@ -620,6 +822,57 @@ public sealed class ValidationCaptureRegressionTests
                 "particles.on",
                 "particles.off"));
 
+    private static StudyShellDefinition CreateLslDirectStudyDefinition()
+        => new(
+            "sussex-university",
+            "Sussex University",
+            "University of Sussex",
+            "Regression test shell",
+            new StudyPinnedApp(
+                "Sussex Experiment APK",
+                "com.Viscereality.SussexExperiment",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                false,
+                true),
+            new StudyPinnedDeviceProfile(
+                "profile",
+                "Profile",
+                "Profile",
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
+            new StudyMonitoringProfile(
+                string.Empty,
+                "LSL Heartbeat",
+                "LSL Direct",
+                "HRV_Biofeedback",
+                "HRV",
+                0.2d,
+                ["study.lsl.connected"],
+                ["study.lsl.filter_name"],
+                ["study.lsl.filter_type"],
+                ["signal01.coherence_lsl"],
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                ["signal01.coherence_lsl", "signal01.coherence_heartbeat", "signal01.mock_coherence"],
+                ["routing.coherence.mode", "routing.coherence.label", "routing.coherence.uses_heartbeat_source"],
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>()),
+            new StudyControlProfile(
+                "recenter",
+                "particles.on",
+                "particles.off"));
+
     private sealed class BlockingStartupMonitorService : ILslMonitorService
     {
         public LslRuntimeState RuntimeState { get; } = new(true, "Blocking regression-test monitor.");
@@ -640,5 +893,50 @@ public sealed class ValidationCaptureRegressionTests
 
             yield break;
         }
+    }
+
+    private sealed class CancelingPullHzdbService : IHzdbService
+    {
+        public bool IsAvailable => true;
+
+        public Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, string? method = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(OperationOutcomeKind.Failure, "Not implemented.", "Test fake."));
+
+        public Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(OperationOutcomeKind.Failure, "Not implemented.", "Test fake."));
+
+        public Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(OperationOutcomeKind.Failure, "Not implemented.", "Test fake."));
+
+        public Task<QuestProximityStatus> GetProximityStatusAsync(string deviceSerial, CancellationToken cancellationToken = default)
+            => Task.FromResult(new QuestProximityStatus(
+                Available: false,
+                HoldActive: false,
+                VirtualState: string.Empty,
+                IsAutosleepDisabled: false,
+                HeadsetState: string.Empty,
+                AutoSleepTimeMs: null,
+                RetrievedAtUtc: DateTimeOffset.UtcNow,
+                HoldUntilUtc: null,
+                StatusDetail: "Test fake."));
+
+        public Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(OperationOutcomeKind.Failure, "Not implemented.", "Test fake."));
+
+        public Task<OperationOutcome> GetDeviceInfoAsync(string deviceSerial, CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(OperationOutcomeKind.Failure, "Not implemented.", "Test fake."));
+
+        public Task<OperationOutcome> ListFilesAsync(string deviceSerial, string remotePath, CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Listed remote session.",
+                remotePath,
+                Items: ["session_events.csv"]));
+
+        public Task<OperationOutcome> PushFileAsync(string deviceSerial, string localPath, string remotePath, CancellationToken cancellationToken = default)
+            => Task.FromResult(new OperationOutcome(OperationOutcomeKind.Failure, "Not implemented.", "Test fake."));
+
+        public Task<OperationOutcome> PullFileAsync(string deviceSerial, string remotePath, string localPath, CancellationToken cancellationToken = default)
+            => throw new OperationCanceledException("Simulated hzdb pull cancellation.");
     }
 }

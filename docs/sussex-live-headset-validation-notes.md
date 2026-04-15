@@ -5,16 +5,16 @@ Use this file as the running checklist for the next full on-head headset pass. A
 ## Current Readiness Snapshot
 
 - Companion repo branch: `main`
-- Companion repo state at this check: `pending 2026-04-03 Sussex automatic-breathing release updates`
-- Fresh Astral Sussex APK built on `2026-04-03` at:
+- Companion repo state at this check: `pending 2026-04-15 Sussex controller vibration, calibration guard, and LSL release updates`
+- Fresh Astral Sussex APK built on `2026-04-15` at:
   `C:\Users\tillh\source\repos\AstralKarateDojo\Artifacts\APKs\SussexExperiment.apk`
 - Current Sussex APK SHA-256:
-  `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
+  `EF7DD259FF3ED9101505CEC936585E7B20213993890090BAB3D2DC78C2A30E79`
 - Mirrored companion bundle refreshed to the same hash at:
   `C:\Users\tillh\source\repos\ViscerealityCompanion\samples\quest-session-kit\APKs\SussexExperiment.apk`
 - Current Windows installer artifacts refreshed at:
   `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\windows-installer`
-- Current readiness caveat: the rebuilt `0.1.2` bundle now has a fresh off-face live baseline for recenter, controller-volume restore, and automatic-breathing driver control, but the next worn-head pass should still recheck kiosk exit and the full participant-facing handoff path.
+- Current readiness caveat: the rebuilt `0.1.2` bundle now has a fresh CLI-driven off-face validation of controller command feedback, controller-tracking calibration guards, and external Python LSL coherence routing, but the next worn-head pass should still recheck kiosk exit and the full participant-facing handoff path.
 - Quest OS baseline still matches the approved Sussex software identity:
   `14 | build 2921110053000610 | display UP1A.231005.007.A1`
 - Wi-Fi ADB was last confirmed live during the previous readiness pass on:
@@ -23,7 +23,7 @@ Use this file as the running checklist for the next full on-head headset pass. A
   `MagentaWLAN-R5V4`
 - Companion build/test passed after the timing-contract update and APK sync.
 - Astral `.\Tools\check.ps1 -SkipDotnetBuild` passed before the fresh Sussex APK build.
-- Expected note for the next worn-head run: the controller-breathing tuning path is already proven on the prior `0.1.1` pass, and the rebuilt `0.1.2` package now also needs a worn-head recheck of kiosk exit and the new LSL/runtime hardening path.
+- Expected note for the next worn-head run: controller-breathing calibration should be started from the `Experiment Session` window and preserved across `Start Recording`; the rebuilt `0.1.2` package still needs a worn-head recheck of kiosk exit and the full participant handoff path.
 - With the controller disconnected, the pinned device profile now stays active with advisory battery warnings instead of downgrading the Sussex build status.
 
 ## Latest Live Result
@@ -40,6 +40,20 @@ Use this file as the running checklist for the next full on-head headset pass. A
   `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
 - Remaining live caveat:
   the sparse background clock-alignment probe loop starts and logs its own start/stop events, but it still does not receive Quest echoes during the short harness run.
+
+Additional CLI-driven validation completed on `2026-04-15` with the current
+bundled APK hash:
+
+- installed and launched the refreshed Sussex APK
+- confirmed the runtime foreground and captured a fresh Quest screenshot
+- sent reset and start-calibration commands through the public CLI/LSL command
+  path
+- confirmed the APK echoed the latest command id, controller tracking state,
+  calibration guard state, dynamic-axis validation state, and low-motion
+  rejection counters through `quest_twin_state`
+- ran an external Python `HRV_Biofeedback / HRV` sender instead of the
+  companion TEST sender and confirmed the headset received samples and mirrored
+  the routed coherence value back to the desktop state
 
 ## Core Goal
 
@@ -75,7 +89,9 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - LSL connection shows as connected both on the headset side and in the WPF app.
 - Particle on/off test responds correctly.
 - Quest screenshot capture updates with a fresh runtime image each time, not a stale cached frame.
-- Breathing calibration step remains optional until the APK-side stability issue is fixed.
+- Breathing calibration is guarded by right-controller tracking. If the
+  controller is not tracked, the GUI should report that state and the runtime
+  should not enter calibration.
 - During controller calibration, the compact calibration-quality block should show a sensible `Good`, `Degraded`, `Poor`, or `Stalled` summary instead of raw counter spam.
 - The 20 second validation capture completes and writes both Windows and Quest-side folders.
 

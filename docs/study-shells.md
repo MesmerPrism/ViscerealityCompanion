@@ -68,7 +68,7 @@ It currently pins:
 
 - package id: `com.Viscereality.SussexExperiment`
 - version: `0.1.2`
-- SHA256: `CFDD4038C46A07A0824A0C51DEFEE9D7A21ADD06F937E9A2E8A0FCD24759E5B4`
+- SHA256: `EF7DD259FF3ED9101505CEC936585E7B20213993890090BAB3D2DC78C2A30E79`
 - bundled APK path: `../quest-session-kit/APKs/SussexExperiment.apk`
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
@@ -214,6 +214,36 @@ editor. It only exposes the approved appearance controls for the Sussex scene:
 - saturation minimum and maximum
 - brightness minimum and maximum
 - orbit-distance minimum and maximum
+
+The `Breathing Profiles` tab uses the same saved-profile model for the Sussex
+controller-volume breathing path. It exposes both dynamic-axis and fixed-axis
+calibration settings, low-motion calibration thresholds, and the dedicated
+controller vibration values now owned by the Sussex runtime:
+
+- inhale vibration frequency and intensity
+- exhale vibration frequency and intensity
+- tracked low-motion retention vibration frequency and intensity
+
+Bad tracking is intentionally not editable: the runtime always disables
+controller vibration while tracking is bad or the selected controller is not
+active. Controller vibration also waits for controller-breathing calibration;
+launching the APK or selecting controller mode must not vibrate the controller
+before the operator presses a calibration button and the runtime accepts a
+calibration.
+
+The bundled release profiles include:
+
+- `Small Motion Mild`, which lowers the accepted-frame and travel thresholds
+  moderately for operators whose controller movement is being rejected as too
+  small
+- `Small Motion Conservative`, the pinned startup controller profile for this
+  release, which is more forgiving for low-motion users and gives calibration a
+  longer watchdog before it gives up
+
+Changing or applying a controller-breathing profile resets runtime controller
+calibration. Pinning a profile changes the next-launch startup profile; applying
+one live hotloads only the current running session. In both cases, recalibrate
+on-headset before a participant run.
 
 Each saved profile is stored as one self-describing JSON file under the local
 Companion profile library. The shell compiles saved profiles and runtime drafts
@@ -398,7 +428,7 @@ window that walks the operator through the fixed Sussex protocol step by step:
 - APK and device-profile verification
 - kiosk launch
 - LSL and particle verification
-- optional controller calibration
+- controller-tracking guarded calibration
 - 20 second validation capture with inline timing alignment, local and pulled Quest output folders, and a generated PDF review report
 - reset-to-ready handoff into the dedicated `Experiment Session` window or back to the main shell
 
@@ -446,6 +476,13 @@ full pre-send wake + snapshot refresh when the headset is already awake. On a
 healthy live session, command presses should now reach the runtime noticeably
 faster than the earlier public builds.
 
+The calibration buttons in the sequential guide and `Experiment Session` window
+now guard on current controller tracking before they send a calibration command.
+If the controller is not tracked, the GUI reports that state instead of moving
+ahead optimistically. The Sussex runtime also echoes the calibration guard and
+last command state through `quest_twin_state`, so the desktop window can keep
+its operator state aligned with the APK after the command is received.
+
 The current public shell can also send the study recenter command and the
 dedicated particle visibility on/off commands.
 
@@ -473,6 +510,13 @@ controls in one place during the participant run:
   leaving the session window
 - the collapsible operator log for deeper troubleshooting without taking over
   the main live-monitoring layout
+
+`Start Recording` preserves the current controller calibration. Operators can
+calibrate in the `Experiment Session` window before pressing `Start Recording`,
+then start the recording without the companion or runtime resetting that
+calibration. If calibration is reset manually, or if a controller profile is
+applied or pinned and then launched, the operator should recalibrate before
+using the controller-breathing path.
 
 The embedded `During session` surface remains available when the operator wants
 broader shell context or deeper inspection, but the popout is now the preferred
@@ -522,12 +566,19 @@ baseline on `2026-04-03` through the accepted published GUI path:
 - confirmed the installed headset APK hash matched the pinned public Sussex hash `AFB296E22A5FFE1F648AC32D73CAA6CE3B335EAFFAD2A2B1847D16DDB06ECA29`
 - recorded the accepted-app run under `artifacts/verify/sussex-manual-accept-run/`
 
-After that off-face pass, the Sussex bundle was refreshed again on `2026-04-06`
-to the current pinned SHA256 `CFDD4038C46A07A0824A0C51DEFEE9D7A21ADD06F937E9A2E8A0FCD24759E5B4`
-so the companion can confirm the simplified tracer controls through
-`hotload.integrated_tracers_*` readback. Treat the `2026-04-03` notes as the
-last published off-face behavior baseline, and the newer hash above as the
-current shipped Sussex bundle.
+After that off-face pass, the Sussex bundle was refreshed again on
+`2026-04-15` to the current pinned SHA256
+`EF7DD259FF3ED9101505CEC936585E7B20213993890090BAB3D2DC78C2A30E79`. That
+build adds the scene-side controller vibration module, controller-only input
+configuration, controller-tracking calibration guards, no-reset recording
+start behavior, and the current public LSL value mirrors. A CLI-driven live
+check on the same day confirmed that the calibration command path reaches the
+APK, that the runtime reports the controller guard state back through
+`quest_twin_state`, and that an external Python `HRV_Biofeedback / HRV` sender
+can be consumed by the headset and mirrored back to the desktop GUI. Treat the
+`2026-04-03` notes as the last published off-face behavior baseline before
+these controller/LSL updates, and the newer hash above as the current shipped
+Sussex bundle.
 
 That `2026-04-03` pass was also run off-face, so kiosk exit was intentionally
 skipped instead of being re-verified in the same run. On this machine, Windows

@@ -123,6 +123,12 @@ internal static class AppAssetLocator
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT"),
             Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "visual-profiles"));
 
+    public static string? TryResolveBundledSussexControllerBreathingProfilesRoot()
+        => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT"),
+            Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "sussex-controller-breathing-profiles"),
+            Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "controller-breathing-profiles"));
+
     public static string? TryResolveSussexControllerBreathingTuningTemplatePath()
         => TryResolveExistingFile(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_TUNING_TEMPLATE"),

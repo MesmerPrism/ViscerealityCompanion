@@ -14,6 +14,7 @@ namespace ViscerealityCompanion.App.ViewModels;
 
 public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : ObservableObject, IDisposable
 {
+    private const string BundledProfileIdPrefix = "__bundled_sussex_controller_breathing_profile__::";
     private const string UsePrincipalAxisCalibrationFieldId = "use_principal_axis_calibration";
     private const string MinAcceptedDeltaFieldId = "min_accepted_delta";
     private const string MinAcceptableTravelFieldId = "min_acceptable_travel";
@@ -72,7 +73,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 _libraryRootLabel = _profileStore.RootPath;
                 BuildEditorGroups();
                 _librarySummary = "Sussex controller-breathing profile library ready.";
-                _libraryDetail = "Create or import named controller-breathing profiles, then apply them through the existing file hotload path.";
+                _libraryDetail = "Create or import named controller-breathing profiles, or start from the read-only examples bundled with this release.";
                 _libraryLevel = OperationOutcomeKind.Success;
             }
             else
@@ -107,7 +108,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         SetStartupProfileCommand = new AsyncRelayCommand(SetStartupProfileAsync, () => SelectedProfile is not null && !IsSelectedProfileStartupDefault && IsAvailable);
         UseBundledStartupCommand = new AsyncRelayCommand(UseBundledStartupAsync, () => HasPinnedStartupProfile && IsAvailable);
         OpenFolderCommand = new AsyncRelayCommand(OpenFolderAsync, () => IsAvailable && !string.IsNullOrWhiteSpace(LibraryRootLabel));
-        DeleteSelectedCommand = new AsyncRelayCommand(DeleteSelectedAsync, () => SelectedProfile is not null && IsAvailable);
+        DeleteSelectedCommand = new AsyncRelayCommand(DeleteSelectedAsync, () => SelectedProfile is { IsWritableLocalProfile: true } && IsAvailable);
         ApplySelectedCommand = new AsyncRelayCommand(ApplySelectedAsync, () => SelectedProfile is not null && IsAvailable);
         ResetFieldCommand = new AsyncRelayCommand(ResetFieldAsync, parameter => parameter is SussexControllerBreathingProfileFieldViewModel && IsAvailable);
         UseDynamicAxisCalibrationCommand = new AsyncRelayCommand(UseDynamicAxisCalibrationAsync, () => IsAvailable);
@@ -430,10 +431,22 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return;
         }
 
+        var bundledProfiles = await LoadBundledProfilesAsync().ConfigureAwait(false);
         var profiles = await _profileStore.LoadAllAsync().ConfigureAwait(false);
         await DispatchAsync(() =>
         {
+            var preferredProfileId = selectProfileId ??
+                                     _selectedProfile?.Id ??
+                                     _startupState?.ProfileId;
             Profiles.Clear();
+            foreach (var bundledProfile in bundledProfiles)
+            {
+                Profiles.Add(new SussexControllerBreathingProfileListItemViewModel(
+                    bundledProfile,
+                    isBundledProfile: true,
+                    modifiedLabelOverride: "Included in this release"));
+            }
+
             foreach (var profile in profiles)
             {
                 Profiles.Add(new SussexControllerBreathingProfileListItemViewModel(profile));
@@ -453,7 +466,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             }
 
             SelectedProfile = Profiles.FirstOrDefault(profile =>
-                                 string.Equals(profile.Id, selectProfileId, StringComparison.OrdinalIgnoreCase))
+                                 string.Equals(profile.Id, preferredProfileId, StringComparison.OrdinalIgnoreCase))
                              ?? Profiles[0];
 
             if (_startupState is not null &&
@@ -464,7 +477,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             }
 
             LibrarySummary = $"Loaded {Profiles.Count.ToString(CultureInfo.InvariantCulture)} Sussex controller-breathing profile(s).";
-            LibraryDetail = $"Profiles live in {LibraryRootLabel}. The selected profile can be applied over the existing Sussex hotload file path, and the saved next-launch override is shown on the right.";
+            LibraryDetail = $"Bundled examples are read-only release assets. Local profiles live in {LibraryRootLabel}; applying a profile changes only the current Sussex session, while the next-launch override is shown on the right.";
             LibraryLevel = OperationOutcomeKind.Success;
             NotifyStartupStateChanged();
             NotifyCalibrationSetupStateChanged();
@@ -666,11 +679,18 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
         try
         {
+            var updateExistingProfile = snapshot.Profile.IsWritableLocalProfile;
             var saved = await _profileStore.SaveAsync(
-                snapshot.Profile.FilePath,
+                updateExistingProfile ? snapshot.Profile.FilePath : null,
                 snapshot.ProfileName,
                 snapshot.ProfileNotes,
                 snapshot.ControlValues).ConfigureAwait(false);
+
+            if (!updateExistingProfile)
+            {
+                await ReloadProfilesAsync(saved.Id).ConfigureAwait(false);
+                return saved;
+            }
 
             await DispatchAsync(() =>
             {
@@ -714,7 +734,9 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return;
         }
 
-        var source = await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false);
+        var source = SelectedProfile.IsWritableLocalProfile
+            ? await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false)
+            : CreateCurrentProfileRecord();
         if (source is null)
         {
             return;
@@ -773,7 +795,9 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return;
         }
 
-        var saved = await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false);
+        var saved = SelectedProfile is { IsWritableLocalProfile: true }
+            ? await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false)
+            : CreateCurrentProfileRecord();
         if (saved is null)
         {
             return;
@@ -819,7 +843,9 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return;
         }
 
-        var saved = await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false);
+        var saved = SelectedProfile.IsWritableLocalProfile
+            ? await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false)
+            : CreateCurrentProfileRecord();
         if (saved is null)
         {
             return;
@@ -923,7 +949,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
     private async Task DeleteSelectedAsync()
     {
-        if (_profileStore is null || SelectedProfile is null)
+        if (_profileStore is null || SelectedProfile is not { IsWritableLocalProfile: true })
         {
             return;
         }
@@ -965,7 +991,9 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return;
         }
 
-        var saved = await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false);
+        var saved = SelectedProfile.IsWritableLocalProfile
+            ? await PersistCurrentProfileAsync(forceCurrentSnapshot: true).ConfigureAwait(false)
+            : CreateCurrentProfileRecord();
         if (saved is null)
         {
             return;
@@ -995,7 +1023,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
                 "study",
                 false,
-                $"Compiled from {saved.Document.Profile.Name}. Only the Sussex-approved controller-breathing approximation fields were changed.",
+                $"Compiled from {saved.Document.Profile.Name}. Only the Sussex-approved controller-breathing and vibration fields were changed.",
                 [saved.Document.PackageId],
                 compiled.Entries.ToArray());
 
@@ -1304,6 +1332,46 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         ApplySelectedCommand.RaiseCanExecuteChanged();
         UseDynamicAxisCalibrationCommand.RaiseCanExecuteChanged();
         UseFixedOrientationCalibrationCommand.RaiseCanExecuteChanged();
+    }
+
+    private async Task<IReadOnlyList<SussexControllerBreathingProfileRecord>> LoadBundledProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        if (_compiler is null)
+        {
+            return Array.Empty<SussexControllerBreathingProfileRecord>();
+        }
+
+        var bundledRoot = AppAssetLocator.TryResolveBundledSussexControllerBreathingProfilesRoot();
+        if (string.IsNullOrWhiteSpace(bundledRoot) || !Directory.Exists(bundledRoot))
+        {
+            return Array.Empty<SussexControllerBreathingProfileRecord>();
+        }
+
+        var records = new List<SussexControllerBreathingProfileRecord>();
+        foreach (var path in Directory.EnumerateFiles(bundledRoot, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var json = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+                var document = _compiler.Parse(json);
+                records.Add(new SussexControllerBreathingProfileRecord(
+                    BundledProfileIdPrefix + Path.GetFileNameWithoutExtension(path),
+                    Path.GetFullPath(path),
+                    ComputeTextHash(json),
+                    File.GetLastWriteTimeUtc(path),
+                    document));
+            }
+            catch (InvalidDataException)
+            {
+                // Skip invalid bundled profile files so a bad release asset does not break the workspace.
+            }
+        }
+
+        return records
+            .OrderBy(record => record.Document.Profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private SussexControllerBreathingProfileFieldViewModel? FindField(string fieldId)

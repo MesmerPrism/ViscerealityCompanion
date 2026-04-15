@@ -164,6 +164,67 @@ Current builds now wait for the local TEST sender loop to unwind on stop and
 warn when the Windows inventory still shows stale companion-owned streams or
 multiple matching upstream publishers.
 
+That duplicate-source warning is advisory for the Windows-side inventory. The
+Experiment Session coherence card follows the Quest-reported routed value from
+`quest_twin_state`, including the newer `study.lsl.latest_default_value` /
+`study.lsl.latest_ch0_value` fields when the direct `signal01.coherence_lsl`
+mirror is absent. If the Quest is processing an external Python sender but the
+Windows environment page warns about two publishers, stop the extra publisher
+or stale TEST sender to make future stream resolution deterministic; do not
+interpret the warning by itself as proof that Sussex stopped consuming the LSL
+inlet.
+
+During participant recordings, `upstream_lsl_monitor.csv` now includes the
+resolved LSL `source_id` for the passive Windows-side inlet. Use that column to
+confirm which publisher Windows latched onto when duplicate
+`HRV_Biofeedback / HRV` sources were visible.
+
+## Stop Recording reports that the operation was canceled
+
+If this happens during **Stop Recording** or **Stop participant recording**,
+first check whether the cancellation occurred during Quest backup pullback
+rather than during the Windows recording itself.
+
+The stop path is:
+
+1. Stop regular Windows recording samples.
+2. Stop background clock-alignment monitoring.
+3. Run the end clock-alignment burst.
+4. Send `End Experiment`.
+5. Confirm the Quest recorder stopped.
+6. Pull Quest backup files into the Windows session folder.
+7. Write the final stopped marker and complete the local recorder.
+
+Older builds surfaced a timeout or cancellation in step 6 as a generic recorder
+fault. Current builds distinguish that case: if `hzdb files ls` or
+`hzdb files pull` times out while copying the Quest backup, the operator should
+see a Quest-backup pullback warning and the Windows session folder path instead
+of a misleading whole-recorder failure.
+
+Inspect the reported session folder under the current operator-data root,
+usually one of:
+
+```text
+%LOCALAPPDATA%\ViscerealityCompanion\study-data\...
+%LOCALAPPDATA%\Packages\<package-family>\LocalCache\Local\ViscerealityCompanion\study-data\...
+```
+
+Check for:
+
+- `session_events.csv`
+- `signals_long.csv`
+- `breathing_trace.csv`
+- `clock_alignment_roundtrip.csv`
+- `upstream_lsl_monitor.csv`
+- `device-session-pull\`
+
+If the Windows files are present but `device-session-pull` is absent, empty, or
+partial, treat the run as a Quest backup pullback problem. The usual causes are
+a slow or dropped Wi-Fi ADB connection, the headset entering an odd foreground
+or awake/asleep state, another ADB or `hzdb` process contending for the device,
+or Windows-side IO/security pressure making the `hzdb` subprocess exceed its
+timeout.
+
 ## Explorer says a Sussex session folder path is not available
 
 Older packaged builds could check a Sussex session folder path from inside the

@@ -261,19 +261,34 @@ internal static class SussexControllerBreathingComparisonRowBuilder
 public sealed class SussexControllerBreathingProfileListItemViewModel : ObservableObject
 {
     private SussexControllerBreathingProfileRecord _record;
+    private readonly string? _modifiedLabelOverride;
 
-    public SussexControllerBreathingProfileListItemViewModel(SussexControllerBreathingProfileRecord record)
+    public SussexControllerBreathingProfileListItemViewModel(
+        SussexControllerBreathingProfileRecord record,
+        bool isBundledProfile = false,
+        string? modifiedLabelOverride = null)
     {
         _record = record;
+        IsBundledProfile = isBundledProfile;
+        _modifiedLabelOverride = modifiedLabelOverride;
     }
 
+    public bool IsBundledProfile { get; }
+    public bool IsWritableLocalProfile => !IsBundledProfile;
     public string Id => _record.Id;
     public string FilePath => _record.FilePath;
     public string FileHash => _record.FileHash;
     public SussexControllerBreathingTuningDocument Document => _record.Document;
-    public string ModifiedLabel => _record.ModifiedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    public string ModifiedLabel
+        => IsBundledProfile
+            ? _modifiedLabelOverride ?? "Included in this release"
+            : _record.ModifiedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     public string DisplayLabel => _record.Document.Profile.Name;
-    public string SecondaryLabel => $"Local profile | Updated {ModifiedLabel}";
+    public string OriginLabel => IsBundledProfile ? "Bundled profile" : "Local profile";
+    public string SecondaryLabel
+        => IsBundledProfile
+            ? $"{OriginLabel} | {ModifiedLabel}"
+            : $"{OriginLabel} | Updated {ModifiedLabel}";
 
     public void Apply(SussexControllerBreathingProfileRecord record)
     {
@@ -284,6 +299,7 @@ public sealed class SussexControllerBreathingProfileListItemViewModel : Observab
         OnPropertyChanged(nameof(Document));
         OnPropertyChanged(nameof(ModifiedLabel));
         OnPropertyChanged(nameof(DisplayLabel));
+        OnPropertyChanged(nameof(OriginLabel));
         OnPropertyChanged(nameof(SecondaryLabel));
     }
 
