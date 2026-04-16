@@ -365,10 +365,11 @@ If no signed preview release exists, use the source-build path from
 ## Smart App Control blocks the guided setup helper
 
 This is usually not evidence that the release asset is unsigned. The current
-preview helper EXE is Authenticode-signed, but with the repo's self-issued
+preview helper EXE may still be Authenticode-signed with the repo's self-issued
 preview certificate. Windows Smart App Control evaluates the downloaded EXE
 *before* the helper can add that certificate to `Trusted People`, so fresh
-machines can still block the helper outright.
+machines can still block the helper outright even though the signature itself is
+present and timestamped.
 
 Use this order:
 
@@ -382,15 +383,20 @@ For release debugging, validate the shipped EXE and MSIX signatures locally:
 powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1 `
   -PreviewSetupPath .\artifacts\windows-installer\ViscerealityCompanion-Preview-Setup.exe `
   -PackagePath .\artifacts\windows-installer\ViscerealityCompanion.msix `
-  -AllowSelfSigned
+  -AllowSelfSignedPreviewSetup `
+  -AllowSelfSignedPackage
 ```
 
 Current release builds now require an RFC3161 timestamp on both assets. That
 improves signature durability, but it does **not** make the helper Smart App
 Control-compliant on fresh machines by itself. To make the helper broadly
-trusted under Smart App Control, the release workflow must be given a
-certificate from a trusted public provider or moved to Microsoft's Trusted
-Signing flow.
+trusted under Smart App Control, the release workflow must sign the helper with
+a certificate from a trusted public provider or move that helper-signing path
+to Microsoft's Trusted Signing flow. The workflow now supports a separate
+preview-setup signing certificate via
+`WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64` and
+`WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD` so the helper can use a public
+Authenticode signer without changing the self-signed MSIX sideloading path.
 
 ## The repo-local pinned launcher opens an error instead of the app
 

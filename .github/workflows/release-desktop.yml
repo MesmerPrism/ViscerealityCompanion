@@ -72,6 +72,7 @@ jobs:
           WINDOWS_PACKAGE_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_BASE64 }}
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
           WINDOWS_PACKAGE_PUBLISHER: ${{ secrets.WINDOWS_PACKAGE_PUBLISHER }}
+          WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
         run: |
           $missing = @()
           foreach ($name in 'WINDOWS_PACKAGE_CERTIFICATE_BASE64', 'WINDOWS_PACKAGE_CERTIFICATE_PASSWORD', 'WINDOWS_PACKAGE_PUBLISHER') {
@@ -82,6 +83,13 @@ jobs:
 
           if ($missing.Count -gt 0) {
             throw "Missing required release secret(s): $($missing -join ', ')"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
+            Write-Host 'No dedicated preview-setup signing certificate is configured. The helper EXE will fall back to the package certificate and may still be blocked by Smart App Control.' -ForegroundColor Yellow
+          }
+          else {
+            Write-Host 'Dedicated preview-setup signing certificate detected.' -ForegroundColor Green
           }
 
       - name: Restore
@@ -122,6 +130,22 @@ jobs:
           [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
           "path=$certificatePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      - name: Decode preview-setup signing certificate
+        id: preview_setup_certificate
+        shell: pwsh
+        env:
+          WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
+            "path=" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            exit 0
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'ViscerealityCompanion-preview-setup-signing.pfx'
+          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+          "path=$certificatePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Build signed Windows preview package
         shell: pwsh
         env:
@@ -156,21 +180,46 @@ jobs:
         env:
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
           WINDOWS_PACKAGE_TIMESTAMP_URL: ${{ vars.WINDOWS_PACKAGE_TIMESTAMP_URL }}
+          WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD }}
+          WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL: ${{ vars.WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL }}
         run: |
+          $previewSetupCertificatePath = '${{ steps.preview_setup_certificate.outputs.path }}'
+          $previewSetupCertificatePassword = $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD
+          $previewSetupTimestampUrl = $env:WINDOWS_PACKAGE_TIMESTAMP_URL
+
+          if ([string]::IsNullOrWhiteSpace($previewSetupCertificatePath)) {
+            $previewSetupCertificatePath = '${{ steps.certificate.outputs.path }}'
+          }
+          else {
+            $previewSetupCertificatePassword = $env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD
+            if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL)) {
+              $previewSetupTimestampUrl = $env:WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL
+            }
+          }
+
           & powershell -ExecutionPolicy Bypass -File .\tools\app\Publish-PreviewSetup.ps1 `
             -Version '${{ steps.version.outputs.package_version }}' `
             -FileName $env:PREVIEW_SETUP_FILE_NAME `
-            -PackageCertificatePath '${{ steps.certificate.outputs.path }}' `
-            -PackageCertificatePassword $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD `
-            -PackageCertificateTimestampUrl $env:WINDOWS_PACKAGE_TIMESTAMP_URL
+            -PackageCertificatePath $previewSetupCertificatePath `
+            -PackageCertificatePassword $previewSetupCertificatePassword `
+            -PackageCertificateTimestampUrl $previewSetupTimestampUrl
 
       - name: Validate release asset signatures
         shell: pwsh
+        env:
+          WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
         run: |
-          & powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1 `
-            -PreviewSetupPath "artifacts\windows-installer\$env:PREVIEW_SETUP_FILE_NAME" `
-            -PackagePath "artifacts\windows-installer\$env:PACKAGE_FILE_NAME" `
-            -AllowSelfSigned
+          $args = @(
+            '-PreviewSetupPath', "artifacts\windows-installer\$env:PREVIEW_SETUP_FILE_NAME",
+            '-PackagePath', "artifacts\windows-installer\$env:PACKAGE_FILE_NAME",
+            '-AllowSelfSignedPackage'
+          )
+
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
+            $args += '-AllowSelfSignedPreviewSetup'
+          }
+
+          & powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1 @args
 
       - name: Package portable release assets
         shell: pwsh
@@ -232,4 +281,9 @@ jobs:
         run: |
           if (Test-Path '${{ steps.certificate.outputs.path }}') {
             Remove-Item -Force '${{ steps.certificate.outputs.path }}'
+          }
+
+          $previewSetupCertificatePath = '${{ steps.preview_setup_certificate.outputs.path }}'
+          if (-not [string]::IsNullOrWhiteSpace($previewSetupCertificatePath) -and (Test-Path $previewSetupCertificatePath)) {
+            Remove-Item -Force $previewSetupCertificatePath
           }

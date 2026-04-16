@@ -1,7 +1,7 @@
 ---
 title: Download & Install
 description: Install the Sussex-focused Viscereality Companion Windows research preview from the latest public release, or fall back to the repo build when no preview package exists yet.
-summary: The current public installer is a Sussex-focused preview. Start with the guided setup helper, then fall back to the manual App Installer path only if Windows blocks the helper.
+summary: The current public installer is a Sussex-focused preview. Use the guided setup helper on permissive lab machines, and prefer the direct App Installer path on Smart App Control-protected machines unless the helper has been signed with a publicly trusted certificate.
 nav_label: Download
 nav_group: Start Here
 nav_order: 15
@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.50.0`.
+`0.1.54.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -38,13 +38,12 @@ The release ships **both** install paths:
 - a guided-setup helper EXE
 - a manual certificate + App Installer path
 
-Start with the guided setup helper first. Current public builds now install,
-refresh the managed official Quest tooling cache, and attempt to open the app
-automatically at the end of setup. If Windows still blocks the helper EXE on a
-given machine, fall back to the manual certificate + App Installer path. The
-manual path also remains useful on machines that disable the
-`ms-appinstaller:` browser protocol by requiring the downloaded
-`.appinstaller` file to be opened from disk instead.
+Start with the guided setup helper on permissive lab machines. On machines with
+Smart App Control or other download-reputation policy, use the manual
+certificate + App Installer path first unless the helper has been re-signed
+with a publicly trusted Authenticode certificate. The manual path also remains
+useful on machines that disable the `ms-appinstaller:` browser protocol by
+requiring the downloaded `.appinstaller` file to be opened from disk instead.
 
 The helper also refreshes the managed official Quest tooling cache under the
 current operator-data root (`...\ViscerealityCompanion\tooling`; for packaged
@@ -55,8 +54,8 @@ terms; this repo does not relicense them under MIT.
 
 <div class="download-start">
   <section class="download-path download-path-primary">
-    <h2>Automatic guided setup (recommended first)</h2>
-    <p>Start here on normal operator machines. The helper installs or updates the packaged app, refreshes the managed official Quest tooling cache, and then tries to open the app automatically.</p>
+    <h2>Automatic guided setup</h2>
+    <p>Use this on normal operator machines. The helper installs or updates the packaged app, refreshes the managed official Quest tooling cache, and then tries to open the app automatically.</p>
     <div class="action-row">
       <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe">Download guided setup</a>
       <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases">Open release page</a>
@@ -70,8 +69,8 @@ terms; this repo does not relicense them under MIT.
   </section>
 
   <section class="download-path">
-    <h2>Manual install (fallback)</h2>
-    <p>Use this path if Windows blocks the helper EXE or if you want to drive the App Installer flow yourself from disk.</p>
+    <h2>Manual install</h2>
+    <p>Use this path first on Smart App Control-protected machines, or any time you want to drive the App Installer flow yourself from disk.</p>
     <div class="action-row">
       <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer">Download certificate</a>
       <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller">Download App Installer file</a>
@@ -177,7 +176,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed preview
-   should identify itself as `Published install 0.1.50.0`; unpackaged local
+   should identify itself as `Published install 0.1.54.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an

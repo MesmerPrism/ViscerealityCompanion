@@ -8,11 +8,18 @@ param(
     [string]$PreviewSetupPath,
     [Parameter(Mandatory = $true)]
     [string]$PackagePath,
-    [switch]$AllowSelfSigned
+    [switch]$AllowSelfSigned,
+    [switch]$AllowSelfSignedPreviewSetup,
+    [switch]$AllowSelfSignedPackage
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($AllowSelfSigned) {
+    $AllowSelfSignedPreviewSetup = $true
+    $AllowSelfSignedPackage = $true
+}
 
 function Get-SigningReport {
     param(
@@ -53,22 +60,34 @@ function Get-SigningReport {
         HasTimestamp  = $hasTimestamp
         TimestampBy   = $signature.TimeStamperCertificate.Subject
         SelfIssued    = $selfIssued
+        AllowSelfSigned = [bool]$AllowSelfSigned
     }
 }
 
 $reports = @(
-    Get-SigningReport -Path $PreviewSetupPath -AllowSelfSigned:$AllowSelfSigned
-    Get-SigningReport -Path $PackagePath -AllowSelfSigned:$AllowSelfSigned
+    (Get-SigningReport -Path $PreviewSetupPath -AllowSelfSigned:$AllowSelfSignedPreviewSetup |
+        Select-Object @{ Name = 'Asset'; Expression = { 'Preview setup' } }, *)
+    (Get-SigningReport -Path $PackagePath -AllowSelfSigned:$AllowSelfSignedPackage |
+        Select-Object @{ Name = 'Asset'; Expression = { 'Windows package' } }, *)
 )
 
 $selfIssuedReports = $reports | Where-Object { $_.SelfIssued }
-if ($selfIssuedReports.Count -gt 0) {
-    $message =
-        "One or more release assets are signed with a self-issued certificate. " +
-        "That keeps MSIX sideloading workable after explicit certificate trust, " +
-        "but Smart App Control can still block the downloaded bootstrapper EXE on fresh machines."
+foreach ($report in $selfIssuedReports) {
+    $message = switch ($report.Asset) {
+        'Preview setup' {
+            "Preview setup bootstrapper is signed with a self-issued certificate. " +
+            "Smart App Control can still block the downloaded helper EXE on fresh machines."
+        }
+        'Windows package' {
+            "Windows package is signed with a self-issued certificate. " +
+            "That remains workable only after the preview certificate is trusted explicitly for sideloading."
+        }
+        default {
+            "One or more release assets are signed with a self-issued certificate."
+        }
+    }
 
-    if ($AllowSelfSigned) {
+    if ($report.AllowSelfSigned) {
         Write-Warning $message
     }
     else {
@@ -76,4 +95,4 @@ if ($selfIssuedReports.Count -gt 0) {
     }
 }
 
-$reports | Format-Table Path, Subject, Issuer, Thumbprint, HasTimestamp, TimestampBy, SelfIssued -AutoSize | Out-Host
+$reports | Format-Table Asset, Path, Subject, Issuer, Thumbprint, HasTimestamp, TimestampBy, SelfIssued, AllowSelfSigned -AutoSize | Out-Host
