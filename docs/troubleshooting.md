@@ -397,6 +397,10 @@ preview-setup signing certificate via
 `WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64` and
 `WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD` so the helper can use a public
 Authenticode signer without changing the self-signed MSIX sideloading path.
+Until that dedicated signer exists, the release workflow reuses the known-good
+`v0.1.46` helper asset instead of rebuilding a new helper EXE hash on every
+release. That keeps the guided setup path stable while the helper continues to
+download the latest `.appinstaller`, certificate, and MSIX at runtime.
 
 If the packaged app itself is blocked **after** the MSIX installs, inspect the
 Code Integrity log for the specific package family and executable path:

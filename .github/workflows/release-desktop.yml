@@ -23,6 +23,7 @@ jobs:
       PACKAGE_PUBLISHER_DISPLAY_NAME: Mesmer Prism
       PACKAGE_FILE_NAME: ViscerealityCompanion.msix
       PREVIEW_SETUP_FILE_NAME: ViscerealityCompanion-Preview-Setup.exe
+      PINNED_PREVIEW_SETUP_TAG: v0.1.46
       APPINSTALLER_FILE_NAME: ViscerealityCompanion.appinstaller
       CERTIFICATE_FILE_NAME: ViscerealityCompanion.cer
       APPINSTALLER_URI: https://github.com/${{ github.repository }}/releases/latest/download/ViscerealityCompanion.appinstaller
@@ -86,7 +87,7 @@ jobs:
           }
 
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
-            Write-Host 'No dedicated preview-setup signing certificate is configured. The helper EXE will fall back to the package certificate and may still be blocked by Smart App Control.' -ForegroundColor Yellow
+            Write-Host "No dedicated preview-setup signing certificate is configured. The workflow will reuse the pinned helper asset from $env:PINNED_PREVIEW_SETUP_TAG to preserve its known-good Smart App Control reputation." -ForegroundColor Yellow
           }
           else {
             Write-Host 'Dedicated preview-setup signing certificate detected.' -ForegroundColor Green
@@ -178,31 +179,40 @@ jobs:
       - name: Publish preview setup bootstrapper
         shell: pwsh
         env:
+          GH_TOKEN: ${{ github.token }}
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
           WINDOWS_PACKAGE_TIMESTAMP_URL: ${{ vars.WINDOWS_PACKAGE_TIMESTAMP_URL }}
           WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD }}
           WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL: ${{ vars.WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL }}
         run: |
           $previewSetupCertificatePath = '${{ steps.preview_setup_certificate.outputs.path }}'
-          $previewSetupCertificatePassword = $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD
-          $previewSetupTimestampUrl = $env:WINDOWS_PACKAGE_TIMESTAMP_URL
-
           if ([string]::IsNullOrWhiteSpace($previewSetupCertificatePath)) {
-            $previewSetupCertificatePath = '${{ steps.certificate.outputs.path }}'
+            New-Item -ItemType Directory -Force -Path artifacts\windows-installer | Out-Null
+            Write-Host "Reusing pinned preview setup helper from $env:PINNED_PREVIEW_SETUP_TAG" -ForegroundColor Cyan
+            gh release download $env:PINNED_PREVIEW_SETUP_TAG `
+              --repo $env:GITHUB_REPOSITORY `
+              --dir artifacts\windows-installer `
+              --pattern $env:PREVIEW_SETUP_FILE_NAME `
+              --clobber
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to download pinned preview setup helper from $env:PINNED_PREVIEW_SETUP_TAG"
+            }
           }
           else {
             $previewSetupCertificatePassword = $env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD
+            $previewSetupTimestampUrl = $env:WINDOWS_PACKAGE_TIMESTAMP_URL
             if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL)) {
               $previewSetupTimestampUrl = $env:WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL
             }
-          }
 
-          & powershell -ExecutionPolicy Bypass -File .\tools\app\Publish-PreviewSetup.ps1 `
-            -Version '${{ steps.version.outputs.package_version }}' `
-            -FileName $env:PREVIEW_SETUP_FILE_NAME `
-            -PackageCertificatePath $previewSetupCertificatePath `
-            -PackageCertificatePassword $previewSetupCertificatePassword `
-            -PackageCertificateTimestampUrl $previewSetupTimestampUrl
+            & powershell -ExecutionPolicy Bypass -File .\tools\app\Publish-PreviewSetup.ps1 `
+              -Version '${{ steps.version.outputs.package_version }}' `
+              -FileName $env:PREVIEW_SETUP_FILE_NAME `
+              -PackageCertificatePath $previewSetupCertificatePath `
+              -PackageCertificatePassword $previewSetupCertificatePassword `
+              -PackageCertificateTimestampUrl $previewSetupTimestampUrl
+          }
 
       - name: Validate release asset signatures
         shell: pwsh
