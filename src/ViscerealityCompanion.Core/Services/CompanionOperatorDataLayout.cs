@@ -5,6 +5,8 @@ namespace ViscerealityCompanion.Core.Services;
 public static class CompanionOperatorDataLayout
 {
     public const string RootOverrideEnvironmentVariable = "VISCEREALITY_OPERATOR_DATA_ROOT";
+    private const string CurrentPackagedName = "MesmerPrism.ViscerealityCompanionPreview";
+    private const string LegacyPackagedName = "MesmerPrism.ViscerealityCompanion";
 
     private static readonly Regex WindowsAppsPackageDirectoryPattern = new(
         @"^(?<name>.+?)_(?<version>\d+\.\d+\.\d+\.\d+)_[^_]+__(?<publisherid>.+)$",
@@ -75,9 +77,49 @@ public static class CompanionOperatorDataLayout
         }
 
         var normalizedLocalAppData = NormalizeLocalAppDataPath(localAppDataPath);
-        return string.IsNullOrWhiteSpace(packageFamilyName)
-            ? Path.Combine(normalizedLocalAppData, "ViscerealityCompanion")
-            : Path.Combine(normalizedLocalAppData, "Packages", packageFamilyName, "LocalCache", "Local", "ViscerealityCompanion");
+        if (string.IsNullOrWhiteSpace(packageFamilyName))
+        {
+            return Path.Combine(normalizedLocalAppData, "ViscerealityCompanion");
+        }
+
+        var legacyRoot = TryResolveLegacyPackagedRoot(normalizedLocalAppData, packageFamilyName);
+        return legacyRoot ?? Path.Combine(normalizedLocalAppData, "Packages", packageFamilyName, "LocalCache", "Local", "ViscerealityCompanion");
+    }
+
+    internal static string? TryResolveLegacyPackagedRoot(string localAppDataPath, string? packageFamilyName, Func<string, bool>? directoryExists = null)
+    {
+        if (string.IsNullOrWhiteSpace(packageFamilyName))
+        {
+            return null;
+        }
+
+        directoryExists ??= Directory.Exists;
+        if (!TrySplitPackageFamilyName(packageFamilyName, out var packageName, out var publisherId) ||
+            !string.Equals(packageName, CurrentPackagedName, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var legacyFamilyName = $"{LegacyPackagedName}_{publisherId}";
+        var legacyRoot = Path.Combine(localAppDataPath, "Packages", legacyFamilyName, "LocalCache", "Local", "ViscerealityCompanion");
+        return directoryExists(legacyRoot)
+            ? legacyRoot
+            : null;
+    }
+
+    private static bool TrySplitPackageFamilyName(string packageFamilyName, out string packageName, out string publisherId)
+    {
+        var separatorIndex = packageFamilyName.LastIndexOf('_');
+        if (separatorIndex <= 0 || separatorIndex >= packageFamilyName.Length - 1)
+        {
+            packageName = string.Empty;
+            publisherId = string.Empty;
+            return false;
+        }
+
+        packageName = packageFamilyName[..separatorIndex];
+        publisherId = packageFamilyName[(separatorIndex + 1)..];
+        return true;
     }
 
     internal static string? RemapToResolvedRootPath(string? path, string localAppDataPath, string resolvedRootPath)

@@ -53,4 +53,20 @@ public sealed class CompanionOperatorDataLayoutTests
 
         Assert.Equal("MesmerPrism.ViscerealityCompanion_8wekyb3d8bbwe", familyName);
     }
+
+    [Fact]
+    public void TryResolveLegacyPackagedRoot_UsesLegacyFamilyRoot_ForRotatedPreviewPackage()
+    {
+        var legacyRoot = CompanionOperatorDataLayout.TryResolveLegacyPackagedRoot(
+            @"C:\Users\joelp\AppData\Local",
+            "MesmerPrism.ViscerealityCompanionPreview_8wekyb3d8bbwe",
+            path => string.Equals(
+                path,
+                @"C:\Users\joelp\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_8wekyb3d8bbwe\LocalCache\Local\ViscerealityCompanion",
+                StringComparison.OrdinalIgnoreCase));
+
+        Assert.Equal(
+            @"C:\Users\joelp\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_8wekyb3d8bbwe\LocalCache\Local\ViscerealityCompanion",
+            legacyRoot);
+    }
 }

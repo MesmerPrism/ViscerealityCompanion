@@ -17,7 +17,7 @@ public sealed class PreviewPackageInstallerTests
                 """
                 <?xml version="1.0" encoding="utf-8"?>
                 <AppInstaller xmlns="http://schemas.microsoft.com/appx/appinstaller/2018" Version="0.1.46.0">
-                  <MainPackage Name="MesmerPrism.ViscerealityCompanion"
+                  <MainPackage Name="MesmerPrism.ViscerealityCompanionPreview"
                                Version="0.1.46.0"
                                Publisher="CN=MesmerPrism"
                                ProcessorArchitecture="x64"
@@ -27,7 +27,7 @@ public sealed class PreviewPackageInstallerTests
 
             var identity = PreviewPackageInstaller.ParseAppInstallerManifest(appInstallerPath);
 
-            Assert.Equal("MesmerPrism.ViscerealityCompanion", identity.Name);
+            Assert.Equal("MesmerPrism.ViscerealityCompanionPreview", identity.Name);
             Assert.Equal("CN=MesmerPrism", identity.Publisher);
             Assert.Equal("0.1.46.0", identity.Version);
             Assert.Equal(new Uri(appInstallerPath, UriKind.Absolute), identity.AppInstallerUri);
@@ -42,7 +42,7 @@ public sealed class PreviewPackageInstallerTests
     public void FindExistingPackage_matches_name_and_publisher_and_prefers_newest_match()
     {
         var packageIdentity = new PreviewPackageIdentity(
-            "MesmerPrism.ViscerealityCompanion",
+            "MesmerPrism.ViscerealityCompanionPreview",
             "CN=MesmerPrism",
             "0.1.46.0",
             new Uri("file:///C:/Temp/ViscerealityCompanion.appinstaller"));
@@ -52,29 +52,86 @@ public sealed class PreviewPackageInstallerTests
             new[]
             {
                 new PreviewPackageCandidate(
-                    "MesmerPrism.ViscerealityCompanion_0.1.36.0_x64__zcnfcs118r0y",
-                    "MesmerPrism.ViscerealityCompanion",
+                    "MesmerPrism.ViscerealityCompanionPreview_0.1.36.0_x64__zcnfcs118r0y",
+                    "MesmerPrism.ViscerealityCompanionPreview",
                     "CN=MesmerPrism",
                     "0.1.36.0",
-                    "MesmerPrism.ViscerealityCompanion_zcnfcs118r0y"),
+                    "MesmerPrism.ViscerealityCompanionPreview_zcnfcs118r0y"),
                 new PreviewPackageCandidate(
-                    "MesmerPrism.ViscerealityCompanion_0.1.37.0_x64__zcnfcs118r0y",
-                    "MesmerPrism.ViscerealityCompanion",
+                    "MesmerPrism.ViscerealityCompanionPreview_0.1.37.0_x64__zcnfcs118r0y",
+                    "MesmerPrism.ViscerealityCompanionPreview",
                     "CN=MesmerPrism",
                     "0.1.37.0",
-                    "MesmerPrism.ViscerealityCompanion_zcnfcs118r0y"),
+                    "MesmerPrism.ViscerealityCompanionPreview_zcnfcs118r0y"),
                 new PreviewPackageCandidate(
-                    "MesmerPrism.ViscerealityCompanion_0.1.99.0_x64__otherpublisher",
-                    "MesmerPrism.ViscerealityCompanion",
+                    "MesmerPrism.ViscerealityCompanionPreview_0.1.99.0_x64__otherpublisher",
+                    "MesmerPrism.ViscerealityCompanionPreview",
                     "CN=OtherPublisher",
                     "0.1.99.0",
-                    "MesmerPrism.ViscerealityCompanion_otherpublisher")
+                    "MesmerPrism.ViscerealityCompanionPreview_otherpublisher")
             });
 
         Assert.NotNull(package);
-        Assert.Equal("MesmerPrism.ViscerealityCompanion_0.1.37.0_x64__zcnfcs118r0y", package!.FullName);
+        Assert.Equal("MesmerPrism.ViscerealityCompanionPreview_0.1.37.0_x64__zcnfcs118r0y", package!.FullName);
         Assert.Equal("0.1.37.0", package.Version);
-        Assert.Equal("MesmerPrism.ViscerealityCompanion_zcnfcs118r0y", package.FamilyName);
+        Assert.Equal("MesmerPrism.ViscerealityCompanionPreview_zcnfcs118r0y", package.FamilyName);
+    }
+
+    [Fact]
+    public void FindLegacyPackageToRetire_matches_legacy_family_for_rotated_preview_package()
+    {
+        var packageIdentity = new PreviewPackageIdentity(
+            "MesmerPrism.ViscerealityCompanionPreview",
+            "CN=MesmerPrism",
+            "0.1.57.0",
+            new Uri("file:///C:/Temp/ViscerealityCompanion.appinstaller"));
+
+        var package = PreviewPackageInstaller.FindLegacyPackageToRetire(
+            packageIdentity,
+            new[]
+            {
+                new PreviewPackageCandidate(
+                    "MesmerPrism.ViscerealityCompanion_0.1.56.0_x64__zncnfcs118r0y",
+                    "MesmerPrism.ViscerealityCompanion",
+                    "CN=MesmerPrism",
+                    "0.1.56.0",
+                    "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y"),
+                new PreviewPackageCandidate(
+                    "MesmerPrism.ViscerealityCompanion_0.1.55.0_x64__zncnfcs118r0y",
+                    "MesmerPrism.ViscerealityCompanion",
+                    "CN=MesmerPrism",
+                    "0.1.55.0",
+                    "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y")
+            });
+
+        Assert.NotNull(package);
+        Assert.Equal("MesmerPrism.ViscerealityCompanion_0.1.56.0_x64__zncnfcs118r0y", package!.FullName);
+        Assert.Equal("0.1.56.0", package.Version);
+        Assert.Equal("MesmerPrism.ViscerealityCompanion_zncnfcs118r0y", package.FamilyName);
+    }
+
+    [Fact]
+    public void FindLegacyPackageToRetire_returns_null_for_non_preview_identity()
+    {
+        var packageIdentity = new PreviewPackageIdentity(
+            "MesmerPrism.ViscerealityCompanion",
+            "CN=MesmerPrism",
+            "0.1.56.0",
+            new Uri("file:///C:/Temp/ViscerealityCompanion.appinstaller"));
+
+        var package = PreviewPackageInstaller.FindLegacyPackageToRetire(
+            packageIdentity,
+            new[]
+            {
+                new PreviewPackageCandidate(
+                    "MesmerPrism.ViscerealityCompanion_0.1.56.0_x64__zncnfcs118r0y",
+                    "MesmerPrism.ViscerealityCompanion",
+                    "CN=MesmerPrism",
+                    "0.1.56.0",
+                    "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y")
+            });
+
+        Assert.Null(package);
     }
 
     [Fact]
@@ -84,9 +141,9 @@ public sealed class PreviewPackageInstallerTests
 
         var launched = PreviewPackageInstaller.TryLaunchInstalledPackage(
             new ExistingPreviewPackage(
-                "MesmerPrism.ViscerealityCompanion_0.1.46.0_x64__zcnfcs118r0y",
+                "MesmerPrism.ViscerealityCompanionPreview_0.1.46.0_x64__zcnfcs118r0y",
                 "0.1.46.0",
-                "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y"),
+                "MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y"),
             out var detail,
             startInfo => capturedStartInfo = startInfo);
 
@@ -95,7 +152,7 @@ public sealed class PreviewPackageInstallerTests
         Assert.NotNull(capturedStartInfo);
         Assert.Equal("explorer.exe", capturedStartInfo!.FileName);
         Assert.Equal(
-            @"shell:AppsFolder\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y!App",
+            @"shell:AppsFolder\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y!App",
             capturedStartInfo.Arguments);
         Assert.True(capturedStartInfo.UseShellExecute);
     }

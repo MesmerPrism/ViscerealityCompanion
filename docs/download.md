@@ -18,7 +18,7 @@ The current public package is a **Sussex-focused preview**. It is meant for the
 general-purpose multi-study release.
 
 The current packaged preview line tracked by this repo is
-`0.1.56.0`.
+`0.1.57.0`.
 
 The recommended preview path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -64,7 +64,7 @@ terms; this repo does not relicense them under MIT.
     <ol class="step-list">
       <li>Download and run <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe"><code>ViscerealityCompanion-Preview-Setup.exe</code></a>.</li>
       <li>Let the helper trust the preview certificate, refresh the managed official Quest tooling cache, and install or update the packaged app.</li>
-      <li>When the helper finishes, it should try to open <strong>Viscereality Companion</strong> automatically. If Windows does not bring it forward, launch it from the Start menu.</li>
+      <li>When the helper finishes, it should try to open <strong>Viscereality Companion Preview</strong> automatically. If Windows does not bring it forward, launch that Start-menu entry manually.</li>
       <li>Inside the app, stay in <code>Sussex University experiment mode</code> and use the sequential guide.</li>
     </ol>
   </section>
@@ -172,16 +172,18 @@ expecting the companion to install or launch anything.
 
 ## After Install
 
-1. Launch `Viscereality Companion` from the Start menu.
+1. Launch `Viscereality Companion Preview` from the Start menu.
 2. Confirm it opens in `Sussex University experiment mode`.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed preview
-   should identify itself as `Published install 0.1.56.0`; unpackaged local
+   should identify itself as `Published install 0.1.57.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an
 older build or a repo-local source build instead of the packaged Sussex preview.
+If both `Viscereality Companion` and `Viscereality Companion Preview` appear in
+Start, use the `Preview` entry.
 
 Continue with:
 

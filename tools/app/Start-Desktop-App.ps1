@@ -17,12 +17,98 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+@(
+    'MesmerPrism.ViscerealityCompanionPreview',
+    'MesmerPrism.ViscerealityCompanion'
+) | ForEach-Object {
+    Set-Variable -Name ($_.Replace('.', '_')) -Value $_ -Option ReadOnly -Scope Script
+} | Out-Null
+
+$script:SupportedPackageIds = @(
+    $script:MesmerPrism_ViscerealityCompanionPreview,
+    $script:MesmerPrism_ViscerealityCompanion
+)
+
 function Test-InstalledPackagePresent {
     try {
-        return $null -ne (Get-AppxPackage 'MesmerPrism.ViscerealityCompanion' -ErrorAction Stop)
+        return $null -ne (Get-InstalledPackageRegistration)
     }
     catch {
         return $false
+    }
+}
+
+function Get-InstalledPackageRegistration {
+    try {
+        return Get-AppxPackage |
+            Where-Object {
+                -not [string]::IsNullOrWhiteSpace($_.PackageFamilyName) -and
+                $script:SupportedPackageIds -contains $_.Name
+            } |
+            Sort-Object @{ Expression = { [Array]::IndexOf($script:SupportedPackageIds, $_.Name) } }, @{ Expression = { $_.Version }; Descending = $true } |
+            Select-Object -First 1
+    }
+    catch {
+        return $null
+    }
+}
+
+function Try-StartInstalledPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Package,
+        [switch]$Wait
+    )
+
+    $existingProcessIds = @(Get-Process -Name 'ViscerealityCompanion' -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty Id)
+    $launchTarget = "shell:AppsFolder\$($Package.PackageFamilyName)!App"
+    Start-Process -FilePath 'explorer.exe' -ArgumentList $launchTarget | Out-Null
+
+    $launchedProcess = $null
+    foreach ($attempt in 1..12) {
+        Start-Sleep -Milliseconds 250
+        $launchedProcess = Get-Process -Name 'ViscerealityCompanion' -ErrorAction SilentlyContinue |
+            Where-Object { $existingProcessIds -notcontains $_.Id } |
+            Select-Object -First 1
+
+        if ($null -ne $launchedProcess) {
+            break
+        }
+    }
+
+    if ($null -eq $launchedProcess -and $existingProcessIds.Count -gt 0) {
+        return [PSCustomObject]@{
+            LaunchMode        = 'PackagedApp'
+            PackageFamilyName = $Package.PackageFamilyName
+            PackageVersion    = $Package.Version.ToString()
+            LaunchTarget      = $launchTarget
+            ReusedProcess     = $true
+            ProcessId         = $null
+        }
+    }
+
+    if ($null -eq $launchedProcess) {
+        return $null
+    }
+
+    Start-Sleep -Seconds 2
+    $launchedProcess = Get-Process -Id $launchedProcess.Id -ErrorAction SilentlyContinue
+    if ($null -eq $launchedProcess) {
+        return $null
+    }
+
+    if ($Wait) {
+        Wait-Process -Id $launchedProcess.Id
+    }
+
+    [PSCustomObject]@{
+        LaunchMode        = 'PackagedApp'
+        PackageFamilyName = $Package.PackageFamilyName
+        PackageVersion    = $Package.Version.ToString()
+        LaunchTarget      = $launchTarget
+        ReusedProcess     = $false
+        ProcessId         = $launchedProcess.Id
     }
 }
 
@@ -57,12 +143,26 @@ $publishScript = Join-Path $PSScriptRoot 'Publish-Desktop-App.ps1'
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
 $exePath = Join-Path $outputPath 'ViscerealityCompanion.exe'
 $shouldRefreshLaunchers = -not $SkipLauncherRefresh -and -not (Test-InstalledPackagePresent)
+$installedPackage = Get-InstalledPackageRegistration
 
 if (-not (Test-Path $publishScript)) {
     throw "Publish script not found at $publishScript"
 }
 
-$needsPublish = $Refresh -or -not (Test-Path $exePath)
+$shouldRefreshLaunchers = -not $SkipLauncherRefresh -and $null -eq $installedPackage
+
+if ($null -ne $installedPackage) {
+    $packageLaunch = Try-StartInstalledPackage -Package $installedPackage -Wait:$Wait
+    if ($null -ne $packageLaunch) {
+        return $packageLaunch
+    }
+
+    $needsPublish = $Refresh -or -not (Test-Path $exePath)
+}
+else {
+    $needsPublish = $Refresh -or -not (Test-Path $exePath)
+}
+
 if (-not $needsPublish) {
     $publishedAt = (Get-Item $exePath).LastWriteTimeUtc
     $inputAt = Get-NewestInputWriteTimeUtc @(
@@ -75,11 +175,18 @@ if (-not $needsPublish) {
 }
 
 if ($needsPublish) {
-    & $publishScript `
-        -Configuration $Configuration `
-        -RuntimeIdentifier $RuntimeIdentifier `
-        -OutputRelativePath $OutputRelativePath `
-        -RefreshLaunchers:$shouldRefreshLaunchers | Out-Null
+    try {
+        & $publishScript `
+            -Configuration $Configuration `
+            -RuntimeIdentifier $RuntimeIdentifier `
+            -OutputRelativePath $OutputRelativePath `
+            -RefreshLaunchers:$shouldRefreshLaunchers | Out-Null
+    }
+    catch {
+        if (-not (Test-Path $exePath)) {
+            throw
+        }
+    }
 }
 elseif ($shouldRefreshLaunchers) {
     $refreshLauncherScript = Join-Path $PSScriptRoot 'Refresh-Desktop-Launcher.ps1'

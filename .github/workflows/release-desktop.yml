@@ -18,8 +18,8 @@ jobs:
   release:
     runs-on: windows-2022
     env:
-      PACKAGE_ID: MesmerPrism.ViscerealityCompanion
-      PACKAGE_DISPLAY_NAME: Viscereality Companion
+      PACKAGE_ID: MesmerPrism.ViscerealityCompanionPreview
+      PACKAGE_DISPLAY_NAME: Viscereality Companion Preview
       PACKAGE_PUBLISHER_DISPLAY_NAME: Mesmer Prism
       PACKAGE_FILE_NAME: ViscerealityCompanion.msix
       PREVIEW_SETUP_FILE_NAME: ViscerealityCompanion-Preview-Setup.exe

@@ -105,8 +105,9 @@ internal static class Program
         var packageInstaller = new PreviewPackageInstaller();
         var packageIdentity = PreviewPackageInstaller.ParseAppInstallerManifest(appInstallerPath);
         var existingPackage = PreviewPackageInstaller.FindExistingPackage(packageIdentity);
+        var legacyPackage = PreviewPackageInstaller.FindLegacyPackageToRetire(packageIdentity);
         var installResult = await packageInstaller
-            .InstallOrUpdateAsync(packageIdentity, existingPackage, progress, cancellationToken)
+            .InstallOrUpdateAsync(packageIdentity, existingPackage, legacyPackage, progress, cancellationToken)
             .ConfigureAwait(false);
 
         var installedPackage = PreviewPackageInstaller.FindExistingPackage(packageIdentity);
@@ -188,6 +189,11 @@ internal static class Program
             return $"Viscereality Companion {installResult.InstalledVersion} replaced the previous install.";
         }
 
+        if (installResult.RemovedLegacyInstall)
+        {
+            return $"Viscereality Companion {installResult.InstalledVersion} installed and retired the legacy packaged entry.";
+        }
+
         if (installResult.UpdatedExistingInstall)
         {
             return string.Equals(installResult.PreviousVersion, installResult.InstalledVersion, StringComparison.OrdinalIgnoreCase)
@@ -203,10 +209,11 @@ internal static class Program
         var installDetail = installResult switch
         {
             { RemovedPreviousInstall: true } => $"The existing packaged install {installResult.PreviousVersion ?? "n/a"} blocked the in-place update, so the helper removed it and installed {installResult.InstalledVersion} cleanly.",
+            { RemovedLegacyInstall: true } => $"Windows installed the refreshed preview package {installResult.InstalledVersion} and removed the legacy packaged install {installResult.PreviousVersion ?? "n/a"} so the working Start-menu entry stays on Viscereality Companion Preview.",
             { UpdatedExistingInstall: true } when string.Equals(installResult.PreviousVersion, installResult.InstalledVersion, StringComparison.OrdinalIgnoreCase)
                 => "The packaged install already matched the published release. The helper refreshed that install cleanly.",
             { UpdatedExistingInstall: true } => $"Windows updated the packaged install from {installResult.PreviousVersion ?? "n/a"} to {installResult.InstalledVersion} and closed the running app first if needed.",
-            _ => $"The packaged preview was installed directly from the published App Installer feed and is ready to launch from the Start menu as Viscereality Companion {installResult.InstalledVersion}."
+            _ => $"The packaged preview was installed directly from the published App Installer feed and is ready to launch from the Start menu as Viscereality Companion Preview {installResult.InstalledVersion}."
         };
 
         return string.IsNullOrWhiteSpace(launchDetail)

@@ -11,7 +11,7 @@ public sealed class PublishedPreviewUpdateServiceTests
             """
             <?xml version="1.0" encoding="utf-8"?>
             <AppInstaller xmlns="http://schemas.microsoft.com/appx/appinstaller/2018" Version="0.1.46.0">
-              <MainPackage Name="MesmerPrism.ViscerealityCompanion" Version="0.1.46.0" />
+              <MainPackage Name="MesmerPrism.ViscerealityCompanionPreview" Version="0.1.46.0" />
             </AppInstaller>
             """);
 

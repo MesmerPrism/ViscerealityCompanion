@@ -8,10 +8,10 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
-    [string]$Version = '0.1.56.0',
-    [string]$PackageId = 'MesmerPrism.ViscerealityCompanion',
+    [string]$Version = '0.1.57.0',
+    [string]$PackageId = 'MesmerPrism.ViscerealityCompanionPreview',
     [string]$Publisher = 'CN=MesmerPrism',
-    [string]$DisplayName = 'Viscereality Companion',
+    [string]$DisplayName = 'Viscereality Companion Preview',
     [string]$PublisherDisplayName = 'Mesmer Prism',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
     [string]$PackageFileName = 'ViscerealityCompanion.msix',

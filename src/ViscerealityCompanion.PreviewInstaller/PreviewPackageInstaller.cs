@@ -27,12 +27,14 @@ internal sealed record ExistingPreviewPackage(
 internal sealed record PreviewPackageInstallResult(
     bool UpdatedExistingInstall,
     bool RemovedPreviousInstall,
+    bool RemovedLegacyInstall,
     string? PreviousVersion,
     string InstalledVersion);
 
 internal sealed class PreviewPackageInstaller
 {
     internal const string MainApplicationId = "App";
+    private const string PreviewPackageNameSuffix = "Preview";
 
     internal static PreviewPackageIdentity ParseAppInstallerManifest(string appInstallerPath)
     {
@@ -95,6 +97,46 @@ internal sealed class PreviewPackageInstaller
                 package.FamilyName);
     }
 
+    internal static ExistingPreviewPackage? FindLegacyPackageToRetire(
+        PreviewPackageIdentity packageIdentity,
+        IEnumerable<Package>? packages = null)
+    {
+        packages ??= new PackageManager().FindPackages();
+        return FindLegacyPackageToRetire(
+            packageIdentity,
+            packages.Select(candidate => new PreviewPackageCandidate(
+                candidate.Id.FullName ?? string.Empty,
+                candidate.Id.Name ?? string.Empty,
+                candidate.Id.Publisher ?? string.Empty,
+                candidate.Id.Version.ToString() ?? string.Empty,
+                candidate.Id.FamilyName ?? string.Empty)));
+    }
+
+    internal static ExistingPreviewPackage? FindLegacyPackageToRetire(
+        PreviewPackageIdentity packageIdentity,
+        IEnumerable<PreviewPackageCandidate> packages)
+    {
+        var legacyPackageName = TryResolveLegacyPackageName(packageIdentity.Name);
+        if (string.IsNullOrWhiteSpace(legacyPackageName))
+        {
+            return null;
+        }
+
+        var package = packages
+            .Where(candidate =>
+                string.Equals(candidate.Name, legacyPackageName, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(candidate.Publisher, packageIdentity.Publisher, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(candidate => ParseVersionOrDefault(candidate.Version))
+            .FirstOrDefault();
+
+        return package is null
+            ? null
+            : new ExistingPreviewPackage(
+                package.FullName,
+                package.Version,
+                package.FamilyName);
+    }
+
     internal static string BuildAppsFolderLaunchTarget(string packageFamilyName, string applicationId = MainApplicationId)
         => $@"shell:AppsFolder\{packageFamilyName}!{applicationId}";
 
@@ -113,13 +155,13 @@ internal sealed class PreviewPackageInstaller
     {
         if (package is null)
         {
-            detail = "The package is installed, but the helper could not resolve its packaged app registration afterward. Launch Viscereality Companion from the Start menu.";
+            detail = "The package is installed, but the helper could not resolve its packaged app registration afterward. Launch Viscereality Companion Preview from the Start menu.";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(package.FamilyName))
         {
-            detail = "The package is installed, but Windows did not report a usable package family name for automatic launch. Launch Viscereality Companion from the Start menu.";
+            detail = "The package is installed, but Windows did not report a usable package family name for automatic launch. Launch Viscereality Companion Preview from the Start menu.";
             return false;
         }
 
@@ -140,7 +182,7 @@ internal sealed class PreviewPackageInstaller
         }
         catch (Exception exception)
         {
-            detail = $"The package is installed, but Windows did not accept the automatic launch request ({exception.Message}). Launch Viscereality Companion from the Start menu.";
+            detail = $"The package is installed, but Windows did not accept the automatic launch request ({exception.Message}). Launch Viscereality Companion Preview from the Start menu.";
             return false;
         }
     }
@@ -148,14 +190,22 @@ internal sealed class PreviewPackageInstaller
     public async Task<PreviewPackageInstallResult> InstallOrUpdateAsync(
         PreviewPackageIdentity packageIdentity,
         ExistingPreviewPackage? existingPackage,
+        ExistingPreviewPackage? legacyPackage,
         IProgress<InstallerProgressUpdate>? progress,
         CancellationToken cancellationToken)
     {
-        if (existingPackage is null)
+        if (existingPackage is null && legacyPackage is null)
         {
             progress?.Report(new InstallerProgressUpdate(
                 "Installing packaged app",
                 $"No previous installed package was found. Installing Viscereality Companion {packageIdentity.Version} directly from the published App Installer feed.",
+                88));
+        }
+        else if (existingPackage is null)
+        {
+            progress?.Report(new InstallerProgressUpdate(
+                "Installing packaged app",
+                $"Found legacy packaged install {legacyPackage!.Version}. Installing the refreshed preview family first, then removing the legacy registration so Windows stops pointing at the blocked package.",
                 88));
         }
         else
@@ -169,10 +219,21 @@ internal sealed class PreviewPackageInstaller
         try
         {
             await AddPackageByAppInstallerAsync(packageIdentity.AppInstallerUri, progress, 88, 99, cancellationToken).ConfigureAwait(false);
+
+            if (legacyPackage is not null)
+            {
+                progress?.Report(new InstallerProgressUpdate(
+                    "Removing legacy packaged app",
+                    $"Installed the refreshed preview family. Removing the legacy packaged install {legacyPackage.Version} so the Start menu only keeps the working preview entry.",
+                    99));
+                await RemoveExistingPackageAsync(legacyPackage.FullName, cancellationToken).ConfigureAwait(false);
+            }
+
             return new PreviewPackageInstallResult(
                 UpdatedExistingInstall: existingPackage is not null,
                 RemovedPreviousInstall: false,
-                PreviousVersion: existingPackage?.Version,
+                RemovedLegacyInstall: legacyPackage is not null,
+                PreviousVersion: legacyPackage?.Version ?? existingPackage?.Version,
                 InstalledVersion: packageIdentity.Version);
         }
         catch (Exception firstFailure) when (existingPackage is not null && ShouldRetryAfterRemoval(firstFailure))
@@ -188,6 +249,7 @@ internal sealed class PreviewPackageInstaller
             return new PreviewPackageInstallResult(
                 UpdatedExistingInstall: true,
                 RemovedPreviousInstall: true,
+                RemovedLegacyInstall: false,
                 PreviousVersion: existingPackage.Version,
                 InstalledVersion: packageIdentity.Version);
         }
@@ -280,5 +342,17 @@ internal sealed class PreviewPackageInstaller
         return Version.TryParse(version, out var parsed)
             ? parsed
             : new Version(0, 0);
+    }
+
+    private static string? TryResolveLegacyPackageName(string packageName)
+    {
+        if (string.IsNullOrWhiteSpace(packageName) ||
+            !packageName.EndsWith(PreviewPackageNameSuffix, StringComparison.OrdinalIgnoreCase) ||
+            packageName.Length <= PreviewPackageNameSuffix.Length)
+        {
+            return null;
+        }
+
+        return packageName[..^PreviewPackageNameSuffix.Length];
     }
 }

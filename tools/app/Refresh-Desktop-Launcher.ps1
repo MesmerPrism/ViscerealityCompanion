@@ -79,7 +79,7 @@ function New-LauncherShortcut {
     $shortcut.Arguments = $arguments
     $shortcut.WorkingDirectory = $repoRoot
     $shortcut.IconLocation = "$iconPath,0"
-    $shortcut.Description = 'Launch Viscereality Companion via the verified single-file publish path without a console window'
+    $shortcut.Description = 'Launch Viscereality Companion, trying the installed packaged app first and otherwise falling back to the verified single-file publish path'
     $shortcut.Save()
 
     return $Shell.CreateShortcut($ShortcutPath)

@@ -105,9 +105,10 @@ activation problem, not as proof that the install failed.
 
 Use the normal fallback:
 
-1. Open `Viscereality Companion` from the Start menu.
-2. If you want to verify the installed build explicitly, check `Get-AppxPackage MesmerPrism.ViscerealityCompanion` in PowerShell.
-3. If the app opens and the operator-data root contains the managed tooling metadata shown above, the packaged install succeeded.
+1. Open `Viscereality Companion Preview` from the Start menu.
+2. If both the legacy and preview entries exist, use the `Preview` entry.
+3. If you want to verify the installed build explicitly, check `Get-AppxPackage MesmerPrism.ViscerealityCompanion*` in PowerShell.
+4. If the app opens and the operator-data root contains the managed tooling metadata shown above, the packaged install succeeded.
 
 ## The app launches but live LSL features stay unavailable
 
@@ -433,7 +434,10 @@ powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Desktop-Launcher.ps
 
 That republish path refreshes the canonical shortcut target and removes stale
 repo-local `ViscerealityCompanion.exe` copies so Windows search and taskbar
-pins keep resolving to the verified published build.
+pins keep resolving to the right app. If the packaged MSIX preview is installed,
+the canonical `Viscereality Companion.lnk` shortcut now tries the packaged app
+first and falls back to the repo-local published build when Windows refuses to
+start the packaged process.
 
 ## The docs site does not build
 
