@@ -398,6 +398,20 @@ preview-setup signing certificate via
 `WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD` so the helper can use a public
 Authenticode signer without changing the self-signed MSIX sideloading path.
 
+If the packaged app itself is blocked **after** the MSIX installs, inspect the
+Code Integrity log for the specific package family and executable path:
+
+```powershell
+Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 100 |
+  Where-Object { $_.Message -match 'MesmerPrism\\.ViscerealityCompanion|ViscerealityCompanion\\.exe' }
+```
+
+The release MSIX must preserve the normal WAP multi-file payload inside
+`ViscerealityCompanion.App`. Do not replace that payload with a repacked
+single-file desktop publish. Current release validation now checks that the
+package still contains both `ViscerealityCompanion.App/ViscerealityCompanion.exe`
+and `ViscerealityCompanion.App/ViscerealityCompanion.dll`.
+
 ## The repo-local pinned launcher opens an error instead of the app
 
 Refresh the verified single-file launcher path instead of trusting an older

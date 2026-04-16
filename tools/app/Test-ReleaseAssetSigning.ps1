@@ -16,6 +16,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
 if ($AllowSelfSigned) {
     $AllowSelfSignedPreviewSetup = $true
     $AllowSelfSignedPackage = $true
@@ -64,12 +66,41 @@ function Get-SigningReport {
     }
 }
 
+function Assert-MsixPayloadLayout {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $resolvedPath = (Resolve-Path $Path).Path
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($resolvedPath)
+
+    try {
+        $entryNames = $archive.Entries | ForEach-Object { $_.FullName }
+        $requiredEntries = @(
+            'ViscerealityCompanion.App/ViscerealityCompanion.exe',
+            'ViscerealityCompanion.App/ViscerealityCompanion.dll'
+        )
+
+        foreach ($requiredEntry in $requiredEntries) {
+            if ($requiredEntry -notin $entryNames) {
+                throw "The MSIX payload layout is missing $requiredEntry. Do not replace the WAP-built desktop payload with a single-file repack."
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 $reports = @(
     (Get-SigningReport -Path $PreviewSetupPath -AllowSelfSigned:$AllowSelfSignedPreviewSetup |
         Select-Object @{ Name = 'Asset'; Expression = { 'Preview setup' } }, *)
     (Get-SigningReport -Path $PackagePath -AllowSelfSigned:$AllowSelfSignedPackage |
         Select-Object @{ Name = 'Asset'; Expression = { 'Windows package' } }, *)
 )
+
+Assert-MsixPayloadLayout -Path $PackagePath
 
 $selfIssuedReports = $reports | Where-Object { $_.SelfIssued }
 foreach ($report in $selfIssuedReports) {

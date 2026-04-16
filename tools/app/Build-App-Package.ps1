@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
-    [string]$Version = '0.1.54.0',
+    [string]$Version = '0.1.55.0',
     [string]$PackageId = 'MesmerPrism.ViscerealityCompanion',
     [string]$Publisher = 'CN=MesmerPrism',
     [string]$DisplayName = 'Viscereality Companion',
@@ -120,124 +120,6 @@ function Initialize-DotNetSdkResolver {
     $env:DOTNET_MSBUILD_SDK_RESOLVER_SDKS_VER = $sdkDir.Name
 }
 
-function Publish-PackagedAppPayload {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ProjectPath,
-        [Parameter(Mandatory = $true)]
-        [string]$Configuration,
-        [Parameter(Mandatory = $true)]
-        [string]$RuntimeIdentifier,
-        [Parameter(Mandatory = $true)]
-        [string]$OutputPath
-    )
-
-    if (Test-Path $OutputPath) {
-        Remove-Item -Path $OutputPath -Recurse -Force
-    }
-
-    New-Item -ItemType Directory -Force -Path $OutputPath | Out-Null
-
-    $publishArgs = @(
-        'publish',
-        $ProjectPath,
-        '-c', $Configuration,
-        '-r', $RuntimeIdentifier,
-        '-p:PublishSingleFile=true',
-        '-p:SelfContained=true',
-        '-o', $OutputPath
-    )
-
-    Write-Host "Publishing packaged desktop payload to $OutputPath" -ForegroundColor Cyan
-    & dotnet @publishArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        throw "dotnet publish failed for packaged payload with exit code $LASTEXITCODE"
-    }
-
-    $exePath = Join-Path $OutputPath 'ViscerealityCompanion.exe'
-    if (-not (Test-Path $exePath)) {
-        throw "Packaged payload publish did not produce $exePath"
-    }
-}
-
-function Repack-WithPublishedPayload {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$BasePackagePath,
-        [Parameter(Mandatory = $true)]
-        [string]$PublishedPayloadPath,
-        [Parameter(Mandatory = $true)]
-        [string]$OutputPackagePath,
-        [Parameter(Mandatory = $true)]
-        [bool]$Unsigned,
-        [string]$PackageCertificatePath,
-        [string]$PackageCertificatePassword,
-        [string]$PackageCertificateTimestampUrl
-    )
-
-    $makeAppxPath = Find-WindowsSdkTool -ToolName 'makeappx.exe'
-    $stageRoot = Join-Path ([System.IO.Path]::GetDirectoryName($OutputPackagePath)) ("_msix-stage-" + [guid]::NewGuid().ToString('N'))
-
-    try {
-        if (Test-Path $stageRoot) {
-            Remove-Item -Path $stageRoot -Recurse -Force
-        }
-
-        New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
-
-        Write-Host "Unpacking MSIX scaffold to $stageRoot" -ForegroundColor Cyan
-        & $makeAppxPath unpack /p $BasePackagePath /d $stageRoot /o | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            throw "makeappx unpack failed with exit code $LASTEXITCODE"
-        }
-
-        $packagedAppPath = Join-Path $stageRoot 'ViscerealityCompanion.App'
-        if (Test-Path $packagedAppPath) {
-            Remove-Item -Path $packagedAppPath -Recurse -Force
-        }
-
-        New-Item -ItemType Directory -Force -Path $packagedAppPath | Out-Null
-        Copy-Item -Path (Join-Path $PublishedPayloadPath '*') -Destination $packagedAppPath -Recurse -Force
-
-        if (Test-Path $OutputPackagePath) {
-            Remove-Item -Path $OutputPackagePath -Force
-        }
-
-        Write-Host "Packing single-file MSIX payload to $OutputPackagePath" -ForegroundColor Cyan
-        & $makeAppxPath pack /d $stageRoot /p $OutputPackagePath /o | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            throw "makeappx pack failed with exit code $LASTEXITCODE"
-        }
-
-        if (-not $Unsigned) {
-            $signToolPath = Find-WindowsSdkTool -ToolName 'signtool.exe'
-            $signArgs = @(
-                'sign',
-                '/fd', 'SHA256',
-                '/f', [System.IO.Path]::GetFullPath($PackageCertificatePath),
-                '/p', $PackageCertificatePassword
-            )
-
-            if (-not [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
-                $signArgs += @('/tr', $PackageCertificateTimestampUrl, '/td', 'SHA256')
-            }
-
-            $signArgs += $OutputPackagePath
-
-            Write-Host "Signing repacked MSIX with $signToolPath" -ForegroundColor Cyan
-            & $signToolPath @signArgs | Out-Host
-            if ($LASTEXITCODE -ne 0) {
-                throw "signtool sign failed with exit code $LASTEXITCODE"
-            }
-        }
-    }
-    finally {
-        if (Test-Path $stageRoot) {
-            Remove-Item -Path $stageRoot -Recurse -Force
-        }
-    }
-}
-
 function Set-ManifestValue {
     param(
         [Parameter(Mandatory = $true)]
@@ -283,7 +165,6 @@ $manifestPath = Join-Path $packageProjectDir 'Package.appxmanifest'
 $appInstallerTemplatePath = Join-Path $packageProjectDir 'Package.appinstaller.template'
 $appPackagesRoot = Join-Path $packageProjectDir 'AppPackages'
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
-$publishedPayloadPath = Join-Path $env:TEMP ("ViscerealityCompanion-PackagedPayload-" + [guid]::NewGuid().ToString('N'))
 $syncBundledSussexApkScriptPath = Join-Path $repoRoot 'tools\app\Sync-Bundled-Sussex-Apk.ps1'
 
 if (-not (Test-Path $packageProjectPath)) {
@@ -361,18 +242,8 @@ try {
         "/p:FileVersion=$Version",
         "/p:InformationalVersion=$Version",
         "/p:GenerateAppInstallerFile=False",
-        "/p:AppxPackageSigningEnabled=$([bool](-not $Unsigned))"
+        '/p:AppxPackageSigningEnabled=False'
     )
-
-    if (-not $Unsigned) {
-        $resolvedCertificatePath = [System.IO.Path]::GetFullPath($PackageCertificatePath)
-        $msbuildArgs += "/p:PackageCertificateKeyFile=$resolvedCertificatePath"
-        $msbuildArgs += "/p:PackageCertificatePassword=$PackageCertificatePassword"
-
-        if (-not [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
-            $msbuildArgs += "/p:PackageCertificateTimestampUrl=$PackageCertificateTimestampUrl"
-        }
-    }
 
     Write-Host "Building MSIX package with $msbuildPath" -ForegroundColor Cyan
     & $msbuildPath @msbuildArgs | Out-Host
@@ -389,22 +260,31 @@ try {
     }
 
     $packageOutputPath = Join-Path $outputPath $PackageFileName
-    Publish-PackagedAppPayload `
-        -ProjectPath $entryProjectPath `
-        -Configuration $Configuration `
-        -RuntimeIdentifier "win-$Platform" `
-        -OutputPath $publishedPayloadPath
+    Copy-Item $builtPackage.FullName $packageOutputPath -Force
 
-    Repack-WithPublishedPayload `
-        -BasePackagePath $builtPackage.FullName `
-        -PublishedPayloadPath $publishedPayloadPath `
-        -OutputPackagePath $packageOutputPath `
-        -Unsigned ([bool]$Unsigned) `
-        -PackageCertificatePath $PackageCertificatePath `
-        -PackageCertificatePassword $PackageCertificatePassword `
-        -PackageCertificateTimestampUrl $PackageCertificateTimestampUrl
+    if (-not $Unsigned) {
+        $signToolPath = Find-WindowsSdkTool -ToolName 'signtool.exe'
+        $signArgs = @(
+            'sign',
+            '/fd', 'SHA256',
+            '/f', [System.IO.Path]::GetFullPath($PackageCertificatePath),
+            '/p', $PackageCertificatePassword
+        )
 
-    Write-Host "Wrote single-file package to $packageOutputPath" -ForegroundColor Green
+        if (-not [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
+            $signArgs += @('/tr', $PackageCertificateTimestampUrl, '/td', 'SHA256')
+        }
+
+        $signArgs += $packageOutputPath
+
+        Write-Host "Signing package with $signToolPath" -ForegroundColor Cyan
+        & $signToolPath @signArgs | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "signtool sign failed with exit code $LASTEXITCODE"
+        }
+    }
+
+    Write-Host "Copied package to $packageOutputPath" -ForegroundColor Green
 
     if (-not [string]::IsNullOrWhiteSpace($AppInstallerUri)) {
         $template = Get-Content $appInstallerTemplatePath -Raw
@@ -440,9 +320,5 @@ try {
     }
 }
 finally {
-    if (Test-Path $publishedPayloadPath) {
-        Remove-Item -Path $publishedPayloadPath -Recurse -Force
-    }
-
     [System.IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
 }
