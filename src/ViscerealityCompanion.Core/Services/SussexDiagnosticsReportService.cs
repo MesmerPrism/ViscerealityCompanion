@@ -190,7 +190,7 @@ public sealed class SussexDiagnosticsReportService
         var machineLslState = await BuildMachineLslStateResultAsync(study, cancellationToken).ConfigureAwait(false);
         var twinStatePublisher = QuestTwinStatePublisherInventoryService.Inspect(_streamDiscoveryService, study.App.PackageId);
         var questSetup = BuildQuestSetupSnapshot(study, request.DeviceSelector, headset, installed, profileStatus);
-        var twinConnection = BuildTwinConnectionProbe(study, headset, installed, profileStatus, _twinBridge, twinStatePublisher);
+        var twinConnection = BuildTwinConnectionProbe(study, headset, installed, profileStatus, _twinBridge, twinStatePublisher, request.DeviceSelector);
         var commandAcceptance = request.RunCommandAcceptanceCheck
             ? await ProbeCommandAcceptanceAsync(study, _twinBridge as LslTwinModeBridge, cancellationToken).ConfigureAwait(false)
             : BuildSkippedCommandAcceptanceResult("Command acceptance check skipped by request.");
@@ -423,7 +423,8 @@ public sealed class SussexDiagnosticsReportService
         InstalledAppStatus installed,
         DeviceProfileStatus profileStatus,
         ITwinModeBridge bridge,
-        QuestTwinStatePublisherInventory twinStatePublisher)
+        QuestTwinStatePublisherInventory twinStatePublisher,
+        string? deviceSelector)
     {
         var checkedAtUtc = DateTimeOffset.UtcNow;
         if (bridge is not LslTwinModeBridge lslBridge)
@@ -449,7 +450,7 @@ public sealed class SussexDiagnosticsReportService
                 CheckedAtUtc: checkedAtUtc);
         }
 
-        return BuildTwinConnectionProbeState(study, headset, installed, profileStatus, lslBridge, twinStatePublisher, checkedAtUtc);
+        return BuildTwinConnectionProbeState(study, headset, installed, profileStatus, lslBridge, twinStatePublisher, deviceSelector, checkedAtUtc);
     }
 
     private static SussexTwinConnectionProbeResult BuildTwinConnectionProbeState(
@@ -459,6 +460,7 @@ public sealed class SussexDiagnosticsReportService
         DeviceProfileStatus profileStatus,
         LslTwinModeBridge bridge,
         QuestTwinStatePublisherInventory twinStatePublisher,
+        string? deviceSelector,
         DateTimeOffset checkedAtUtc)
     {
         var expectedName = string.IsNullOrWhiteSpace(study.Monitoring.ExpectedLslStreamName)
@@ -529,15 +531,28 @@ public sealed class SussexDiagnosticsReportService
         var headsetForeground = string.Equals(headset.ForegroundPackageId, study.App.PackageId, StringComparison.OrdinalIgnoreCase);
         var pinnedBuildReady = IsPinnedBuildReady(study, installed);
         var deviceProfileReady = profileStatus.IsActive;
+        var selectorIp = ExtractIpAddressFromSelector(deviceSelector);
+        var selectorDrift = !string.IsNullOrWhiteSpace(deviceSelector) &&
+                            !string.IsNullOrWhiteSpace(headset.ConnectionLabel) &&
+                            !string.Equals(deviceSelector, headset.ConnectionLabel, StringComparison.OrdinalIgnoreCase);
+        var selectorIpMismatch = !string.IsNullOrWhiteSpace(selectorIp) &&
+                                 !string.IsNullOrWhiteSpace(headset.HeadsetWifiIpAddress) &&
+                                 !string.Equals(selectorIp, headset.HeadsetWifiIpAddress, StringComparison.OrdinalIgnoreCase);
 
         var connectionSummary = inletReady && returnPathReady
             ? "Quest inlet is connected and the Windows return path is live."
             : inletReady
-                ? "Quest inlet is connected, but Windows is not receiving a fresh return path yet."
+                ? headsetForeground && !twinStatePublisher.ExpectedPublisherVisible
+                    ? "Quest inlet is connected, but the Quest twin-state publisher stalled or became undiscoverable."
+                    : headsetForeground
+                        ? "Quest inlet is connected, but Windows is not receiving a fresh return path yet."
+                        : "Quest inlet is connected, but Sussex is not foregrounded and the Windows return path is stale."
                 : returnPathReady
                     ? "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet."
-                    : headsetForeground
-                        ? "Sussex is in front, but neither the LSL inlet nor the Windows return path is confirmed."
+                    : !headsetForeground
+                        ? "Sussex is not foregrounded, so neither the LSL inlet nor the Windows return path is confirmed."
+                        : !twinStatePublisher.AnyPublisherVisible
+                            ? "Sussex is in front, but the Quest twin-state publisher is absent and the inlet is not confirmed."
                         : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.";
 
         var connectionLevel = inletReady && returnPathReady
@@ -570,13 +585,30 @@ public sealed class SussexDiagnosticsReportService
             detailParts.Add("Apply the Sussex study device profile before participant validation so Wi-Fi ADB, profile guards, and startup assumptions match the release baseline.");
         }
 
+        if (selectorDrift)
+        {
+            detailParts.Add($"Requested selector {deviceSelector} does not match the live headset selector {headset.ConnectionLabel}. This points at a stale saved endpoint, a DHCP/IP change, or a selector that survived an ADB daemon reset.");
+        }
+
+        if (selectorIpMismatch)
+        {
+            detailParts.Add($"Requested selector IP {selectorIp} does not match the headset-reported Wi-Fi IP {headset.HeadsetWifiIpAddress}. Run Connect Quest or update the saved endpoint before relying on recovery actions.");
+        }
+
+        if (headset.IsWifiAdbTransport && headset.IsUsbAdbVisible)
+        {
+            detailParts.Add($"USB {FormatOptionalValue(headset.VisibleUsbSerial, "ADB")} is visible while the study path is on Wi-Fi ADB. Reconnecting USB can restart ADB, break kiosk/task lock, or leave the remembered endpoint stale.");
+        }
+
         if (!inletReady && returnPathReady)
         {
             detailParts.Add("The headset is publishing twin state back to Windows, but it has not reported an active Sussex inlet connection yet.");
         }
         else if (inletReady && !returnPathReady)
         {
-            detailParts.Add("Sussex reported an inlet connection, but the quest_twin_state return path is missing or stale on Windows.");
+            detailParts.Add(headsetForeground && !twinStatePublisher.ExpectedPublisherVisible
+                ? "Sussex reported an inlet connection, but the Quest twin-state publisher stalled or became undiscoverable on Windows. This is a separate failure mode from a missing inlet or a backgrounded APK."
+                : "Sussex reported an inlet connection, but the quest_twin_state return path is missing or stale on Windows.");
         }
         else if (!inletReady && !returnPathReady)
         {
@@ -631,19 +663,24 @@ public sealed class SussexDiagnosticsReportService
         }
 
         bridge.Open();
+        var previousStateReceivedAt = bridge.LastStateReceivedAt;
         var command = new TwinModeCommand(actionId, "Diagnostics particle visibility off");
         var sendOutcome = await bridge.SendCommandAsync(command, cancellationToken).ConfigureAwait(false);
         var sequence = bridge.LastPublishedCommandSequence > 0 ? bridge.LastPublishedCommandSequence : (int?)null;
 
-        await WaitForCommandEchoAsync(bridge, actionId, sequence, CommandAcceptanceWaitDuration, cancellationToken).ConfigureAwait(false);
+        await WaitForCommandEchoAsync(bridge, actionId, sequence, previousStateReceivedAt, CommandAcceptanceWaitDuration, cancellationToken).ConfigureAwait(false);
         var settings = bridge.ReportedSettings;
         var lastActionId = GetSetting(settings, "study.command.last_action_id");
         var lastActionSequence = GetSetting(settings, "study.command.last_action_sequence");
         var lastParticleSequence = GetSetting(settings, "study.particles.last_command_sequence");
+        var reportedSequenceAvailable = !string.IsNullOrWhiteSpace(lastActionSequence) || !string.IsNullOrWhiteSpace(lastParticleSequence);
+        var freshTwinStateReceived = HasFreshTwinStateSince(bridge, previousStateReceivedAt);
         var accepted = sendOutcome.Kind != OperationOutcomeKind.Failure &&
-            (string.Equals(lastActionId, actionId, StringComparison.OrdinalIgnoreCase) ||
-             SequenceMatches(lastActionSequence, sequence) ||
-             SequenceMatches(lastParticleSequence, sequence));
+            (SequenceMatches(lastActionSequence, sequence) ||
+             SequenceMatches(lastParticleSequence, sequence) ||
+             (!reportedSequenceAvailable &&
+              freshTwinStateReceived &&
+              string.Equals(lastActionId, actionId, StringComparison.OrdinalIgnoreCase)));
 
         if (sendOutcome.Kind == OperationOutcomeKind.Failure)
         {
@@ -666,7 +703,9 @@ public sealed class SussexDiagnosticsReportService
             ? new SussexCommandAcceptanceResult(
                 OperationOutcomeKind.Success,
                 "Quest accepted the diagnostic twin command.",
-                "The companion published a safe particle-off command and the returned quest_twin_state reported the matching action id or sequence.",
+                reportedSequenceAvailable
+                    ? "The companion published a safe particle-off command and the returned quest_twin_state reported the matching command sequence."
+                    : "The companion published a safe particle-off command and a fresh quest_twin_state frame reported the matching action id.",
                 Attempted: true,
                 Sent: true,
                 Accepted: true,
@@ -712,6 +751,7 @@ public sealed class SussexDiagnosticsReportService
         LslTwinModeBridge bridge,
         string actionId,
         int? sequence,
+        DateTimeOffset? previousStateReceivedAt,
         TimeSpan waitDuration,
         CancellationToken cancellationToken)
     {
@@ -719,9 +759,15 @@ public sealed class SussexDiagnosticsReportService
         while (DateTimeOffset.UtcNow < timeoutAtUtc)
         {
             var settings = bridge.ReportedSettings;
-            if (string.Equals(GetSetting(settings, "study.command.last_action_id"), actionId, StringComparison.OrdinalIgnoreCase) ||
-                SequenceMatches(GetSetting(settings, "study.command.last_action_sequence"), sequence) ||
-                SequenceMatches(GetSetting(settings, "study.particles.last_command_sequence"), sequence))
+            var lastActionId = GetSetting(settings, "study.command.last_action_id");
+            var lastActionSequence = GetSetting(settings, "study.command.last_action_sequence");
+            var lastParticleSequence = GetSetting(settings, "study.particles.last_command_sequence");
+            var reportedSequenceAvailable = !string.IsNullOrWhiteSpace(lastActionSequence) || !string.IsNullOrWhiteSpace(lastParticleSequence);
+            if (SequenceMatches(lastActionSequence, sequence) ||
+                SequenceMatches(lastParticleSequence, sequence) ||
+                (!reportedSequenceAvailable &&
+                 HasFreshTwinStateSince(bridge, previousStateReceivedAt) &&
+                 string.Equals(lastActionId, actionId, StringComparison.OrdinalIgnoreCase)))
             {
                 return;
             }
@@ -729,6 +775,10 @@ public sealed class SussexDiagnosticsReportService
             await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private static bool HasFreshTwinStateSince(LslTwinModeBridge bridge, DateTimeOffset? previousStateReceivedAt)
+        => bridge.LastStateReceivedAt.HasValue &&
+           (!previousStateReceivedAt.HasValue || bridge.LastStateReceivedAt.Value > previousStateReceivedAt.Value);
 
     private static SussexCommandAcceptanceResult BuildSkippedCommandAcceptanceResult(string detail)
         => new(
@@ -1088,6 +1138,21 @@ public sealed class SussexDiagnosticsReportService
 
         return string.IsNullOrWhiteSpace(ipAddress) ? ssid : $"{ssid} / {ipAddress}";
     }
+
+    private static string ExtractIpAddressFromSelector(string? selector)
+    {
+        if (string.IsNullOrWhiteSpace(selector) || !selector.Contains(":", StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = selector.Trim();
+        var separatorIndex = trimmed.LastIndexOf(':');
+        return separatorIndex > 0 ? trimmed[..separatorIndex] : trimmed;
+    }
+
+    private static string FormatOptionalValue(string? value, string fallback)
+        => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
     private static bool IsPinnedBuildReady(StudyShellDefinition study, InstalledAppStatus installed)
         => installed.IsInstalled && MatchesHash(installed.InstalledSha256, study.App.Sha256);

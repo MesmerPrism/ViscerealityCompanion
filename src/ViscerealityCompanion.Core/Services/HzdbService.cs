@@ -287,14 +287,14 @@ public sealed class WindowsHzdbService : IHzdbService
             ? autoSleepMs
             : (int?)null;
         var latestBroadcast = TryParseLatestBroadcast(rawOutput);
-        var holdActive = latestBroadcast is { Action: "prox_close", DurationMs: > 0 };
-        var holdUntilUtc = holdActive && latestBroadcast is { } broadcast && TryComputeHoldUntilUtc(broadcast, observedAtUtc, out var parsedHoldUntilUtc)
+        var virtualCloseActive = string.Equals(virtualState, "CLOSE", StringComparison.OrdinalIgnoreCase);
+        var holdUntilUtc = latestBroadcast is { Action: "prox_close", DurationMs: > 0 } broadcast && TryComputeHoldUntilUtc(broadcast, observedAtUtc, out var parsedHoldUntilUtc)
             ? (DateTimeOffset?)parsedHoldUntilUtc
             : null;
 
         status = new QuestProximityStatus(
             Available: true,
-            HoldActive: holdActive,
+            HoldActive: virtualCloseActive,
             VirtualState: virtualState,
             IsAutosleepDisabled: autosleepDisabled,
             HeadsetState: headsetState,

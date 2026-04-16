@@ -117,6 +117,8 @@ public enum QuestUtilityAction
     Back,
     Wake,
     Sleep,
+    DisableProximity,
+    EnableProximity,
     ListInstalledPackages,
     Reboot
 }

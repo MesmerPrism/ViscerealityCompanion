@@ -21,10 +21,13 @@ workflow with explicit hazards and a concrete implementation backlog.
 - Do not use GUI-driven or shell-injected sleep and wake as the normal
   participant handoff path. Use the physical headset power button for
   between-operator and between-participant sleep and wake transitions.
-- Keep the proximity sensor in normal behavior during the normal Sussex path.
-  Do not disable proximity before kiosk entry, and do not leave it disabled
-  during kiosk exit. Treat proximity bypass as a manual recovery and debugging
-  tool only.
+- Use the direct `prox_close` keep-awake override through Sussex launch and the
+  pre-session guide on this build. Restore normal wear-sensor behavior with
+  `automation_disable` when the live session is done.
+- Treat the raw Quest readback literally:
+  - `Virtual proximity state: CLOSE` means the keep-awake override is active.
+  - `Virtual proximity state: DISABLED` means normal wear-sensor behavior is
+    active again.
 - Wake the headset before kiosk launch. Do not launch Sussex while the headset
   reports asleep; on the current April 2026 Meta OS build that can leave the
   runtime running in a black or limbo scene that may require a headset restart.
@@ -71,14 +74,18 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
 3. Create or confirm the Guardian boundary.
 4. Wake the headset if needed. The launcher should read `Wake the headset to
    enable launching` until the headset is awake.
-5. Wake the right controller if needed and verify it is active before kiosk
+5. Disable proximity before launch. The current launch path also auto-arms the
+   keep-awake override, but the guide should still show its state explicitly.
+   Expect `CLOSE` while the override is active and `DISABLED` after you restore
+   normal proximity.
+6. Wake the right controller if needed and verify it is active before kiosk
    entry.
-6. Launch Sussex in kiosk mode from the GUI.
-7. If Guardian or another Meta visual blocker is still visible, clear it before
+7. Launch Sussex in kiosk mode from the GUI.
+8. If Guardian or another Meta visual blocker is still visible, clear it before
    launching.
-8. Do not use controller Meta / menu-button behavior as the kiosk-success
+9. Do not use controller Meta / menu-button behavior as the kiosk-success
    signal on this build.
-9. Confirm the visible scene on-headset. If shell focus and the visible scene
+10. Confirm the visible scene on-headset. If shell focus and the visible scene
    disagree, use one Quest screenshot as the source of truth.
 
 ### 3. Bench verification before subject handoff
@@ -86,13 +93,15 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
 1. Verify the Unity command path by sending `Particles Off`, `Particles On`,
    and `Recenter`.
 2. Verify that the study LSL inlet is connected and visible in the GUI.
-3. Start controller breath-volume calibration from the GUI.
-4. Finish calibration and visually confirm that the runtime behaved as
+3. Keep the headset on-face or leave the keep-awake proximity override active
+   while probing. Otherwise the return path can go stale between steps.
+4. Start controller breath-volume calibration from the GUI.
+5. Finish calibration and visually confirm that the runtime behaved as
    expected.
-5. Send a dedicated `Reset Calibration` GUI command so the experimenter's
+6. Send a dedicated `Reset Calibration` GUI command so the experimenter's
    calibration cannot leak into the participant run.
-6. Send `Particles Off`.
-7. Place the headset in the exact starting position for the participant.
+7. Send `Particles Off`.
+8. Place the headset in the exact starting position for the participant.
 8. Put the headset to sleep with the physical power button.
 
 ### 4. Participant start

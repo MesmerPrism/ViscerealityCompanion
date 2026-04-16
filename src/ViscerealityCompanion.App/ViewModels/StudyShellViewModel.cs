@@ -37,12 +37,16 @@ internal sealed record RecordingSampleSnapshot(
     DateTimeOffset SourceTimestampUtc,
     string QuestSelector);
 
+internal sealed record WorkflowGuideHazardState(
+    OperationOutcomeKind Level,
+    string Summary,
+    string Detail);
+
 public sealed class StudyShellViewModel : ObservableObject, IDisposable
 {
     private const int WorkflowTabIndex = 0;
     private const int PreSessionTabIndex = 1;
     private const int WindowsEnvironmentTabIndex = 6;
-    private const int ProximityDisableDurationMs = 8 * 60 * 60 * 1000;
     // Keep verified-baseline tracking in code, but do not surface it in the operator shell for now.
     private static bool SurfaceVerifiedBaselineInShell => false;
     private const string TestSenderHeartbeatMode = "3";
@@ -274,7 +278,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _proximitySummary = "Proximity sensor state has not been checked yet.";
     private string _proximityDetail = "Quest vrpowermanager readback will appear here once the shell can reach the active headset selector.";
     private string _proximityEvidenceLabel = "Latest readback n/a.";
-    private string _proximityActionLabel = "Disable for 8h";
+    private string _proximityActionLabel = "Disable Proximity";
     private string _benchToolsSummary = "Bench tools need attention before bench checks.";
     private string _questScreenshotSummary = "No Quest screenshot captured yet.";
     private string _questScreenshotDetail = "Capture a Quest screenshot whenever the visible headset scene needs confirmation.";
@@ -295,6 +299,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _diagnosticsReportFolderPath = string.Empty;
     private string _diagnosticsReportPdfPath = string.Empty;
     private string _questTwinStatePublisherInventoryDetail = "Quest twin-state outlet inventory has not run yet.";
+    private QuestTwinStatePublisherInventory _questTwinStatePublisherInventory = new(
+        OperationOutcomeKind.Preview,
+        "Quest twin-state outlet inventory has not run yet.",
+        "The probe has not inspected Windows-visible Quest twin-state publishers yet.",
+        AnyPublisherVisible: false,
+        ExpectedPublisherVisible: false,
+        ExpectedSourceId: string.Empty,
+        ExpectedSourceIdPrefix: string.Empty,
+        VisiblePublishers: []);
     private string _windowsEnvironmentCardSummary = "Run the dedicated Windows environment checks before blaming the headset.";
     private string _windowsEnvironmentCardDetail = "Use the dedicated Windows environment page to inspect managed tooling, liblsl, machine-visible LSL streams, and the host-visible operator-data paths exported by the guided installer.";
     private string _testLslSenderSummary = "Windows TEST sender off.";
@@ -2311,8 +2324,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         => IsParticlesToggleState == true ? "Particles Off" : "Particles On";
 
     public bool CanToggleProximity
-        => _hzdbService.IsAvailable
-            && !string.IsNullOrWhiteSpace(ResolveHeadsetActionSelector());
+        => !string.IsNullOrWhiteSpace(ResolveHeadsetActionSelector());
 
     public bool CanToggleTestLslSender
         => _testLslSignalService.IsRunning
@@ -2628,6 +2640,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         await DispatchAsync(() =>
         {
+            _questTwinStatePublisherInventory = inventory;
             _questTwinStatePublisherInventoryDetail = QuestTwinStatePublisherInventoryService.RenderForOperator(inventory);
         }).ConfigureAwait(false);
     }
@@ -3336,10 +3349,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             outcome).ConfigureAwait(false);
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
+            await DispatchAsync(() =>
+            {
+                var selector = ResolveHeadsetActionSelector();
+                if (!string.IsNullOrWhiteSpace(selector))
+                {
+                    _appSessionState = _appSessionState.WithTrackedProximity(selector, expectedEnabled: false, disableUntilUtc: null);
+                    _appSessionState.Save();
+                    RefreshBenchToolsStatus();
+                }
+            }).ConfigureAwait(false);
             await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         }
 
         await RefreshStatusAsync().ConfigureAwait(false);
+        if (outcome.Kind != OperationOutcomeKind.Failure)
+        {
+            await RefreshProximityStatusAsync(force: true).ConfigureAwait(false);
+        }
 
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
@@ -3640,44 +3667,32 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private async Task ToggleProximityAsync()
     {
         await TryWakeHeadsetBeforeStudyActionAsync("Toggle proximity hold").ConfigureAwait(false);
-        var selector = await DispatchAsync(ResolveHzdbSelector).ConfigureAwait(false);
-        if (!_hzdbService.IsAvailable)
-        {
-            await ApplyOutcomeAsync(
-                "Toggle proximity",
-                new OperationOutcome(
-                    OperationOutcomeKind.Preview,
-                    "hzdb not available.",
-                    "Run guided setup or install the official Quest tooling cache before using the experiment-shell proximity hold.")).ConfigureAwait(false);
-            return;
-        }
-
+        var selector = await DispatchAsync(ResolveHeadsetActionSelector).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(selector))
         {
             await DispatchAsync(() => AppendLog(
                 OperatorLogLevel.Warning,
                 "Proximity hold blocked.",
-                "Probe USB or connect the Quest first so the shell has a selector for hzdb.")).ConfigureAwait(false);
+                "Probe USB or connect the Quest first so the shell has a live Quest selector for the proximity broadcast.")).ConfigureAwait(false);
             return;
         }
 
         var liveStatus = await RefreshProximityStatusAsync(force: true).ConfigureAwait(false);
         var tracked = await DispatchAsync(() => _appSessionState.GetTrackedProximity(selector)).ConfigureAwait(false);
-        var disableHoldIsActive = liveStatus?.Available == true
-            ? liveStatus.HoldActive
-            : tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired;
-        var enable = disableHoldIsActive;
-        var actionLabel = enable ? "Enable Proximity" : "Disable Proximity For 8h";
-        var disableUntilUtc = enable ? (DateTimeOffset?)null : DateTimeOffset.UtcNow.AddMilliseconds(ProximityDisableDurationMs);
-        var outcome = await _hzdbService
-            .SetProximityAsync(selector, enabled: enable, durationMs: enable ? null : ProximityDisableDurationMs)
+        var disableHoldIsActive = IsProximityBypassExpected(tracked, liveStatus);
+        var enableNormalProximity = disableHoldIsActive;
+        var actionLabel = enableNormalProximity ? "Enable Proximity" : "Disable Proximity";
+        var outcome = await _questService
+            .RunUtilityAsync(
+                enableNormalProximity ? QuestUtilityAction.EnableProximity : QuestUtilityAction.DisableProximity,
+                allowWakeResumeTarget: false)
             .ConfigureAwait(false);
 
         if (outcome.Kind == OperationOutcomeKind.Success)
         {
             await DispatchAsync(() =>
             {
-                _appSessionState = _appSessionState.WithTrackedProximity(selector, enable, disableUntilUtc);
+                _appSessionState = _appSessionState.WithTrackedProximity(selector, expectedEnabled: enableNormalProximity, disableUntilUtc: null);
                 _appSessionState.Save();
                 RefreshBenchToolsStatus();
             }).ConfigureAwait(false);
@@ -7014,14 +7029,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return "The last control broadcast is a timed virtual-close hold, so normal wear-sensor sleep is bypassed.";
         }
 
+        if (string.Equals(status.LastBroadcastAction, "prox_close", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(status.VirtualState, "CLOSE", StringComparison.OrdinalIgnoreCase))
+        {
+            return "The last control broadcast is a direct prox_close override, so the virtual wear sensor is being held closed until normal proximity is restored.";
+        }
+
         if (string.Equals(status.LastBroadcastAction, "prox_close", StringComparison.OrdinalIgnoreCase))
         {
-            return "The last control broadcast is a normal prox_close event with no timed hold, so this is not a forced bypass.";
+            return "The last control broadcast requested virtual close, but the latest vrpowermanager readback no longer shows a forced close state.";
         }
 
         if (string.Equals(status.LastBroadcastAction, "automation_disable", StringComparison.OrdinalIgnoreCase))
         {
             return "The last control broadcast cleared automation control, so the physical wear sensor is in charge again.";
+        }
+
+        if (string.Equals(status.VirtualState, "CLOSE", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Quest vrpowermanager still reports the virtual wear sensor as forced closed, so off-face wear-sensor sleep is bypassed until that state is cleared.";
         }
 
         return "No recent proximity control broadcast was parsed, so the shell is relying on the latest vrpowermanager state lines.";
@@ -7095,13 +7121,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : "Proximity bypass is active, but it only affects wear-sensor sleep and does not keep the display awake after a manual power-button sleep.";
         }
 
-        if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired && tracked.DisableUntilUtc.HasValue)
+        if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired)
         {
-            return $"Companion still expects a proximity bypass until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}, but headset sleep/wake is tracked separately from that hold.";
+            return tracked.DisableUntilUtc.HasValue
+                ? $"Companion still expects a proximity bypass until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}, but headset sleep/wake is tracked separately from that hold."
+                : "Companion still expects the keep-awake proximity override to be active, but headset sleep/wake is tracked separately from that hold.";
         }
 
         return "Headset sleep/wake is tracked separately from the proximity setting.";
     }
+
+    private static bool IsProximityBypassExpected(TrackedQuestProximityState tracked, QuestProximityStatus? liveStatus)
+        => liveStatus?.HoldActive == true
+            || (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired);
 
     private void UpdatePinnedBuildCardState()
     {
@@ -9964,22 +9996,22 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 "Cover the participant position, the experimenter position, and the full experiment area before using Next."),
             7 => (
                 "Launch Sussex in kiosk mode.",
-                $"{LaunchSleepBlockInstruction} {LaunchVisualBlockInstruction} Wake the right controller first, confirm the connection still shows the Wi-Fi endpoint before launching, and do not rely on kiosk to disable the controller Meta/menu button on the current Meta OS build."),
+                $"{LaunchSleepBlockInstruction} {LaunchVisualBlockInstruction} Disable proximity before launching, wake the right controller first, confirm the connection still shows the Wi-Fi endpoint, and do not rely on kiosk to disable the controller Meta/menu button on the current Meta OS build."),
             8 => (
                 "Turn on the test LSL sender if needed, then run Probe Connection or Analyze Windows Environment.",
-                "Probe Connection checks the headset path. Analyze Windows Environment checks the Windows tooling, liblsl runtimes, twin bridge, and whether the expected upstream sender is visible on this PC."),
+                "Probe Connection checks the headset path. Analyze Windows Environment checks the Windows tooling, liblsl runtimes, twin bridge, and whether the expected upstream sender is visible on this PC. Keep the headset on-face or leave the keep-awake proximity override active while you probe."),
             9 => (
                 "Send Particles On, confirm visually, then send Particles Off.",
-                "This is still a recommended bench-confidence check even though it no longer blocks the guide."),
+                "This is still a recommended bench-confidence check even though it no longer blocks the guide. If the headset is off-face, keep the proximity override active or the return path can go stale between screenshots."),
             10 => (
                 "Choose the calibration mode you want, then start calibration only if you need the optional bench readback.",
-                "Dynamic motion axis solves the axis from recorded movement. Fixed controller orientation keeps the warmed-up controller axis. Calibration remains optional on the current Sussex path."),
+                "Dynamic motion axis solves the axis from recorded movement. Fixed controller orientation keeps the warmed-up controller axis. Calibration remains optional on the current Sussex path, but wake/proximity drift can still make the telemetry verdict look unstable."),
             11 => (
                 "Enter a temporary validation id and run the 20 second capture.",
-                "This step uses the dedicated validation card below rather than the generic action buttons."),
+                "This step uses the dedicated validation card below rather than the generic action buttons. Keep the headset awake through the capture so the recorder and twin-state do not stall mid-run."),
             _ => (
                 "Reset calibration and leave particles off.",
-                "Open Experiment Session or return to the main runtime tab with a clean participant-ready state.")
+                "Open Experiment Session or return to the main runtime tab with a clean participant-ready state. Restore normal proximity later if you want the wear sensor back.")
         };
     }
 
@@ -10211,8 +10243,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var level = ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
         var launchBlockInstruction = BuildLaunchBlockInstruction();
         var detail = ready
-            ? $"Sussex Experiment is active in the foreground. {KioskMenuButtonAdvisory} If the controller was asleep at launch, wake it and relaunch before moving on."
-            : $"{(string.IsNullOrWhiteSpace(launchBlockInstruction) ? string.Empty : $"{launchBlockInstruction} ")}Wake the right controller, confirm the connection still shows the Wi-Fi endpoint, then launch kiosk mode. {KioskMenuButtonAdvisory}";
+            ? $"Sussex Experiment is active in the foreground. The launch path should already have armed the keep-awake proximity override. {KioskMenuButtonAdvisory} If the controller was asleep at launch, wake it and relaunch before moving on."
+            : $"{(string.IsNullOrWhiteSpace(launchBlockInstruction) ? string.Empty : $"{launchBlockInstruction} ")}Disable proximity, wake the right controller, confirm the connection still shows the Wi-Fi endpoint, then launch kiosk mode. {KioskMenuButtonAdvisory}";
         return new WorkflowGuideGateState(level, ready ? "Sussex runtime is active in kiosk." : "Sussex runtime is not active in kiosk yet.", detail, ready);
     }
 
@@ -10222,14 +10254,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         return new OperationOutcome(probeState.Level, probeState.Summary, probeState.Detail);
     }
 
-    private (OperationOutcomeKind Level, string Summary, string Detail, bool ReturnPathReady) BuildLslConnectionProbeState()
+    private (OperationOutcomeKind Level, string Summary, string Detail, bool InletReady, bool ReturnPathReady) BuildLslConnectionProbeState()
     {
+        var twinStatePublisherInventory = GetQuestTwinStatePublisherInventoryOrDefault();
         if (_headsetStatus?.IsConnected != true)
         {
             return (
                 OperationOutcomeKind.Failure,
                 "Quest is not reachable over ADB.",
                 "Probe Connection needs a live headset selector before it can inspect Sussex runtime routing. Reconnect USB or Wi-Fi ADB, then run the probe again.",
+                false,
                 false);
         }
 
@@ -10263,6 +10297,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var pinnedBuildReady = PinnedBuildLevel == OperationOutcomeKind.Success;
         var pinnedBuildBlocksProbe = PinnedBuildLevel == OperationOutcomeKind.Failure || InstalledApkLevel == OperationOutcomeKind.Failure;
         var deviceProfileReady = DeviceProfileLevel == OperationOutcomeKind.Success;
+        var hazardState = BuildTransportHazardState(inletReady, returnPathReady);
 
         var detail = BuildGuideDetailLines(
             ("Selector", string.IsNullOrWhiteSpace(selectorLabel) ? "n/a" : selectorLabel),
@@ -10281,7 +10316,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : _questTwinStatePublisherInventoryDetail),
             ("Command channel", $"{TwinCommandStreamName} / {TwinCommandStreamType}"),
             ("Hotload channel", $"{TwinConfigStreamName} / {TwinConfigStreamType}"),
-            ("Transport detail", BuildTwinCommandTransportDetail()));
+            ("Transport detail", BuildTwinCommandTransportDetail()),
+            ("Potential hazards", hazardState.Detail));
 
         if (pinnedBuildBlocksProbe)
         {
@@ -10289,6 +10325,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 OperationOutcomeKind.Failure,
                 "Pinned Sussex APK is not installed or does not match the study shell baseline.",
                 detail + " Install the pinned Sussex APK before debugging LSL.",
+                inletReady,
                 false);
         }
 
@@ -10314,15 +10351,26 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 pinnedBuildReady && deviceProfileReady ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
                 successSummary,
                 successDetail,
+                inletReady,
                 pinnedBuildReady && deviceProfileReady);
         }
 
         if (inletReady)
         {
+            var summary = _headsetStatus?.IsAwake == false
+                ? "Quest inlet is connected, but the headset is asleep and the Windows return path is stale."
+                : _headsetStatus?.IsInWakeLimbo == true
+                    ? "Quest inlet is connected, but Guardian or tracking-loss is blocking a fresh Windows return path."
+                : IsStudyRuntimeForeground() && !twinStatePublisherInventory.ExpectedPublisherVisible
+                ? "Quest inlet is connected, but the Quest twin-state publisher stalled or became undiscoverable."
+                : !IsStudyRuntimeForeground()
+                    ? "Quest inlet is connected, but Sussex is not foregrounded and the Windows return path is stale."
+                    : "Quest inlet is connected, but Windows is not receiving a fresh return path yet.";
             return (
                 OperationOutcomeKind.Warning,
-                "Quest inlet is connected, but Windows is not receiving a fresh return path yet.",
+                summary,
                 detail + testSenderHint,
+                inletReady,
                 false);
         }
 
@@ -10332,15 +10380,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 OperationOutcomeKind.Warning,
                 "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet.",
                 detail + testSenderHint,
+                inletReady,
                 false);
         }
 
         return (
             IsStudyRuntimeForeground() ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning,
-            IsStudyRuntimeForeground()
-                ? "Sussex is in front, but neither the LSL inlet nor the Windows return path is confirmed."
-                : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.",
+            !IsStudyRuntimeForeground()
+                ? "Sussex is not foregrounded, so neither the LSL inlet nor the Windows return path is confirmed."
+                : !twinStatePublisherInventory.AnyPublisherVisible
+                    ? "Sussex is in front, but the Quest twin-state publisher is absent and the inlet is not confirmed."
+                    : "Sussex is in front, but neither the LSL inlet nor the Windows return path is confirmed.",
             detail + testSenderHint,
+            inletReady,
             false);
     }
 
@@ -10364,6 +10416,227 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var probeState = BuildLslConnectionProbeState();
         return new WorkflowGuideCheckItem("Windows return path", probeState.Summary, probeState.Detail, probeState.Level);
     }
+
+    private WorkflowGuideCheckItem BuildLslHazardsWorkflowGuideCheckItem()
+    {
+        var probeState = BuildLslConnectionProbeState();
+        var hazardState = BuildTransportHazardState(probeState.InletReady, probeState.ReturnPathReady);
+        return new WorkflowGuideCheckItem("Potential hazards", hazardState.Summary, hazardState.Detail, hazardState.Level);
+    }
+
+    private WorkflowGuideCheckItem BuildReconnectTargetWorkflowGuideCheckItem()
+    {
+        var reconnectState = EvaluateReconnectTargetGuideState();
+        return new WorkflowGuideCheckItem("Reconnect target", reconnectState.Summary, reconnectState.Detail, reconnectState.Level);
+    }
+
+    private WorkflowGuideHazardState EvaluateReconnectTargetGuideState()
+    {
+        var savedReconnectTarget = GetSavedReconnectTarget();
+        if (string.IsNullOrWhiteSpace(savedReconnectTarget))
+        {
+            return new WorkflowGuideHazardState(
+                OperationOutcomeKind.Warning,
+                "Reconnect target not saved yet.",
+                "If Wi-Fi ADB does not fully switch over, run Connect Quest once the companion has a reconnect target.");
+        }
+
+        if (_headsetStatus?.IsConnected != true || _headsetStatus.IsWifiAdbTransport != true)
+        {
+            return new WorkflowGuideHazardState(
+                OperationOutcomeKind.Success,
+                "Reconnect target is saved.",
+                $"Saved reconnect target {savedReconnectTarget}. The companion can reuse it if the Wi-Fi ADB session drops later.");
+        }
+
+        var liveSelector = _headsetStatus.ConnectionLabel;
+        var savedIp = ExtractIpAddressFromSelector(savedReconnectTarget);
+        var liveIp = ExtractIpAddressFromSelector(liveSelector);
+        var headsetWifiIp = _headsetStatus.HeadsetWifiIpAddress;
+        var ipMismatch = !string.IsNullOrWhiteSpace(savedIp) &&
+                         (!string.IsNullOrWhiteSpace(liveIp) && !string.Equals(savedIp, liveIp, StringComparison.OrdinalIgnoreCase) ||
+                          !string.IsNullOrWhiteSpace(headsetWifiIp) && !string.Equals(savedIp, headsetWifiIp, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.Equals(savedReconnectTarget, liveSelector, StringComparison.OrdinalIgnoreCase) || ipMismatch)
+        {
+            return new WorkflowGuideHazardState(
+                OperationOutcomeKind.Warning,
+                "Reconnect target is stale.",
+                $"Saved reconnect target {savedReconnectTarget} differs from the live ADB selector {liveSelector}. Headset Wi-Fi IP {FormatOptionalValue(headsetWifiIp, "n/a")}. This usually means the headset's DHCP/IP changed or the remembered endpoint is stale. Run Connect Quest before continuing so recovery actions target the current headset endpoint.");
+        }
+
+        return new WorkflowGuideHazardState(
+            OperationOutcomeKind.Success,
+            "Reconnect target matches the current Quest endpoint.",
+            $"Saved reconnect target {savedReconnectTarget} matches the live Wi-Fi ADB selector.");
+    }
+
+    private WorkflowGuideHazardState BuildTransportHazardState(bool inletReady, bool returnPathReady)
+    {
+        var twinStatePublisherInventory = GetQuestTwinStatePublisherInventoryOrDefault();
+        if (_headsetStatus?.IsConnected != true)
+        {
+            return new WorkflowGuideHazardState(
+                OperationOutcomeKind.Warning,
+                "Quest link is unavailable.",
+                "Reconnect the headset over Wi-Fi ADB before relying on live LSL or twin-state diagnostics.");
+        }
+
+        var hazardLevel = OperationOutcomeKind.Success;
+        var hazardSummary = "No live transport hazards detected.";
+        var hazardDetails = new List<string>();
+        var liveSelector = _headsetStatus.ConnectionLabel;
+        var selectedSelector = ResolveHeadsetActionSelector();
+        var savedReconnectTarget = GetSavedReconnectTarget();
+        var headsetWifiIp = _headsetStatus.HeadsetWifiIpAddress;
+
+        void AddHazard(OperationOutcomeKind level, string summary, string detail)
+        {
+            if (GetOutcomeSeverity(level) > GetOutcomeSeverity(hazardLevel))
+            {
+                hazardLevel = level;
+                hazardSummary = summary;
+            }
+
+            hazardDetails.Add(detail);
+        }
+
+        if (_headsetStatus.IsWifiAdbTransport && _headsetStatus.IsUsbAdbVisible)
+        {
+            AddHazard(
+                OperationOutcomeKind.Warning,
+                "USB visibility can destabilize the Wi-Fi ADB session.",
+                $"USB {FormatOptionalValue(_headsetStatus.VisibleUsbSerial, "ADB")} is visible again while the study path is using Wi-Fi ADB on {liveSelector}. Reconnecting USB can restart ADB, break kiosk/task lock, or leave the remembered Wi-Fi endpoint stale.");
+        }
+
+        if (_headsetStatus.IsWifiAdbTransport &&
+            !string.IsNullOrWhiteSpace(savedReconnectTarget) &&
+            LooksLikeTcpSelector(savedReconnectTarget) &&
+            !string.Equals(savedReconnectTarget, liveSelector, StringComparison.OrdinalIgnoreCase))
+        {
+            AddHazard(
+                OperationOutcomeKind.Warning,
+                "Saved reconnect target does not match the current Quest endpoint.",
+                $"Saved reconnect target {savedReconnectTarget} differs from the live ADB selector {liveSelector}. This usually means the headset's Wi-Fi IP changed or the remembered endpoint is stale.");
+        }
+
+        var selectedSelectorIp = ExtractIpAddressFromSelector(selectedSelector);
+        if (_headsetStatus.IsWifiAdbTransport &&
+            !string.IsNullOrWhiteSpace(headsetWifiIp) &&
+            !string.IsNullOrWhiteSpace(selectedSelectorIp) &&
+            !string.Equals(selectedSelectorIp, headsetWifiIp, StringComparison.OrdinalIgnoreCase))
+        {
+            AddHazard(
+                OperationOutcomeKind.Warning,
+                "The companion is about to use a stale Quest Wi-Fi endpoint.",
+                $"The current action selector {selectedSelector} does not match the headset-reported Wi-Fi IP {headsetWifiIp}. This can happen after DHCP/IP changes or an ADB daemon reset. Run Connect Quest before probing or relaunching so actions target the current endpoint.");
+        }
+
+        if (_headsetStatus.IsAwake == false)
+        {
+            AddHazard(
+                OperationOutcomeKind.Warning,
+                "The headset is asleep.",
+                "Quest power state is asleep. Keep the headset on-face or re-arm the keep-awake proximity override before relying on LSL, twin-state, particle, or calibration checks.");
+        }
+
+        if (_headsetStatus.IsInWakeLimbo)
+        {
+            AddHazard(
+                OperationOutcomeKind.Warning,
+                "Guardian or tracking loss is blocking the visible scene.",
+                "Quest reports a Guardian, tracking-loss, or ClearActivity blocker in front of Sussex. Clear it or confirm the visible scene with a fresh screenshot before trusting the live return path.");
+        }
+
+        if (!IsStudyRuntimeForeground())
+        {
+            AddHazard(
+                OperationOutcomeKind.Failure,
+                "Sussex is backgrounded by the Meta shell or another app.",
+                $"ADB snapshot shows {FormatOptionalValue(_headsetStatus.ForegroundPackageId, "an unknown foreground app")} instead of {_study.App.PackageId}. When Sussex is not in front it can stop publishing quest_twin_state, so return-path failures in this state are expected until the app is relaunched.");
+        }
+
+        if (IsStudyRuntimeForeground() && IsProximityKeepAwakeActive() != true)
+        {
+            AddHazard(
+                OperationOutcomeKind.Warning,
+                "Keep-awake proximity override is not active.",
+                "The live Sussex flow now expects the prox_close keep-awake override through launch and bench validation. On this Quest build the active override reads as virtual proximity state CLOSE, while restored normal wear-sensor behavior reads as DISABLED after automation_disable. Without the override the headset can drift into sleep or stale-twin-state conditions between guide steps even while Sussex stays foregrounded.");
+        }
+
+        if (IsStudyRuntimeForeground() && inletReady && !returnPathReady)
+        {
+            AddHazard(
+                OperationOutcomeKind.Warning,
+                !twinStatePublisherInventory.ExpectedPublisherVisible
+                    ? "Quest twin-state publisher stalled or became undiscoverable."
+                    : "Quest twin-state is stale even though the inlet is connected.",
+                !twinStatePublisherInventory.ExpectedPublisherVisible
+                    ? "Sussex still reports the expected HRV inlet as connected, but Windows cannot see a fresh quest_twin_state publisher from the Sussex source_id. This is a separate failure mode from a missing inlet or a backgrounded APK."
+                    : "The Quest-side inlet is still connected, but the return-path frame age exceeded 5 seconds. Keep the headset on-face, avoid USB reconnects, and relaunch Sussex if fresh frames do not resume.");
+        }
+        else if (IsStudyRuntimeForeground() && !inletReady && returnPathReady)
+        {
+            AddHazard(
+                OperationOutcomeKind.Warning,
+                "Quest twin-state is live, but Sussex has not connected the expected inlet.",
+                "The return path is healthy, so focus next on the upstream HRV sender and inlet selection rather than on Quest foreground or twin-state publishing.");
+        }
+
+        return hazardDetails.Count == 0
+            ? new WorkflowGuideHazardState(
+                OperationOutcomeKind.Success,
+                "No live transport hazards detected.",
+                "No selector drift, USB reconnect risk, or twin-state publication hazard is visible in the current snapshot.")
+            : new WorkflowGuideHazardState(hazardLevel, hazardSummary, string.Join(" ", hazardDetails));
+    }
+
+    private string GetSavedReconnectTarget()
+    {
+        var endpointDraft = string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim();
+        if (!string.IsNullOrWhiteSpace(endpointDraft))
+        {
+            return endpointDraft;
+        }
+
+        return _appSessionState.ActiveEndpoint ?? string.Empty;
+    }
+
+    private static int GetOutcomeSeverity(OperationOutcomeKind level)
+        => level switch
+        {
+            OperationOutcomeKind.Failure => 3,
+            OperationOutcomeKind.Warning => 2,
+            OperationOutcomeKind.Success => 1,
+            _ => 0
+        };
+
+    private static string ExtractIpAddressFromSelector(string? selector)
+    {
+        if (!LooksLikeTcpSelector(selector))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = selector!.Trim();
+        var separatorIndex = trimmed.LastIndexOf(':');
+        return separatorIndex > 0 ? trimmed[..separatorIndex] : trimmed;
+    }
+
+    private static string FormatOptionalValue(string? value, string fallback)
+        => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+
+    private QuestTwinStatePublisherInventory GetQuestTwinStatePublisherInventoryOrDefault()
+        => _questTwinStatePublisherInventory
+           ?? new QuestTwinStatePublisherInventory(
+               OperationOutcomeKind.Preview,
+               "Quest twin-state outlet inventory has not run yet.",
+               "The probe has not inspected Windows-visible Quest twin-state publishers yet.",
+               AnyPublisherVisible: false,
+               ExpectedPublisherVisible: false,
+               ExpectedSourceId: string.Empty,
+               ExpectedSourceIdPrefix: string.Empty,
+               VisiblePublishers: []);
 
     private string BuildLslReceiptWorkflowGuideDetail()
         => BuildGuideDetailLines(
@@ -10559,7 +10832,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             1 =>
             [
                 new WorkflowGuideCheckItem("Wi-Fi ADB path", BuildWifiAdbGuideSummary(), BuildWifiAdbGuideDetail(), _headsetStatus?.IsWifiAdbTransport == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
-                new WorkflowGuideCheckItem("Reconnect target", string.IsNullOrWhiteSpace(EndpointDraft) ? "Reconnect target not saved yet." : "Reconnect target is saved.", string.IsNullOrWhiteSpace(EndpointDraft) ? "If Wi-Fi ADB does not fully switch over, run Connect Quest once the companion has a reconnect target." : "The companion has a saved reconnect target ready if the Wi-Fi session drops later.", string.IsNullOrWhiteSpace(EndpointDraft) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
+                BuildReconnectTargetWorkflowGuideCheckItem()
             ],
             2 =>
             [
@@ -10588,23 +10861,27 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             7 =>
             [
-                new WorkflowGuideCheckItem("Headset wake", HeadsetAwakeSummary, HeadsetAwakeDetail, HeadsetAwakeLevel),
+                BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
                 new WorkflowGuideCheckItem("Foreground runtime", IsStudyRuntimeForeground() ? "Sussex Experiment is in the foreground." : "Sussex Experiment is not in the foreground yet.", HeadsetForegroundLabel, IsStudyRuntimeForeground() ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
                 new WorkflowGuideCheckItem("Controller wake reminder", BuildControllerWakeReminderSummary(), BuildControllerWakeReminderDetail(), BuildControllerWakeReminderLevel())
             ],
             8 =>
             [
+                BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
                 new WorkflowGuideCheckItem("LSL receipt", LslSummary, BuildLslReceiptWorkflowGuideDetail(), LslLevel),
                 new WorkflowGuideCheckItem("Expected vs connected stream", $"Expected {LslExpectedStreamLabel}", BuildLslStreamWorkflowGuideDetail(), LslLevel),
-                BuildLslReturnPathWorkflowGuideCheckItem()
+                BuildLslReturnPathWorkflowGuideCheckItem(),
+                BuildLslHazardsWorkflowGuideCheckItem()
             ],
             9 =>
             [
+                BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
                 new WorkflowGuideCheckItem("Particle commands", particleCommandSummary, ParticlesDetail, _workflowGuideParticlesOnVerified && _workflowGuideParticlesOffVerified && ParticlesLevel == OperationOutcomeKind.Success ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
                 new WorkflowGuideCheckItem("Runtime particle state", ParticlesSummary, "The particle step remains recommended for bench confidence, but it no longer blocks the guide.", ToAdvisoryLevel(ParticlesLevel))
             ],
             10 =>
             [
+                BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
                 new WorkflowGuideCheckItem(
                     "Calibration setup",
                     _controllerBreathingProfiles?.CalibrationModeSummary ?? "Calibration setup not loaded yet.",
@@ -10623,11 +10900,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             11 =>
             [
+                BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
                 new WorkflowGuideCheckItem("Validation capture", ValidationCaptureSummary, ValidationCaptureDetail, ValidationCaptureCompleted ? OperationOutcomeKind.Success : ValidationCaptureRunning ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning),
                 new WorkflowGuideCheckItem("Recorder state", RecordingSummary, RecordingDetail, RecordingLevel)
             ],
             _ =>
             [
+                BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
                 new WorkflowGuideCheckItem("Reset calibration", "Use Reset Calibration before the real participant enters the headset.", "This prevents the experimenter's calibration from being reused accidentally.", CanResetBreathingCalibration ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning),
                 new WorkflowGuideCheckItem("Particles off", ParticlesSummary, "Leave particles off before returning to the main runtime tab.", ParticlesLevel)
             ]
@@ -10670,6 +10949,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             [],
             7 =>
             [
+                BuildWorkflowGuideActionItem(
+                    string.IsNullOrWhiteSpace(ProximityActionLabel) ? "Disable Proximity" : ProximityActionLabel,
+                    ToggleProximityCommand,
+                    CanToggleProximity,
+                    $"{(string.IsNullOrWhiteSpace(ProximityActionLabel) ? "Disable Proximity" : ProximityActionLabel)}...",
+                    stateIsOn: IsProximityKeepAwakeActive()),
                 BuildWorkflowGuideActionItem(WorkflowGuideLaunchActionLabel, LaunchStudyAppCommand, CanLaunchStudyRuntime, "Launching Kiosk Runtime..."),
                 BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
             ],
@@ -10718,6 +11003,75 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             command.IsRunning,
             stateIsOn,
             actionIsEnabling);
+    }
+
+    private WorkflowGuideCheckItem BuildHeadsetWakeAndProximityWorkflowGuideCheckItem()
+    {
+        var proximityState = EvaluateKeepAwakeProximityGuideState();
+        var level = GetOutcomeSeverity(HeadsetAwakeLevel) >= GetOutcomeSeverity(proximityState.Level)
+            ? HeadsetAwakeLevel
+            : proximityState.Level;
+        var summary = GetOutcomeSeverity(HeadsetAwakeLevel) >= GetOutcomeSeverity(proximityState.Level)
+            ? HeadsetAwakeSummary
+            : proximityState.Summary;
+        var detail = BuildGuideDetailLines(
+            ("Wake state", $"{HeadsetAwakeSummary} {HeadsetAwakeDetail}".Trim()),
+            ("Keep-awake proximity", $"{proximityState.Summary} {proximityState.Detail}".Trim()));
+        return new WorkflowGuideCheckItem("Headset wake + proximity", summary, detail, level);
+    }
+
+    private WorkflowGuideHazardState EvaluateKeepAwakeProximityGuideState()
+    {
+        var selector = !string.IsNullOrWhiteSpace(_liveProximitySelector)
+            ? _liveProximitySelector
+            : ResolveHeadsetActionSelector();
+
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return new WorkflowGuideHazardState(
+                OperationOutcomeKind.Warning,
+                "Quest selector needed for keep-awake proximity.",
+                "Probe USB or reconnect Wi-Fi ADB before relying on the keep-awake proximity override.");
+        }
+
+        var tracked = _appSessionState.GetTrackedProximity(selector);
+        var liveStatus = string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
+            ? _liveProximityStatus
+            : null;
+
+        if (IsProximityBypassExpected(tracked, liveStatus))
+        {
+            return new WorkflowGuideHazardState(
+                OperationOutcomeKind.Success,
+                liveStatus?.HoldActive == true
+                    ? "Keep-awake proximity override is active."
+                    : "Keep-awake proximity override is expected.",
+                liveStatus?.HoldActive == true
+                    ? "Quest vrpowermanager readback confirms the prox_close keep-awake override. On this build that means virtual proximity state CLOSE rather than DISABLED, so off-face wear-sensor sleep should not interrupt launch or later guide steps."
+                    : "The companion is already tracking a keep-awake proximity override for this headset selector. Refresh the snapshot if you want fresh Quest vrpowermanager confirmation.");
+        }
+
+        return new WorkflowGuideHazardState(
+            OperationOutcomeKind.Warning,
+            "Keep-awake proximity override is not active.",
+            "Disable proximity before launching Sussex and keep it active through the remaining guide steps. On this build, normal restored wear-sensor behavior reads as virtual proximity state DISABLED after automation_disable; the active override reads as CLOSE after prox_close. Without the override the headset can slip into sleep or stale-twin-state conditions even while Sussex stays foregrounded.");
+    }
+
+    private bool? IsProximityKeepAwakeActive()
+    {
+        var selector = !string.IsNullOrWhiteSpace(_liveProximitySelector)
+            ? _liveProximitySelector
+            : ResolveHeadsetActionSelector();
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return null;
+        }
+
+        var tracked = _appSessionState.GetTrackedProximity(selector);
+        var liveStatus = string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
+            ? _liveProximityStatus
+            : null;
+        return IsProximityBypassExpected(tracked, liveStatus);
     }
 
     private string BuildControllerWakeReminderSummary()
@@ -11186,7 +11540,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : "Boundary setup and kiosk entry are still pending.";
         WorkflowKioskDetail =
             $"{HeadsetAwakeSummary} {ControllerSummary} {(string.IsNullOrWhiteSpace(BuildLaunchBlockInstruction()) ? string.Empty : $"{BuildLaunchBlockInstruction()} ")}Keep watching the connection card so the guided path stays on the Wi-Fi endpoint used during the study. {KioskMenuButtonAdvisory} " +
-            "Use the physical power button for off-face sleep/wake and keep proximity in normal mode during the standard kiosk path.";
+            "The launch path now disables the proximity wear-sensor before Sussex starts. Keep that keep-awake override active through the guide, then restore normal proximity when you are done with the live session.";
 
         WorkflowBenchLevel = !runtimeForeground
             ? OperationOutcomeKind.Preview
@@ -12416,20 +12770,26 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var selector = !string.IsNullOrWhiteSpace(_liveProximitySelector)
             ? _liveProximitySelector
             : ResolveHzdbSelector();
-        ProximityActionLabel = "Disable for 8h";
+        ProximityActionLabel = "Disable Proximity";
         ProximityEvidenceLabel = "Latest readback n/a.";
         var tracked = _appSessionState.GetTrackedProximity(selector);
         var liveStatus = string.Equals(_liveProximitySelector, selector, StringComparison.OrdinalIgnoreCase)
             ? _liveProximityStatus
             : null;
+        var trackedKeepAwakeExpected = IsProximityBypassExpected(tracked, liveStatus);
 
         UpdateHeadsetAwakeStatus(selector, tracked, liveStatus);
 
         if (!_hzdbService.IsAvailable)
         {
-            ProximityLevel = OperationOutcomeKind.Preview;
-            ProximitySummary = "Proximity hold unavailable.";
-            ProximityDetail = "Run guided setup or install the official Quest tooling cache before using the experiment-shell proximity hold.";
+            ProximityLevel = trackedKeepAwakeExpected ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview;
+            ProximityActionLabel = trackedKeepAwakeExpected ? "Enable Proximity" : "Disable Proximity";
+            ProximitySummary = trackedKeepAwakeExpected
+                ? "Keep-awake proximity override was requested."
+                : "Live proximity readback unavailable.";
+            ProximityDetail = trackedKeepAwakeExpected
+                ? "The companion requested the Quest Multi Stream-style prox_close keep-awake override, but live vrpowermanager readback is unavailable because hzdb is not available."
+                : "Run guided setup or install the official Quest tooling cache to read live Quest vrpowermanager proximity state. The direct ADB proximity broadcast still works when a headset selector is available.";
             ProximityEvidenceLabel = "Latest readback unavailable because hzdb is not available.";
             return;
         }
@@ -12450,9 +12810,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (liveStatus?.Available == true)
         {
             ProximityEvidenceLabel = BuildProximityEvidenceLabel(liveStatus);
-            var mountedCloseWithoutHold =
-                string.Equals(liveStatus.VirtualState, "CLOSE", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(liveStatus.HeadsetState, "HEADSET_MOUNTED", StringComparison.OrdinalIgnoreCase);
             var controlInterpretation = BuildProximityControlInterpretation(liveStatus);
 
             if (liveStatus.HoldActive)
@@ -12460,12 +12817,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ProximityLevel = OperationOutcomeKind.Success;
                 ProximityActionLabel = "Enable Proximity";
                 ProximitySummary = liveStatus.HoldUntilUtc.HasValue
-                    ? $"Proximity bypass active on headset until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
-                    : "Proximity bypass active on headset.";
+                    ? $"Keep-awake proximity override is active until {liveStatus.HoldUntilUtc.Value.ToLocalTime():HH:mm}."
+                    : "Keep-awake proximity override is active.";
                 ProximityDetail =
                     $"{controlInterpretation} Normal wear-sensor sleep is bypassed until the hold is cleared or expires. " +
-                    (tracked.Known && !tracked.ExpectedEnabled && tracked.DisableUntilUtc.HasValue
-                        ? $"Companion last requested a hold until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}."
+                    (tracked.Known && !tracked.ExpectedEnabled
+                        ? tracked.DisableUntilUtc.HasValue
+                            ? $"Companion last requested a hold until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}."
+                            : "Companion last requested the keep-awake override through the direct Quest proximity broadcast."
                         : "Quest readback is authoritative even if the hold was toggled outside the companion.");
                 return;
             }
@@ -12474,9 +12833,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ProximitySummary = "Normal proximity sensor behavior is active.";
             ProximityDetail =
                 $"{controlInterpretation} " +
-                (mountedCloseWithoutHold
-                    ? "The current CLOSE readback reflects a normal mounted/on-face state, not a forced bypass. "
-                    : string.Empty) +
                 (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired
                     ? "The last companion-tracked hold is no longer active, which usually means the headset rebooted or proximity was re-enabled outside the companion."
                     : tracked.Known
@@ -12493,16 +12849,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ProximityEvidenceLabel = "Latest readback unavailable; falling back to companion-tracked state.";
         }
 
-        if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired && tracked.DisableUntilUtc.HasValue)
+        if (tracked.Known && !tracked.ExpectedEnabled && !tracked.DisableWindowExpired)
         {
-            var untilLocal = tracked.DisableUntilUtc.Value.ToLocalTime();
             if (liveStatus is not { Available: false })
             {
                 ProximityLevel = OperationOutcomeKind.Warning;
-                ProximitySummary = $"Proximity sensor expected disabled until {untilLocal:HH:mm}.";
+                ProximitySummary = tracked.DisableUntilUtc.HasValue
+                    ? $"Proximity sensor expected disabled until {tracked.DisableUntilUtc.Value.ToLocalTime():HH:mm}."
+                    : "Keep-awake proximity override was requested.";
                 ProximityDetail =
-                    $"Companion last sent an 8h disable for {selector} at {updatedLabel}. " +
-                    "Waiting for a fresh Quest vrpowermanager readback.";
+                    tracked.DisableUntilUtc.HasValue
+                        ? $"Companion last sent a timed proximity disable for {selector} at {updatedLabel}. Waiting for a fresh Quest vrpowermanager readback."
+                        : $"Companion last sent the direct prox_close keep-awake override for {selector} at {updatedLabel}. Waiting for a fresh Quest vrpowermanager readback.";
             }
 
             ProximityActionLabel = "Enable Proximity";
@@ -13080,9 +13438,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var endpointDraft = string.IsNullOrWhiteSpace(EndpointDraft) ? null : EndpointDraft.Trim();
         var candidates = new List<string>(4);
 
-        AddSelectorCandidate(candidates, _appSessionState.ActiveEndpoint);
-        AddSelectorCandidate(candidates, endpointDraft);
         AddSelectorCandidate(candidates, connectedSelector);
+        AddSelectorCandidate(candidates, endpointDraft);
+        AddSelectorCandidate(candidates, _appSessionState.ActiveEndpoint);
         AddSelectorCandidate(candidates, _appSessionState.LastUsbSerial);
 
         return candidates;

@@ -25,6 +25,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     private const string QuestHomeActivity = "HomeActivity";
     private const string QuestMainActivity = "MainActivity";
     private const string QuestFocusPlaceholderActivity = "FocusPlaceholderActivity";
+    private const string SussexExperimentPackage = "com.Viscereality.SussexExperiment";
     private const string QuestSystemUxPackage = "com.oculus.systemux";
     private const string QuestVirtualObjectsActivity = "VirtualObjectsActivity";
     private const string QuestQuickSettingsPackage = "com.oculus.panelapp.settings";
@@ -523,7 +524,36 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             return wakeOutcome!;
         }
 
+        OperationOutcome? proximityOutcome = null;
+        if (string.Equals(target.PackageId, SussexExperimentPackage, StringComparison.OrdinalIgnoreCase))
+        {
+            proximityOutcome = await RunUtilityShellAsync(
+                "Keep-awake proximity override enabled.",
+                $"am broadcast -a {QuestVrPowerManagerProxCloseAction}",
+                cancellationToken).ConfigureAwait(false);
+            if (proximityOutcome.Kind != OperationOutcomeKind.Success)
+            {
+                return MergeWakeWarning(
+                    new OperationOutcome(
+                        proximityOutcome.Kind,
+                        $"Launch blocked for {target.Label}.",
+                        $"The launch path now requires the keep-awake proximity override before starting Sussex. {proximityOutcome.Detail}".Trim(),
+                        PackageId: target.PackageId),
+                    wakeOutcome);
+            }
+        }
+
         var launchOutcome = await LaunchAppCoreAsync(selector, target, cancellationToken).ConfigureAwait(false);
+        if (proximityOutcome is not null)
+        {
+            launchOutcome = new OperationOutcome(
+                launchOutcome.Kind,
+                launchOutcome.Summary,
+                $"Keep-awake proximity override applied via {QuestVrPowerManagerProxCloseAction}. {launchOutcome.Detail}".Trim(),
+                launchOutcome.Endpoint,
+                launchOutcome.PackageId,
+                launchOutcome.Items);
+        }
         if (launchOutcome.Kind == OperationOutcomeKind.Failure)
         {
             return MergeWakeWarning(launchOutcome, wakeOutcome);
@@ -1575,6 +1605,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             QuestUtilityAction.Back => await RunUtilityShellAsync("Back command sent.", "input keyevent 4", cancellationToken, wakeFirst: true).ConfigureAwait(false),
             QuestUtilityAction.Wake => await WakeHeadsetForVisualsAsync(selector, allowWakeResumeTarget, cancellationToken).ConfigureAwait(false),
             QuestUtilityAction.Sleep => await RunUtilityShellAsync("Sleep command sent.", "input keyevent 223", cancellationToken).ConfigureAwait(false),
+            QuestUtilityAction.DisableProximity => await RunUtilityShellAsync(
+                "Keep-awake proximity override enabled.",
+                $"am broadcast -a {QuestVrPowerManagerProxCloseAction}",
+                cancellationToken).ConfigureAwait(false),
+            QuestUtilityAction.EnableProximity => await RunUtilityShellAsync(
+                "Normal proximity behavior restored.",
+                $"am broadcast -a {QuestVrPowerManagerAutomationDisableAction}",
+                cancellationToken).ConfigureAwait(false),
             QuestUtilityAction.Reboot => await RunRebootAsync(cancellationToken).ConfigureAwait(false),
             QuestUtilityAction.ListInstalledPackages => await ListInstalledPackagesAsync(selector, cancellationToken).ConfigureAwait(false),
             _ => Failure("Unknown utility action.", action.ToString())

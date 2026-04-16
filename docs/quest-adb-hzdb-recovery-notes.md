@@ -1314,6 +1314,13 @@ Observed during a later off-face Sussex cleanup attempt on 2026-04-08:
 - even after renewed physical power-button attempts, the session still did not
   produce a dependable screenshot-confirmed Meta Home recovery
 
+Current proximity-state rule on this headset build:
+
+- `Virtual proximity state: CLOSE` means the direct `prox_close` override is
+  actively holding the virtual wear sensor closed.
+- `Virtual proximity state: DISABLED` means `automation_disable` restored
+  normal wear-sensor behavior.
+
 Updated practical rule:
 
 - do not use Sussex kiosk exit or `viscereality study stop sussex-university`

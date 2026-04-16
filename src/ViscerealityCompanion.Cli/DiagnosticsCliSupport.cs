@@ -256,16 +256,29 @@ internal static class DiagnosticsCliSupport
         var headsetForeground = string.Equals(headset.ForegroundPackageId, definition.App.PackageId, StringComparison.OrdinalIgnoreCase);
         var pinnedBuildReady = IsPinnedBuildReady(definition, installed);
         var deviceProfileReady = profileStatus.IsActive;
+        var selectorIp = ExtractIpAddressFromSelector(device);
+        var selectorDrift = !string.IsNullOrWhiteSpace(device) &&
+                            !string.IsNullOrWhiteSpace(headset.ConnectionLabel) &&
+                            !string.Equals(device, headset.ConnectionLabel, StringComparison.OrdinalIgnoreCase);
+        var selectorIpMismatch = !string.IsNullOrWhiteSpace(selectorIp) &&
+                                 !string.IsNullOrWhiteSpace(headset.HeadsetWifiIpAddress) &&
+                                 !string.Equals(selectorIp, headset.HeadsetWifiIpAddress, StringComparison.OrdinalIgnoreCase);
 
         var connectionSummary = inletReady && returnPathReady
             ? "Quest inlet is connected and the Windows return path is live."
             : inletReady
-                ? "Quest inlet is connected, but Windows is not receiving a fresh return path yet."
+                ? headsetForeground && !twinStatePublisher.ExpectedPublisherVisible
+                    ? "Quest inlet is connected, but the Quest twin-state publisher stalled or became undiscoverable."
+                    : headsetForeground
+                        ? "Quest inlet is connected, but Windows is not receiving a fresh return path yet."
+                        : "Quest inlet is connected, but Sussex is not foregrounded and the Windows return path is stale."
                 : returnPathReady
                     ? "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet."
-                    : headsetForeground
-                    ? "Sussex is in front, but neither the LSL inlet nor the Windows return path is confirmed."
-                    : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.";
+                    : !headsetForeground
+                        ? "Sussex is not foregrounded, so neither the LSL inlet nor the Windows return path is confirmed."
+                        : !twinStatePublisher.AnyPublisherVisible
+                            ? "Sussex is in front, but the Quest twin-state publisher is absent and the inlet is not confirmed."
+                            : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.";
 
         var connectionLevel = inletReady && returnPathReady
             ? OperationOutcomeKind.Success
@@ -297,13 +310,30 @@ internal static class DiagnosticsCliSupport
             detailParts.Add("Apply the Sussex study device profile before participant validation so Wi-Fi ADB, profile guards, and startup assumptions match the release baseline.");
         }
 
+        if (selectorDrift)
+        {
+            detailParts.Add($"Requested selector {device} does not match the live headset selector {headset.ConnectionLabel}. This points at a stale saved endpoint, a DHCP/IP change, or a selector that survived an ADB daemon reset.");
+        }
+
+        if (selectorIpMismatch)
+        {
+            detailParts.Add($"Requested selector IP {selectorIp} does not match the headset-reported Wi-Fi IP {headset.HeadsetWifiIpAddress}. Run Connect Quest or update the saved endpoint before relying on recovery actions.");
+        }
+
+        if (headset.IsWifiAdbTransport && headset.IsUsbAdbVisible)
+        {
+            detailParts.Add($"USB {FormatOptionalValue(headset.VisibleUsbSerial, "ADB")} is visible while the study path is on Wi-Fi ADB. Reconnecting USB can restart ADB, break kiosk/task lock, or leave the remembered endpoint stale.");
+        }
+
         if (!inletReady && returnPathReady)
         {
             detailParts.Add("The headset is publishing twin state back to Windows, but it has not reported an active Sussex inlet connection yet.");
         }
         else if (inletReady && !returnPathReady)
         {
-            detailParts.Add("Sussex reported an inlet connection, but the quest_twin_state return path is missing or stale on Windows.");
+            detailParts.Add(headsetForeground && !twinStatePublisher.ExpectedPublisherVisible
+                ? "Sussex reported an inlet connection, but the Quest twin-state publisher stalled or became undiscoverable on Windows. This is a separate failure mode from a missing inlet or a backgrounded APK."
+                : "Sussex reported an inlet connection, but the quest_twin_state return path is missing or stale on Windows.");
         }
         else if (!inletReady && !returnPathReady)
         {
@@ -441,6 +471,21 @@ internal static class DiagnosticsCliSupport
             ? ssid
             : $"{ssid} / {ipAddress}";
     }
+
+    private static string ExtractIpAddressFromSelector(string? selector)
+    {
+        if (string.IsNullOrWhiteSpace(selector) || !selector.Contains(":", StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = selector.Trim();
+        var separatorIndex = trimmed.LastIndexOf(':');
+        return separatorIndex > 0 ? trimmed[..separatorIndex] : trimmed;
+    }
+
+    private static string FormatOptionalValue(string? value, string fallback)
+        => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
     private static bool IsPinnedBuildReady(StudyShellDefinition definition, InstalledAppStatus installed)
         => installed.IsInstalled && MatchesHash(installed.InstalledSha256, definition.App.Sha256);

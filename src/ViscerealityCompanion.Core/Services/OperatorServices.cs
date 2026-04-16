@@ -243,8 +243,18 @@ public sealed class PreviewQuestControlService : IQuestControlService
         bool allowWakeResumeTarget = true,
         CancellationToken cancellationToken = default)
         => Task.FromResult(Preview(
-            $"{action} command queued.",
-            "The public shell keeps the operator workflow and command contract visible without bundling live Quest control code."));
+            action switch
+            {
+                QuestUtilityAction.DisableProximity => "Keep-awake proximity override queued.",
+                QuestUtilityAction.EnableProximity => "Normal proximity behavior queued.",
+                _ => $"{action} command queued."
+            },
+            action switch
+            {
+                QuestUtilityAction.DisableProximity => "The preview transport would broadcast com.oculus.vrpowermanager.prox_close before launch or live troubleshooting.",
+                QuestUtilityAction.EnableProximity => "The preview transport would broadcast com.oculus.vrpowermanager.automation_disable to restore the Quest wear sensor.",
+                _ => "The public shell keeps the operator workflow and command contract visible without bundling live Quest control code."
+            }));
 
     private static OperationOutcome Preview(
         string summary,

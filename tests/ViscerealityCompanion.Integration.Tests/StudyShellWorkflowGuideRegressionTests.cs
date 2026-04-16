@@ -192,6 +192,19 @@ public sealed class StudyShellWorkflowGuideRegressionTests
     {
         var viewModel = CreateViewModel(CreateStudy());
         SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(
+            viewModel,
+            "_questTwinStatePublisherInventory",
+            new QuestTwinStatePublisherInventory(
+                OperationOutcomeKind.Success,
+                "Expected Quest twin-state outlet is visible on Windows.",
+                "Windows can see quest_twin_state / quest.twin.state from the expected Sussex source_id.",
+                AnyPublisherVisible: true,
+                ExpectedPublisherVisible: true,
+                ExpectedSourceId: "viscereality.quest.com-viscereality-sussexexperiment.quest-twin-state.quest-twin-state",
+                ExpectedSourceIdPrefix: "viscereality.quest.",
+                VisiblePublishers: []));
+        SetPrivateField(viewModel, "_questTwinStatePublisherInventoryDetail", "Expected Quest twin-state outlet is visible on Windows.");
         SetPrivateField(viewModel, "_reportedTwinState", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["study.lsl.connected"] = "true",
@@ -213,25 +226,44 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         SetPrivateField(viewModel, "_deviceProfileLevel", OperationOutcomeKind.Success);
         SetPrivateField(viewModel, "_deviceProfileSummary", "Pinned Quest device profile is active.");
         SetPrivateField(viewModel, "_deviceProfileDetail", "Pinned Quest properties match.");
+        SetPrivateField(viewModel, "_liveProximitySelector", "192.168.0.55:5555");
+        SetPrivateField(
+            viewModel,
+            "_liveProximityStatus",
+            new QuestProximityStatus(
+                Available: true,
+                HoldActive: true,
+                VirtualState: "CLOSE",
+                IsAutosleepDisabled: true,
+                HeadsetState: "HEADSET_MOUNTED",
+                AutoSleepTimeMs: 0,
+                RetrievedAtUtc: DateTimeOffset.UtcNow,
+                HoldUntilUtc: null,
+                StatusDetail: "keep-awake active"));
 
         var checks = InvokePrivateMethod<IReadOnlyList<WorkflowGuideCheckItem>>(viewModel, "BuildWorkflowGuideCheckItems", 8);
 
-        Assert.Equal(3, checks.Count);
-        Assert.Contains("Expected inlet:", checks[0].Detail, StringComparison.Ordinal);
-        Assert.Contains("Bench sender:", checks[0].Detail, StringComparison.Ordinal);
-        Assert.Contains(Environment.NewLine, checks[0].Detail, StringComparison.Ordinal);
-        Assert.Contains("Runtime target:", checks[1].Detail, StringComparison.Ordinal);
-        Assert.Contains("Counts:", checks[1].Detail, StringComparison.Ordinal);
-        Assert.Equal("Windows return path", checks[2].Label);
-        Assert.Equal(OperationOutcomeKind.Success, checks[2].Level);
-        Assert.Contains("Selector:", checks[2].Detail, StringComparison.Ordinal);
-        Assert.Contains("Pinned build:", checks[2].Detail, StringComparison.Ordinal);
-        Assert.Contains("Device profile:", checks[2].Detail, StringComparison.Ordinal);
-        Assert.Contains("Return path:", checks[2].Detail, StringComparison.Ordinal);
-        Assert.Contains("Twin-state outlet:", checks[2].Detail, StringComparison.Ordinal);
-        Assert.Contains("quest_twin_state / quest.twin.state", checks[2].Detail, StringComparison.Ordinal);
-        Assert.Contains("quest_twin_commands / quest.twin.command", checks[2].Detail, StringComparison.Ordinal);
-        Assert.Contains("quest_hotload_config / quest.config", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Equal(5, checks.Count);
+        Assert.Equal("Headset wake + proximity", checks[0].Label);
+        Assert.Equal(OperationOutcomeKind.Success, checks[0].Level);
+        Assert.Contains("Keep-awake proximity", checks[0].Detail, StringComparison.Ordinal);
+        Assert.Contains("Expected inlet:", checks[1].Detail, StringComparison.Ordinal);
+        Assert.Contains("Bench sender:", checks[1].Detail, StringComparison.Ordinal);
+        Assert.Contains(Environment.NewLine, checks[1].Detail, StringComparison.Ordinal);
+        Assert.Contains("Runtime target:", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Contains("Counts:", checks[2].Detail, StringComparison.Ordinal);
+        Assert.Equal("Windows return path", checks[3].Label);
+        Assert.Equal(OperationOutcomeKind.Success, checks[3].Level);
+        Assert.Contains("Selector:", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Contains("Pinned build:", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Contains("Device profile:", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Contains("Return path:", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Contains("Twin-state outlet:", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_twin_state / quest.twin.state", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_twin_commands / quest.twin.command", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_hotload_config / quest.config", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Equal("Potential hazards", checks[4].Label);
+        Assert.Equal(OperationOutcomeKind.Success, checks[4].Level);
     }
 
     [Fact]
@@ -258,6 +290,70 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.Contains("Twin-state outlet:", gate.Detail, StringComparison.Ordinal);
         Assert.Contains("quest_twin_state / quest.twin.state", gate.Detail, StringComparison.Ordinal);
         Assert.Contains("must turn green", gate.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ReconnectTargetCheck_WarnsWhenSavedEndpointDiffersFromLiveQuestIp()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(viewModel, "_appSessionState", new AppSessionState("192.168.0.17:5555", null));
+        viewModel.EndpointDraft = "192.168.0.17:5555";
+
+        var checks = InvokePrivateMethod<IReadOnlyList<WorkflowGuideCheckItem>>(viewModel, "BuildWorkflowGuideCheckItems", 1);
+
+        Assert.Equal("Reconnect target", checks[1].Label);
+        Assert.Equal(OperationOutcomeKind.Warning, checks[1].Level);
+        Assert.Contains("stale", checks[1].Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("192.168.0.17:5555", checks[1].Detail, StringComparison.Ordinal);
+        Assert.Contains("192.168.0.55:5555", checks[1].Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LslReturnPathCheck_DistinguishesStalledTwinStatePublisherFromGenericConnectionFailure()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(viewModel, "_reportedTwinState", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["study.lsl.connected"] = "true",
+            ["study.lsl.connected_name"] = "HRV_Biofeedback",
+            ["study.lsl.connected_type"] = "HRV"
+        });
+        SetPrivateField(viewModel, "_lslLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_lslExpectedStreamLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslRuntimeTargetLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslConnectedStreamLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslConnectionStateLabel", "Connected 1, connecting 0, total 1");
+        SetPrivateField(viewModel, "_lslStatusLineLabel", "LSL: connected HRV_Biofeedback (HRV), ch=1");
+        SetPrivateField(viewModel, "_lslEchoStateLabel", "Current Quest echo 0.466 via study.lsl.latest_default_value in frame 11:09:24.");
+        SetPrivateField(viewModel, "_pinnedBuildLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_pinnedBuildSummary", "Pinned Sussex APK matches the recorded Sussex build.");
+        SetPrivateField(viewModel, "_deviceProfileLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_deviceProfileSummary", "Pinned Quest device profile is active.");
+        SetPrivateField(viewModel, "_deviceProfileDetail", "Pinned Quest properties match.");
+        var bridge = new LslTwinModeBridge(new PreviewLslOutletService(), new PreviewLslOutletService(), new PreviewLslMonitorService());
+        SetPrivateField(bridge, "_lastStateReceivedAt", DateTimeOffset.UtcNow - TimeSpan.FromMinutes(10));
+        SetPrivateField(viewModel, "_twinBridge", bridge);
+        SetPrivateField(
+            viewModel,
+            "_questTwinStatePublisherInventory",
+            new QuestTwinStatePublisherInventory(
+                OperationOutcomeKind.Warning,
+                "No Quest twin-state outlet is visible on Windows.",
+                "quest_twin_state / quest.twin.state did not appear in Windows LSL discovery.",
+                AnyPublisherVisible: false,
+                ExpectedPublisherVisible: false,
+                ExpectedSourceId: "viscereality.quest.com-viscereality-sussexexperiment.quest-twin-state.quest-twin-state",
+                ExpectedSourceIdPrefix: "viscereality.quest.",
+                VisiblePublishers: []));
+        SetPrivateField(viewModel, "_questTwinStatePublisherInventoryDetail", "No Quest twin-state outlet is visible on Windows.");
+
+        var check = InvokePrivateMethod<WorkflowGuideCheckItem>(viewModel, "BuildLslReturnPathWorkflowGuideCheckItem");
+
+        Assert.Equal(OperationOutcomeKind.Warning, check.Level);
+        Assert.Contains("publisher stalled or became undiscoverable", check.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("separate failure mode", check.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -315,13 +411,16 @@ public sealed class StudyShellWorkflowGuideRegressionTests
             });
         SetPrivateAutoProperty(viewModel, nameof(StudyShellViewModel.LaunchStudyAppCommand), new AsyncRelayCommand(() => Task.CompletedTask));
         SetPrivateAutoProperty(viewModel, nameof(StudyShellViewModel.RefreshDeviceSnapshotCommand), new AsyncRelayCommand(() => Task.CompletedTask));
+        SetPrivateAutoProperty(viewModel, nameof(StudyShellViewModel.ToggleProximityCommand), new AsyncRelayCommand(() => Task.CompletedTask));
 
         var actions = InvokePrivateMethod<IReadOnlyList<WorkflowGuideActionItem>>(viewModel, "BuildWorkflowGuideActionItems", 7);
 
-        Assert.Equal(2, actions.Count);
-        Assert.Equal("Wake Headset To Enable Launching", actions[0].Label);
-        Assert.False(actions[0].IsEnabled);
-        Assert.True(actions[1].IsEnabled);
+        Assert.Equal(3, actions.Count);
+        Assert.Equal("Disable Proximity", actions[0].Label);
+        Assert.True(actions[0].IsEnabled);
+        Assert.Equal("Wake Headset To Enable Launching", actions[1].Label);
+        Assert.False(actions[1].IsEnabled);
+        Assert.True(actions[2].IsEnabled);
     }
 
     [Fact]
@@ -344,6 +443,70 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.False(viewModel.CanLaunchStudyRuntime);
         Assert.False(viewModel.CanToggleStudyRuntime);
         Assert.Equal("Clear Guardian Blocker Before Launching", viewModel.StudyRuntimeActionLabel);
+    }
+
+    [Fact]
+    public void UpdateProximityCard_ReportsDirectProxCloseAsActiveOverride()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_hzdbService", new StubHzdbService(isAvailable: true));
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(viewModel, "_liveProximitySelector", "192.168.0.55:5555");
+        SetPrivateField(
+            viewModel,
+            "_liveProximityStatus",
+            new QuestProximityStatus(
+                Available: true,
+                HoldActive: true,
+                VirtualState: "CLOSE",
+                IsAutosleepDisabled: false,
+                HeadsetState: "HEADSET_MOUNTED",
+                AutoSleepTimeMs: 15000,
+                RetrievedAtUtc: DateTimeOffset.UtcNow,
+                HoldUntilUtc: null,
+                StatusDetail: "Read from adb shell dumpsys vrpowermanager.",
+                LastBroadcastAction: "prox_close",
+                LastBroadcastDurationMs: 0,
+                LastBroadcastAgeSeconds: 2));
+
+        InvokePrivateVoid(viewModel, "UpdateProximityCard");
+
+        Assert.Equal(OperationOutcomeKind.Success, viewModel.ProximityLevel);
+        Assert.Equal("Enable Proximity", viewModel.ProximityActionLabel);
+        Assert.Equal("Keep-awake proximity override is active.", viewModel.ProximitySummary);
+        Assert.Contains("direct prox_close override", viewModel.ProximityDetail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UpdateProximityCard_ReportsAutomationDisableAsNormalSensorBehavior()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_hzdbService", new StubHzdbService(isAvailable: true));
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(viewModel, "_liveProximitySelector", "192.168.0.55:5555");
+        SetPrivateField(
+            viewModel,
+            "_liveProximityStatus",
+            new QuestProximityStatus(
+                Available: true,
+                HoldActive: false,
+                VirtualState: "DISABLED",
+                IsAutosleepDisabled: false,
+                HeadsetState: "HEADSET_MOUNTED",
+                AutoSleepTimeMs: 15000,
+                RetrievedAtUtc: DateTimeOffset.UtcNow,
+                HoldUntilUtc: null,
+                StatusDetail: "Read from adb shell dumpsys vrpowermanager.",
+                LastBroadcastAction: "automation_disable",
+                LastBroadcastDurationMs: 0,
+                LastBroadcastAgeSeconds: 2));
+
+        InvokePrivateVoid(viewModel, "UpdateProximityCard");
+
+        Assert.Equal(OperationOutcomeKind.Success, viewModel.ProximityLevel);
+        Assert.Equal("Disable Proximity", viewModel.ProximityActionLabel);
+        Assert.Equal("Normal proximity sensor behavior is active.", viewModel.ProximitySummary);
+        Assert.Contains("physical wear sensor is in charge again", viewModel.ProximityDetail, StringComparison.Ordinal);
     }
 
     private static StudyShellViewModel CreateViewModel(StudyShellDefinition study)
@@ -466,5 +629,37 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         var field = target.GetType().GetField($"<{propertyName}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new InvalidOperationException($"Could not find auto-property backing field for {propertyName}.");
         field.SetValue(target, value);
+    }
+
+    private sealed class StubHzdbService(bool isAvailable) : IHzdbService
+    {
+        public bool IsAvailable => isAvailable;
+
+        public Task<OperationOutcome> CaptureScreenshotAsync(string deviceSerial, string outputPath, string? method = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<OperationOutcome> CapturePerfTraceAsync(string deviceSerial, int durationMs = 5000, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<OperationOutcome> SetProximityAsync(string deviceSerial, bool enabled, int? durationMs = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<QuestProximityStatus> GetProximityStatusAsync(string deviceSerial, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<OperationOutcome> GetDeviceInfoAsync(string deviceSerial, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<OperationOutcome> ListFilesAsync(string deviceSerial, string remotePath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<OperationOutcome> PushFileAsync(string deviceSerial, string localPath, string remotePath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<OperationOutcome> PullFileAsync(string deviceSerial, string remotePath, string localPath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

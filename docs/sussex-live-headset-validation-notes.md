@@ -62,7 +62,10 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 ## Known Hazards
 
 - Use the physical power button for sleep and wake. Do not use ADB awake or sleep commands for the participant handoff path.
-- Keep the proximity sensor in the normal path during kiosk entry and exit. Do not disable proximity for the standard experiment workflow.
+- The current Sussex launch path intentionally uses the direct `prox_close`
+  keep-awake override. Treat `Virtual proximity state: CLOSE` as override
+  active, and `Virtual proximity state: DISABLED` as normal wear-sensor
+  behavior restored after `automation_disable`.
 - Wake the right controller before kiosk entry. If it is asleep during the transition, it may stay inactive afterward.
 - Off-head kiosk exit can still behave differently from on-head exit. Judge the final runtime path from an actual worn-head test.
 - Manual headset-side volume may still be required if Wi-Fi ADB volume enforcement does not stick.

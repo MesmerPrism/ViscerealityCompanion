@@ -67,7 +67,7 @@ public sealed class HzdbServiceTests
     }
 
     [Fact]
-    public void TryParseQuestProximityStatus_treats_close_without_duration_as_normal_sensor_state()
+    public void TryParseQuestProximityStatus_treats_close_without_duration_as_active_direct_override()
     {
         var observedAtUtc = new DateTimeOffset(2026, 03, 27, 08, 40, 05, TimeSpan.Zero);
         var rawOutput = """
@@ -84,7 +84,7 @@ public sealed class HzdbServiceTests
 
         Assert.True(parsed);
         Assert.True(status.Available);
-        Assert.False(status.HoldActive);
+        Assert.True(status.HoldActive);
         Assert.Equal("CLOSE", status.VirtualState);
         Assert.Equal("HEADSET_MOUNTED", status.HeadsetState);
         Assert.Equal("prox_close", status.LastBroadcastAction);

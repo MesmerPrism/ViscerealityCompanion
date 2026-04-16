@@ -160,20 +160,24 @@ The current research mode is remote-only by default:
 - the APK reports state
 - on-device settings changes are not required for this first working mode
 
-If the researcher needs the headset to stay awake and remotely controllable
-after the initial launch check, use the Sussex bench-tools proximity control
-only after the runtime is already live and visually confirmed. In the Sussex
-shell that means:
+The Sussex launch path now applies the same direct `prox_close`
+keep-awake override used in Quest Multi Stream before the APK starts. The
+sequential guide and Experiment Session window both surface that state, and the
+operator can restore normal wear-sensor behavior later with **Enable
+Proximity**.
 
-1. launch kiosk mode with the headset on-face
-2. verify the intended Unity scene and monitoring state
-3. click **Disable for 8h** only if you intentionally want a longer unattended
-   remote-control phase
+On the current Quest build, that readback is intentionally literal:
 
-Treat that proximity hold as a wear-sensor bypass, not as the kiosk switch.
-Kiosk behavior comes from task pinning. If you need a participant-facing black
-screen or idle view during the run, prefer doing that inside Unity instead of
-putting the headset to sleep with the hardware power button.
+- `Virtual proximity state: CLOSE` means the direct `prox_close` keep-awake
+  override is active.
+- `Virtual proximity state: DISABLED` means `automation_disable` restored normal
+  wear-sensor behavior.
+
+Treat that keep-awake override as a wear-sensor bypass, not as the kiosk
+switch. Kiosk behavior still comes from task pinning. If you need a
+participant-facing black screen or idle view during the run, prefer doing that
+inside Unity instead of putting the headset to sleep with the hardware power
+button.
 
 When you need to mark or pause a session, use the buttons on `Start Here` or
 the detailed controls in `Twin Monitor`.

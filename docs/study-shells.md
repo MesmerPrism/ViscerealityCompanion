@@ -605,10 +605,18 @@ focus again, so the operator must review the captured Quest screenshot before
 calling the exit side "good". See `docs/quest-adb-hzdb-recovery-notes.md` for
 the current blocked-shell findings on this machine.
 
-The harness should preserve normal proximity behavior by default. If a previous
-run left an 8h proximity hold active, clear it first instead of re-arming it;
-otherwise the unattended harness is no longer matching the real
-"headset-on-face" Sussex operator workflow.
+The Sussex launch flow now arms the same direct `prox_close` keep-awake
+override used in Quest Multi Stream before the APK starts. The guide and
+Experiment Session window both show that state explicitly. If an unattended or
+older run left the keep-awake override active, clear it first if you need to
+return to normal wear-sensor behavior.
+
+The operator-facing readback now mirrors the raw Quest state:
+
+- `Virtual proximity state: CLOSE` means the direct `prox_close` override is
+  active.
+- `Virtual proximity state: DISABLED` means `automation_disable` restored the
+  physical wear sensor.
 
 On this machine, prefer that published harness launcher over raw
 `dotnet run` because Windows Application Control can block unpackaged local
