@@ -155,8 +155,8 @@ Options:
 | `study launch <study>` | Launch the pinned study runtime using the study kiosk policy. The command now refuses to launch while the headset reports asleep; wake the headset first. |
 | `study stop <study>` | Stop the pinned study runtime using the study kiosk-exit policy |
 | `study status <study>` | Compare current headset state against the pinned study baseline |
-| `study probe-connection <study>` | Mirror the Step 9 `Probe Connection` check: inspect the pinned APK match, pinned device profile state, expected inlet, `quest_twin_state` return path, Wi-Fi snapshot context, and twin transport detail |
-| `study diagnostics-report <study>` | Run the Windows LSL, machine inventory, Quest setup, twin return-path, and safe command-acceptance diagnostics and write a shareable JSON/LaTeX/PDF report folder |
+| `study probe-connection <study>` | Mirror the Step 9 `Probe Connection` check: inspect the pinned APK match, pinned device profile state, Quest Wi-Fi transport reachability, expected inlet, `quest_twin_state` return path, Wi-Fi snapshot context, and twin transport detail |
+| `study diagnostics-report <study>` | Run the Windows LSL, machine inventory, Quest setup, Quest Wi-Fi transport, twin return-path, and safe command-acceptance diagnostics and write a shareable JSON/LaTeX/PDF report folder |
 
 For Sussex, the study id is currently `sussex-university`.
 
@@ -275,7 +275,7 @@ decide whether liblsl is available in the current process layout.
 
 | Command | Description |
 |---------|-------------|
-| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, Windows network-adapter hazards, the local twin bridge, the exported agent workspace, liblsl discovery health, a temporary local LSL outlet rediscovery check, and the expected upstream LSL stream. The check warns if multiple matching upstream sources are visible on Windows because sender switching can become unreliable in that state. |
+| `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, Windows network-adapter hazards, the local twin bridge, the exported agent workspace, liblsl discovery health, a temporary local LSL outlet rediscovery check, and the expected upstream LSL stream. When a live headset selector is available, it also adds a Quest Wi-Fi transport-path check that probes raw reachability to the headset's current Wi-Fi ADB endpoint. |
 
 `windows-env analyze` separates four related LSL questions:
 
@@ -293,6 +293,18 @@ adapter / multicast / firewall-profile hazard first. The analysis also lists
 active IPv4 adapters and warns about common instability sources such as VPN,
 Tailscale, WireGuard, Hyper-V, Docker, WSL, TAP/Wintun, VirtualBox, VMware,
 multiple default gateways, and adapters without multicast support.
+
+When a headset is connected over Wi-Fi ADB, `windows-env analyze` now also
+checks the PC↔Quest router path directly:
+
+- whether the selector IP matches the headset-reported Wi-Fi IP
+- whether the host Wi-Fi adapter and Quest appear to share the same IPv4 subnet
+- whether Windows can ping the Quest IP
+- whether Windows can open TCP port `5555` on the Quest IP
+
+If the PC and Quest report the same SSID but TCP `5555` is blocked, treat that
+as a router/client-isolation hazard first, not as proof that the Sussex APK or
+Windows liblsl path is broken.
 
 Use `study probe-connection sussex-university --wait-seconds 15` for the
 headset-side half. That probe now reports the pinned Sussex build match and the
@@ -314,8 +326,9 @@ timestamped folder under the operator-data diagnostics root containing
 `sussex_lsl_twin_diagnostics.json`, `sussex_lsl_twin_diagnostics.tex`, and,
 when Python plus matplotlib are available, `sussex_lsl_twin_diagnostics.pdf`.
 The report combines `windows-env analyze`, machine-visible LSL inventory, the
-Quest pinned APK/profile snapshot, `quest_twin_state` publisher visibility, the
-Step 9 return-path interpretation, and a safe particle-off command
+Quest pinned APK/profile snapshot, the raw Quest Wi-Fi transport path,
+`quest_twin_state` publisher visibility, the Step 9 return-path
+interpretation, and a safe particle-off command
 acknowledgement probe. Use `--skip-command-check` for passive inspection only.
 
 ## Environment Variables

@@ -37,6 +37,7 @@ public sealed record SussexDiagnosticsReport(
     SussexQuestSetupSnapshot QuestSetup,
     WindowsEnvironmentAnalysisResult WindowsEnvironment,
     SussexMachineLslStateResult MachineLslState,
+    QuestWifiTransportDiagnosticsResult QuestWifiTransport,
     QuestTwinStatePublisherInventory TwinStatePublisherInventory,
     SussexTwinConnectionProbeResult TwinConnection,
     SussexCommandAcceptanceResult CommandAcceptance,
@@ -122,19 +123,22 @@ public sealed class SussexDiagnosticsReportService
     private readonly ILslStreamDiscoveryService _streamDiscoveryService;
     private readonly ITestLslSignalService _testSignalService;
     private readonly ITwinModeBridge _twinBridge;
+    private readonly QuestWifiTransportDiagnosticsService _questWifiTransportDiagnosticsService;
 
     public SussexDiagnosticsReportService(
         IQuestControlService questService,
         WindowsEnvironmentAnalysisService windowsEnvironmentAnalysisService,
         ILslStreamDiscoveryService streamDiscoveryService,
         ITestLslSignalService testSignalService,
-        ITwinModeBridge twinBridge)
+        ITwinModeBridge twinBridge,
+        QuestWifiTransportDiagnosticsService? questWifiTransportDiagnosticsService = null)
     {
         _questService = questService ?? throw new ArgumentNullException(nameof(questService));
         _windowsEnvironmentAnalysisService = windowsEnvironmentAnalysisService ?? throw new ArgumentNullException(nameof(windowsEnvironmentAnalysisService));
         _streamDiscoveryService = streamDiscoveryService ?? throw new ArgumentNullException(nameof(streamDiscoveryService));
         _testSignalService = testSignalService ?? throw new ArgumentNullException(nameof(testSignalService));
         _twinBridge = twinBridge ?? throw new ArgumentNullException(nameof(twinBridge));
+        _questWifiTransportDiagnosticsService = questWifiTransportDiagnosticsService ?? new QuestWifiTransportDiagnosticsService();
     }
 
     public async Task<SussexDiagnosticsReportResult> GenerateAsync(
@@ -183,9 +187,17 @@ public sealed class SussexDiagnosticsReportService
         var expectedType = string.IsNullOrWhiteSpace(study.Monitoring.ExpectedLslStreamType)
             ? HrvBiofeedbackStreamContract.StreamType
             : study.Monitoring.ExpectedLslStreamType;
+        var wifiTransport = await _questWifiTransportDiagnosticsService
+            .AnalyzeAsync(headset, request.DeviceSelector ?? headset.ConnectionLabel, cancellationToken)
+            .ConfigureAwait(false);
 
         var windowsEnvironment = await _windowsEnvironmentAnalysisService
-            .AnalyzeAsync(new WindowsEnvironmentAnalysisRequest(expectedName, expectedType), cancellationToken)
+            .AnalyzeAsync(
+                new WindowsEnvironmentAnalysisRequest(
+                    expectedName,
+                    expectedType,
+                    QuestWifiTransport: new QuestWifiTransportDiagnosticsContext(headset, request.DeviceSelector ?? headset.ConnectionLabel)),
+                cancellationToken)
             .ConfigureAwait(false);
         var machineLslState = await BuildMachineLslStateResultAsync(study, cancellationToken).ConfigureAwait(false);
         var twinStatePublisher = QuestTwinStatePublisherInventoryService.Inspect(_streamDiscoveryService, study.App.PackageId);
@@ -206,6 +218,7 @@ public sealed class SussexDiagnosticsReportService
         var level = CombineLevels([
             windowsEnvironment.Level,
             machineLslState.Level,
+            wifiTransport.Level,
             twinStatePublisher.Level,
             twinConnection.Level,
             commandAcceptance.Level
@@ -217,7 +230,7 @@ public sealed class SussexDiagnosticsReportService
             OperationOutcomeKind.Preview => "Sussex LSL/twin diagnostics could only run in preview mode.",
             _ => "Sussex LSL/twin diagnostics passed."
         };
-        var detail = BuildReportSummaryDetail(windowsEnvironment, machineLslState, twinStatePublisher, twinConnection, commandAcceptance);
+        var detail = BuildReportSummaryDetail(windowsEnvironment, machineLslState, wifiTransport, twinStatePublisher, twinConnection, commandAcceptance);
         var completedAtUtc = DateTimeOffset.UtcNow;
 
         var report = new SussexDiagnosticsReport(
@@ -233,6 +246,7 @@ public sealed class SussexDiagnosticsReportService
             questSetup,
             windowsEnvironment,
             machineLslState,
+            wifiTransport,
             twinStatePublisher,
             twinConnection,
             commandAcceptance,
@@ -297,6 +311,16 @@ public sealed class SussexDiagnosticsReportService
         AppendCheckTable(builder, "Windows Environment", report.WindowsEnvironment.Checks.Select(check =>
             new SussexMachineLslCheckResult(check.Label, check.Level, check.Summary, check.Detail)));
         AppendCheckTable(builder, "Machine LSL State", report.MachineLslState.Checks);
+        AppendKeyValueTable(builder, "Quest Wi-Fi Transport", [
+            new SussexDiagnosticsKeyValue("level", RenderLevel(report.QuestWifiTransport.Level)),
+            new SussexDiagnosticsKeyValue("summary", report.QuestWifiTransport.Summary),
+            new SussexDiagnosticsKeyValue("selector", report.QuestWifiTransport.Selector),
+            new SussexDiagnosticsKeyValue("headset wifi", report.QuestWifiTransport.HeadsetWifi),
+            new SussexDiagnosticsKeyValue("host wifi", report.QuestWifiTransport.HostWifi),
+            new SussexDiagnosticsKeyValue("topology", report.QuestWifiTransport.Topology),
+            new SussexDiagnosticsKeyValue("ping", report.QuestWifiTransport.Ping),
+            new SussexDiagnosticsKeyValue("tcp", report.QuestWifiTransport.Tcp)
+        ]);
         AppendKeyValueTable(builder, "Quest Twin Return Path", [
             new SussexDiagnosticsKeyValue("twin-state outlet", QuestTwinStatePublisherInventoryService.RenderForOperator(report.TwinStatePublisherInventory)),
             new SussexDiagnosticsKeyValue("expected inlet", report.TwinConnection.ExpectedInlet),
@@ -1030,6 +1054,7 @@ public sealed class SussexDiagnosticsReportService
     private static string BuildReportSummaryDetail(
         WindowsEnvironmentAnalysisResult windowsEnvironment,
         SussexMachineLslStateResult machineLslState,
+        QuestWifiTransportDiagnosticsResult wifiTransport,
         QuestTwinStatePublisherInventory twinStatePublisher,
         SussexTwinConnectionProbeResult twinConnection,
         SussexCommandAcceptanceResult commandAcceptance)
@@ -1038,6 +1063,7 @@ public sealed class SussexDiagnosticsReportService
         {
             ("Windows Environment", windowsEnvironment.Level, windowsEnvironment.Summary),
             ("Machine LSL State", machineLslState.Level, machineLslState.Summary),
+            ("Quest Wi-Fi transport", wifiTransport.Level, wifiTransport.Summary),
             ("Quest twin-state outlet", twinStatePublisher.Level, twinStatePublisher.Summary),
             ("Twin connection", twinConnection.Level, twinConnection.Summary),
             ("Command acceptance", commandAcceptance.Level, commandAcceptance.Summary)
@@ -1047,7 +1073,7 @@ public sealed class SussexDiagnosticsReportService
         .ToArray();
 
         return attention.Length == 0
-            ? "Windows LSL, machine inventory, Quest twin-state return path, and command acceptance all reported cleanly."
+            ? "Windows LSL, machine inventory, Quest Wi-Fi transport, Quest twin-state return path, and command acceptance all reported cleanly."
             : string.Join(" ", attention);
     }
 

@@ -187,7 +187,7 @@ public sealed class WindowsAdbQuestControlServiceTests
     }
 
     [Fact]
-    public void EvaluateWakeReadiness_treats_sensor_lock_as_awake_when_no_other_meta_blocker_is_visible()
+    public void EvaluateWakeReadiness_flags_primary_sensor_lock_as_blocked()
     {
         var powerStatus = new WindowsAdbQuestControlService.QuestPowerStatus(
             "Awake",
@@ -203,9 +203,10 @@ public sealed class WindowsAdbQuestControlServiceTests
 
         var readiness = WindowsAdbQuestControlService.EvaluateWakeReadiness(powerStatus, snapshot);
 
-        Assert.True(readiness.IsAwake);
-        Assert.False(readiness.IsInWakeLimbo);
-        Assert.DoesNotContain("Meta visual blocker active", readiness.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.False(readiness.IsAwake);
+        Assert.True(readiness.IsInWakeLimbo);
+        Assert.Contains("SensorLockActivity", readiness.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("lock-screen blocker", readiness.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -496,6 +497,34 @@ public sealed class WindowsAdbQuestControlServiceTests
         Assert.Equal("Launch blocked for Sussex Experiment.", outcome.Summary);
         Assert.Equal(target.PackageId, outcome.PackageId);
         Assert.Contains("Clear the current Guardian, tracking-loss, or ClearActivity blocker before launching", outcome.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildVisualBlockedLaunchOutcome_requires_clearing_lock_screen_when_sensor_lock_is_foreground()
+    {
+        var target = new QuestAppTarget(
+            Id: "sussex",
+            Label: "Sussex Experiment",
+            PackageId: "com.Viscereality.SussexExperiment",
+            ApkFile: "sussex.apk",
+            LaunchComponent: "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
+            BrowserPackageId: string.Empty,
+            Description: string.Empty,
+            Tags: []);
+
+        var readiness = new WindowsAdbQuestControlService.QuestWakeReadiness(
+            IsAwake: false,
+            IsInWakeLimbo: true,
+            WakeLimboComponent: "com.oculus.os.vrlockscreen/.SensorLockActivity",
+            Detail: "wakefulness Awake; interactive true; display ON; foreground com.oculus.os.vrlockscreen/.SensorLockActivity; Quest lock-screen blocker active");
+
+        var outcome = WindowsAdbQuestControlService.BuildVisualBlockedLaunchOutcome(target, readiness);
+
+        Assert.Equal(OperationOutcomeKind.Failure, outcome.Kind);
+        Assert.Equal("Launch blocked for Sussex Experiment.", outcome.Summary);
+        Assert.Equal(target.PackageId, outcome.PackageId);
+        Assert.Contains("Clear the headset lock screen on the headset before launching", outcome.Detail, StringComparison.Ordinal);
+        Assert.Contains("SensorLockActivity", outcome.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

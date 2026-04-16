@@ -1304,7 +1304,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 MediaVolumeLevel: mediaVolumeStatus.Level,
                 MediaVolumeMax: mediaVolumeStatus.MaxLevel,
                 IsUsbAdbVisible: isUsbAdbVisible,
-                VisibleUsbSerial: visibleUsbSerial);
+                VisibleUsbSerial: visibleUsbSerial,
+                HostWifiInterfaceName: hostWifiStatus.InterfaceName);
         }
         catch (Exception ex)
         {
@@ -2558,7 +2559,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         if (!string.IsNullOrWhiteSpace(wakeLimboComponent))
         {
             detailParts.Add($"foreground {wakeLimboComponent}");
-            detailParts.Add("Guardian or tracking blocker active");
+            detailParts.Add(DescribeWakeBlocker(wakeLimboComponent));
         }
 
         var detail = detailParts.Count == 0
@@ -2937,7 +2938,9 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
            (component.Contains(QuestClearActivityPackage, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestClearActivity, StringComparison.OrdinalIgnoreCase) ||
             component.Contains(QuestGuardianPackage, StringComparison.OrdinalIgnoreCase) ||
-            component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase));
+            component.Contains(QuestGuardianDialogActivity, StringComparison.OrdinalIgnoreCase) ||
+            component.Contains(QuestSensorLockPackage, StringComparison.OrdinalIgnoreCase) ||
+            component.Contains(QuestSensorLockActivity, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsVisibleWakeBlockingComponent(string? component)
         => !string.IsNullOrWhiteSpace(component) &&
@@ -3144,8 +3147,23 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     internal static OperationOutcome BuildVisualBlockedLaunchOutcome(QuestAppTarget target, QuestWakeReadiness readiness)
         => Failure(
             $"Launch blocked for {target.Label}.",
-            $"{readiness.Detail} Clear the current Guardian, tracking-loss, or ClearActivity blocker before launching. Do not start Sussex while the headset is in this blocked visual state.",
+            $"{readiness.Detail} {BuildLaunchBlockedWakeInstruction(readiness)}",
             packageId: target.PackageId);
+
+    private static string DescribeWakeBlocker(string? component)
+        => IsSensorLockComponent(component)
+            ? "Quest lock-screen blocker active"
+            : "Guardian or tracking blocker active";
+
+    private static string BuildLaunchBlockedWakeInstruction(QuestWakeReadiness readiness)
+        => IsSensorLockComponent(readiness.WakeLimboComponent)
+            ? "Clear the headset lock screen on the headset before launching. The software wake path can still land in SensorLockActivity on this HorizonOS build."
+            : "Clear the current Guardian, tracking-loss, or ClearActivity blocker before launching. Do not start Sussex while the headset is in this blocked visual state.";
+
+    private static bool IsSensorLockComponent(string? component)
+        => !string.IsNullOrWhiteSpace(component) &&
+           (component.Contains(QuestSensorLockPackage, StringComparison.OrdinalIgnoreCase) ||
+            component.Contains(QuestSensorLockActivity, StringComparison.OrdinalIgnoreCase));
 
     private static string FormatControllerDetail(QuestControllerStatus status)
     {

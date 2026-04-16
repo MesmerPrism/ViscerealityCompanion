@@ -164,10 +164,117 @@ public sealed class WindowsHzdbService : IHzdbService
 
     public async Task<OperationOutcome> WakeDeviceAsync(string deviceSerial, CancellationToken cancellationToken = default)
     {
-        var result = await RunAsync($"device wake --device \"{deviceSerial}\"", cancellationToken).ConfigureAwait(false);
-        return result.ExitCode == 0
-            ? Outcome(OperationOutcomeKind.Success, "Device wake sent.", result.StdOut)
-            : Outcome(OperationOutcomeKind.Failure, "Device wake failed.", result.Combined);
+        var wakeResult = await RunAsync($"device wake --device \"{deviceSerial}\"", cancellationToken).ConfigureAwait(false);
+        if (wakeResult.ExitCode != 0)
+        {
+            return Outcome(OperationOutcomeKind.Failure, "Device wake failed.", wakeResult.Combined);
+        }
+
+        var proximityResult = await RunAsync(
+                $"device proximity --device \"{deviceSerial}\" --disable --duration-ms 60000",
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(1500), cancellationToken).ConfigureAwait(false);
+        var wakeValidation = await ValidateWakeStateAsync(deviceSerial, cancellationToken).ConfigureAwait(false);
+
+        var detailParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(wakeResult.StdOut))
+        {
+            detailParts.Add(wakeResult.StdOut.Trim());
+        }
+
+        if (proximityResult.ExitCode == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(proximityResult.StdOut))
+            {
+                detailParts.Add(proximityResult.StdOut.Trim());
+            }
+        }
+        else
+        {
+            detailParts.Add($"Keep-awake proximity override failed after wake: {proximityResult.Combined}".Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(wakeValidation.Detail))
+        {
+            detailParts.Add(wakeValidation.Detail);
+        }
+
+        var detail = string.Join(Environment.NewLine, detailParts.Where(static part => !string.IsNullOrWhiteSpace(part)));
+        if (!wakeValidation.Ready)
+        {
+            return Outcome(OperationOutcomeKind.Warning, wakeValidation.Summary, detail);
+        }
+
+        return Outcome(
+            proximityResult.ExitCode == 0 ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+            proximityResult.ExitCode == 0
+                ? "Device wake sequence sent and Quest reports a usable scene."
+                : "Device wake sequence reached a usable scene, but the keep-awake proximity override failed.",
+            detail);
+    }
+
+    internal sealed record QuestWakeValidation(bool Ready, string Summary, string Detail);
+
+    internal static QuestWakeValidation EvaluateWakeState(string powerOutput, string foregroundOutput)
+    {
+        var powerStatus = WindowsAdbQuestControlService.ParseQuestPowerStatus(powerOutput);
+        var snapshot = AdbShellSupport.ParseForegroundSnapshot(foregroundOutput);
+        var foregroundComponent = snapshot?.PrimaryComponent ?? string.Empty;
+
+        var detailParts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(powerStatus.Detail))
+        {
+            detailParts.Add($"Power readback: {powerStatus.Detail}.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(foregroundComponent))
+        {
+            detailParts.Add($"Foreground: {foregroundComponent}.");
+        }
+
+        if (powerStatus.IsAwake == false)
+        {
+            detailParts.Add("Quest still reports asleep after the wake request.");
+            return new QuestWakeValidation(
+                false,
+                "Device wake request sent, but Quest still reports asleep.",
+                string.Join(" ", detailParts));
+        }
+
+        if (IsSensorLockComponent(foregroundComponent))
+        {
+            detailParts.Add("Quest woke into SensorLockActivity instead of a usable scene.");
+            return new QuestWakeValidation(
+                false,
+                "Device wake request sent, but Quest is still at the lock screen.",
+                string.Join(" ", detailParts));
+        }
+
+        if (IsGuardianOrClearComponent(foregroundComponent))
+        {
+            detailParts.Add("Quest is still blocked by Guardian, tracking loss, or ClearActivity.");
+            return new QuestWakeValidation(
+                false,
+                "Device wake request sent, but Quest is still blocked by a Meta visual blocker.",
+                string.Join(" ", detailParts));
+        }
+
+        if (powerStatus.IsAwake == true && string.IsNullOrWhiteSpace(foregroundComponent))
+        {
+            detailParts.Add("Quest reports awake, but foreground verification was unavailable.");
+            return new QuestWakeValidation(
+                false,
+                "Device wake request sent, but foreground verification is unavailable.",
+                string.Join(" ", detailParts));
+        }
+
+        detailParts.Add("Quest reports awake and foreground is not blocked.");
+        return new QuestWakeValidation(
+            true,
+            "Device wake sequence sent and Quest reports a usable scene.",
+            string.Join(" ", detailParts));
     }
 
     public async Task<OperationOutcome> GetDeviceInfoAsync(string deviceSerial, CancellationToken cancellationToken = default)
@@ -205,6 +312,44 @@ public sealed class WindowsHzdbService : IHzdbService
         return result.ExitCode == 0
             ? Outcome(OperationOutcomeKind.Success, $"Pulled {Path.GetFileName(remotePath)} from device.", result.StdOut)
             : Outcome(OperationOutcomeKind.Failure, "File pull failed.", result.Combined);
+    }
+
+    private async Task<QuestWakeValidation> ValidateWakeStateAsync(string deviceSerial, CancellationToken cancellationToken)
+    {
+        var adbPath = AdbExecutableLocator.TryLocate();
+        if (string.IsNullOrWhiteSpace(adbPath))
+        {
+            return new QuestWakeValidation(
+                false,
+                "Device wake request sent, but adb.exe is unavailable for readback.",
+                "adb.exe could not be located, so the companion could not verify the post-wake headset state.");
+        }
+
+        var powerResult = await RunAdbAsync(
+                adbPath,
+                ["-s", deviceSerial, "shell", "dumpsys", "power"],
+                cancellationToken)
+            .ConfigureAwait(false);
+        var foregroundResult = await RunAdbAsync(
+                adbPath,
+                ["-s", deviceSerial, "shell", "dumpsys", "activity", "activities"],
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (powerResult.ExitCode != 0)
+        {
+            return new QuestWakeValidation(
+                false,
+                "Device wake request sent, but power-state verification failed.",
+                string.IsNullOrWhiteSpace(powerResult.Combined)
+                    ? "Quest power-state readback failed after the wake request."
+                    : powerResult.Combined);
+        }
+
+        var combinedForeground = foregroundResult.ExitCode == 0
+            ? foregroundResult.StdOut
+            : string.Empty;
+        return EvaluateWakeState(powerResult.StdOut, combinedForeground);
     }
 
     internal static string? ResolveHzdbCommandPath()
@@ -307,6 +452,17 @@ public sealed class WindowsHzdbService : IHzdbService
             LastBroadcastAgeSeconds: latestBroadcast?.AgeSeconds);
         return true;
     }
+
+    private static bool IsSensorLockComponent(string? component)
+        => !string.IsNullOrWhiteSpace(component) &&
+           component.Contains("SensorLockActivity", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsGuardianOrClearComponent(string? component)
+        => !string.IsNullOrWhiteSpace(component) &&
+           (component.Contains("GuardianDialogActivity", StringComparison.OrdinalIgnoreCase) ||
+            component.Contains("com.oculus.guardian", StringComparison.OrdinalIgnoreCase) ||
+            component.Contains("ClearActivity", StringComparison.OrdinalIgnoreCase) ||
+            component.Contains("com.oculus.os.clearactivity", StringComparison.OrdinalIgnoreCase));
 
     private async Task<ProcessResult> RunAsync(string arguments, CancellationToken cancellationToken)
     {

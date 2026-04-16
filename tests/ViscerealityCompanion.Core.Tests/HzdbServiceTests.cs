@@ -182,4 +182,43 @@ public sealed class HzdbServiceTests
     {
         Assert.Equal(expected, WindowsHzdbService.ShouldPreferAdbScreenshot(method));
     }
+
+    [Fact]
+    public void EvaluateWakeState_flags_sensor_lock_as_not_visually_ready()
+    {
+        var powerOutput = """
+            mWakefulness=Awake
+            mInteractive=true
+            Display Power: state=ON
+            """;
+        var foregroundOutput = """
+            topResumedActivity=ActivityRecord{123 u0 com.oculus.os.vrlockscreen/.SensorLockActivity t1}
+            """;
+
+        var result = WindowsHzdbService.EvaluateWakeState(powerOutput, foregroundOutput);
+
+        Assert.False(result.Ready);
+        Assert.Contains("lock screen", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SensorLockActivity", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EvaluateWakeState_accepts_home_as_usable()
+    {
+        var powerOutput = """
+            mWakefulness=Awake
+            mInteractive=true
+            Display Power: state=ON
+            """;
+        var foregroundOutput = """
+            topResumedActivity=ActivityRecord{123 u0 com.oculus.vrshell/.HomeActivity t1}
+            ACTIVITY com.oculus.vrshell/.HomeActivity 123 pid=111 userId=0
+            """;
+
+        var result = WindowsHzdbService.EvaluateWakeState(powerOutput, foregroundOutput);
+
+        Assert.True(result.Ready);
+        Assert.Contains("usable scene", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("HomeActivity", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
 }

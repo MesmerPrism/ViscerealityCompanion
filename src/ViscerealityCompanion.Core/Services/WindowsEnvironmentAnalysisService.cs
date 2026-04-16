@@ -14,7 +14,12 @@ public sealed record WindowsEnvironmentCheckResult(
 public sealed record WindowsEnvironmentAnalysisRequest(
     string ExpectedLslStreamName,
     string ExpectedLslStreamType,
-    bool ProbeExpectedLslStream = true);
+    bool ProbeExpectedLslStream = true,
+    QuestWifiTransportDiagnosticsContext? QuestWifiTransport = null);
+
+public sealed record QuestWifiTransportDiagnosticsContext(
+    HeadsetAppStatus Headset,
+    string? RequestedSelector = null);
 
 public sealed record WindowsEnvironmentAnalysisResult(
     OperationOutcomeKind Level,
@@ -32,7 +37,11 @@ public sealed record WindowsNetworkAdapterSnapshot(
     bool IsTunnel,
     bool SupportsMulticast,
     IReadOnlyList<string> IPv4Addresses,
-    IReadOnlyList<string> Gateways);
+    IReadOnlyList<string> Gateways,
+    IReadOnlyList<string>? IPv4Cidrs = null)
+{
+    public IReadOnlyList<string> SafeIPv4Cidrs => IPv4Cidrs ?? Array.Empty<string>();
+}
 
 public sealed class WindowsEnvironmentAnalysisService
 {
@@ -56,6 +65,7 @@ public sealed class WindowsEnvironmentAnalysisService
     private readonly Func<string?> _agentWorkspaceLslLocator;
     private readonly Func<bool> _agentWorkspacePresent;
     private readonly Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>> _networkAdapterSnapshotProvider;
+    private readonly QuestWifiTransportDiagnosticsService _questWifiTransportDiagnosticsService;
     private readonly Func<DateTimeOffset> _utcNow;
 
     public WindowsEnvironmentAnalysisService(
@@ -71,6 +81,7 @@ public sealed class WindowsEnvironmentAnalysisService
         Func<string?>? agentWorkspaceLslLocator = null,
         Func<bool>? agentWorkspacePresent = null,
         Func<ILslOutletService>? loopbackOutletFactory = null,
+        QuestWifiTransportDiagnosticsService? questWifiTransportDiagnosticsService = null,
         Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>>? networkAdapterSnapshotProvider = null,
         Func<DateTimeOffset>? utcNow = null)
     {
@@ -88,6 +99,9 @@ public sealed class WindowsEnvironmentAnalysisService
         _agentWorkspacePresent = agentWorkspacePresent ?? IsAgentWorkspacePresent;
         _networkAdapterSnapshotProvider = networkAdapterSnapshotProvider ?? SnapshotNetworkAdapters;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+        _questWifiTransportDiagnosticsService = questWifiTransportDiagnosticsService ?? new QuestWifiTransportDiagnosticsService(
+            _networkAdapterSnapshotProvider,
+            utcNow: _utcNow);
     }
 
     public async Task<WindowsEnvironmentAnalysisResult> AnalyzeAsync(
@@ -125,6 +139,11 @@ public sealed class WindowsEnvironmentAnalysisService
                 fixHint: "The Sussex bench sender is optional, but if you use it the same liblsl runtime must be available locally."),
             BuildTwinBridgeCheck()
         };
+
+        if (request.QuestWifiTransport is not null)
+        {
+            checks.Add(await BuildQuestWifiTransportCheckAsync(request.QuestWifiTransport, cancellationToken).ConfigureAwait(false));
+        }
 
         checks.Add(await ProbeLslDiscoveryHealthAsync(cancellationToken).ConfigureAwait(false));
         checks.Add(await ProbeLslLoopbackAdvertisementAsync(cancellationToken).ConfigureAwait(false));
@@ -190,7 +209,7 @@ public sealed class WindowsEnvironmentAnalysisService
     private static bool IsAgentWorkspacePresent()
         => Directory.Exists(LocalAgentWorkspaceLayout.RootPath);
 
-    private static IReadOnlyList<WindowsNetworkAdapterSnapshot> SnapshotNetworkAdapters()
+    internal static IReadOnlyList<WindowsNetworkAdapterSnapshot> SnapshotNetworkAdapters()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -207,6 +226,19 @@ public sealed class WindowsEnvironmentAnalysisService
                     .Where(address => address.Address.AddressFamily == AddressFamily.InterNetwork)
                     .Select(address => address.Address.ToString())
                     .Where(static address => !string.IsNullOrWhiteSpace(address))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Order(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var ipv4Cidrs = properties.UnicastAddresses
+                    .Where(address => address.Address.AddressFamily == AddressFamily.InterNetwork)
+                    .Select(address =>
+                    {
+                        var prefixLength = address.PrefixLength;
+                        return prefixLength is >= 0 and <= 32
+                            ? $"{address.Address}/{prefixLength.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+                            : string.Empty;
+                    })
+                    .Where(static value => !string.IsNullOrWhiteSpace(value))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Order(StringComparer.OrdinalIgnoreCase)
                     .ToArray();
@@ -227,7 +259,8 @@ public sealed class WindowsEnvironmentAnalysisService
                     adapter.NetworkInterfaceType == NetworkInterfaceType.Tunnel,
                     adapter.SupportsMulticast,
                     ipv4,
-                    gateways));
+                    gateways,
+                    ipv4Cidrs));
             }
             catch
             {
@@ -239,6 +272,7 @@ public sealed class WindowsEnvironmentAnalysisService
                     adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback,
                     adapter.NetworkInterfaceType == NetworkInterfaceType.Tunnel,
                     adapter.SupportsMulticast,
+                    [],
                     [],
                     []));
             }
@@ -519,6 +553,22 @@ public sealed class WindowsEnvironmentAnalysisService
             status.IsAvailable ? OperationOutcomeKind.Success : OperationOutcomeKind.Failure,
             status.Summary,
             status.Detail);
+    }
+
+    private async Task<WindowsEnvironmentCheckResult> BuildQuestWifiTransportCheckAsync(
+        QuestWifiTransportDiagnosticsContext context,
+        CancellationToken cancellationToken)
+    {
+        var result = await _questWifiTransportDiagnosticsService
+            .AnalyzeAsync(context.Headset, context.RequestedSelector, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new WindowsEnvironmentCheckResult(
+            "quest-wifi-transport",
+            "Quest Wi-Fi transport path",
+            result.Level,
+            result.Summary,
+            result.Detail);
     }
 
     private async Task<WindowsEnvironmentCheckResult> ProbeLslDiscoveryHealthAsync(

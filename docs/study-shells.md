@@ -432,6 +432,19 @@ window that walks the operator through the fixed Sussex protocol step by step:
 - 20 second validation capture with inline timing alignment, local and pulled Quest output folders, and a generated PDF review report
 - reset-to-ready handoff into the dedicated `Experiment Session` window or back to the main shell
 
+The Wi-Fi portion of that guide is now split into two separate questions on
+purpose:
+
+- `Headset Wi-Fi` / `PC Wi-Fi` confirms the obvious setup contract: both
+  devices report the same SSID.
+- `Wi-Fi router path` then checks the transport the router is actually
+  allowing: selector drift, host/Quest subnet shape, ICMP reachability, and
+  whether Windows can open TCP port `5555` on the Quest IP.
+
+That distinction matters because a router can put both devices on the same SSID
+and still block peer-to-peer traffic with guest-mode isolation or WLAN client
+isolation.
+
 At the LSL step, the guide now exposes `Probe Connection`. That button does not
 sniff raw LSL packets directly from Android. Instead, it combines the current
 ADB-backed headset snapshot with the live Sussex twin telemetry so the operator
@@ -447,6 +460,8 @@ gets an explicit diagnosis of:
 - the Windows-visible Quest twin-state outlet inventory, including whether the
   source id matches the pinned Sussex package contract
 - the companion's operator-to-headset channels on `quest_twin_commands / quest.twin.command` and `quest_hotload_config / quest.config`
+- the currently measured Quest Wi-Fi router path so the guide can separate a
+  stale selector or blocked TCP `5555` path from a pure Sussex runtime issue
 
 The Sussex shell now exposes a dedicated `Windows environment` page so the
 Windows-side diagnostics no longer crowd the `Pre-session` setup column. That
@@ -461,16 +476,21 @@ the Windows-side view instead of the headset-side view. It compares:
 - the companion-owned TEST sender and twin outlets
 - the clock-alignment probe transport
 - the passive upstream monitor used during recording
+- when a live headset selector is available, the raw Quest Wi-Fi transport path
+  from this PC to the headset endpoint
 
 That makes duplicate upstream senders, stale companion-owned streams, and local
 LSL advertisement/discovery failures visible without guessing from partial
-symptoms. If switching between the built-in TEST sender and an external Python
-sender becomes unreliable, refresh `Machine LSL State` first and then run
-`Analyze Windows Environment`. If another maintainer needs to inspect the same
-state, press `Generate Diagnostics Report`; the app writes a timestamped
-diagnostics folder with JSON, LaTeX source, and a PDF when Python/matplotlib
-are available. The report also includes the Quest pinned APK/profile snapshot,
-the `quest_twin_state` publisher inventory, the Step 9 return-path
+symptoms. It also lets the operator catch the router-specific failure mode
+where the PC and Quest share the same SSID but TCP `5555` is blocked by guest
+Wi-Fi/client-isolation policy. If switching between the built-in TEST sender
+and an external Python sender becomes unreliable, refresh `Machine LSL State`
+first and then run `Analyze Windows Environment`. If another maintainer needs
+to inspect the same state, press `Generate Diagnostics Report`; the app writes
+a timestamped diagnostics folder with JSON, LaTeX source, and a PDF when
+Python/matplotlib are available. The report also includes the Quest pinned
+APK/profile snapshot, the raw Quest Wi-Fi transport path, the
+`quest_twin_state` publisher inventory, the Step 9 return-path
 interpretation, and a safe particle-off twin command acknowledgement probe.
 
 The validation step now keeps the timing workflow inside the same guide

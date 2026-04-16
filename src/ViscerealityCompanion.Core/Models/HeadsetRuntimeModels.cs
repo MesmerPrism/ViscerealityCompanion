@@ -39,7 +39,8 @@ public sealed record HeadsetAppStatus(
     int? MediaVolumeLevel = null,
     int? MediaVolumeMax = null,
     bool IsUsbAdbVisible = false,
-    string VisibleUsbSerial = "");
+    string VisibleUsbSerial = "",
+    string HostWifiInterfaceName = "");
 
 public sealed record QuestControllerStatus(
     string HandLabel,

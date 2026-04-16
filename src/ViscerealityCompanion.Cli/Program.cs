@@ -1394,7 +1394,7 @@ public static class Program
             PrintOutcome(result);
         });
 
-        var proximityCommand = new Command("proximity", "Enable or disable proximity sensor");
+        var proximityCommand = new Command("proximity", "Enable or disable the Quest wear-sensor hold using hzdb first");
         var enableArg = new Argument<string>("state", description: "enable or disable");
         proximityCommand.Add(enableArg);
         proximityCommand.Handler = CommandHandler.Create(async (string state, string? device) =>
@@ -1406,7 +1406,7 @@ public static class Program
             PrintOutcome(result);
         });
 
-        var wakeCommand = new Command("wake", "Wake the Quest device");
+        var wakeCommand = new Command("wake", "Send a Quest wake request and verify whether it reached a usable scene");
         wakeCommand.Handler = CommandHandler.Create(async (string? device) =>
         {
             var hzdb = HzdbServiceFactory.CreateDefault();
@@ -1523,7 +1523,7 @@ public static class Program
             skipStreamProbeOption
         };
 
-        analyzeCommand.Handler = CommandHandler.Create(async (bool json, string expectedStream, string expectedType, bool skipStreamProbe) =>
+        analyzeCommand.Handler = CommandHandler.Create(async (bool json, string expectedStream, string expectedType, bool skipStreamProbe, string? device) =>
         {
             using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
             using var testSender = TestLslSignalServiceFactory.CreateDefault();
@@ -1537,11 +1537,29 @@ public static class Program
                     clockAlignment,
                     testSender,
                     bridge);
+                QuestWifiTransportDiagnosticsContext? wifiContext = null;
+                var state = CliSessionState.Load();
+                var selector = !string.IsNullOrWhiteSpace(device)
+                    ? device
+                    : state.ActiveEndpoint ?? state.LastUsbSerial;
+                if (!string.IsNullOrWhiteSpace(selector))
+                {
+                    var questService = CreateQuestService(device);
+                    var headset = await questService
+                        .QueryHeadsetStatusAsync(target: null, remoteOnlyControlEnabled: false)
+                        .ConfigureAwait(false);
+                    if (headset.IsConnected)
+                    {
+                        wifiContext = new QuestWifiTransportDiagnosticsContext(headset, selector);
+                    }
+                }
+
                 var result = await service.AnalyzeAsync(
                         new WindowsEnvironmentAnalysisRequest(
                             expectedStream,
                             expectedType,
-                            ProbeExpectedLslStream: !skipStreamProbe))
+                            ProbeExpectedLslStream: !skipStreamProbe,
+                            QuestWifiTransport: wifiContext))
                     .ConfigureAwait(false);
 
                 if (json)

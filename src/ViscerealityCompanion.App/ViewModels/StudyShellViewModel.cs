@@ -62,8 +62,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds;
     private const int WorkflowClockAlignmentInitialBackgroundProbeDelaySeconds = 1;
     private const string LaunchSleepBlockButtonLabel = "Wake Headset To Enable Launching";
+    private const string LaunchLockScreenBlockButtonLabel = "Clear Lock Screen Before Launching";
     private const string LaunchVisualBlockButtonLabel = "Clear Guardian Blocker Before Launching";
     private const string LaunchSleepBlockInstruction = "Wake the headset to enable launching.";
+    private const string LaunchLockScreenInstruction = "Clear the headset lock screen before launching.";
     private const string LaunchVisualBlockInstruction = "Clear the current Guardian, tracking-loss, or ClearActivity blocker before launching.";
     private const string KioskMenuButtonAdvisory = "On the current Meta OS build, kiosk is best-effort task pinning only and does not reliably disable the controller Meta/menu button.";
     private const string TwinCommandStreamName = "quest_twin_commands";
@@ -158,6 +160,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly ILslMonitorService _upstreamLslMonitorService = LslMonitorServiceFactory.CreateDefault();
     private readonly ILslStreamDiscoveryService _lslStreamDiscoveryService = LslStreamDiscoveryServiceFactory.CreateDefault();
     private readonly WindowsEnvironmentAnalysisService _windowsEnvironmentAnalysisService;
+    private readonly QuestWifiTransportDiagnosticsService _questWifiTransportDiagnosticsService = new();
     private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
     private readonly RuntimeConfigWriter _runtimeConfigWriter = new();
@@ -192,6 +195,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string? _liveProximitySelector;
     private DateTimeOffset? _lastProximityRefreshAtUtc;
     private DateTimeOffset? _lastDeviceSnapshotAtUtc;
+    private QuestWifiTransportDiagnosticsResult? _questWifiTransportDiagnostics;
+    private bool _questWifiTransportDiagnosticsPending;
+    private string _questWifiTransportDiagnosticsInputKey = string.Empty;
     private bool _regularAdbSnapshotEnabled;
     private string _endpointDraft;
     private string _connectionSummary = "Quest connection has not been checked yet.";
@@ -1959,6 +1965,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? (_study.App.LaunchInKioskMode ? "Exit Kiosk Runtime" : "Stop Study Runtime")
             : IsLaunchBlockedBySleepingHeadset
                 ? LaunchSleepBlockButtonLabel
+                : IsLaunchBlockedByHeadsetLockScreen
+                    ? LaunchLockScreenBlockButtonLabel
                 : IsLaunchBlockedByHeadsetVisualBlocker
                     ? LaunchVisualBlockButtonLabel
                 : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
@@ -1967,13 +1975,18 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         => IsStudyRuntimeForeground();
 
     public bool IsLaunchBlockedBySleepingHeadset
-        => !IsStudyRuntimeForeground() && _headsetStatus?.IsAwake == false;
+        => !IsStudyRuntimeForeground() &&
+           !IsHeadsetWakeBlockedByLockScreen() &&
+           _headsetStatus?.IsAwake == false;
+
+    public bool IsLaunchBlockedByHeadsetLockScreen
+        => !IsStudyRuntimeForeground() && IsHeadsetWakeBlockedByLockScreen();
 
     public bool IsLaunchBlockedByHeadsetVisualBlocker
-        => !IsStudyRuntimeForeground() && _headsetStatus?.IsInWakeLimbo == true;
+        => !IsLaunchBlockedByHeadsetLockScreen && !IsStudyRuntimeForeground() && _headsetStatus?.IsInWakeLimbo == true;
 
     public bool CanLaunchStudyRuntime
-        => !IsLaunchBlockedBySleepingHeadset && !IsLaunchBlockedByHeadsetVisualBlocker;
+        => !IsLaunchBlockedBySleepingHeadset && !IsLaunchBlockedByHeadsetLockScreen && !IsLaunchBlockedByHeadsetVisualBlocker;
 
     public bool CanToggleStudyRuntime
         => IsStudyRuntimeToggleState || CanLaunchStudyRuntime;
@@ -1981,6 +1994,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string WorkflowGuideLaunchActionLabel
         => IsLaunchBlockedBySleepingHeadset
             ? LaunchSleepBlockButtonLabel
+            : IsLaunchBlockedByHeadsetLockScreen
+                ? LaunchLockScreenBlockButtonLabel
             : IsLaunchBlockedByHeadsetVisualBlocker
                 ? LaunchVisualBlockButtonLabel
             : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
@@ -2613,6 +2628,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         await RefreshQuestTwinStatePublisherInventoryAsync().ConfigureAwait(false);
+        await DispatchAsync(() => QueueQuestWifiTransportDiagnosticsRefresh(force: true)).ConfigureAwait(false);
         await ApplyOutcomeAsync("Probe Connection", BuildLslConnectionProbeOutcome()).ConfigureAwait(false);
     }
 
@@ -2670,6 +2686,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ApplyWindowsEnvironmentAnalysisResult(result);
             RefreshBenchToolsStatus();
         }).ConfigureAwait(false);
+        await DispatchAsync(() => QueueQuestWifiTransportDiagnosticsRefresh(force: true)).ConfigureAwait(false);
         QueueMachineLslStateRefresh();
 
         await ApplyOutcomeAsync(
@@ -2744,6 +2761,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     .Select(check => new LslMachineCheckResult(check.Label, check.Level, check.Summary, check.Detail))
                     .ToArray(),
                 result.Report.MachineLslState.CompletedAtUtc));
+            _questWifiTransportDiagnostics = result.Report.QuestWifiTransport;
             DiagnosticsReportLevel = displayLevel;
             DiagnosticsReportSummary = result.Summary;
             DiagnosticsReportDetail =
@@ -2787,7 +2805,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : _study.Monitoring.ExpectedLslStreamName,
             string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
                 ? HrvBiofeedbackStreamContract.StreamType
-                : _study.Monitoring.ExpectedLslStreamType);
+                : _study.Monitoring.ExpectedLslStreamType,
+            QuestWifiTransport: _headsetStatus?.IsConnected == true
+                ? new QuestWifiTransportDiagnosticsContext(_headsetStatus, ResolveHeadsetActionSelector())
+                : null);
 
     private void ApplyWindowsEnvironmentAnalysisResult(WindowsEnvironmentAnalysisResult result)
     {
@@ -2812,7 +2833,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         if (attentionItems.Length == 0)
         {
-            return $"{result.Detail} All Windows-side prerequisites the shell can verify locally are present.";
+            return $"{result.Detail} All Windows-side prerequisites and the current Quest Wi-Fi transport path that the shell can verify are present.";
         }
 
         return $"{result.Detail} {string.Join(" ", attentionItems)}";
@@ -2823,6 +2844,88 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             Environment.NewLine,
             new[] { result.Detail }
                 .Concat(result.Checks.Select(check => $"{check.Label}: {check.Summary}")));
+
+    private void QueueQuestWifiTransportDiagnosticsRefresh(bool force = false)
+    {
+        if (_headsetStatus?.IsConnected != true || _headsetStatus.IsWifiAdbTransport != true)
+        {
+            _questWifiTransportDiagnostics = null;
+            _questWifiTransportDiagnosticsInputKey = string.Empty;
+            _questWifiTransportDiagnosticsPending = false;
+            return;
+        }
+
+        var currentInputKey = string.Join(
+            "|",
+            ResolveHeadsetActionSelector(),
+            _headsetStatus.ConnectionLabel,
+            _headsetStatus.HeadsetWifiIpAddress,
+            _headsetStatus.HeadsetWifiSsid,
+            _headsetStatus.HostWifiSsid,
+            _headsetStatus.HostWifiInterfaceName);
+
+        if (!force &&
+            _questWifiTransportDiagnosticsPending)
+        {
+            return;
+        }
+
+        if (!force &&
+            string.Equals(_questWifiTransportDiagnosticsInputKey, currentInputKey, StringComparison.OrdinalIgnoreCase) &&
+            _questWifiTransportDiagnostics is not null &&
+            DateTimeOffset.UtcNow - _questWifiTransportDiagnostics.CheckedAtUtc < TimeSpan.FromSeconds(20))
+        {
+            return;
+        }
+
+        _questWifiTransportDiagnosticsPending = true;
+        _questWifiTransportDiagnosticsInputKey = currentInputKey;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _questWifiTransportDiagnosticsService
+                    .AnalyzeAsync(_headsetStatus, ResolveHeadsetActionSelector())
+                    .ConfigureAwait(false);
+                await DispatchAsync(() => _questWifiTransportDiagnostics = result).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best effort only. Explicit analysis commands surface actionable failures.
+            }
+            finally
+            {
+                await DispatchAsync(() => _questWifiTransportDiagnosticsPending = false).ConfigureAwait(false);
+            }
+        });
+    }
+
+    private WorkflowGuideCheckItem BuildWifiTransportWorkflowGuideCheckItem()
+    {
+        if (_headsetStatus?.IsConnected != true || _headsetStatus.IsWifiAdbTransport != true)
+        {
+            return new WorkflowGuideCheckItem(
+                "Wi-Fi router path",
+                "Wi-Fi router path not checked yet.",
+                "Switch the study path onto Wi-Fi ADB first. Once Wi-Fi ADB is active, this check will verify that Windows can actually reach the Quest endpoint over the current router path.",
+                OperationOutcomeKind.Warning);
+        }
+
+        if (_questWifiTransportDiagnostics is null)
+        {
+            return new WorkflowGuideCheckItem(
+                "Wi-Fi router path",
+                "Wi-Fi router path is still being measured.",
+                "The shell is waiting for a live PC↔Quest Wi-Fi transport probe. Refresh the snapshot again if this stays pending after the current ADB selector stabilizes.",
+                OperationOutcomeKind.Preview);
+        }
+
+        return new WorkflowGuideCheckItem(
+            "Wi-Fi router path",
+            _questWifiTransportDiagnostics.Summary,
+            _questWifiTransportDiagnostics.Detail,
+            _questWifiTransportDiagnostics.Level);
+    }
 
     public Task RefreshMachineLslStateAsync()
         => RefreshMachineLslStateCoreAsync(reportOutcome: true);
@@ -3682,11 +3785,43 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var disableHoldIsActive = IsProximityBypassExpected(tracked, liveStatus);
         var enableNormalProximity = disableHoldIsActive;
         var actionLabel = enableNormalProximity ? "Enable Proximity" : "Disable Proximity";
-        var outcome = await _questService
-            .RunUtilityAsync(
-                enableNormalProximity ? QuestUtilityAction.EnableProximity : QuestUtilityAction.DisableProximity,
-                allowWakeResumeTarget: false)
-            .ConfigureAwait(false);
+        OperationOutcome outcome;
+        if (_hzdbService.IsAvailable)
+        {
+            outcome = await _hzdbService
+                .SetProximityAsync(selector, enableNormalProximity)
+                .ConfigureAwait(false);
+
+            if (outcome.Kind == OperationOutcomeKind.Failure)
+            {
+                var fallbackOutcome = await _questService
+                    .RunUtilityAsync(
+                        enableNormalProximity ? QuestUtilityAction.EnableProximity : QuestUtilityAction.DisableProximity,
+                        allowWakeResumeTarget: false)
+                    .ConfigureAwait(false);
+                outcome = fallbackOutcome.Kind == OperationOutcomeKind.Success
+                    ? fallbackOutcome with
+                    {
+                        Detail = string.IsNullOrWhiteSpace(outcome.Detail)
+                            ? fallbackOutcome.Detail
+                            : $"{outcome.Detail} Fell back to the direct Quest broadcast path and it succeeded."
+                    }
+                    : fallbackOutcome with
+                    {
+                        Detail = string.IsNullOrWhiteSpace(outcome.Detail)
+                            ? fallbackOutcome.Detail
+                            : $"{outcome.Detail} Fallback via the direct Quest broadcast path also failed. {fallbackOutcome.Detail}".Trim()
+                    };
+            }
+        }
+        else
+        {
+            outcome = await _questService
+                .RunUtilityAsync(
+                    enableNormalProximity ? QuestUtilityAction.EnableProximity : QuestUtilityAction.DisableProximity,
+                    allowWakeResumeTarget: false)
+                .ConfigureAwait(false);
+        }
 
         if (outcome.Kind == OperationOutcomeKind.Success)
         {
@@ -4147,7 +4282,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private bool IsHeadsetWakeBlockedByLockScreen()
         => _headsetStatus?.IsConnected == true &&
-           _headsetStatus.IsAwake == true &&
            !IsStudyRuntimeForeground() &&
            !string.IsNullOrWhiteSpace(_headsetStatus.ForegroundComponent) &&
            _headsetStatus.ForegroundComponent.Contains(QuestSensorLockActivity, StringComparison.OrdinalIgnoreCase);
@@ -6596,6 +6730,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             RefreshStudyRuntimeLaunchState();
         }).ConfigureAwait(false);
 
+        await DispatchAsync(() => QueueQuestWifiTransportDiagnosticsRefresh()).ConfigureAwait(false);
+
         if (_startupHotloadSyncDeferredUntilStudyStops &&
             _headsetStatus is { IsConnected: true, IsTargetForeground: false })
         {
@@ -7316,7 +7452,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             {
                 HeadsetAwakeLevel = OperationOutcomeKind.Warning;
                 HeadsetAwakeSummary = "Headset wake blocked by lock screen.";
-                HeadsetAwakeDetail = $"{powerEvidence} Quest woke into SensorLockActivity instead of returning to the previous app. Use Launch Study Runtime to resume Sussex from this state. {proximityContext}".Trim();
+                HeadsetAwakeDetail = $"{powerEvidence} Quest woke into SensorLockActivity instead of a usable scene. Clear the lock screen on the headset, or press the physical power button again, before you trust the wake state or launch Sussex. {proximityContext}".Trim();
             }
             else if (_headsetStatus.IsInWakeLimbo)
             {
@@ -7425,6 +7561,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(WorkflowGuideLaunchActionLabel));
         OnPropertyChanged(nameof(IsStudyRuntimeToggleState));
         OnPropertyChanged(nameof(IsLaunchBlockedBySleepingHeadset));
+        OnPropertyChanged(nameof(IsLaunchBlockedByHeadsetLockScreen));
         OnPropertyChanged(nameof(IsLaunchBlockedByHeadsetVisualBlocker));
         OnPropertyChanged(nameof(CanLaunchStudyRuntime));
         OnPropertyChanged(nameof(CanToggleStudyRuntime));
@@ -7443,6 +7580,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string BuildLaunchBlockInstruction()
         => IsLaunchBlockedBySleepingHeadset
             ? LaunchSleepBlockInstruction
+            : IsLaunchBlockedByHeadsetLockScreen
+                ? LaunchLockScreenInstruction
             : IsLaunchBlockedByHeadsetVisualBlocker
                 ? LaunchVisualBlockInstruction
                 : string.Empty;
@@ -10149,6 +10288,15 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private WorkflowGuideGateState BuildWifiMatchWorkflowGuideGateState()
     {
         var match = _headsetStatus?.WifiSsidMatchesHost;
+        if (_questWifiTransportDiagnostics is { Level: OperationOutcomeKind.Failure } wifiTransport)
+        {
+            return new WorkflowGuideGateState(
+                OperationOutcomeKind.Failure,
+                wifiTransport.Summary,
+                $"{HeadsetWifiSummary} {HostWifiSummary} {wifiTransport.Detail}",
+                false);
+        }
+
         var level = match switch
         {
             true => OperationOutcomeKind.Success,
@@ -10157,7 +10305,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         };
         var detail = match switch
         {
-            true => $"{HeadsetWifiSummary} {HostWifiSummary}",
+            true => _questWifiTransportDiagnostics is { Level: OperationOutcomeKind.Warning } wifiTransportWarning
+                ? $"{HeadsetWifiSummary} {HostWifiSummary} {wifiTransportWarning.Detail}"
+                : $"{HeadsetWifiSummary} {HostWifiSummary}",
             false => $"{HeadsetWifiSummary} {HostWifiSummary} Change the headset Wi-Fi manually inside the headset. Remote Wi-Fi switching is not considered reliable for the experiment path.",
             _ => "Refresh the headset snapshot until both the headset Wi-Fi and the PC Wi-Fi names are visible. If they differ, change the headset Wi-Fi manually."
         };
@@ -10583,11 +10733,19 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 "The return path is healthy, so focus next on the upstream HRV sender and inlet selection rather than on Quest foreground or twin-state publishing.");
         }
 
+        if (_questWifiTransportDiagnostics is { Level: OperationOutcomeKind.Warning or OperationOutcomeKind.Failure } wifiTransport)
+        {
+            AddHazard(
+                wifiTransport.Level,
+                wifiTransport.Summary,
+                wifiTransport.Detail);
+        }
+
         return hazardDetails.Count == 0
             ? new WorkflowGuideHazardState(
                 OperationOutcomeKind.Success,
                 "No live transport hazards detected.",
-                "No selector drift, USB reconnect risk, or twin-state publication hazard is visible in the current snapshot.")
+                "No selector drift, router/Wi-Fi path issue, USB reconnect risk, or twin-state publication hazard is visible in the current snapshot.")
             : new WorkflowGuideHazardState(hazardLevel, hazardSummary, string.Join(" ", hazardDetails));
     }
 
@@ -10837,7 +10995,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             2 =>
             [
                 new WorkflowGuideCheckItem("Headset Wi-Fi", HeadsetWifiSummary, $"Headset IP {_headsetStatus?.HeadsetWifiIpAddress ?? "n/a"}.", _headsetStatus?.WifiSsidMatchesHost == true ? OperationOutcomeKind.Success : _headsetStatus?.WifiSsidMatchesHost == false ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning),
-                new WorkflowGuideCheckItem("PC Wi-Fi", HostWifiSummary, string.IsNullOrWhiteSpace(_headsetStatus?.HostWifiSsid) ? "Refresh the snapshot until the PC Wi-Fi name is visible. If it still stays unknown, the Windows-side Wi-Fi probe has not returned yet." : "If the names differ, change the headset Wi-Fi manually inside the headset before continuing.", _headsetStatus?.WifiSsidMatchesHost == true ? OperationOutcomeKind.Success : _headsetStatus?.WifiSsidMatchesHost == false ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning)
+                new WorkflowGuideCheckItem("PC Wi-Fi", HostWifiSummary, string.IsNullOrWhiteSpace(_headsetStatus?.HostWifiSsid) ? "Refresh the snapshot until the PC Wi-Fi name is visible. If it still stays unknown, the Windows-side Wi-Fi probe has not returned yet." : "If the names differ, change the headset Wi-Fi manually inside the headset before continuing.", _headsetStatus?.WifiSsidMatchesHost == true ? OperationOutcomeKind.Success : _headsetStatus?.WifiSsidMatchesHost == false ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning),
+                BuildWifiTransportWorkflowGuideCheckItem()
             ],
             3 =>
             [

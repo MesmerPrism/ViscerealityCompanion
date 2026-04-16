@@ -222,6 +222,53 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
     }
 
     [Fact]
+    public async Task AnalyzeAsync_IncludesQuestWifiTransportCheck_WhenHeadsetContextIsProvided()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [
+                new LslVisibleStreamInfo("HRV_Biofeedback", "HRV", "external.sender.primary", 1, 10f, 100d)
+            ]);
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."));
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var wifiDiagnostics = new QuestWifiTransportDiagnosticsService(
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            pingProbe: (_, _, _, _) => Task.FromResult(new QuestWifiTransportDiagnosticsService.PingProbeResult(true, true, 2, 2, 8.5, string.Empty)),
+            tcpProbe: (_, _, _, _) => Task.FromResult(new QuestWifiTransportDiagnosticsService.TcpProbeResult(true, true, 21.2, string.Empty)),
+            utcNow: () => new DateTimeOffset(2026, 04, 10, 15, 0, 0, TimeSpan.Zero));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
+            questWifiTransportDiagnosticsService: wifiDiagnostics,
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            utcNow: () => new DateTimeOffset(2026, 04, 10, 15, 0, 0, TimeSpan.Zero));
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest(
+            "HRV_Biofeedback",
+            "HRV",
+            QuestWifiTransport: new QuestWifiTransportDiagnosticsContext(
+                CreateConnectedHeadsetStatus(),
+                "192.168.0.55:5555")));
+
+        var wifiCheck = Assert.Single(result.Checks, check => check.Id == "quest-wifi-transport");
+        Assert.Equal(OperationOutcomeKind.Success, wifiCheck.Level);
+        Assert.Contains("reachable from Windows", wifiCheck.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TCP port 5555", wifiCheck.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task AnalyzeAsync_FailsDiscoverySelfCheck_WhenLiblslResolverThrowsSocketError()
     {
         var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
@@ -371,6 +418,29 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
                 IPv4Addresses: ["192.168.0.22"],
                 Gateways: ["192.168.0.1"])
         ];
+
+    private static HeadsetAppStatus CreateConnectedHeadsetStatus()
+        => new(
+            IsConnected: true,
+            ConnectionLabel: "192.168.0.55:5555",
+            DeviceModel: "Quest 3",
+            BatteryLevel: 90,
+            CpuLevel: 4,
+            GpuLevel: 4,
+            ForegroundPackageId: "com.Viscereality.SussexExperiment",
+            IsTargetInstalled: true,
+            IsTargetRunning: true,
+            IsTargetForeground: true,
+            RemoteOnlyControlEnabled: false,
+            Timestamp: DateTimeOffset.UtcNow,
+            Summary: "Connected.",
+            Detail: "Connected over Wi-Fi ADB.",
+            IsWifiAdbTransport: true,
+            HeadsetWifiSsid: "SussexLab",
+            HeadsetWifiIpAddress: "192.168.0.55",
+            HostWifiSsid: "SussexLab",
+            WifiSsidMatchesHost: true,
+            HostWifiInterfaceName: "Wi-Fi");
 
     private static Func<ILslOutletService> CreateLoopbackOutletFactory()
         => () => new FakeLslOutletService(new LslRuntimeState(true, "Fake outlet runtime ready."));

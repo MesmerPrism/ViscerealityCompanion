@@ -20,6 +20,7 @@ internal static class DiagnosticsCliSupport
         string ForegroundAndSnapshot,
         string PinnedBuild,
         string DeviceProfile,
+        string WifiTransport,
         string ExpectedInlet,
         string RuntimeTarget,
         string ConnectedInlet,
@@ -68,6 +69,9 @@ internal static class DiagnosticsCliSupport
         var profileStatus = await questService
             .QueryDeviceProfileStatusAsync(profile, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        var wifiTransport = await new QuestWifiTransportDiagnosticsService()
+            .AnalyzeAsync(headset, device ?? headset.ConnectionLabel, cancellationToken)
+            .ConfigureAwait(false);
 
         var checkedAtUtc = DateTimeOffset.UtcNow;
         var bridge = TwinModeBridgeFactory.CreateDefault();
@@ -90,6 +94,7 @@ internal static class DiagnosticsCliSupport
                     ForegroundAndSnapshot: BuildForegroundAndSnapshotLabel(headset),
                     PinnedBuild: BuildPinnedBuildLabel(definition, installed),
                     DeviceProfile: BuildDeviceProfileLabel(profileStatus),
+                    WifiTransport: $"[{RenderLevel(wifiTransport.Level)}] {wifiTransport.Summary}",
                     ExpectedInlet: $"{definition.Monitoring.ExpectedLslStreamName} / {definition.Monitoring.ExpectedLslStreamType}",
                     RuntimeTarget: "Runtime target n/a",
                     ConnectedInlet: "Connected stream n/a",
@@ -111,7 +116,7 @@ internal static class DiagnosticsCliSupport
                 LslStreamDiscoveryServiceFactory.CreateDefault(),
                 definition.App.PackageId);
 
-            var state = BuildStudyConnectionProbeState(definition, headset, installed, profileStatus, device, lslBridge, twinStatePublisher, checkedAtUtc);
+            var state = BuildStudyConnectionProbeState(definition, headset, installed, profileStatus, device, lslBridge, twinStatePublisher, wifiTransport, checkedAtUtc);
             return openOutcome.Kind == OperationOutcomeKind.Failure
                 ? state with
                 {
@@ -136,6 +141,7 @@ internal static class DiagnosticsCliSupport
         Console.WriteLine($"Foreground + snapshot:  {result.ForegroundAndSnapshot}");
         Console.WriteLine($"Pinned build:           {result.PinnedBuild}");
         Console.WriteLine($"Device profile:         {result.DeviceProfile}");
+        Console.WriteLine($"Wi-Fi transport:        {result.WifiTransport}");
         Console.WriteLine($"Expected inlet:         {result.ExpectedInlet}");
         Console.WriteLine($"Runtime target:         {result.RuntimeTarget}");
         Console.WriteLine($"Connected inlet:        {result.ConnectedInlet}");
@@ -173,6 +179,7 @@ internal static class DiagnosticsCliSupport
         Console.WriteLine();
         Console.WriteLine($"Windows environment: {RenderLevel(result.Report.WindowsEnvironment.Level)} - {result.Report.WindowsEnvironment.Summary}");
         Console.WriteLine($"Machine LSL state:   {RenderLevel(result.Report.MachineLslState.Level)} - {result.Report.MachineLslState.Summary}");
+        Console.WriteLine($"Wi-Fi transport:     {RenderLevel(result.Report.QuestWifiTransport.Level)} - {result.Report.QuestWifiTransport.Summary}");
         Console.WriteLine($"Twin return path:    {RenderLevel(result.Report.TwinConnection.Level)} - {result.Report.TwinConnection.Summary}");
         Console.WriteLine($"Command acceptance:  {RenderLevel(result.Report.CommandAcceptance.Level)} - {result.Report.CommandAcceptance.Summary}");
         Console.WriteLine($"Generated at:        {result.CompletedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}");
@@ -186,6 +193,7 @@ internal static class DiagnosticsCliSupport
         string? device,
         LslTwinModeBridge bridge,
         QuestTwinStatePublisherInventory twinStatePublisher,
+        QuestWifiTransportDiagnosticsResult wifiTransport,
         DateTimeOffset checkedAtUtc)
     {
         var expectedName = definition.Monitoring.ExpectedLslStreamName;
@@ -345,6 +353,8 @@ internal static class DiagnosticsCliSupport
             detailParts.Add(QuestTwinStatePublisherInventoryService.RenderForOperator(twinStatePublisher));
         }
 
+        detailParts.Add(wifiTransport.Detail);
+
         if (headsetForeground)
         {
             detailParts.Add("The Sussex package is foregrounded per ADB, so this is no longer just a launch-selection problem.");
@@ -368,6 +378,7 @@ internal static class DiagnosticsCliSupport
             ForegroundAndSnapshot: BuildForegroundAndSnapshotLabel(headset),
             PinnedBuild: BuildPinnedBuildLabel(definition, installed),
             DeviceProfile: BuildDeviceProfileLabel(profileStatus),
+            WifiTransport: $"[{RenderLevel(wifiTransport.Level)}] {wifiTransport.Summary}",
             ExpectedInlet: $"{expectedName} / {expectedType}",
             RuntimeTarget: runtimeTarget,
             ConnectedInlet: connectedInlet,

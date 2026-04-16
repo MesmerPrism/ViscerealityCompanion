@@ -310,6 +310,70 @@ public sealed class StudyShellWorkflowGuideRegressionTests
     }
 
     [Fact]
+    public void WifiMatchChecks_ExposeRouterPathWarning_WhenQuestWifiTransportLooksBlocked()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(
+            viewModel,
+            "_questWifiTransportDiagnostics",
+            new QuestWifiTransportDiagnosticsResult(
+                OperationOutcomeKind.Failure,
+                "Windows cannot reach the Quest ADB TCP endpoint over the current Wi-Fi path.",
+                "Selector 192.168.0.55:5555. Headset Wi-Fi SussexLab (192.168.0.55). Host Wi-Fi SussexLab via Wi-Fi (192.168.0.22). The PC and Quest report the same SSID, but Windows could not open TCP port 5555 on the Quest IP. On the failing router this usually means guest Wi-Fi/client isolation, AP isolation, WLAN peer blocking, or a stale endpoint surviving an ADB restart.",
+                Selector: "Selector 192.168.0.55:5555.",
+                HeadsetWifi: "Headset Wi-Fi SussexLab (192.168.0.55).",
+                HostWifi: "Host Wi-Fi SussexLab via Wi-Fi (192.168.0.22).",
+                Topology: "SSIDs match. Selector IP matches the headset Wi-Fi IP. Quest and host appear to share the same IPv4 subnet.",
+                Ping: "ICMP ping to the Quest IP timed out across 2 attempt(s).",
+                Tcp: "TCP port 5555 on the Quest did not accept a connection from Windows: timed out after 1500 ms",
+                TcpReachable: false,
+                PingReachable: false,
+                SelectorMatchesHeadsetIp: true,
+                SameSubnet: true,
+                CheckedAtUtc: DateTimeOffset.UtcNow));
+
+        var checks = InvokePrivateMethod<IReadOnlyList<WorkflowGuideCheckItem>>(viewModel, "BuildWorkflowGuideCheckItems", 2);
+
+        Assert.Equal(3, checks.Count);
+        Assert.Equal("Wi-Fi router path", checks[2].Label);
+        Assert.Equal(OperationOutcomeKind.Failure, checks[2].Level);
+        Assert.Contains("client isolation", checks[2].Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WifiMatchGate_Fails_WhenWifiTransportDiagnosticsDetectRouterIsolation()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(
+            viewModel,
+            "_questWifiTransportDiagnostics",
+            new QuestWifiTransportDiagnosticsResult(
+                OperationOutcomeKind.Failure,
+                "Windows cannot reach the Quest ADB TCP endpoint over the current Wi-Fi path.",
+                "The PC and Quest report the same SSID, but TCP port 5555 is blocked.",
+                Selector: "Selector 192.168.0.55:5555.",
+                HeadsetWifi: "Headset Wi-Fi SussexLab (192.168.0.55).",
+                HostWifi: "Host Wi-Fi SussexLab via Wi-Fi (192.168.0.22).",
+                Topology: "SSIDs match.",
+                Ping: "ICMP ping timed out.",
+                Tcp: "TCP port 5555 blocked.",
+                TcpReachable: false,
+                PingReachable: false,
+                SelectorMatchesHeadsetIp: true,
+                SameSubnet: true,
+                CheckedAtUtc: DateTimeOffset.UtcNow));
+
+        var gate = InvokePrivateMethod<WorkflowGuideGateState>(viewModel, "BuildWifiMatchWorkflowGuideGateState");
+
+        Assert.False(gate.Ready);
+        Assert.Equal(OperationOutcomeKind.Failure, gate.Level);
+        Assert.Contains("cannot reach", gate.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TCP port 5555", gate.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void LslReturnPathCheck_DistinguishesStalledTwinStatePublisherFromGenericConnectionFailure()
     {
         var viewModel = CreateViewModel(CreateStudy());
@@ -443,6 +507,29 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.False(viewModel.CanLaunchStudyRuntime);
         Assert.False(viewModel.CanToggleStudyRuntime);
         Assert.Equal("Clear Guardian Blocker Before Launching", viewModel.StudyRuntimeActionLabel);
+    }
+
+    [Fact]
+    public void StudyRuntimeLaunch_IsBlockedAndRelabeled_WhenLockScreenIsForeground()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(
+            viewModel,
+            "_headsetStatus",
+            CreateConnectedHeadsetStatus("com.oculus.os.vrlockscreen") with
+            {
+                IsTargetForeground = false,
+                IsTargetRunning = false,
+                IsAwake = false,
+                IsInWakeLimbo = true,
+                ForegroundComponent = "com.oculus.os.vrlockscreen/.SensorLockActivity"
+            });
+
+        Assert.True(viewModel.IsLaunchBlockedByHeadsetLockScreen);
+        Assert.False(viewModel.IsLaunchBlockedByHeadsetVisualBlocker);
+        Assert.False(viewModel.CanLaunchStudyRuntime);
+        Assert.False(viewModel.CanToggleStudyRuntime);
+        Assert.Equal("Clear Lock Screen Before Launching", viewModel.StudyRuntimeActionLabel);
     }
 
     [Fact]

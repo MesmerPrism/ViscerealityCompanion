@@ -182,7 +182,9 @@ The two probes deliberately cover different halves of the fault tree:
 - `Analyze Windows Environment` checks the local Windows machine: liblsl load
   path, active IPv4 adapters, VPN or virtual adapter hazards, multicast support,
   local liblsl discovery health, twin bridge availability, and whether
-  `HRV_Biofeedback / HRV` is visible to this PC.
+  `HRV_Biofeedback / HRV` is visible to this PC. When a live headset selector
+  is available, it also checks the raw PC↔Quest Wi-Fi path: selector drift,
+  host/Quest subnet shape, ICMP reachability, and TCP `5555` reachability.
 - `Probe Connection` checks the headset path: the installed Sussex APK hash
   against the pinned release, the required Quest device profile, the current
   foreground/snapshot Wi-Fi context, the Sussex inlet reported by the runtime,
@@ -199,6 +201,12 @@ through Windows Firewall on Private networks, and confirm the router is not
 using client isolation. In the second case, keep Sussex visibly foregrounded and
 debug the return telemetry before trusting calibration, recording confirmation,
 or routed coherence readback in the GUI.
+
+If the new `Quest Wi-Fi transport path` row fails while the SSIDs still match,
+that is the clearest router diagnosis the shell can currently give. In that
+state, stop blaming liblsl or the Sussex APK first; move both devices to a
+different router/AP, disable guest/client isolation, or use a lab Wi-Fi that
+permits direct client-to-client traffic.
 
 For the return-path case, read the `Twin-state outlet` line in `Probe
 Connection` or `viscereality study probe-connection ... --json`:
