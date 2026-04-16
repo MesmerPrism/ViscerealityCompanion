@@ -83,7 +83,7 @@ public sealed class PreviewPackageInstallerTests
         var packageIdentity = new PreviewPackageIdentity(
             "MesmerPrism.ViscerealityCompanionPreview",
             "CN=MesmerPrism",
-            "0.1.57.0",
+            "0.1.58.0",
             new Uri("file:///C:/Temp/ViscerealityCompanion.appinstaller"));
 
         var package = PreviewPackageInstaller.FindLegacyPackageToRetire(

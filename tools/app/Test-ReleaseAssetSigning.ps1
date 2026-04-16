@@ -93,6 +93,65 @@ function Assert-MsixPayloadLayout {
     }
 }
 
+function Assert-PackagedExecutablePayloadSigning {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [switch]$AllowSelfSigned
+    )
+
+    $resolvedPath = (Resolve-Path $Path).Path
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($resolvedPath)
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("viscereality-payload-signing-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+
+    try {
+        $payloadEntries = @(
+            $archive.Entries |
+                Where-Object { $_.FullName -match '^ViscerealityCompanion\.App/.+\.(dll|exe)$' }
+        )
+
+        if ($payloadEntries.Count -eq 0) {
+            throw "No executable payload files were found inside $resolvedPath."
+        }
+
+        foreach ($entry in $payloadEntries) {
+            $entryPath = Join-Path $tempRoot ($entry.FullName -replace '/', '\')
+            $entryDirectory = Split-Path -Parent $entryPath
+            if (-not (Test-Path $entryDirectory)) {
+                New-Item -ItemType Directory -Force -Path $entryDirectory | Out-Null
+            }
+
+            $entryStream = $entry.Open()
+            try {
+                $fileStream = [System.IO.File]::Create($entryPath)
+                try {
+                    $entryStream.CopyTo($fileStream)
+                }
+                finally {
+                    $fileStream.Dispose()
+                }
+            }
+            finally {
+                $entryStream.Dispose()
+            }
+
+            try {
+                Get-SigningReport -Path $entryPath -AllowSelfSigned:$AllowSelfSigned | Out-Null
+            }
+            catch {
+                throw "Executable payload signing validation failed for $($entry.FullName): $($_.Exception.Message)"
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+        if (Test-Path $tempRoot) {
+            Remove-Item -Recurse -Force $tempRoot
+        }
+    }
+}
+
 $reports = @(
     (Get-SigningReport -Path $PreviewSetupPath -AllowSelfSigned:$AllowSelfSignedPreviewSetup |
         Select-Object @{ Name = 'Asset'; Expression = { 'Preview setup' } }, *)
@@ -101,6 +160,7 @@ $reports = @(
 )
 
 Assert-MsixPayloadLayout -Path $PackagePath
+Assert-PackagedExecutablePayloadSigning -Path $PackagePath -AllowSelfSigned:$AllowSelfSignedPackage
 
 $selfIssuedReports = $reports | Where-Object { $_.SelfIssued }
 foreach ($report in $selfIssuedReports) {

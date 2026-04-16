@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
-    [string]$Version = '0.1.57.0',
+    [string]$Version = '0.1.58.0',
     [string]$PackageId = 'MesmerPrism.ViscerealityCompanionPreview',
     [string]$Publisher = 'CN=MesmerPrism',
     [string]$DisplayName = 'Viscereality Companion Preview',
@@ -93,6 +93,73 @@ function Find-WindowsSdkTool {
     throw "$ToolName was not found. Install the Windows 10/11 SDK packaging tools."
 }
 
+function Invoke-SignToolSign {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SignToolPath,
+        [Parameter(Mandatory = $true)]
+        [string]$CertificatePath,
+        [Parameter(Mandatory = $true)]
+        [string]$CertificatePassword,
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+        [string]$TimestampUrl
+    )
+
+    $signArgs = @(
+        'sign',
+        '/fd', 'SHA256',
+        '/f', [System.IO.Path]::GetFullPath($CertificatePath),
+        '/p', $CertificatePassword
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($TimestampUrl)) {
+        $signArgs += @('/tr', $TimestampUrl, '/td', 'SHA256')
+    }
+
+    $signArgs += [System.IO.Path]::GetFullPath($TargetPath)
+
+    & $SignToolPath @signArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "signtool sign failed for $TargetPath with exit code $LASTEXITCODE"
+    }
+}
+
+function Sign-UnsignedPayloadFiles {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PayloadRoot,
+        [Parameter(Mandatory = $true)]
+        [string]$SignToolPath,
+        [Parameter(Mandatory = $true)]
+        [string]$CertificatePath,
+        [Parameter(Mandatory = $true)]
+        [string]$CertificatePassword,
+        [string]$TimestampUrl
+    )
+
+    $unsignedPayloadFiles = @(
+        Get-ChildItem -Path $PayloadRoot -Recurse -File |
+            Where-Object { $_.Extension -in '.dll', '.exe' } |
+            Where-Object { $null -eq (Get-AuthenticodeSignature -FilePath $_.FullName).SignerCertificate }
+    )
+
+    if ($unsignedPayloadFiles.Count -eq 0) {
+        Write-Host "No unsigned executable payload files were found under $PayloadRoot" -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Signing $($unsignedPayloadFiles.Count) previously unsigned executable payload file(s) under $PayloadRoot" -ForegroundColor Cyan
+    foreach ($payloadFile in $unsignedPayloadFiles) {
+        Invoke-SignToolSign `
+            -SignToolPath $SignToolPath `
+            -CertificatePath $CertificatePath `
+            -CertificatePassword $CertificatePassword `
+            -TargetPath $payloadFile.FullName `
+            -TimestampUrl $TimestampUrl
+    }
+}
+
 function Initialize-DotNetSdkResolver {
     $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
     if (-not $dotnetCommand) {
@@ -161,6 +228,8 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $entryProjectPath = Join-Path $repoRoot 'src\ViscerealityCompanion.App\ViscerealityCompanion.App.csproj'
 $packageProjectDir = Join-Path $repoRoot 'src\ViscerealityCompanion.App.Package'
 $packageProjectPath = Join-Path $packageProjectDir 'ViscerealityCompanion.App.Package.wapproj'
+$packageLayoutRoot = Join-Path $packageProjectDir "bin\$Platform\$Configuration"
+$packagePayloadRoot = Join-Path $packageLayoutRoot 'ViscerealityCompanion.App'
 $manifestPath = Join-Path $packageProjectDir 'Package.appxmanifest'
 $appInstallerTemplatePath = Join-Path $packageProjectDir 'Package.appinstaller.template'
 $appPackagesRoot = Join-Path $packageProjectDir 'AppPackages'
@@ -251,37 +320,51 @@ try {
         throw "MSIX package build failed with exit code $LASTEXITCODE"
     }
 
-    $builtPackage = Get-ChildItem -Path $appPackagesRoot -Recurse -Filter *.msix |
-        Sort-Object LastWriteTimeUtc -Descending |
-        Select-Object -First 1
-
-    if ($null -eq $builtPackage) {
-        throw "No MSIX package was produced under $appPackagesRoot"
+    $packageOutputPath = Join-Path $outputPath $PackageFileName
+    if (Test-Path $packageOutputPath) {
+        Remove-Item -Force $packageOutputPath
     }
 
-    $packageOutputPath = Join-Path $outputPath $PackageFileName
-    Copy-Item $builtPackage.FullName $packageOutputPath -Force
+    if (-not (Test-Path $packageLayoutRoot)) {
+        throw "Package layout root was not produced at $packageLayoutRoot"
+    }
 
+    if (-not (Test-Path $packagePayloadRoot)) {
+        throw "Packaged desktop payload was not produced at $packagePayloadRoot"
+    }
+
+    $makeAppxPath = Find-WindowsSdkTool -ToolName 'makeappx.exe'
     if (-not $Unsigned) {
         $signToolPath = Find-WindowsSdkTool -ToolName 'signtool.exe'
-        $signArgs = @(
-            'sign',
-            '/fd', 'SHA256',
-            '/f', [System.IO.Path]::GetFullPath($PackageCertificatePath),
-            '/p', $PackageCertificatePassword
-        )
+        Sign-UnsignedPayloadFiles `
+            -PayloadRoot $packagePayloadRoot `
+            -SignToolPath $signToolPath `
+            -CertificatePath $PackageCertificatePath `
+            -CertificatePassword $PackageCertificatePassword `
+            -TimestampUrl $PackageCertificateTimestampUrl
+    }
 
-        if (-not [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
-            $signArgs += @('/tr', $PackageCertificateTimestampUrl, '/td', 'SHA256')
-        }
+    $makeAppxArgs = @(
+        'pack',
+        '/o',
+        '/d', [System.IO.Path]::GetFullPath($packageLayoutRoot),
+        '/p', [System.IO.Path]::GetFullPath($packageOutputPath)
+    )
 
-        $signArgs += $packageOutputPath
+    Write-Host "Packing MSIX from layout at $packageLayoutRoot with $makeAppxPath" -ForegroundColor Cyan
+    & $makeAppxPath @makeAppxArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "makeappx pack failed with exit code $LASTEXITCODE"
+    }
 
+    if (-not $Unsigned) {
         Write-Host "Signing package with $signToolPath" -ForegroundColor Cyan
-        & $signToolPath @signArgs | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            throw "signtool sign failed with exit code $LASTEXITCODE"
-        }
+        Invoke-SignToolSign `
+            -SignToolPath $signToolPath `
+            -CertificatePath $PackageCertificatePath `
+            -CertificatePassword $PackageCertificatePassword `
+            -TargetPath $packageOutputPath `
+            -TimestampUrl $PackageCertificateTimestampUrl
     }
 
     Write-Host "Copied package to $packageOutputPath" -ForegroundColor Green
