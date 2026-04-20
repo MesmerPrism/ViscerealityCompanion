@@ -46,6 +46,17 @@ operator tooling.
 - Those upstream libraries remain under their own terms. The repo's MIT license
   does not override or replace those upstream terms.
 
+### Native PDF Rendering Libraries
+
+- Sussex validation and diagnostics PDFs are generated in .NET with the
+  `PDFsharp-MigraDoc` package family from empira Software GmbH.
+- Upstream project/docs: <https://docs.pdfsharp.net/>
+- Upstream repository: <https://github.com/empira/PDFsharp>
+- Upstream license: MIT
+- Those upstream libraries remain under their own MIT terms in packaged builds;
+  this repo does not claim authorship of them or relicense them under a
+  different license.
+
 ## Practical Rule
 
 If a file or runtime comes from this repo's own source tree, MIT is the default

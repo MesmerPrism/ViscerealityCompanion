@@ -108,7 +108,7 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
         new(
             "unity",
             "Unity Runtime",
-            "These keys expose the Unity-side runtime policy surface used by the Astral scene and keep it available from the operator app.",
+            "These keys expose the Unity-side runtime policy surface used by the participant-facing build and keep it available from the operator app.",
             RuntimeConfigInspectorPane.ApkRuntime,
             [
                 Toggle("unity_run_in_background_enabled", "Run In Background Gate", "Enable or disable background-run policy writes.", false),
@@ -149,7 +149,7 @@ public sealed class RuntimeConfigWorkspaceViewModel : ObservableObject
 
     private readonly RuntimeConfigCatalogLoader _catalogLoader = new();
     private readonly RuntimeConfigWriter _writer = new();
-    private string _catalogStatus = "Loading Astral runtime config profiles...";
+    private string _catalogStatus = "Loading runtime config profiles...";
     private string _catalogSourcePath = string.Empty;
     private string _selectedProfileSummary = "No runtime config selected.";
     private string _lastExportPath = "No runtime config export written yet.";

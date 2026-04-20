@@ -142,14 +142,14 @@ The public Sussex preview is supposed to be self-contained:
 
 - the packaged Windows install already includes the bundled Sussex APK
 - the study shell already knows the approved hash and device profile
-- the operator should not need a separate Astral checkout or a second APK handoff
+- the operator should not need a separate runtime source checkout or a second APK handoff
 
 The committed `samples/quest-session-kit/APKs/SussexExperiment.apk` is intentionally the
-same Sussex APK mirrored from the Astral build used for the study. It is stored
+same Sussex APK mirrored from the approved Sussex study build. It is stored
 through Git LFS in the source repo, but the packaged Windows install exposes
 the real file directly to the app at runtime.
 
-When you approve a newer Sussex APK from `AstralKarateDojo`, refresh the public
+When you approve a newer Sussex APK from the participant-facing runtime build, refresh the public
 bundle with:
 
 ```powershell
@@ -160,23 +160,9 @@ That keeps the packaged app's `samples/quest-session-kit/APKs/` layout stable
 while updating the mirrored APK and the pinned Sussex hash in
 `compatibility.json` and `sussex-university.json`.
 
-The source-maintainer handoff is:
-
-```powershell
-cd C:\Users\tillh\source\repos\AstralKarateDojo
-& "C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Unity.exe" `
-  -batchmode -nographics -quit `
-  -projectPath "$PWD" `
-  -activeBuildProfile "Assets/Settings/Build Profiles/Meta Quest Sussex Experiment.asset" `
-  -logFile "$PWD\Logs\build_sussex_study_apk.log" `
-  -executeMethod AstralKarateDojo.IndirectParticles.Editor.BuildWorkflowTools.BuildMetaQuestSussexStudyApk
-
-cd C:\Users\tillh\source\repos\ViscerealityCompanion
-powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-Apk.ps1
-```
-
-That is the only time the public source repo needs a local `AstralKarateDojo`
-checkout. The packaged Sussex operator app remains self-contained.
+The runtime build-and-approval step stays outside this public operator repo.
+Once a newer Sussex APK is approved, sync it here with the script above so the
+packaged Sussex operator app remains self-contained.
 
 The embedded Sussex workspace checks:
 
@@ -487,11 +473,11 @@ Wi-Fi/client-isolation policy. If switching between the built-in TEST sender
 and an external Python sender becomes unreliable, refresh `Machine LSL State`
 first and then run `Analyze Windows Environment`. If another maintainer needs
 to inspect the same state, press `Generate Diagnostics Report`; the app writes
-a timestamped diagnostics folder with JSON, LaTeX source, and a PDF when
-Python/matplotlib are available. The report also includes the Quest pinned
-APK/profile snapshot, the raw Quest Wi-Fi transport path, the
-`quest_twin_state` publisher inventory, the Step 9 return-path
-interpretation, and a safe particle-off twin command acknowledgement probe.
+a timestamped diagnostics folder with JSON, LaTeX source, and a native PDF.
+The report also includes the Quest pinned APK/profile snapshot, the raw Quest
+Wi-Fi transport path, the `quest_twin_state` publisher inventory, the Step 9
+return-path interpretation, and a safe particle-off twin command
+acknowledgement probe.
 
 The validation step now keeps the timing workflow inside the same guide
 surface. Instead of opening a separate timing window, step 12 shows:
@@ -562,7 +548,7 @@ workspace buttons now open. Unpackaged/source builds still use the normal
 `%LOCALAPPDATA%\ViscerealityCompanion\...` root.
 
 The Sussex shell now uses the bundled APK path from the app payload on
-startup, so packaged Windows installs do not depend on a machine-local Astral
+startup, so packaged Windows installs do not depend on a machine-local runtime
 workspace just to find the Sussex APK.
 
 ## Sussex Verification Harness

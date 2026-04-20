@@ -1545,7 +1545,7 @@
                                                        Margin="0,8,0,0" />
                                         </StackPanel>
                                     </Border>
-                                    <TextBlock Text="Detailed tools: Quest Library covers catalog choices, Runtime Config mirrors the Astral inspector, Twin Monitor compares requested vs reported values, and Diagnostics keeps the operator log."
+                                    <TextBlock Text="Detailed tools: Quest Library covers catalog choices, Runtime Config stages grouped runtime settings, Twin Monitor compares requested vs reported values, and Diagnostics keeps the operator log."
                                                Style="{StaticResource MicroCaptionStyle}"
                                                Margin="0,12,0,0" />
                                 </StackPanel>
@@ -1946,7 +1946,7 @@
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel>
                                 <TextBlock Text="Runtime Config" Style="{StaticResource SectionTitleStyle}" />
-                                <TextBlock Text="The editor follows the Astral scene inspector: setup first, then tunable parameters, then coupling-adjacent timing and JSON bridge values."
+                                <TextBlock Text="The editor follows the runtime workflow: setup first, then tunable parameters, then timing and JSON bridge values."
                                            Style="{StaticResource SectionCaptionStyle}" />
                                 <TextBlock Text="Profile" Style="{StaticResource EyebrowStyle}" />
                                 <ComboBox ItemsSource="{Binding RuntimeConfig.Profiles}" SelectedItem="{Binding RuntimeConfig.SelectedProfile}" />
@@ -2407,7 +2407,7 @@
                     <Border Grid.Column="0" Style="{StaticResource PanelBorderStyle}">
                         <StackPanel>
                             <TextBlock Text="Live Monitor" Style="{StaticResource SectionTitleStyle}" />
-                            <TextBlock Text="This remains the simple read-only telemetry surface, aligned with Astral's quest_monitor outlet defaults."
+                            <TextBlock Text="This remains the simple read-only telemetry surface, aligned with the standard quest_monitor outlet defaults."
                                        Style="{StaticResource SectionCaptionStyle}" />
                             <TextBlock Text="{Binding MonitorValueLabel}"
                                        FontSize="54"
@@ -2435,7 +2435,7 @@
 
                             <StackPanel Grid.Row="0">
                                 <TextBlock Text="Monitor Contract" Style="{StaticResource SectionTitleStyle}" />
-                                <TextBlock Text="Defaults match Quest Session Kit and the Astral scene: quest_monitor / quest.telemetry, channel 0."
+                                <TextBlock Text="Defaults match Quest Session Kit: quest_monitor / quest.telemetry, channel 0."
                                            Style="{StaticResource SectionCaptionStyle}" />
                             </StackPanel>
 

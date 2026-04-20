@@ -52,6 +52,17 @@ That path publishes a single-file `win-x64` app into
 `ViscerealityCompanion.exe` copies, refreshes the canonical Desktop/Start Menu
 launcher, and launches the verified build.
 
+If Windows code integrity blocks repo-built test assemblies on this machine,
+use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Invoke-Signed-DotNetTest.ps1
+```
+
+That wrapper builds the test target, signs unsigned test output `.dll` and
+`.exe` files with the shared trusted `CN=MesmerPrism` signer from the local
+certificate store, and then runs `dotnet test --no-build`.
+
 If you want a separate launcher for the repo-local development build, use:
 
 ```powershell

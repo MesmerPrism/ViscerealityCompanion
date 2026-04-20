@@ -688,7 +688,7 @@ public static class Program
                 OperationOutcome? pdfOutcome = null;
                 if (!noPdf)
                 {
-                    pdfOutcome = await GenerateSussexDiagnosticsPdfAsync(result.JsonPath, result.PdfPath).ConfigureAwait(false);
+                    pdfOutcome = await GenerateSussexDiagnosticsPdfAsync(result.Report, result.PdfPath).ConfigureAwait(false);
                 }
 
                 if (json)
@@ -1581,126 +1581,33 @@ public static class Program
     }
 
     private static async Task<OperationOutcome> GenerateSussexDiagnosticsPdfAsync(
-        string inputJsonPath,
+        SussexDiagnosticsReport report,
         string outputPdfPath)
     {
-        var scriptPath = TryResolveSussexDiagnosticsPdfScriptPath();
-        if (string.IsNullOrWhiteSpace(scriptPath))
+        if (report is null)
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Diagnostics PDF generator was not found.",
-                "JSON and LaTeX reports were written, but the bundled PDF script could not be resolved.");
+                "Diagnostics PDF skipped.",
+                "The diagnostics report model was not available.");
         }
 
-        var attempts = new[]
+        try
         {
-            ("py", new[] { "-3", scriptPath }),
-            ("python", new[] { scriptPath })
-        };
-
-        foreach (var (exe, prefixArgs) in attempts)
-        {
-            try
-            {
-                var startInfo = new ProcessStartInfo(exe)
-                {
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-                foreach (var arg in prefixArgs)
-                {
-                    startInfo.ArgumentList.Add(arg);
-                }
-
-                startInfo.ArgumentList.Add("--input-json");
-                startInfo.ArgumentList.Add(inputJsonPath);
-                startInfo.ArgumentList.Add("--output-pdf");
-                startInfo.ArgumentList.Add(outputPdfPath);
-
-                using var process = Process.Start(startInfo);
-                if (process is null)
-                {
-                    continue;
-                }
-
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                var errorTask = process.StandardError.ReadToEndAsync();
-                var completed = await Task.Run(() => process.WaitForExit(45000)).ConfigureAwait(false);
-                if (!completed)
-                {
-                    try
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                    catch
-                    {
-                    }
-
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Warning,
-                        "Diagnostics PDF generation timed out.",
-                        $"The LaTeX source and JSON report are still available. Timed out running {exe}.");
-                }
-
-                var stdout = await outputTask.ConfigureAwait(false);
-                var stderr = await errorTask.ConfigureAwait(false);
-                if (process.ExitCode == 0 && File.Exists(outputPdfPath))
-                {
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Success,
-                        "Diagnostics PDF generated.",
-                        string.IsNullOrWhiteSpace(stdout) ? outputPdfPath : stdout.Trim(),
-                        Items: [outputPdfPath]);
-                }
-
-                if (exe == "python")
-                {
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Warning,
-                        "Diagnostics PDF generation failed.",
-                        string.Join(Environment.NewLine, new[] { stdout, stderr }.Where(text => !string.IsNullOrWhiteSpace(text))).Trim());
-                }
-            }
-            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
-            {
-                if (exe == "python")
-                {
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Warning,
-                        "Python was not available for diagnostics PDF generation.",
-                        "JSON and LaTeX reports were written. Install Python with matplotlib to generate the PDF locally, or share the JSON/TEX artifacts.");
-                }
-            }
+            await Task.Run(() => SussexDiagnosticsPdfRenderer.Render(report, outputPdfPath)).ConfigureAwait(false);
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Diagnostics PDF generated.",
+                outputPdfPath,
+                Items: [outputPdfPath]);
         }
-
-        return new OperationOutcome(
-            OperationOutcomeKind.Warning,
-            "Diagnostics PDF was not generated.",
-            "JSON and LaTeX reports were written, but no Python runtime completed the bundled PDF script.");
-    }
-
-    private static string? TryResolveSussexDiagnosticsPdfScriptPath()
-    {
-        var candidates = new[]
+        catch (Exception ex)
         {
-            Path.Combine(AppContext.BaseDirectory, "tools", "reports", "generate_sussex_diagnostics_pdf.py"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "tools", "reports", "generate_sussex_diagnostics_pdf.py")),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "tools", "reports", "generate_sussex_diagnostics_pdf.py")),
-            Path.Combine(Directory.GetCurrentDirectory(), "tools", "reports", "generate_sussex_diagnostics_pdf.py"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source",
-                "repos",
-                "ViscerealityCompanion",
-                "tools",
-                "reports",
-                "generate_sussex_diagnostics_pdf.py")
-        };
-
-        return candidates.FirstOrDefault(File.Exists);
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Diagnostics PDF generation failed.",
+                $"JSON and LaTeX reports were written. {ex.Message}");
+        }
     }
 
     private static string ResolveDeviceSerial(string? device)

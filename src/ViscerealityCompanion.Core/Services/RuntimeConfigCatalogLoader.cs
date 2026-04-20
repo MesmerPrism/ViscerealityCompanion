@@ -40,7 +40,7 @@ public sealed class RuntimeConfigCatalogLoader
         }
 
         return new RuntimeConfigCatalog(
-            new RuntimeConfigSource("Astral runtime config profiles", hotloadRoot),
+            new RuntimeConfigSource("Runtime config profiles", hotloadRoot),
             runtimeProfiles);
     }
 

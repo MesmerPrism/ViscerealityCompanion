@@ -983,7 +983,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 ? $"Selected target is {SelectedApp.Label}, but no runtime config profile is selected for it. Choose a profile before publishing on quest_hotload_config."
                 : _runtimeConfig.SelectedProfile.MatchesPackage(SelectedApp.PackageId)
                     ? $"Publishing is configured for {SelectedApp.Label}. The selected profile targets this app and is sent on quest_hotload_config; no live values come back on this publish channel."
-                    : $"Selected profile targets {FormatPackageTargets(_runtimeConfig.SelectedProfile.PackageIds)}, but the selected target app is {SelectedApp.Label}. In Astral twin mode, keep the publish target on the runtime app whose profile you are editing; the live twin publisher can still be a different active APK.";
+                    : $"Selected profile targets {FormatPackageTargets(_runtimeConfig.SelectedProfile.PackageIds)}, but the selected target app is {SelectedApp.Label}. In twin mode, keep the publish target on the runtime app whose profile you are editing; the live twin publisher can still be a different active APK.";
 
     public string RuntimeConfigLiveSummary
         => "Live runtime state is passive. Values arrive on quest_twin_state only. They appear below in Live Runtime Values and in Twin Monitor > Live Twin Monitor, without polling ADB.";

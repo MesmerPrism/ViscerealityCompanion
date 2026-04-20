@@ -154,7 +154,7 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
   recovery notes and physical power-button path instead of trying to automate
   around them inside the normal session workflow.
 - If the study runtime contract needs new telemetry keys or new calibration,
-  start, or stop commands, implement that in `AstralKarateDojo` first and then
+  start, or stop commands, implement that in the participant-facing runtime first and then
   refresh the mirrored Sussex APK here.
 
 ## Missing Features To Build
@@ -237,7 +237,7 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
    - Extend the Sussex verification harness to cover new calibration, reset,
      start, and end commands once the runtime exposes them.
 
-### Runtime-side features in `AstralKarateDojo` first, then mirror the APK here
+### Runtime-side features in the participant-facing runtime first, then mirror the APK here
 
 1. New twin commands and control ids
    - `Start Calibration`
@@ -417,7 +417,7 @@ retention reduction.
 
 1. Lock the Sussex workflow and hazard rules in the GUI copy and docs.
 2. Add the fixed readiness gate and participant-number flow in the WPF shell.
-3. Add runtime command ids and telemetry keys in `AstralKarateDojo`.
+3. Add runtime command ids and telemetry keys in the participant-facing runtime.
 4. Mirror the updated Sussex APK and extend
    `samples/study-shells/sussex-university.json`.
 5. Build the recorder and per-participant storage.

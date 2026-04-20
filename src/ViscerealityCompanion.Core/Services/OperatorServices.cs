@@ -319,7 +319,7 @@ public sealed class UnavailablePrivateTwinModeBridge : ITwinModeBridge
         IsAvailable: false,
         UsesPrivateImplementation: false,
         Summary: "Private twin bridge not installed.",
-        Detail: "The public repo keeps the Astral twin command/state contract, hotload keyspace, and runtime-config tracking surface visible. Only the live coupling dynamics runtime and any private transport overlay stay out of the public repo.");
+        Detail: "The public repo keeps the twin command/state contract, hotload keyspace, and runtime-config tracking surface visible. Only the live coupling dynamics runtime and any private transport overlay stay out of the public repo.");
 
     public Task<OperationOutcome> SendCommandAsync(
         TwinModeCommand command,
@@ -346,7 +346,7 @@ public sealed class UnavailablePrivateTwinModeBridge : ITwinModeBridge
         => Task.FromResult(new OperationOutcome(
             OperationOutcomeKind.Preview,
             $"Runtime config prepared: {profile.Label}.",
-            $"The public repo can edit and stage the Astral runtime hotload contract for {target.PackageId}. The private overlay is limited to attaching the live coupling runtime handoff.",
+            $"The public repo can edit and stage the runtime hotload contract for {target.PackageId}. The private overlay is limited to attaching the live coupling runtime handoff.",
             PackageId: target.PackageId,
             Items:
             [

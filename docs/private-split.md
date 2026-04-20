@@ -1,16 +1,17 @@
 ---
-title: Relation To AstralKarateDojo
-description: What lives in this public Windows repo and what stays in the separate AstralKarateDojo Unity repo.
-summary: This repo is public and focused on the operator app. The Unity scene and study APK development stay in AstralKarateDojo.
-nav_label: Relation To Astral
+title: Project Scope
+description: What this public repo covers, what the Windows companion owns, and how the current Sussex-focused release fits into the broader Viscereality roadmap.
+summary: This repo covers the public Windows companion, docs, packaging, and study-shell delivery. The current release is Sussex-first, with broader general-purpose tooling planned next.
+nav_label: Project Scope
 nav_group: Reference
 nav_order: 90
 ---
 
-# Relation To AstralKarateDojo
+# Project Scope
 
-Viscereality Companion is not a mirror of the Unity project. It is the public
-Windows-side operator repo around that project.
+Viscereality Companion is the public Windows-side operator repo around the
+broader Viscereality system. It is the part researchers, labs, and operators
+should use when they need a stable Windows control surface.
 
 ## This Repo Owns
 
@@ -22,15 +23,18 @@ Windows-side operator repo around that project.
 - sample session-kit contracts
 - public onboarding docs, Pages, and release automation
 
-## AstralKarateDojo Owns
+## Current Public Release Focus
 
-- the Unity scene
-- the Quest runtime and scene-local wiring
-- study APK development
-- scene-internal runtime code and scene assets
-- any study-specific content that belongs with the runtime repo
+- the current release path is optimized for the Sussex collaboration workflow
+- the public Windows package is meant to give researchers a one-stop install,
+  launch, monitoring, and operator workflow
+- the dedicated Sussex shell is the first hardened study-specific surface
+- broader general-purpose multi-study tooling comes after the Sussex-first
+  path is stable
 
 ## Practical Rule
 
-If you need to run sessions from Windows, work in this repo. If you need to
-change the Quest scene or APK behavior, work in `AstralKarateDojo`.
+If you need Windows setup, study-shell packaging, operator workflow, or public
+docs, work in this repo. If you need to change the participant-facing Quest
+runtime itself, do that in the runtime project and then refresh the approved
+APK here.

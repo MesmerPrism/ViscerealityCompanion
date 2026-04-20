@@ -139,10 +139,10 @@ function renderPage(page, pages) {
         <ol class="quick-steps">
           <li>Install the Windows preview package or guided setup helper.</li>
           <li>Make sure the Quest is in developer mode, then approve USB debugging once on that headset.</li>
-          <li>The Sussex package already includes the Sussex APK, device profile, and study shell, so you can connect Quest and run the session from Windows without a separate APK handoff.</li>
+          <li>Use the Windows companion to install the study build, verify live telemetry, and run the operator workflow from one place.</li>
         </ol>
         <div class="aside-links">${onboardingLinks}</div>
-        <p class="aside-note">This repo is the public Windows operator surface. The Unity runtime and study APK development stay in AstralKarateDojo.</p>
+        <p class="aside-note">This site covers the public Windows companion for Viscereality: installation, researcher onboarding, Sussex workflow support, and operator docs.</p>
       </aside>`;
     const sidebar = focusedLayout ? "" : `<nav class="sidebar">
         ${navSections}

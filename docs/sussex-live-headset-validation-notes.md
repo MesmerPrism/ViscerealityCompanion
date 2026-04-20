@@ -6,8 +6,7 @@ Use this file as the running checklist for the next full on-head headset pass. A
 
 - Companion repo branch: `main`
 - Companion repo state at this check: `pending 2026-04-15 Sussex controller vibration, calibration guard, and LSL release updates`
-- Fresh Astral Sussex APK built on `2026-04-15` at:
-  `C:\Users\tillh\source\repos\AstralKarateDojo\Artifacts\APKs\SussexExperiment.apk`
+- Fresh approved Sussex APK build prepared on `2026-04-15`
 - Current Sussex APK SHA-256:
   `EF7DD259FF3ED9101505CEC936585E7B20213993890090BAB3D2DC78C2A30E79`
 - Mirrored companion bundle refreshed to the same hash at:
@@ -22,7 +21,7 @@ Use this file as the running checklist for the next full on-head headset pass. A
 - Headset Wi-Fi and PC Wi-Fi last matched during the previous readiness pass:
   `MagentaWLAN-R5V4`
 - Companion build/test passed after the timing-contract update and APK sync.
-- Astral `.\Tools\check.ps1 -SkipDotnetBuild` passed before the fresh Sussex APK build.
+- Participant-facing runtime validation checks passed before the fresh Sussex APK build.
 - Expected note for the next worn-head run: controller-breathing calibration should be started from the `Experiment Session` window and preserved across `Start Recording`; the rebuilt `0.1.2` package still needs a worn-head recheck of kiosk exit and the full participant handoff path.
 - With the controller disconnected, the pinned device profile now stays active with advisory battery warnings instead of downgrading the Sussex build status.
 

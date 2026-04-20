@@ -14,13 +14,7 @@ internal static class AppAssetLocator
         => TryResolveExistingDirectory(
             Environment.GetEnvironmentVariable("VISCEREALITY_QUEST_SESSION_KIT_ROOT"),
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "samples", "quest-session-kit")),
-            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source",
-                "repos",
-                "AstralKarateDojo",
-                "QuestSessionKit"));
+            Path.Combine(AppContext.BaseDirectory, "samples", "quest-session-kit"));
 
     public static string ResolveQuestSessionKitRoot()
         => TryResolveQuestSessionKitRoot()
@@ -103,15 +97,7 @@ internal static class AppAssetLocator
     public static string? TryResolveSussexParticleSizeTemplatePath()
         => TryResolveExistingFile(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_PARTICLE_SIZE_TEMPLATE"),
-            Path.Combine(TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-particle-size-v1.template.json"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source",
-                "repos",
-                "AstralKarateDojo",
-                "QuestSessionKit",
-                "LlmTuningProfiles",
-                "sussex-particle-size-v1.template.json"));
+            Path.Combine(TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-particle-size-v1.template.json"));
 
     public static string? TryResolveSussexVisualTuningTemplatePath()
         => TryResolveExistingFile(
@@ -132,15 +118,7 @@ internal static class AppAssetLocator
     public static string? TryResolveSussexControllerBreathingTuningTemplatePath()
         => TryResolveExistingFile(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_TUNING_TEMPLATE"),
-            Path.Combine(ResolveQuestSessionKitRoot(), "LlmTuningProfiles", "sussex-controller-breathing-tuning-v1.template.json"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source",
-                "repos",
-                "AstralKarateDojo",
-                "QuestSessionKit",
-                "LlmTuningProfiles",
-                "sussex-controller-breathing-tuning-v1.template.json"));
+            Path.Combine(ResolveQuestSessionKitRoot(), "LlmTuningProfiles", "sussex-controller-breathing-tuning-v1.template.json"));
 
     private static string? TryResolveExistingDirectory(params string?[] candidates)
         => candidates

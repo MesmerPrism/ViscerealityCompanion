@@ -2,8 +2,7 @@
 
 This audit separates steady-state participant-run cost from tuning-only and operator-side overhead. It uses:
 
-- current Sussex scene wiring in `AstralKarateDojo/Assets/Scenes/SussexControllerStudy.unity`
-- current runtime implementations in `AstralKarateDojo/Assets/Scripts/`
+- current Sussex scene wiring and runtime modules from the participant-facing Quest build
 - current companion implementations in `src/ViscerealityCompanion.*`
 - live Wi-Fi ADB timings measured on the attached headset on 2026-04-02
 - the latest pulled Quest session at `C:\Users\tillh\AppData\Local\ViscerealityCompanion\study-data\sussex-university\participant-validation-20260402-144445\session-20260402T144448Z\device-session-pull`
@@ -100,14 +99,14 @@ Inference:
 
 ### High steady-state demand
 
-`AstralKarateDojo/Assets/Scripts/IndirectParticles/Biofeedback/Transport/LSL/LslTwinStateOutletModule.cs`
+`Quest runtime twin-state outlet`
 
 - polls every `0.1 s`
 - rebuilds the full snapshot, sorts it, hashes it, and republishes the whole structured state whenever anything changed
 - scene wiring keeps connection snapshot, showcase routing, signal mirror, resolved driver values, HUD consumer signals, and hotload binding snapshot all enabled
 - scene wiring does not skip publishing when there are no consumers
 
-`AstralKarateDojo/Assets/Scripts/Utilities/Runtime/RuntimeLogManager.cs`
+`Quest runtime log manager`
 
 - current study scene enables session CSV recording
 - current study scene enables `captureBiofeedbackSignalsToCsv`, `captureBiofeedbackRawSignalsToCsv`, `captureLslSamplesToCsv`, `captureConnectionSnapshotsToCsv`, and `captureHudSnapshotsToCsv`
@@ -121,13 +120,13 @@ Inference:
 
 ### Moderate steady-state demand
 
-`AstralKarateDojo/Assets/Scripts/Utilities/Runtime/RuntimeHotloadManager.cs`
+`Quest runtime hotload manager`
 
 - polls every `0.5 s`
 - opens and SHA-256 hashes the watched config file to detect drift
 - useful for tuning, but unnecessary once the study is locked
 
-`AstralKarateDojo/Assets/Scripts/Utilities/Runtime/RuntimeStudyTelemetryBridge.cs`
+`Quest runtime study telemetry bridge`
 
 - runs every frame
 - updates performance smoothing, recenter distance, session markers, and live study values
@@ -140,17 +139,17 @@ Inference:
 
 ### Low or bursty demand
 
-`AstralKarateDojo/Assets/Scripts/Utilities/Runtime/RuntimeStudyClockAlignmentRelay.cs`
+`Quest runtime study clock-alignment relay`
 
 - bounded by probe traffic, not full-time frame polling
 - acceptable for start/end bursts or sparse background probes
 
-`AstralKarateDojo/Assets/Scripts/Utilities/Runtime/RuntimePerformanceTuningModule.cs`
+`Quest runtime performance tuning module`
 
 - periodic reapply timers every few seconds
 - not the main overhead source
 
-`AstralKarateDojo/Assets/Scripts/Utilities/Runtime/RuntimeHotloadLiveSyncWriter.cs`
+`Quest runtime hotload live-sync writer`
 
 - scene polling exists, but `writeOnlyInEditor = 1`
 - no player-side cost in the APK

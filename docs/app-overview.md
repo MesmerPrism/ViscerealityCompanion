@@ -58,8 +58,8 @@ This is the detailed study-build workspace:
 
 ## Runtime Config
 
-The runtime-config editor follows the Astral inspector structure as closely as
-possible from the desktop side:
+The runtime-config editor keeps the live study configuration grouped in a
+desktop-friendly way:
 
 - `Session + Inputs`
 - `Headset`
@@ -98,8 +98,8 @@ contract:
 `Diagnostics` keeps the utility actions and the operator log without crowding
 the main flow.
 
-## Relation To The Source Repos
+## How This Fits Into Viscereality
 
-- `AstralKarateDojo` supplies the Quest runtime and the scene-side twin and LSL contracts.
-- `AndroidPhoneQuestCompanion` supplied earlier monitor and operator-flow ideas.
-- `PolarH10` informed the public Pages, onboarding, and packaging posture.
+- the participant-facing Quest runtime supplies the study build and the scene-side twin and LSL contracts
+- Viscereality Companion packages install, launch, monitoring, study-shell, and operator workflow on Windows
+- outward-facing project context lives on [viscereality.org](https://viscereality.org/) and the [Mesmer Prism companion page](https://mesmerprism.com/projects/viscereality-companion.html)

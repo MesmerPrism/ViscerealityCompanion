@@ -1,26 +1,26 @@
 # Viscereality Companion
 
 Viscereality Companion is the public Windows operator app for
-AstralKarateDojo-based research sessions. It is meant for people who receive a
-Quest APK from the study team, or use a bundled public study build such as the
-Sussex package, and need a stable desktop tool to install it, launch it,
-monitor live state, and keep session control on the operator side.
+Viscereality research sessions. It is meant for people who receive a Quest APK
+from the study team, or use a bundled public study build such as the Sussex
+package, and need a stable desktop tool to install it, launch it, monitor live
+state, and keep session control on the operator side.
 
 Start with [Docs Home](docs/index.md) or the live
 [Pages site](https://mesmerprism.github.io/ViscerealityCompanion/).
 If a public Sussex-focused research preview release exists, install it from
 [Download & Install](https://mesmerprism.github.io/ViscerealityCompanion/download.html).
 
-This repo is deliberately separate from the Unity scene repo. It does not copy
-AstralKarateDojo internals into the public tree. Instead, it ships the Windows
-surface around that workflow plus curated public operator payloads that the
-desktop release needs:
+This repo is deliberately separate from the participant-facing runtime repo. It
+does not copy private runtime internals into the public tree. Instead, it ships
+the Windows surface around that workflow plus curated public operator payloads
+that the desktop release needs:
 
 - WPF desktop app for Quest connection, install, launch, monitoring, and runtime-config staging
 - reusable study-shell windows for simplified experiment-specific operator flows
 - CLI for scriptable ADB, LSL, twin command workflows, and Sussex profile automation
 - repo-local Sussex sample catalog, scene-matched hotload baseline, device profiles, and the bundled Sussex APK
-- public runtime-config editor that mirrors the Astral inspector layout
+- public runtime-config editor with grouped runtime sections for operator-side changes
 - Pages docs and release automation
 - Windows packaging scaffolding for a single branded launcher install path
 
@@ -109,10 +109,9 @@ single `Generate Diagnostics Report` action. The matching CLI command is:
 dotnet run --project src/ViscerealityCompanion.Cli -- study diagnostics-report sussex-university --wait-seconds 15
 ```
 
-It writes a timestamped diagnostics folder with JSON, LaTeX source, and a PDF
-when Python/matplotlib are available, covering Windows LSL discovery, duplicate
-stream inventory, Quest setup, `quest_twin_state`, and safe command
-acknowledgement.
+It writes a timestamped diagnostics folder with JSON, LaTeX source, and a
+native .NET PDF covering Windows LSL discovery, duplicate stream inventory,
+Quest setup, `quest_twin_state`, and safe command acknowledgement.
 
 For local development:
 
@@ -135,6 +134,17 @@ dotnet run --project src/ViscerealityCompanion.Cli -- tooling install-official
 
 `git lfs pull` matters here because the committed `samples/quest-session-kit/APKs/SussexExperiment.apk`
 is the real Sussex APK bundled into the public package, not a placeholder.
+
+If Windows Smart App Control or Code Integrity blocks repo-built test
+assemblies on this machine, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Invoke-Signed-DotNetTest.ps1
+```
+
+That wrapper builds the target, signs unsigned test output `.dll` and `.exe`
+files with the shared trusted `CN=MesmerPrism` signer from the local
+certificate store, and then runs `dotnet test --no-build`.
 
 If Windows Smart App Control or Code Integrity blocks the repo-built WPF app,
 use:
@@ -175,32 +185,20 @@ The repo includes Windows packaging scaffolding under
 That path is meant to produce one branded launcher entry for the installed app,
 instead of asking operators to run the unpackaged repo build directly.
 
-If you need to refresh the bundled Sussex APK from a fresh Astral build before
+If you need to refresh the bundled Sussex APK from a freshly approved Sussex
+runtime build before
 packaging, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\app\Sync-Bundled-Sussex-Apk.ps1
 ```
 
-That copies `AstralKarateDojo/Artifacts/APKs/SussexExperiment.apk` into
-`samples/quest-session-kit/APKs/` and updates the pinned Sussex hash metadata.
+That updates the mirrored `samples/quest-session-kit/APKs/SussexExperiment.apk`
+payload and the pinned Sussex hash metadata used by the public Windows package.
 
-To produce that upstream APK from the Unity repo, use the dedicated Sussex
-build entrypoint there first:
-
-```powershell
-cd C:\Users\tillh\source\repos\AstralKarateDojo
-& "C:\Program Files\Unity\Hub\Editor\6000.3.8f1\Editor\Unity.exe" `
-  -batchmode -nographics -quit `
-  -projectPath "$PWD" `
-  -activeBuildProfile "Assets/Settings/Build Profiles/Meta Quest Sussex Experiment.asset" `
-  -logFile "$PWD\Logs\build_sussex_study_apk.log" `
-  -executeMethod AstralKarateDojo.IndirectParticles.Editor.BuildWorkflowTools.BuildMetaQuestSussexStudyApk
-```
-
-That build writes `Artifacts/APKs/SussexExperiment.apk`, which is the
-approved public Sussex runtime this repo mirrors under
-`samples/quest-session-kit/APKs/`.
+The runtime build step stays outside this public repo. Once a newer Sussex APK
+is approved, sync it here with the script above or pass an explicit source path
+into the packaging script.
 
 `Build-App-Package.ps1` can do the same refresh inline via
 `-RefreshBundledSussexApk` or `-BundledSussexApkSourcePath <path>`.
@@ -216,7 +214,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Desktop-Launcher.ps
 
 This public repo does not ship:
 
-- the AstralKarateDojo Unity scene
+- the participant-facing Unity scene
 - arbitrary private APK payloads or unpublished study presets
 - scene-internal runtime code that belongs in the separate Unity repo
 
@@ -224,11 +222,9 @@ Approved public study bundles that are intentionally mirrored under
 `samples/quest-session-kit/` and `samples/study-shells/` are part of scope for
 this repo.
 
-If you need to change the Quest runtime itself, do that in
-`AstralKarateDojo`. If you need to run or support sessions from Windows, do it
-here. The only source-level dependency on `AstralKarateDojo` is the approved
-Sussex APK handoff described above; packaged Sussex operators do not need a
-local Astral checkout.
+If you need to change the Quest runtime itself, do that in the participant-facing
+runtime repo. If you need to run or support sessions from Windows, do it here.
+Packaged Sussex operators do not need a separate runtime checkout.
 
 ## License
 

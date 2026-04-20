@@ -88,8 +88,6 @@ internal static class LslNativeLibraryResolver
 
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         AddUserToolsLiblslCandidates(candidates, userProfile);
-        AddIfPresent(Path.Combine(userProfile, "source", "repos", "AstralKarateDojo", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
-        AddIfPresent(Path.Combine(userProfile, "source", "repos", "AstralKarateDojo-phone-monitor-shell", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
         AddIfPresent(Path.Combine(userProfile, "source", "repos", "UnitySixthSense", "Assets", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
         AddIfPresent(Path.Combine(userProfile, "source", "repos", "Viscereality", "Viscereality", "Packages", "com.labstreaminglayer.lsl4unity", "Plugins", "LSL", "Windows", "x64", "lsl.dll"));
 

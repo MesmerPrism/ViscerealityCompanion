@@ -344,18 +344,20 @@ This is separate from Quest pullback. The PDF is generated from the Windows
 session folder after the run, so it can fail even when `Open Windows Session
 Folder` works.
 
-Older public builds could fail on machines where `py -3` resolved to an older
-Anaconda or system Python that did not support `datetime.UTC`, which produced
-an import error at startup. Current builds now use a version-compatible UTC
-import in the bundled generator script, so that specific failure should no
-longer happen on Python versions below 3.11.
+Current public builds render Sussex validation PDFs natively in .NET. They do
+not depend on a machine-local Python, `numpy`, or `matplotlib` installation.
 
 If PDF generation still fails, the remaining likely causes are:
 
-- no runnable Windows Python 3 interpreter on the machine
-- a Python install without the generator dependencies such as `matplotlib`
+- the Windows session folder is missing one of the expected recorder artifacts
+  such as `session_settings.json`, `signals_long.csv`,
+  `breathing_trace.csv`, or `clock_alignment_roundtrip.csv`
+- one of those artifacts exists but is truncated, malformed, or unreadable
+- the session folder was moved or deleted before the report renderer finished
 
-The failure detail will include the exact launcher and traceback that failed.
+The failure detail now comes from the native renderer itself. Treat Quest
+pullback gaps and PDF generation as separate signals: a Quest backup warning
+does not automatically mean the Windows-side recorder data was lost.
 
 ## The packaged launcher path is not available yet
 
@@ -458,5 +460,5 @@ Check the study build first:
 
 ## I need to change the Quest runtime itself
 
-Do that in `AstralKarateDojo`, not here. This repo is the public Windows app
-and onboarding surface around that runtime.
+Do that in the participant-facing Quest runtime, not here. This repo is the
+public Windows app and onboarding surface around that runtime.

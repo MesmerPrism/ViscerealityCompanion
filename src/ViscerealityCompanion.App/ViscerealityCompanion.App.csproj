@@ -43,14 +43,6 @@
           Link="docs\monitoring-and-control.md"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\tools\reports\generate_sussex_validation_pdf.py"
-          Link="tools\reports\generate_sussex_validation_pdf.py"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\..\tools\reports\generate_sussex_diagnostics_pdf.py"
-          Link="tools\reports\generate_sussex_diagnostics_pdf.py"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
     <None Include="runtimes\win-x64\native\lsl.dll"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" />

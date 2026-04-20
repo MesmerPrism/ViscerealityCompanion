@@ -1201,15 +1201,7 @@ internal static class SussexCliSupport
     private static string ResolveSussexControllerBreathingTuningTemplatePath()
         => ResolveExistingFile(
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_TUNING_TEMPLATE"),
-            Path.Combine(CliAssetLocator.ResolveQuestSessionKitRoot(), "LlmTuningProfiles", "sussex-controller-breathing-tuning-v1.template.json"),
-            Path.Combine(
-                Environment.GetEnvironmentVariable("USERPROFILE") ?? string.Empty,
-                "source",
-                "repos",
-                "AstralKarateDojo",
-                "QuestSessionKit",
-                "LlmTuningProfiles",
-                "sussex-controller-breathing-tuning-v1.template.json"));
+            Path.Combine(CliAssetLocator.ResolveQuestSessionKitRoot(), "LlmTuningProfiles", "sussex-controller-breathing-tuning-v1.template.json"));
 
     private static string? TryResolveBundledSussexVisualProfilesRoot(string? studyRoot)
         => TryResolveExistingDirectory(

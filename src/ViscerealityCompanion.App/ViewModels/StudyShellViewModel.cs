@@ -370,8 +370,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowParticipantEndDetail = "Stop Recording in Experiment Session closes the Quest-side backup recorder and the Windows recorder before the shell runs cleanup.";
     private string _workflowRuntimePendingSummary = "Current Sussex APK exposes recenter, calibration start, and particle toggles.";
     private string _workflowRuntimePendingDetail =
-        @"Scene contract: C:\Users\tillh\source\repos\AstralKarateDojo\Assets\Scenes\SussexControllerStudy.unity. " +
-        "The current contract includes reset calibration, participant start/end commands, shared session metadata handoff, and mirrored Windows/Quest study recording.";
+        "The current Sussex runtime contract includes reset calibration, participant start/end commands, shared session metadata handoff, and mirrored Windows/Quest study recording.";
     private string _participantIdDraft = string.Empty;
     private OperationOutcomeKind _participantEntryLevel = OperationOutcomeKind.Preview;
     private string _participantEntrySummary = "Enter a participant number before starting recorded data collection.";
@@ -2723,7 +2722,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     DeviceSelector: ResolveHeadsetActionSelector(),
                     ProbeWaitDuration: TimeSpan.FromSeconds(12)))
                 .ConfigureAwait(false);
-            pdfOutcome = await GenerateDiagnosticsReportPdfAsync(result.JsonPath, result.PdfPath).ConfigureAwait(false);
+            pdfOutcome = await GenerateDiagnosticsReportPdfAsync(result.Report, result.PdfPath).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -5113,7 +5112,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() =>
             {
                 FinalizeValidationClockAlignmentBackgroundState();
-                SetValidationCaptureProgress(100d, "Phase 4 of 4: pulling Quest backup files and building the validation PDF.");
+                SetValidationCaptureProgress(100d, "Phase 4 of 4: pulling Quest backup files and attempting the validation PDF.");
                 UpdateWorkflowGuideState();
             }).ConfigureAwait(false);
             var pullOutcome = await PullQuestRecordingArtifactsAsync(remoteSessionDir, completedLocalFolder).ConfigureAwait(false);
@@ -5276,42 +5275,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "coherence samples",
             signalNameColumnName: "signal_name",
             numericValueColumnName: "value_numeric");
-
-    private static string? TryResolveValidationCapturePdfScriptPath()
-        => new[]
-        {
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "tools", "reports", "generate_sussex_validation_pdf.py")),
-            Path.Combine(AppContext.BaseDirectory, "tools", "reports", "generate_sussex_validation_pdf.py"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source",
-                "repos",
-                "ViscerealityCompanion",
-                "tools",
-                "reports",
-                "generate_sussex_validation_pdf.py")
-        }
-        .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-        .Select(Path.GetFullPath)
-        .FirstOrDefault();
-
-    private static string? TryResolveDiagnosticsPdfScriptPath()
-        => new[]
-        {
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "tools", "reports", "generate_sussex_diagnostics_pdf.py")),
-            Path.Combine(AppContext.BaseDirectory, "tools", "reports", "generate_sussex_diagnostics_pdf.py"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source",
-                "repos",
-                "ViscerealityCompanion",
-                "tools",
-                "reports",
-                "generate_sussex_diagnostics_pdf.py")
-        }
-        .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-        .Select(Path.GetFullPath)
-        .FirstOrDefault();
 
     private static ValidationCapturePlotLoadResult LoadValidationCapturePlot(
         string localSessionFolderPath,
@@ -5622,110 +5585,32 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private Task<OperationOutcome> GenerateValidationCapturePdfAsync(string localSessionFolderPath)
         => GenerateSessionReviewPdfAsync(localSessionFolderPath, "validation_capture_preview.pdf");
 
-    private async Task<OperationOutcome> GenerateDiagnosticsReportPdfAsync(string jsonPath, string outputPdfPath)
+    private async Task<OperationOutcome> GenerateDiagnosticsReportPdfAsync(SussexDiagnosticsReport report, string outputPdfPath)
     {
-        if (string.IsNullOrWhiteSpace(jsonPath) || !File.Exists(jsonPath))
+        if (report is null)
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "Diagnostics PDF skipped.",
-                "The diagnostics JSON report was not written.");
+                "The diagnostics report model was not available.");
         }
 
-        var scriptPath = TryResolveDiagnosticsPdfScriptPath();
-        if (string.IsNullOrWhiteSpace(scriptPath))
+        try
+        {
+            await Task.Run(() => SussexDiagnosticsPdfRenderer.Render(report, outputPdfPath)).ConfigureAwait(false);
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Diagnostics PDF generated.",
+                outputPdfPath,
+                Items: [outputPdfPath]);
+        }
+        catch (Exception ex)
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Diagnostics PDF generator was not found.",
-                "The JSON and LaTeX diagnostics reports were written, but the bundled PDF script could not be resolved.");
+                "Diagnostics PDF generation failed.",
+                $"The JSON and LaTeX diagnostics reports were written. {ex.Message}");
         }
-
-        foreach (var (fileName, prefixArgs) in new[]
-                 {
-                     ("py", new[] { "-3", scriptPath }),
-                     ("python", new[] { scriptPath })
-                 })
-        {
-            try
-            {
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = fileName,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    }
-                };
-
-                foreach (var arg in prefixArgs)
-                {
-                    process.StartInfo.ArgumentList.Add(arg);
-                }
-
-                process.StartInfo.ArgumentList.Add("--input-json");
-                process.StartInfo.ArgumentList.Add(jsonPath);
-                process.StartInfo.ArgumentList.Add("--output-pdf");
-                process.StartInfo.ArgumentList.Add(outputPdfPath);
-
-                process.Start();
-                var stdoutTask = process.StandardOutput.ReadToEndAsync();
-                var stderrTask = process.StandardError.ReadToEndAsync();
-                var completed = await Task.Run(() => process.WaitForExit((int)WorkflowValidationPdfTimeout.TotalMilliseconds)).ConfigureAwait(false);
-                if (!completed)
-                {
-                    try
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                    catch
-                    {
-                    }
-
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Warning,
-                        "Diagnostics PDF generation timed out.",
-                        "The JSON and LaTeX diagnostics reports were written; open the report folder to share those files.");
-                }
-
-                var stdout = await stdoutTask.ConfigureAwait(false);
-                var stderr = await stderrTask.ConfigureAwait(false);
-                if (process.ExitCode == 0 && File.Exists(outputPdfPath))
-                {
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Success,
-                        "Diagnostics PDF generated.",
-                        string.IsNullOrWhiteSpace(stdout) ? outputPdfPath : stdout.Trim(),
-                        Items: [outputPdfPath]);
-                }
-
-                if (fileName == "python")
-                {
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Warning,
-                        "Diagnostics PDF generation failed.",
-                        string.Join(Environment.NewLine, new[] { stdout, stderr }.Where(text => !string.IsNullOrWhiteSpace(text))).Trim());
-                }
-            }
-            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
-            {
-                if (fileName == "python")
-                {
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Warning,
-                        "Python was not available for diagnostics PDF generation.",
-                        "The JSON and LaTeX diagnostics reports were written. Install Python with matplotlib to generate the PDF locally.");
-                }
-            }
-        }
-
-        return new OperationOutcome(
-            OperationOutcomeKind.Warning,
-            "Diagnostics PDF was not generated.",
-            "The JSON and LaTeX diagnostics reports were written, but no Python runtime completed the bundled PDF script.");
     }
 
     private async Task<OperationOutcome> GenerateSessionReviewPdfAsync(string localSessionFolderPath, string outputPdfFileName)
@@ -5738,95 +5623,23 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 "The Windows session folder is missing.");
         }
 
-        var scriptPath = TryResolveValidationCapturePdfScriptPath();
-        if (string.IsNullOrWhiteSpace(scriptPath) || !File.Exists(scriptPath))
+        var outputPdfPath = Path.Combine(localSessionFolderPath, outputPdfFileName);
+        try
+        {
+            await Task.Run(() => SussexValidationPdfRenderer.Render(localSessionFolderPath, outputPdfPath)).ConfigureAwait(false);
+            return new OperationOutcome(
+                OperationOutcomeKind.Success,
+                "Session review PDF generated.",
+                outputPdfPath,
+                Items: [outputPdfPath]);
+        }
+        catch (Exception ex)
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Session review PDF generator is missing.",
-                "The companion could not find the bundled Sussex session-review PDF generator script.");
+                "Session review PDF could not be generated automatically.",
+                $"The Windows session folder is still available. {ex.Message}");
         }
-
-        var outputPdfPath = Path.Combine(localSessionFolderPath, outputPdfFileName);
-        var pythonCommands = new[]
-        {
-            ("py", $"-3 \"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\""),
-            ("python", $"\"{scriptPath}\" --session-dir \"{localSessionFolderPath}\" --output-pdf \"{outputPdfPath}\"")
-        };
-
-        var errors = new List<string>();
-        foreach (var (fileName, arguments) in pythonCommands)
-        {
-            try
-            {
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = fileName,
-                        Arguments = arguments,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                };
-
-                process.Start();
-                var standardOutputTask = process.StandardOutput.ReadToEndAsync();
-                var standardErrorTask = process.StandardError.ReadToEndAsync();
-                var processExitTask = process.WaitForExitAsync();
-                var completedTask = await Task.WhenAny(
-                        processExitTask,
-                        Task.Delay(WorkflowValidationPdfTimeout))
-                    .ConfigureAwait(false);
-                if (!ReferenceEquals(completedTask, processExitTask))
-                {
-                    TryKillProcessTree(process);
-                    var standardOutputTimeout = await standardOutputTask.ConfigureAwait(false);
-                    var standardErrorTimeout = await standardErrorTask.ConfigureAwait(false);
-                    var combinedTimeoutOutput = string.Join(
-                        " ",
-                        new[] { standardOutputTimeout?.Trim(), standardErrorTimeout?.Trim() }
-                            .Where(value => !string.IsNullOrWhiteSpace(value)));
-                    errors.Add(string.IsNullOrWhiteSpace(combinedTimeoutOutput)
-                        ? $"{fileName}: Sussex session-review PDF generation exceeded {WorkflowValidationPdfTimeout.TotalSeconds:0} seconds and was stopped."
-                        : $"{fileName}: Sussex session-review PDF generation exceeded {WorkflowValidationPdfTimeout.TotalSeconds:0} seconds and was stopped. {combinedTimeoutOutput}");
-                    continue;
-                }
-
-                var standardOutput = await standardOutputTask.ConfigureAwait(false);
-                var standardError = await standardErrorTask.ConfigureAwait(false);
-
-                if (process.ExitCode == 0 && File.Exists(outputPdfPath))
-                {
-                    return new OperationOutcome(
-                        OperationOutcomeKind.Success,
-                        "Session review PDF generated.",
-                        string.IsNullOrWhiteSpace(standardOutput) ? outputPdfPath : standardOutput.Trim(),
-                        Items: [outputPdfPath]);
-                }
-
-                var combinedError = string.Join(
-                    " ",
-                    new[] { standardOutput?.Trim(), standardError?.Trim() }.Where(value => !string.IsNullOrWhiteSpace(value)));
-                if (!string.IsNullOrWhiteSpace(combinedError))
-                {
-                    errors.Add($"{fileName}: {combinedError}");
-                }
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"{fileName}: {ex.Message}");
-            }
-        }
-
-        return new OperationOutcome(
-            OperationOutcomeKind.Warning,
-            "Session review PDF could not be generated automatically.",
-            errors.Count == 0
-                ? "The companion could not launch the Sussex session-review PDF generator."
-                : string.Join(" ", errors));
     }
 
     private async Task<OperationOutcome> PullQuestRecordingArtifactsAsync(string remoteSessionDir, string localSessionFolderPath)
@@ -11799,7 +11612,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 ? "Current Sussex APK metadata exposes recenter, calibration start, and particle toggles."
                 : "Current Sussex APK exposes recenter and particle toggles, but the newer session-control commands are not mirrored in this shell yet.";
         WorkflowRuntimePendingDetail =
-            @"Scene contract: C:\Users\tillh\source\repos\AstralKarateDojo\Assets\Scenes\SussexControllerStudy.unity. " +
             "Participant number intake, duplicate-id warning, local session recording, screenshot archiving, Quest-side participant recording, and shared dataset/session hash handoff are now wired into the Sussex shell contract.";
 
         if (!setupReady)
@@ -13422,7 +13234,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "local.twin.command_outlet",
             $"{status} | sent {lslBridge.PublishedCommandCount.ToString(CultureInfo.InvariantCulture)} | last seq {renderedSequence}",
             string.Empty,
-            "Local twin-command outlet status, matching the Astral HUD transport counters on the sender side.",
+            "Local twin-command outlet status, matching the runtime-side sender counters.",
             lslBridge.IsCommandOutletOpen ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview);
     }
 

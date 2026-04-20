@@ -323,13 +323,13 @@ at a Quest build/source-id contract mismatch.
 Use `study diagnostics-report sussex-university --wait-seconds 15` when you
 need one artifact to send to another maintainer. The command writes a
 timestamped folder under the operator-data diagnostics root containing
-`sussex_lsl_twin_diagnostics.json`, `sussex_lsl_twin_diagnostics.tex`, and,
-when Python plus matplotlib are available, `sussex_lsl_twin_diagnostics.pdf`.
-The report combines `windows-env analyze`, machine-visible LSL inventory, the
-Quest pinned APK/profile snapshot, the raw Quest Wi-Fi transport path,
-`quest_twin_state` publisher visibility, the Step 9 return-path
-interpretation, and a safe particle-off command
-acknowledgement probe. Use `--skip-command-check` for passive inspection only.
+`sussex_lsl_twin_diagnostics.json`, `sussex_lsl_twin_diagnostics.tex`, and
+`sussex_lsl_twin_diagnostics.pdf`. The report combines `windows-env analyze`,
+machine-visible LSL inventory, the Quest pinned APK/profile snapshot, the raw
+Quest Wi-Fi transport path, `quest_twin_state` publisher visibility, the Step
+9 return-path interpretation, and a safe particle-off command acknowledgement
+probe.
+Use `--skip-command-check` for passive inspection only.
 
 ## Environment Variables
 

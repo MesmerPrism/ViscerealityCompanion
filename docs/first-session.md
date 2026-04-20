@@ -236,6 +236,5 @@ The app auto-discovers catalogs in this order:
 1. `VISCEREALITY_QUEST_SESSION_KIT_ROOT` environment variable
 2. `samples/quest-session-kit/` relative to the repo root
 3. `samples/quest-session-kit/` next to the executable
-4. `~/source/repos/AstralKarateDojo/QuestSessionKit/`
 
 Override with the `--root` flag in the CLI or set the environment variable.

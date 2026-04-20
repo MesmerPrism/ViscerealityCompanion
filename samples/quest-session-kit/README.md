@@ -9,7 +9,7 @@ companion and the Windows shell:
 
 The committed files are curated public defaults for the current Sussex
 operator flow. The repo now defaults to this local session-kit mirror before it
-falls back to any broader AstralKarateDojo workspace on the same machine.
+looks for any externally supplied session-kit root on the same machine.
 
 Only the current Sussex app target and one scene-matched hotload baseline
 ship here, so stale APK or profile entries from older internal experiments do

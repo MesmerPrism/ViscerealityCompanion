@@ -232,7 +232,11 @@ Snapshot protocol: `begin → set key=value → end` frame sequence.
 ## Smart App Control Note
 
 This machine may block `dotnet test` and unpackaged multi-file WPF launches
-when unsigned repo assemblies are loaded. Use
+when unsigned repo assemblies are loaded. For test runs on this machine, use
+`powershell -ExecutionPolicy Bypass -File .\tools\app\Invoke-Signed-DotNetTest.ps1`
+so the wrapper can build, sign unsigned test-output `.dll` and `.exe` files
+with the shared trusted `CN=MesmerPrism` signer from the local certificate
+store, and then run `dotnet test --no-build`. Use
 `powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Desktop-App.ps1`
 for the companion app, or publish manually with
 `dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false`.

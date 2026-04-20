@@ -1,7 +1,7 @@
 ---
 title: Runtime Config
-description: Inspector-style runtime-config editing from Windows, aligned to the Astral scene categories and suitable for tracked operator-side changes.
-summary: The config editor mirrors the Astral inspector structure so operators can work with familiar sections instead of an undifferentiated key dump.
+description: Grouped runtime-config editing from Windows, suitable for tracked operator-side changes without opening the Quest-side project.
+summary: The config editor keeps runtime settings in familiar operator-facing sections instead of an undifferentiated key dump.
 nav_label: Runtime Config
 nav_group: Operator Guides
 nav_order: 50
@@ -9,8 +9,8 @@ nav_order: 50
 
 # Runtime Config
 
-The runtime-config editor is meant to feel like the config inspector from the
-Astral scene, not like a generic spreadsheet of keys.
+The runtime-config editor is meant to feel like a structured live runtime
+surface, not like a generic spreadsheet of keys.
 
 ![Runtime Config tab](assets/operator-shell-runtime-config.png)
 

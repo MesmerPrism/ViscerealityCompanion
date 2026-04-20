@@ -22,13 +22,7 @@ internal static class CliAssetLocator
                 "repos",
                 "ViscerealityCompanion",
                 "samples",
-                "quest-session-kit"),
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "source",
-                "repos",
-                "AstralKarateDojo",
-                "QuestSessionKit"));
+                "quest-session-kit"));
 
     public static string? TryResolveStudyShellRoot()
         => TryResolveExistingDirectory(
