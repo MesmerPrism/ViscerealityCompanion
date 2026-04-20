@@ -415,9 +415,14 @@ Get-WinEvent -LogName 'Microsoft-Windows-CodeIntegrity/Operational' -MaxEvents 1
 
 The release MSIX must preserve the normal WAP multi-file payload inside
 `ViscerealityCompanion.App`. Do not replace that payload with a repacked
-single-file desktop publish. Current release validation now checks that the
-package still contains both `ViscerealityCompanion.App/ViscerealityCompanion.exe`
-and `ViscerealityCompanion.App/ViscerealityCompanion.dll`.
+single-file desktop publish, and for this repo do not repack the finished WAP
+layout just to inject Authenticode signatures into the inner desktop payload
+files. Local validation on this machine family showed that the native
+WAP-produced package still launched cleanly, while the manually repacked
+payload variant installed successfully but then tripped Code Integrity on
+`ViscerealityCompanion.exe`. Current release validation checks that the package
+still contains both `ViscerealityCompanion.App/ViscerealityCompanion.exe` and
+`ViscerealityCompanion.App/ViscerealityCompanion.dll`.
 
 ## The repo-local pinned launcher opens an error instead of the app
 

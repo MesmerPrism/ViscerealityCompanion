@@ -88,12 +88,29 @@ if ([string]::IsNullOrWhiteSpace($CertificateFileName)) {
 }
 
 function Find-MSBuild {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path $vswhere) {
+        $matches = & $vswhere -latest -prerelease -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe'
+        if ($LASTEXITCODE -eq 0 -and $matches) {
+            return $matches | Select-Object -First 1
+        }
+
+        $matches = & $vswhere -latest -prerelease -products * -find 'MSBuild\**\Bin\MSBuild.exe'
+        if ($LASTEXITCODE -eq 0 -and $matches) {
+            return $matches | Select-Object -First 1
+        }
+    }
+
     $command = Get-Command msbuild -ErrorAction SilentlyContinue
     if ($command) {
         return $command.Source
     }
 
     $wellKnownPaths = @(
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2026\Community\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2026\Professional\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2026\Enterprise\MSBuild\Current\Bin\MSBuild.exe'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2026\BuildTools\MSBuild\Current\Bin\MSBuild.exe'),
         (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe'),
         (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe'),
         (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe'),
@@ -102,19 +119,6 @@ function Find-MSBuild {
     foreach ($path in $wellKnownPaths) {
         if (Test-Path $path) {
             return $path
-        }
-    }
-
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-    if (Test-Path $vswhere) {
-        $matches = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe'
-        if ($LASTEXITCODE -eq 0 -and $matches) {
-            return $matches | Select-Object -First 1
-        }
-
-        $matches = & $vswhere -latest -products * -find 'MSBuild\**\Bin\MSBuild.exe'
-        if ($LASTEXITCODE -eq 0 -and $matches) {
-            return $matches | Select-Object -First 1
         }
     }
 
@@ -179,41 +183,6 @@ function Invoke-SignToolSign {
     }
 }
 
-function Sign-UnsignedPayloadFiles {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PayloadRoot,
-        [Parameter(Mandatory = $true)]
-        [string]$SignToolPath,
-        [Parameter(Mandatory = $true)]
-        [string]$CertificatePath,
-        [Parameter(Mandatory = $true)]
-        [string]$CertificatePassword,
-        [string]$TimestampUrl
-    )
-
-    $unsignedPayloadFiles = @(
-        Get-ChildItem -Path $PayloadRoot -Recurse -File |
-            Where-Object { $_.Extension -in '.dll', '.exe' } |
-            Where-Object { $null -eq (Get-AuthenticodeSignature -FilePath $_.FullName).SignerCertificate }
-    )
-
-    if ($unsignedPayloadFiles.Count -eq 0) {
-        Write-Host "No unsigned executable payload files were found under $PayloadRoot" -ForegroundColor Green
-        return
-    }
-
-    Write-Host "Signing $($unsignedPayloadFiles.Count) previously unsigned executable payload file(s) under $PayloadRoot" -ForegroundColor Cyan
-    foreach ($payloadFile in $unsignedPayloadFiles) {
-        Invoke-SignToolSign `
-            -SignToolPath $SignToolPath `
-            -CertificatePath $CertificatePath `
-            -CertificatePassword $CertificatePassword `
-            -TargetPath $payloadFile.FullName `
-            -TimestampUrl $TimestampUrl
-    }
-}
-
 function Initialize-DotNetSdkResolver {
     $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
     if (-not $dotnetCommand) {
@@ -226,10 +195,48 @@ function Initialize-DotNetSdkResolver {
         return
     }
 
-    $sdkDir = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^10\.' -and (Test-Path (Join-Path $_.FullName 'Sdks')) } |
+    $preferredSdkVersion = $null
+    $globalJsonPath = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..')) 'global.json'
+    if (Test-Path $globalJsonPath) {
+        try {
+            $globalJson = Get-Content -Path $globalJsonPath -Raw | ConvertFrom-Json
+            if (-not [string]::IsNullOrWhiteSpace($globalJson.sdk.version)) {
+                $preferredSdkVersion = $globalJson.sdk.version.Trim()
+            }
+        }
+        catch {
+        }
+    }
+
+    $sdkCandidates = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^10\.' -and (Test-Path (Join-Path $_.FullName 'Sdks')) }
+
+    if ($null -eq $sdkCandidates -or $sdkCandidates.Count -eq 0) {
+        return
+    }
+
+    $preferredSdkDir = if (-not [string]::IsNullOrWhiteSpace($preferredSdkVersion)) {
+        $sdkCandidates |
+            Where-Object { $_.Name -eq $preferredSdkVersion } |
+            Select-Object -First 1
+    }
+
+    $stableSdkDir = $sdkCandidates |
+        Where-Object { $_.Name -notmatch '-' } |
         Sort-Object Name -Descending |
         Select-Object -First 1
+
+    $sdkDir = if ($null -ne $preferredSdkDir) {
+        $preferredSdkDir
+    }
+    elseif ($null -ne $stableSdkDir) {
+        $stableSdkDir
+    }
+    else {
+        $sdkCandidates |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+    }
 
     if ($null -eq $sdkDir) {
         return
@@ -282,8 +289,6 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $entryProjectPath = Join-Path $repoRoot 'src\ViscerealityCompanion.App\ViscerealityCompanion.App.csproj'
 $packageProjectDir = Join-Path $repoRoot 'src\ViscerealityCompanion.App.Package'
 $packageProjectPath = Join-Path $packageProjectDir 'ViscerealityCompanion.App.Package.wapproj'
-$packageLayoutRoot = Join-Path $packageProjectDir "bin\$Platform\$Configuration"
-$packagePayloadRoot = Join-Path $packageLayoutRoot 'ViscerealityCompanion.App'
 $manifestPath = Join-Path $packageProjectDir 'Package.appxmanifest'
 $appInstallerTemplatePath = Join-Path $packageProjectDir 'Package.appinstaller.template'
 $appPackagesRoot = Join-Path $packageProjectDir 'AppPackages'
@@ -374,44 +379,22 @@ try {
         throw "MSIX package build failed with exit code $LASTEXITCODE"
     }
 
+    $builtPackage = Get-ChildItem -Path $appPackagesRoot -Recurse -Filter *.msix |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+
+    if ($null -eq $builtPackage) {
+        throw "No MSIX package was produced under $appPackagesRoot"
+    }
+
     $packageOutputPath = Join-Path $outputPath $PackageFileName
-    if (Test-Path $packageOutputPath) {
-        Remove-Item -Force $packageOutputPath
-    }
+    Copy-Item $builtPackage.FullName $packageOutputPath -Force
 
-    if (-not (Test-Path $packageLayoutRoot)) {
-        throw "Package layout root was not produced at $packageLayoutRoot"
-    }
-
-    if (-not (Test-Path $packagePayloadRoot)) {
-        throw "Packaged desktop payload was not produced at $packagePayloadRoot"
-    }
-
-    $makeAppxPath = Find-WindowsSdkTool -ToolName 'makeappx.exe'
     if (-not $Unsigned) {
         $signToolPath = Find-WindowsSdkTool -ToolName 'signtool.exe'
-        Sign-UnsignedPayloadFiles `
-            -PayloadRoot $packagePayloadRoot `
-            -SignToolPath $signToolPath `
-            -CertificatePath $PackageCertificatePath `
-            -CertificatePassword $PackageCertificatePassword `
-            -TimestampUrl $PackageCertificateTimestampUrl
-    }
-
-    $makeAppxArgs = @(
-        'pack',
-        '/o',
-        '/d', [System.IO.Path]::GetFullPath($packageLayoutRoot),
-        '/p', [System.IO.Path]::GetFullPath($packageOutputPath)
-    )
-
-    Write-Host "Packing MSIX from layout at $packageLayoutRoot with $makeAppxPath" -ForegroundColor Cyan
-    & $makeAppxPath @makeAppxArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        throw "makeappx pack failed with exit code $LASTEXITCODE"
-    }
-
-    if (-not $Unsigned) {
+        # Preserve the WAP-produced package as-is. Local validation on this
+        # machine family showed that repacking the layout regressed packaged-app
+        # launch admission under Windows code integrity for this repo.
         Write-Host "Signing package with $signToolPath" -ForegroundColor Cyan
         Invoke-SignToolSign `
             -SignToolPath $signToolPath `

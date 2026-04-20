@@ -275,11 +275,16 @@ proof that the managed tooling cache is missing. Confirm the actual state with
 operator-data root.
 When checking a release-signing regression, run
 `powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1`
-against the built `ViscerealityCompanion-Preview-Setup.exe` and
+against the built `ViscerealityCompanion-Setup.exe` and
 `ViscerealityCompanion.msix`. Treat missing RFC3161 timestamps as a packaging
 bug. Treat Smart App Control blocking a self-signed helper as a trust/reputation
 limitation until a trusted-provider certificate or Trusted Signing is wired
 into the release workflow.
+If the packaged app installs but then dies on launch with Code Integrity events
+against `WindowsApps\...\ViscerealityCompanion.exe`, preserve the native
+WAP-produced MSIX path. Do not repack the finished layout for this repo just to
+inject inner payload Authenticode signatures; that launch path is known-bad on
+this machine family even when the repacked EXE verifies cryptographically.
 For Quest wake / Guardian tracking-loss debugging, keep
 `docs/quest-adb-hzdb-recovery-notes.md` up to date. It is the repo-local memory
 for tested `adb` / `hzdb` commands, observed shell states, and the current best
