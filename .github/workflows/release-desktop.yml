@@ -73,6 +73,7 @@ jobs:
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
           WINDOWS_PACKAGE_PUBLISHER: ${{ secrets.WINDOWS_PACKAGE_PUBLISHER }}
           WINDOWS_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
+          WINDOWS_SETUP_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD }}
         run: |
           $missing = @()
           foreach ($name in 'WINDOWS_PACKAGE_CERTIFICATE_BASE64', 'WINDOWS_PACKAGE_CERTIFICATE_PASSWORD', 'WINDOWS_PACKAGE_PUBLISHER') {
@@ -86,7 +87,15 @@ jobs:
           }
 
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_CERTIFICATE_BASE64)) {
-            Write-Host "No dedicated guided-setup signing certificate is configured. The workflow will sign the helper with the package certificate for this release." -ForegroundColor Yellow
+            throw "Missing guided-setup signing certificate secret WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64. Export the shared MesmerPrism signer with tools/app/New-Preview-SigningCertificate.ps1 -ExistingThumbprint 08A5878AD6E652A94517D2C79144EB2655B0088C and configure the repo secrets before publishing."
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_CERTIFICATE_PASSWORD)) {
+            throw "Missing guided-setup signing certificate secret WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD."
+          }
+
+          if ($env:WINDOWS_SETUP_CERTIFICATE_BASE64 -eq $env:WINDOWS_PACKAGE_CERTIFICATE_BASE64) {
+            Write-Host 'Guided setup signing is configured to reuse the shared MesmerPrism signer already used by older working releases and the sibling DOPE Companion repo.' -ForegroundColor Yellow
           }
           else {
             Write-Host 'Dedicated guided-setup signing certificate detected.' -ForegroundColor Green
@@ -136,11 +145,6 @@ jobs:
         env:
           WINDOWS_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_CERTIFICATE_BASE64)) {
-            "path=" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            exit 0
-          }
-
           $certificatePath = Join-Path $env:RUNNER_TEMP 'ViscerealityCompanion-setup-signing.pfx'
           $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_SETUP_CERTIFICATE_BASE64)
           [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
@@ -178,19 +182,13 @@ jobs:
       - name: Publish guided setup bootstrapper
         shell: pwsh
         env:
-          WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
-          WINDOWS_PACKAGE_TIMESTAMP_URL: ${{ vars.WINDOWS_PACKAGE_TIMESTAMP_URL }}
           WINDOWS_SETUP_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD }}
+          WINDOWS_PACKAGE_TIMESTAMP_URL: ${{ vars.WINDOWS_PACKAGE_TIMESTAMP_URL }}
           WINDOWS_SETUP_TIMESTAMP_URL: ${{ vars.WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL }}
         run: |
           $setupCertificatePath = '${{ steps.setup_certificate.outputs.path }}'
           $setupCertificatePassword = $env:WINDOWS_SETUP_CERTIFICATE_PASSWORD
           $setupTimestampUrl = $env:WINDOWS_PACKAGE_TIMESTAMP_URL
-
-          if ([string]::IsNullOrWhiteSpace($setupCertificatePath)) {
-            $setupCertificatePath = '${{ steps.certificate.outputs.path }}'
-            $setupCertificatePassword = $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD
-          }
 
           if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_TIMESTAMP_URL)) {
             $setupTimestampUrl = $env:WINDOWS_SETUP_TIMESTAMP_URL
@@ -215,6 +213,7 @@ jobs:
       - name: Validate release asset signatures
         shell: pwsh
         env:
+          WINDOWS_PACKAGE_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_BASE64 }}
           WINDOWS_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
         run: |
           $args = @(
@@ -223,7 +222,7 @@ jobs:
             '-AllowSelfSignedPackage'
           )
 
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_CERTIFICATE_BASE64)) {
+          if ($env:WINDOWS_SETUP_CERTIFICATE_BASE64 -eq $env:WINDOWS_PACKAGE_CERTIFICATE_BASE64) {
             $args += '-AllowSelfSignedPreviewSetup'
           }
 
