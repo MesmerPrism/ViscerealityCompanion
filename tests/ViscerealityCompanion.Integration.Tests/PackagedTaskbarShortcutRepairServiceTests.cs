@@ -5,33 +5,33 @@ namespace ViscerealityCompanion.Integration.Tests;
 public sealed class PackagedTaskbarShortcutRepairServiceTests
 {
     [Fact]
-    public void IsPreviewPackageFamilyName_matches_only_rotated_preview_family()
+    public void IsCurrentReleasePackageFamilyName_matches_only_public_release_family()
     {
-        Assert.True(PackagedTaskbarShortcutRepairService.IsPreviewPackageFamilyName(
-            "MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y"));
-        Assert.False(PackagedTaskbarShortcutRepairService.IsPreviewPackageFamilyName(
+        Assert.True(PackagedTaskbarShortcutRepairService.IsCurrentReleasePackageFamilyName(
             "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y"));
-        Assert.False(PackagedTaskbarShortcutRepairService.IsPreviewPackageFamilyName(null));
+        Assert.False(PackagedTaskbarShortcutRepairService.IsCurrentReleasePackageFamilyName(
+            "MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y"));
+        Assert.False(PackagedTaskbarShortcutRepairService.IsCurrentReleasePackageFamilyName(null));
     }
 
     [Fact]
-    public void BuildAppsFolderArguments_targets_preview_package_family()
+    public void BuildAppsFolderArguments_targets_public_release_package_family()
     {
         var arguments = PackagedTaskbarShortcutRepairService.BuildAppsFolderArguments(
-            "MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y");
+            "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y");
 
         Assert.Equal(
-            @"shell:AppsFolder\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y!App",
+            @"shell:AppsFolder\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y!App",
             arguments);
     }
 
     [Fact]
-    public void ShouldRepairShortcut_matches_legacy_packaged_taskbar_pin()
+    public void ShouldRepairShortcut_matches_preview_family_taskbar_pin()
     {
         var shouldRepair = PackagedTaskbarShortcutRepairService.ShouldRepairShortcut(
             "Viscereality Companion.lnk",
             targetPath: @"C:\Windows\explorer.exe",
-            arguments: @"shell:AppsFolder\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y!App");
+            arguments: @"shell:AppsFolder\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y!App");
 
         Assert.True(shouldRepair);
     }
@@ -48,12 +48,12 @@ public sealed class PackagedTaskbarShortcutRepairServiceTests
     }
 
     [Fact]
-    public void ShouldRepairShortcut_ignores_preview_package_pin()
+    public void ShouldRepairShortcut_ignores_current_public_release_pin()
     {
         var shouldRepair = PackagedTaskbarShortcutRepairService.ShouldRepairShortcut(
-            "Viscereality Companion Preview.lnk",
+            "Viscereality Companion.lnk",
             targetPath: @"C:\Windows\explorer.exe",
-            arguments: @"shell:AppsFolder\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y!App");
+            arguments: @"shell:AppsFolder\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y!App");
 
         Assert.False(shouldRepair);
     }

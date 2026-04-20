@@ -8,7 +8,7 @@ internal sealed record StartupUpdateSnapshot(
     OfficialQuestToolingStatus Tooling)
 {
     public bool HasToolingUpdates => Tooling.Hzdb.UpdateAvailable || Tooling.PlatformTools.UpdateAvailable;
-    public bool HasUpdates => App.UpdateAvailable || HasToolingUpdates;
+    public bool HasUpdates => App.UpdateAvailable || App.RequiresGuidedInstaller || HasToolingUpdates;
 }
 
 internal static class StartupUpdateService
@@ -74,12 +74,17 @@ internal static class StartupUpdateService
         try
         {
             return await publishedUpdates
-                .GetStatusAsync(currentBuild.ShortId, currentBuild.IsPackaged, cancellationToken)
+                .GetStatusAsync(currentBuild.PackageName, currentBuild.ShortId, currentBuild.IsPackaged, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch
         {
-            return PublishedPreviewUpdateService.BuildStatus(currentBuild.ShortId, currentBuild.IsPackaged, availableVersion: null);
+            return PublishedPreviewUpdateService.BuildStatus(
+                currentBuild.PackageName,
+                currentBuild.ShortId,
+                currentBuild.IsPackaged,
+                availablePackageName: null,
+                availableVersion: null);
         }
     }
 

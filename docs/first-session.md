@@ -19,7 +19,7 @@ launch. Otherwise use `Start Here`.
 - make sure the Quest is in **developer mode**
 - have one USB cable available for the first ADB trust step
 - put the Windows machine and Quest on the same Wi-Fi network if you plan to use Wi-Fi ADB
-- if this is Sussex, prefer the packaged preview install because it already bundles the Sussex APK and opens directly into the Sussex shell
+- if this is Sussex, prefer the packaged Sussex install because it already bundles the Sussex APK and opens directly into the Sussex shell
 
 ## 1. Connect Your Quest
 
@@ -43,7 +43,7 @@ the headset.
 
 In the app:
 
-- if you installed the dedicated Sussex preview, stay in `Sussex University experiment mode`
+- if you installed the dedicated Sussex package, stay in `Sussex University experiment mode`
 - if you are in the full app, open the supplied study shell from `Start Here` when available
 - browse to an APK only if the study shell or supplied target did not already ship it
 - if Sussex mode is active, the bundled Sussex APK should already be staged for you
@@ -62,7 +62,7 @@ Wi-Fi ADB handoff, Wi-Fi-only verification, APK/profile checks, kiosk launch,
 LSL confirmation, particle verification, a controller-tracking guarded
 calibration check, and the short 20 second validation capture. After that
 capture finishes, the guide now gives one-click access to the Windows session
-folder, the pulled Quest backup folder, and the formatted PDF preview report.
+folder, the pulled Quest backup folder, and the formatted PDF report.
 That validation step now keeps the clock-alignment process inline in the guide
 itself: start burst first, the 20 second capture in the middle with sparse
 drift probes armed in the background, then the matching end burst before
@@ -101,7 +101,7 @@ shell that uses the bundled Sussex APK by default. In the full app, click
 viscereality install path/to/viscereality.apk
 ```
 
-If you are using the packaged Sussex preview, you should not need to browse for
+If you are using the packaged Sussex release, you should not need to browse for
 another APK at this step.
 
 ## 4. Apply The Study Device Profile

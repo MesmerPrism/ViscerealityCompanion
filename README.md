@@ -8,7 +8,7 @@ state, and keep session control on the operator side.
 
 Start with [Docs Home](docs/index.md) or the live
 [Pages site](https://mesmerprism.github.io/ViscerealityCompanion/).
-If a public Sussex-focused research preview release exists, install it from
+If a public packaged release exists, install it from
 [Download & Install](https://mesmerprism.github.io/ViscerealityCompanion/download.html).
 
 This repo is deliberately separate from the participant-facing runtime repo. It
@@ -54,12 +54,12 @@ Verified on March 25, 2026 against a live Quest reachable over Wi-Fi ADB:
 
 ## Install Or Build
 
-For operators, the intended path is the packaged launcher once preview releases
-are published. The current public preview is Sussex-focused and bundles the Sussex APK inside
-the installed app payload, so operators do not need a separate APK download for
-that study shell.
+For operators, the intended path is the packaged launcher. The public release
+line uses the stable `Viscereality Companion` package identity and bundles the
+Sussex APK inside the installed app payload, so operators do not need a
+separate APK download for that study shell.
 
-The guided preview installer now also refreshes the managed official Quest
+The guided installer now also refreshes the managed official Quest
 tooling cache under `%LOCALAPPDATA%\ViscerealityCompanion\tooling` from the
 upstream publishers:
 
@@ -184,6 +184,23 @@ The repo includes Windows packaging scaffolding under
 
 That path is meant to produce one branded launcher entry for the installed app,
 instead of asking operators to run the unpackaged repo build directly.
+
+The packaged identities are now split intentionally:
+
+- public release: `MesmerPrism.ViscerealityCompanion` / `Viscereality Companion`
+- packaged dev: `MesmerPrism.ViscerealityCompanionDev` / `Viscereality Companion Dev`
+- legacy preview family kept only for migration support: `MesmerPrism.ViscerealityCompanionPreview`
+
+The `0.1.57.0` through `0.1.59.0` preview-family installs need one guided
+installer or manual App Installer migration into the next public main-identity
+release. Windows MSIX does not do that family switch as an in-place self-update.
+
+`Build-App-Package.ps1` defaults to the public release identity. To build a
+packaged Dev install instead, pass:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Build-App-Package.ps1 -IdentityFlavor Dev
+```
 
 If you need to refresh the bundled Sussex APK from a freshly approved Sussex
 runtime build before

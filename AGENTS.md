@@ -13,6 +13,7 @@ cross-project patterns, or central-bureau maintenance, use
 - Run CLI: `dotnet run --project src/ViscerealityCompanion.Cli`
 - Run Sussex verification harness: `powershell -ExecutionPolicy Bypass -File .\tools\app\Start-Sussex-VerificationHarness.ps1`
 - Build MSIX package: `powershell -ExecutionPolicy Bypass -File .\tools\app\Build-App-Package.ps1 -Unsigned`
+- Build packaged Dev MSIX: `powershell -ExecutionPolicy Bypass -File .\tools\app\Build-App-Package.ps1 -IdentityFlavor Dev -Unsigned`
 - Build docs site: `npm run pages:build`
 - Serve docs locally: `npm run pages:serve`
 

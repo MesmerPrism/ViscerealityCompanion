@@ -8,15 +8,17 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
-    [string]$Version = '0.1.59.0',
-    [string]$PackageId = 'MesmerPrism.ViscerealityCompanionPreview',
+    [ValidateSet('Release', 'Dev')]
+    [string]$IdentityFlavor = 'Release',
+    [string]$Version = '0.1.60.0',
+    [string]$PackageId,
     [string]$Publisher = 'CN=MesmerPrism',
-    [string]$DisplayName = 'Viscereality Companion Preview',
+    [string]$DisplayName,
     [string]$PublisherDisplayName = 'Mesmer Prism',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
-    [string]$PackageFileName = 'ViscerealityCompanion.msix',
-    [string]$AppInstallerFileName = 'ViscerealityCompanion.appinstaller',
-    [string]$CertificateFileName = 'ViscerealityCompanion.cer',
+    [string]$PackageFileName,
+    [string]$AppInstallerFileName,
+    [string]$CertificateFileName,
     [string]$AppInstallerUri,
     [string]$MainPackageUri,
     [string]$PackageCertificatePath,
@@ -32,6 +34,58 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $defaultTimestampUrl = 'http://timestamp.digicert.com'
+
+function Get-IdentityDefaults {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Flavor
+    )
+
+    switch ($Flavor) {
+        'Release' {
+            return @{
+                PackageId = 'MesmerPrism.ViscerealityCompanion'
+                DisplayName = 'Viscereality Companion'
+                PackageFileName = 'ViscerealityCompanion.msix'
+                AppInstallerFileName = 'ViscerealityCompanion.appinstaller'
+                CertificateFileName = 'ViscerealityCompanion.cer'
+            }
+        }
+        'Dev' {
+            return @{
+                PackageId = 'MesmerPrism.ViscerealityCompanionDev'
+                DisplayName = 'Viscereality Companion Dev'
+                PackageFileName = 'ViscerealityCompanion-Dev.msix'
+                AppInstallerFileName = 'ViscerealityCompanion-Dev.appinstaller'
+                CertificateFileName = 'ViscerealityCompanion-Dev.cer'
+            }
+        }
+        default {
+            throw "Unsupported identity flavor: $Flavor"
+        }
+    }
+}
+
+$identityDefaults = Get-IdentityDefaults -Flavor $IdentityFlavor
+if ([string]::IsNullOrWhiteSpace($PackageId)) {
+    $PackageId = $identityDefaults.PackageId
+}
+
+if ([string]::IsNullOrWhiteSpace($DisplayName)) {
+    $DisplayName = $identityDefaults.DisplayName
+}
+
+if ([string]::IsNullOrWhiteSpace($PackageFileName)) {
+    $PackageFileName = $identityDefaults.PackageFileName
+}
+
+if ([string]::IsNullOrWhiteSpace($AppInstallerFileName)) {
+    $AppInstallerFileName = $identityDefaults.AppInstallerFileName
+}
+
+if ([string]::IsNullOrWhiteSpace($CertificateFileName)) {
+    $CertificateFileName = $identityDefaults.CertificateFileName
+}
 
 function Find-MSBuild {
     $command = Get-Command msbuild -ErrorAction SilentlyContinue

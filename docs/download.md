@@ -1,7 +1,7 @@
 ---
 title: Download & Install
-description: Install the Sussex-focused Viscereality Companion Windows research preview from the latest public release, or fall back to the repo build when no preview package exists yet.
-summary: The current public installer is a Sussex-focused preview. Use the guided setup helper on permissive lab machines, and prefer the direct App Installer path on Smart App Control-protected machines unless the helper has been signed with a publicly trusted certificate.
+description: Install the packaged Viscereality Companion Windows release from the latest public release, or fall back to the repo build when no package exists yet.
+summary: Use the guided setup helper on permissive lab machines, and prefer the direct App Installer path on Smart App Control-protected machines unless the helper has been signed with a publicly trusted certificate.
 nav_label: Download
 nav_group: Start Here
 nav_order: 15
@@ -13,19 +13,20 @@ layout: focused
 Use this page when you want the packaged Windows app instead of building the
 repo from source.
 
-The current public package is a **Sussex-focused preview**. It is meant for the
-`Sussex University experiment mode` workflow first, not yet as the final
-general-purpose multi-study release.
+The current public package is **Viscereality Companion**. It is still centered
+on the `Sussex University experiment mode` workflow, but the packaged public
+line now uses the stable release package family instead of the older preview
+family.
 
-The current packaged preview line tracked by this repo is
-`0.1.59.0`.
+The current packaged public release line tracked by this repo is
+`0.1.60.0`.
 
-The recommended preview path is the installed Windows package, not the portable
+The recommended path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
 and immediate access to the bundled Sussex APK and bundled Windows liblsl
 runtime inside the app payload.
 
-This preview also expands the Sussex diagnostics used by the sequential guide
+This release also expands the Sussex diagnostics used by the sequential guide
 and packaged CLI. `Analyze Windows Environment` checks local liblsl discovery
 health, a temporary local LSL outlet rediscovery path, and active Windows
 adapter hazards, while `Probe Connection` reports the pinned Sussex APK match,
@@ -56,15 +57,15 @@ terms; this repo does not relicense them under MIT.
   <section class="download-path download-path-primary">
     <h2>Automatic guided setup</h2>
     <p>Use this on normal operator machines. The helper installs or updates the packaged app, refreshes the managed official Quest tooling cache, and then tries to open the app automatically.</p>
-    <p>The helper is currently kept on a pinned bootstrapper build so its download-reputation profile does not reset every time the packaged app version changes. It still installs the latest published preview.</p>
+    <p>The helper now ships as part of each public release. If Windows still reports that the App Installer feed belongs to an older package family, the helper can offer a cleanup-and-retry path for the retired preview install.</p>
     <div class="action-row">
-      <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe">Download guided setup</a>
+      <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Setup.exe">Download guided setup</a>
       <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases">Open release page</a>
     </div>
     <ol class="step-list">
-      <li>Download and run <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe"><code>ViscerealityCompanion-Preview-Setup.exe</code></a>.</li>
-      <li>Let the helper trust the preview certificate, refresh the managed official Quest tooling cache, and install or update the packaged app.</li>
-      <li>When the helper finishes, it should try to open <strong>Viscereality Companion Preview</strong> automatically. If Windows does not bring it forward, launch that Start-menu entry manually.</li>
+      <li>Download and run <a href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Setup.exe"><code>ViscerealityCompanion-Setup.exe</code></a>.</li>
+      <li>Let the helper trust the package certificate, refresh the managed official Quest tooling cache, and install or update the packaged app.</li>
+      <li>When the helper finishes, it should try to open <strong>Viscereality Companion</strong> automatically. If Windows does not bring it forward, launch that Start-menu entry manually.</li>
       <li>Inside the app, stay in <code>Sussex University experiment mode</code> and use the sequential guide.</li>
     </ol>
   </section>
@@ -94,15 +95,15 @@ terms; this repo does not relicense them under MIT.
 
 If you know exactly which file you want, use these direct links:
 
-- [Guided setup helper (`ViscerealityCompanion-Preview-Setup.exe`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Preview-Setup.exe)
+- [Guided setup helper (`ViscerealityCompanion-Setup.exe`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-Setup.exe)
 - [App Installer file (`ViscerealityCompanion.appinstaller`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller)
 - [Windows package (`ViscerealityCompanion.msix`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.msix)
-- [Preview signing certificate (`ViscerealityCompanion.cer`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer)
+- [Package signing certificate (`ViscerealityCompanion.cer`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer)
 - [Portable Windows zip (`ViscerealityCompanion-win-x64.zip`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion-win-x64.zip)
 - [CLI zip (`viscereality-cli-win-x64.zip`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/viscereality-cli-win-x64.zip)
 - [Checksums (`SHA256SUMS.txt`)](https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/SHA256SUMS.txt)
 
-## What The Sussex Preview Includes
+## What The Sussex Release Includes
 
 - the Windows operator app
 - the dedicated `Sussex University experiment mode` shell
@@ -116,9 +117,9 @@ If you know exactly which file you want, use these direct links:
 - the app-bundled CLI payload used to seed the current operator-data root under `...\ViscerealityCompanion\agent-workspace` with `viscereality.ps1`, `viscereality.cmd`, the bundled workspace `lsl.dll`, and a ready-made local-agent prompt after first launch
 
 Sussex operators should not need a separate APK download if they are using the
-packaged preview install.
+packaged install.
 
-The current Sussex preview also includes the updated Home/orientation shell,
+The current Sussex release also includes the updated Home/orientation shell,
 the sequential guide flow, the breathing-profiles tab, participant
 locked mode, Windows-plus-Quest session snapshots, the LSL/runtime hardening
 changes, the controller-tracking calibration guards, and the refactored Sussex
@@ -165,25 +166,26 @@ checks.
 - a Quest headset with **developer mode enabled**
 - one USB cable for the first ADB trust step
 - the Windows machine and Quest on the same Wi-Fi network if you want Wi-Fi ADB
-- local admin approval for the preview certificate trust step
+- local admin approval for the package certificate trust step
 
 If developer mode is not already enabled on the headset, fix that before
 expecting the companion to install or launch anything.
 
 ## After Install
 
-1. Launch `Viscereality Companion Preview` from the Start menu.
+1. Launch `Viscereality Companion` from the Start menu.
 2. Confirm it opens in `Sussex University experiment mode`.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
-5. Check the top app header for the opened-build badge. The installed preview
-   should identify itself as `Published install 0.1.59.0`; unpackaged local
+5. Check the top app header for the opened-build badge. The installed package
+   should identify itself as `Published install 0.1.60.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an
-older build or a repo-local source build instead of the packaged Sussex preview.
-If both `Viscereality Companion` and `Viscereality Companion Preview` appear in
-Start, use the `Preview` entry.
+older build or a repo-local source build instead of the packaged Sussex
+release. If both `Viscereality Companion` and `Viscereality Companion Preview`
+appear in Start, use `Viscereality Companion`. The preview-family entry is
+legacy migration state only.
 
 Continue with:
 
@@ -207,14 +209,14 @@ Continue with:
     <p>Move straight to the troubleshooting guide for USB trust, Wi-Fi ADB, and headset-state issues.</p>
   </a>
   <a class="path-card" href="getting-started.md">
-    <h3>No preview release yet</h3>
-    <p>Use the source-build path only when the packaged preview is missing or you need to change the repo.</p>
+    <h3>No packaged release yet</h3>
+    <p>Use the source-build path only when the packaged release is missing or you need to change the repo.</p>
   </a>
 </div>
 
 ## What You Do Not Need Separately
 
-For the packaged Sussex preview you do not need:
+For the packaged Sussex release you do not need:
 
 - a separate runtime source checkout
 - a second Sussex APK handoff by email or USB stick

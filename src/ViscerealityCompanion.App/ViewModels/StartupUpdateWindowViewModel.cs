@@ -16,7 +16,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
     private string _progressStatus = string.Empty;
     private string _progressDetail = string.Empty;
     private int _progressPercent;
-    private string _primaryActionLabel = "Update now";
+    private string _primaryActionLabel;
     private bool _showDismissAction = true;
 
     public StartupUpdateWindowViewModel(StartupUpdateSnapshot snapshot)
@@ -33,6 +33,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         _heading = BuildInitialHeading(snapshot);
         _summary = BuildInitialSummary(snapshot);
         _detail = BuildInitialDetail(snapshot);
+        _primaryActionLabel = BuildInitialPrimaryActionLabel(snapshot);
 
         PrimaryActionCommand = new AsyncRelayCommand(ExecutePrimaryActionAsync, () => !IsBusy);
         DismissActionCommand = new AsyncRelayCommand(DismissAsync, () => !IsBusy);
@@ -51,6 +52,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         _heading = BuildInitialHeading(snapshot);
         _summary = BuildInitialSummary(snapshot);
         _detail = BuildInitialDetail(snapshot);
+        _primaryActionLabel = BuildInitialPrimaryActionLabel(snapshot);
 
         PrimaryActionCommand = new AsyncRelayCommand(ExecutePrimaryActionAsync, () => !IsBusy);
         DismissActionCommand = new AsyncRelayCommand(DismissAsync, () => !IsBusy);
@@ -134,7 +136,8 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
 
     public bool ShowAppSection => _appStatus.IsApplicable;
     public bool AppUpdateAvailable => _appStatus.UpdateAvailable;
-    public string AppStatusLabel => _appStatus.UpdateAvailable ? "Update ready" : "Current";
+    public bool AppRequiresGuidedInstaller => _appStatus.RequiresGuidedInstaller;
+    public string AppStatusLabel => _appStatus.RequiresGuidedInstaller ? "Use installer" : _appStatus.UpdateAvailable ? "Update ready" : "Current";
     public string AppCurrentVersion => _appStatus.CurrentVersion ?? "n/a";
     public string AppAvailableVersion => _appStatus.AvailableVersion ?? "n/a";
     public string AppDetail => _appStatus.Detail;
@@ -159,10 +162,20 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
             return;
         }
 
+        if (_appStatus.RequiresGuidedInstaller &&
+            !_toolingStatus.Hzdb.UpdateAvailable &&
+            !_toolingStatus.PlatformTools.UpdateAvailable)
+        {
+            RequestClose?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
         IsBusy = true;
         ProgressPercent = 5;
         ProgressStatus = "Preparing updates";
-        ProgressDetail = _appStatus.UpdateAvailable
+        ProgressDetail = _appStatus.RequiresGuidedInstaller
+            ? "The companion will refresh the managed official Quest tooling cache. Finish the Windows package migration from the guided installer or the manual certificate + App Installer path afterward."
+            : _appStatus.UpdateAvailable
             ? "The companion will refresh the managed official Quest tooling cache first, then install the published Windows package directly without opening the App Installer UI."
             : "The companion will refresh the managed official Quest tooling cache in place.";
 
@@ -207,6 +220,12 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
                 Heading = "Windows package update applied";
                 Summary = "Windows package update applied";
                 Detail = $"{toolingMessage} If the updated app does not reopen automatically, launch it again from Start.";
+            }
+            else if (_appStatus.RequiresGuidedInstaller)
+            {
+                Heading = "Tooling updated";
+                Summary = "Windows package migration still needs the guided installer.";
+                Detail = $"{toolingMessage} {_appStatus.Detail}";
             }
             else
             {
@@ -264,6 +283,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         {
             CurrentVersion = currentVersion,
             UpdateAvailable = false,
+            RequiresGuidedInstaller = false,
             Summary = "Windows package is current.",
             Detail = $"Installed package {currentVersion ?? "n/a"} matches the latest published .appinstaller metadata."
         };
@@ -275,6 +295,7 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowAppSection));
         OnPropertyChanged(nameof(ShowOpenReleasesAction));
         OnPropertyChanged(nameof(AppUpdateAvailable));
+        OnPropertyChanged(nameof(AppRequiresGuidedInstaller));
         OnPropertyChanged(nameof(AppStatusLabel));
         OnPropertyChanged(nameof(AppCurrentVersion));
         OnPropertyChanged(nameof(AppAvailableVersion));
@@ -292,7 +313,11 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
     }
 
     private static string BuildInitialHeading(StartupUpdateSnapshot snapshot)
-        => snapshot.App.UpdateAvailable && snapshot.HasToolingUpdates
+        => snapshot.App.RequiresGuidedInstaller && snapshot.HasToolingUpdates
+            ? "App migration and tooling updates are available"
+            : snapshot.App.RequiresGuidedInstaller
+                ? "A Windows package migration is available"
+            : snapshot.App.UpdateAvailable && snapshot.HasToolingUpdates
             ? "App and tooling updates are available"
             : snapshot.App.UpdateAvailable
                 ? "A Windows package update is available"
@@ -300,6 +325,16 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
 
     private static string BuildInitialSummary(StartupUpdateSnapshot snapshot)
     {
+        if (snapshot.App.RequiresGuidedInstaller && snapshot.HasToolingUpdates)
+        {
+            return "A newer public Windows package is available on a different package family, and newer official Quest tooling is available.";
+        }
+
+        if (snapshot.App.RequiresGuidedInstaller)
+        {
+            return "This installed package cannot self-update to the current public release. Use the guided installer or the manual App Installer path once.";
+        }
+
         if (snapshot.App.UpdateAvailable && snapshot.HasToolingUpdates)
         {
             return "A newer Windows package and newer official Quest tooling are available.";
@@ -314,7 +349,16 @@ internal sealed class StartupUpdateWindowViewModel : ObservableObject
     }
 
     private static string BuildInitialDetail(StartupUpdateSnapshot snapshot)
-        => snapshot.App.UpdateAvailable
+        => snapshot.App.RequiresGuidedInstaller
+            ? "The current packaged install is on a different package family than the published release. Use Open Releases for the guided installer, or use the manual certificate + App Installer path."
+            : snapshot.App.UpdateAvailable
             ? "Update now refreshes the managed official Quest tooling cache first and then installs the Windows package directly from the published App Installer feed."
             : "Update now refreshes the managed official Quest tooling cache in place without leaving the app.";
+
+    private static string BuildInitialPrimaryActionLabel(StartupUpdateSnapshot snapshot)
+        => snapshot.App.RequiresGuidedInstaller && !snapshot.HasToolingUpdates
+            ? "Close"
+            : snapshot.App.RequiresGuidedInstaller
+                ? "Update tooling"
+                : "Update now";
 }

@@ -73,7 +73,7 @@ or, from the packaged local-agent workspace:
 ```
 
 If Wi-Fi ADB only works after manual `adb kill-server` / `adb start-server`
-recovery in `cmd`, update to the latest packaged preview first. The Sussex
+recovery in `cmd`, update to the latest packaged release first. The Sussex
 Wi-Fi bootstrap now restarts the local ADB server automatically and falls back
 to parsing `adb shell ip route` when `getprop dhcp.wlan0.ipaddress` does not
 return a usable headset IP.
@@ -105,14 +105,14 @@ activation problem, not as proof that the install failed.
 
 Use the normal fallback:
 
-1. Open `Viscereality Companion Preview` from the Start menu.
-2. If both the legacy and preview entries exist, use the `Preview` entry.
+1. Open `Viscereality Companion` from the Start menu.
+2. If both `Viscereality Companion` and `Viscereality Companion Preview` exist, use `Viscereality Companion`. The preview entry is legacy migration state only.
 3. If you want to verify the installed build explicitly, check `Get-AppxPackage MesmerPrism.ViscerealityCompanion*` in PowerShell.
 4. If the app opens and the operator-data root contains the managed tooling metadata shown above, the packaged install succeeded.
 
 ## The app launches but live LSL features stay unavailable
 
-The packaged preview and portable Windows zip now bundle the official Windows
+The packaged release and portable Windows zip now bundle the official Windows
 x64 `lsl.dll`. On those builds, live LSL features should work without a
 separate liblsl install.
 
@@ -136,8 +136,8 @@ the expected locations:
 - next to the app executable
 - `runtimes/win-x64/native/lsl.dll`
 
-If the bundled DLL is missing or blocked, the app falls back to preview
-messaging for those features.
+If the bundled DLL is missing or blocked, the app falls back to degraded
+availability messaging for those features.
 
 ## Switching between the TEST sender and another LSL sender is unreliable
 
@@ -361,22 +361,23 @@ does not automatically mean the Windows-side recorder data was lost.
 
 ## The packaged launcher path is not available yet
 
-If no signed preview release exists, use the source-build path from
+If no signed packaged release exists, use the source-build path from
 [Getting Started](getting-started.md) or build an unsigned package locally with
 `tools/app/Build-App-Package.ps1 -Unsigned`.
 
 ## Smart App Control blocks the guided setup helper
 
 This is usually not evidence that the release asset is unsigned. The current
-preview helper EXE may still be Authenticode-signed with the repo's self-issued
-preview certificate. Windows Smart App Control evaluates the downloaded EXE
+guided setup helper EXE may still be Authenticode-signed with the repo's
+self-issued package certificate. Windows Smart App Control evaluates the
+downloaded EXE
 *before* the helper can add that certificate to `Trusted People`, so fresh
 machines can still block the helper outright even though the signature itself is
 present and timestamped.
 
 Use this order:
 
-1. Install the preview certificate from `ViscerealityCompanion.cer` into `Local Machine > Trusted People`.
+1. Install the package certificate from `ViscerealityCompanion.cer` into `Local Machine > Trusted People`.
 2. Open the downloaded `ViscerealityCompanion.appinstaller` file from disk.
 3. If App Installer itself still refuses the feed, install the `.msix` directly.
 
@@ -384,7 +385,7 @@ For release debugging, validate the shipped EXE and MSIX signatures locally:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1 `
-  -PreviewSetupPath .\artifacts\windows-installer\ViscerealityCompanion-Preview-Setup.exe `
+  -PreviewSetupPath .\artifacts\windows-installer\ViscerealityCompanion-Setup.exe `
   -PackagePath .\artifacts\windows-installer\ViscerealityCompanion.msix `
   -AllowSelfSignedPreviewSetup `
   -AllowSelfSignedPackage
@@ -395,15 +396,14 @@ improves signature durability, but it does **not** make the helper Smart App
 Control-compliant on fresh machines by itself. To make the helper broadly
 trusted under Smart App Control, the release workflow must sign the helper with
 a certificate from a trusted public provider or move that helper-signing path
-to Microsoft's Trusted Signing flow. The workflow now supports a separate
-preview-setup signing certificate via
+to Microsoft's Trusted Signing flow. The workflow supports a separate guided
+setup signing certificate via the existing
 `WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64` and
-`WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD` so the helper can use a public
-Authenticode signer without changing the self-signed MSIX sideloading path.
-Until that dedicated signer exists, the release workflow reuses the known-good
-`v0.1.46` helper asset instead of rebuilding a new helper EXE hash on every
-release. That keeps the guided setup path stable while the helper continues to
-download the latest `.appinstaller`, certificate, and MSIX at runtime.
+`WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD` secrets so the helper can use a
+public Authenticode signer without changing the self-signed MSIX sideloading
+path. If that dedicated signer is absent, the workflow now signs the freshly
+built helper with the package certificate instead of reusing an old pinned
+bootstrapper asset.
 
 If the packaged app itself is blocked **after** the MSIX installs, inspect the
 Code Integrity log for the specific package family and executable path:
@@ -436,7 +436,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\app\Refresh-Desktop-Launcher.ps
 
 That republish path refreshes the canonical shortcut target and removes stale
 repo-local `ViscerealityCompanion.exe` copies so Windows search and taskbar
-pins keep resolving to the right app. If the packaged MSIX preview is installed,
+pins keep resolving to the right app. If the packaged MSIX release is installed,
 the canonical `Viscereality Companion.lnk` shortcut now tries the packaged app
 first and falls back to the repo-local published build when Windows refuses to
 start the packaged process.

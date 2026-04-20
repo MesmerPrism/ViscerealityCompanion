@@ -9,7 +9,7 @@ nav_order: 70
 
 # Getting Started
 
-If you are not changing code and a public preview release exists, use
+If you are not changing code and a public packaged release exists, use
 [Download](download.md) instead of the source-build path below.
 
 ## Prerequisites

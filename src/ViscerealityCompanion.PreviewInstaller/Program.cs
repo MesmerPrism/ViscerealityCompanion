@@ -19,7 +19,7 @@ internal static class Program
     private const string AppInstallerDownloadUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller";
     private const string CertificateDownloadUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer";
     private const string ReleasePageUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases";
-    private const string DownloadDirectoryName = "ViscerealityCompanionPreviewSetup";
+    private const string DownloadDirectoryName = "ViscerealityCompanionSetup";
     private const string AppInstallerFileName = "ViscerealityCompanion.appinstaller";
     private const string CertificateFileName = "ViscerealityCompanion.cer";
 
@@ -33,7 +33,10 @@ internal static class Program
         try
         {
             EnsureAdministrator();
-            using var installerForm = new InstallerStatusForm(InstallPreviewAsync, ReleasePageUri);
+            using var installerForm = new InstallerStatusForm(
+                (progress, cancellationToken) => InstallPublishedPackageAsync(progress, cancellationToken),
+                (progress, cancellationToken) => InstallPublishedPackageAsync(progress, cancellationToken, removeLegacyPackagesBeforeInstall: true),
+                ReleasePageUri);
             Application.Run(installerForm);
             return 0;
         }
@@ -44,13 +47,14 @@ internal static class Program
         }
     }
 
-    private static async Task<InstallerCompletionResult> InstallPreviewAsync(
+    private static async Task<InstallerCompletionResult> InstallPublishedPackageAsync(
         IProgress<InstallerProgressUpdate> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool removeLegacyPackagesBeforeInstall = false)
     {
         progress.Report(new InstallerProgressUpdate(
             "Preparing guided setup",
-            "Creating a temporary staging folder for the Sussex-focused research preview installer.",
+            "Creating a temporary staging folder for the packaged Viscereality Companion installer.",
             5));
 
         var downloadDirectory = Path.Combine(Path.GetTempPath(), DownloadDirectoryName);
@@ -63,13 +67,13 @@ internal static class Program
 
         progress.Report(new InstallerProgressUpdate(
             "Downloading trust certificate",
-            "Pulling the preview signing certificate from the latest public GitHub release.",
+            "Pulling the package signing certificate from the latest public GitHub release.",
             25));
         await DownloadFileAsync(httpClient, CertificateDownloadUri, certificatePath, cancellationToken);
 
         progress.Report(new InstallerProgressUpdate(
             "Downloading App Installer metadata",
-            "Fetching the current .appinstaller feed that points at the latest Sussex-focused preview package.",
+            "Fetching the current .appinstaller feed that points at the latest published Windows package.",
             50));
         await DownloadFileAsync(httpClient, AppInstallerDownloadUri, appInstallerPath, cancellationToken);
 
@@ -88,13 +92,13 @@ internal static class Program
         catch (Exception toolingException)
         {
             toolingWarning =
-                "The preview package can still be installed, but the official Quest tooling cache could not be refreshed automatically. " +
+                "The packaged app can still be installed, but the official Quest tooling cache could not be refreshed automatically. " +
                 $"{toolingException.Message}";
         }
 
         progress.Report(new InstallerProgressUpdate(
-            "Trusting the preview certificate",
-            "Adding the public preview certificate to Trusted People so the MSIX package can be installed cleanly.",
+            "Trusting the package certificate",
+            "Adding the public package certificate to Trusted People so the MSIX package can be installed cleanly.",
             85));
         TrustCertificate(certificatePath);
 
@@ -104,10 +108,17 @@ internal static class Program
             87));
         var packageInstaller = new PreviewPackageInstaller();
         var packageIdentity = PreviewPackageInstaller.ParseAppInstallerManifest(appInstallerPath);
+        ValidatePublishedPackageIdentity(packageIdentity);
         var existingPackage = PreviewPackageInstaller.FindExistingPackage(packageIdentity);
-        var legacyPackage = PreviewPackageInstaller.FindLegacyPackageToRetire(packageIdentity);
+        var legacyPackages = PreviewPackageInstaller.FindLegacyPackagesToRetire(packageIdentity);
         var installResult = await packageInstaller
-            .InstallOrUpdateAsync(packageIdentity, existingPackage, legacyPackage, progress, cancellationToken)
+            .InstallOrUpdateAsync(
+                packageIdentity,
+                existingPackage,
+                legacyPackages,
+                progress,
+                cancellationToken,
+                removeLegacyPackagesBeforeInstall)
             .ConfigureAwait(false);
 
         var installedPackage = PreviewPackageInstaller.FindExistingPackage(packageIdentity);
@@ -127,6 +138,18 @@ internal static class Program
         return Path.Combine(Path.GetTempPath(), DownloadDirectoryName, AppInstallerFileName);
     }
 
+    internal static void ValidatePublishedPackageIdentity(PreviewPackageIdentity packageIdentity)
+    {
+        if (PackagedAppIdentity.IsReleasePackageName(packageIdentity.Name))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"The downloaded App Installer feed currently targets package {packageIdentity.Name}, not the public release family {PackagedAppIdentity.ReleasePackageName}. " +
+            "The public release assets are inconsistent. Open the GitHub release page and refresh the published .appinstaller, MSIX, and guided setup helper together.");
+    }
+
     private static void EnsureAdministrator()
     {
         using var identity = WindowsIdentity.GetCurrent();
@@ -135,7 +158,7 @@ internal static class Program
         if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
         {
             throw new InvalidOperationException(
-                "Administrator permission is required to trust the preview signing certificate. " +
+                "Administrator permission is required to trust the package signing certificate. " +
                 "Run the setup again and accept the Windows UAC prompt.");
         }
     }
@@ -162,7 +185,7 @@ internal static class Program
 
         if (!alreadyTrusted)
         {
-            // Research preview packages are self-signed, so the public cert must be trusted explicitly.
+            // The public package remains self-signed today, so the public cert must be trusted explicitly.
             store.Add(certificate);
         }
     }
@@ -170,14 +193,14 @@ internal static class Program
     private static void ShowError(Exception exception)
     {
         var message =
-            "Viscereality Companion Preview Setup could not finish.\n\n" +
+            "Viscereality Companion Setup could not finish.\n\n" +
             $"{exception.Message}\n\n" +
-            "If the public preview release is not available yet, open the release page or use the source-build path instead.\n" +
+            "If the public Windows release is not available yet, open the release page or use the source-build path instead.\n" +
             $"{ReleasePageUri}";
 
         MessageBox.Show(
             message,
-            "Viscereality Companion Preview Setup",
+            "Viscereality Companion Setup",
             MessageBoxButtons.OK,
             MessageBoxIcon.Error);
     }
@@ -191,7 +214,7 @@ internal static class Program
 
         if (installResult.RemovedLegacyInstall)
         {
-            return $"Viscereality Companion {installResult.InstalledVersion} installed and retired the legacy packaged entry.";
+            return $"Viscereality Companion {installResult.InstalledVersion} installed and retired the previous preview-family entry.";
         }
 
         if (installResult.UpdatedExistingInstall)
@@ -209,11 +232,11 @@ internal static class Program
         var installDetail = installResult switch
         {
             { RemovedPreviousInstall: true } => $"The existing packaged install {installResult.PreviousVersion ?? "n/a"} blocked the in-place update, so the helper removed it and installed {installResult.InstalledVersion} cleanly.",
-            { RemovedLegacyInstall: true } => $"Windows installed the refreshed preview package {installResult.InstalledVersion} and removed the legacy packaged install {installResult.PreviousVersion ?? "n/a"} so the working Start-menu entry stays on Viscereality Companion Preview.",
+            { RemovedLegacyInstall: true } => $"Windows installed Viscereality Companion {installResult.InstalledVersion} and removed the older preview-family packaged install {installResult.PreviousVersion ?? "n/a"} so the stable public Start-menu entry stays in place.",
             { UpdatedExistingInstall: true } when string.Equals(installResult.PreviousVersion, installResult.InstalledVersion, StringComparison.OrdinalIgnoreCase)
                 => "The packaged install already matched the published release. The helper refreshed that install cleanly.",
             { UpdatedExistingInstall: true } => $"Windows updated the packaged install from {installResult.PreviousVersion ?? "n/a"} to {installResult.InstalledVersion} and closed the running app first if needed.",
-            _ => $"The packaged preview was installed directly from the published App Installer feed and is ready to launch from the Start menu as Viscereality Companion Preview {installResult.InstalledVersion}."
+            _ => $"The packaged app was installed directly from the published App Installer feed and is ready to launch from the Start menu as Viscereality Companion {installResult.InstalledVersion}."
         };
 
         return string.IsNullOrWhiteSpace(launchDetail)

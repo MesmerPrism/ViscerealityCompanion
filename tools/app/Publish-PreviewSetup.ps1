@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Publishes the guided Viscereality Companion research preview setup bootstrapper.
+    Publishes the guided Viscereality Companion setup bootstrapper.
 #>
 [CmdletBinding()]
 param(
@@ -8,9 +8,9 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('win-x64')]
     [string]$RuntimeIdentifier = 'win-x64',
-    [string]$Version = '0.1.59.0',
+    [string]$Version = '0.1.60.0',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
-    [string]$FileName = 'ViscerealityCompanion-Preview-Setup.exe',
+    [string]$FileName = 'ViscerealityCompanion-Setup.exe',
     [string]$PackageCertificatePath,
     [string]$PackageCertificatePassword,
     [string]$PackageCertificateTimestampUrl
@@ -52,21 +52,33 @@ function Resolve-SignToolPath {
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $projectPath = Join-Path $repoRoot 'src\ViscerealityCompanion.PreviewInstaller\ViscerealityCompanion.PreviewInstaller.csproj'
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputRelativePath))
-$publishPath = Join-Path $outputPath 'preview-setup-publish'
+$publishPath = Join-Path $outputPath 'guided-setup-publish'
 
 if (-not (Test-Path $projectPath)) {
-    throw "Preview setup project not found at $projectPath"
+    throw "Guided setup project not found at $projectPath"
 }
 
 if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePath) -and
     [string]::IsNullOrWhiteSpace($PackageCertificateTimestampUrl)) {
     $PackageCertificateTimestampUrl = $defaultTimestampUrl
-    Write-Host "No timestamp URL was provided. Defaulting to $PackageCertificateTimestampUrl for preview-setup signing." -ForegroundColor Yellow
+    Write-Host "No timestamp URL was provided. Defaulting to $PackageCertificateTimestampUrl for guided-setup signing." -ForegroundColor Yellow
 }
 
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 if (Test-Path $publishPath) {
     Remove-Item -Recurse -Force $publishPath
+}
+
+$restoreArgs = @(
+    'restore',
+    $projectPath,
+    '--runtime', $RuntimeIdentifier
+)
+
+Write-Host 'Restoring guided setup bootstrapper runtime packs...' -ForegroundColor Cyan
+dotnet @restoreArgs | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet restore failed for $projectPath with exit code $LASTEXITCODE"
 }
 
 $publishArgs = @(
@@ -87,7 +99,7 @@ $publishArgs = @(
     '--output', $publishPath
 )
 
-Write-Host 'Publishing preview setup bootstrapper...' -ForegroundColor Cyan
+Write-Host 'Publishing guided setup bootstrapper...' -ForegroundColor Cyan
 dotnet @publishArgs | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed for $projectPath with exit code $LASTEXITCODE"
@@ -95,7 +107,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $publishedExe = Join-Path $publishPath 'ViscerealityCompanion.PreviewInstaller.exe'
 if (-not (Test-Path $publishedExe)) {
-    throw "Published bootstrapper not found at $publishedExe"
+    throw "Published guided setup bootstrapper not found at $publishedExe"
 }
 
 $finalPath = Join-Path $outputPath $FileName
@@ -123,7 +135,7 @@ if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePath)) {
 
     $signArgs += $finalPath
 
-    Write-Host 'Signing preview setup bootstrapper...' -ForegroundColor Cyan
+    Write-Host 'Signing guided setup bootstrapper...' -ForegroundColor Cyan
     & $signToolPath @signArgs | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "signtool failed for $finalPath with exit code $LASTEXITCODE"
@@ -131,4 +143,4 @@ if (-not [string]::IsNullOrWhiteSpace($PackageCertificatePath)) {
 }
 
 Remove-Item -Recurse -Force $publishPath
-Write-Host "Copied preview setup bootstrapper to $finalPath" -ForegroundColor Green
+Write-Host "Copied guided setup bootstrapper to $finalPath" -ForegroundColor Green

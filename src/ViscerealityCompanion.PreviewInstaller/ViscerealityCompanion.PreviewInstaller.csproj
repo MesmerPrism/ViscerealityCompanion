@@ -7,7 +7,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>ViscerealityCompanion.PreviewInstaller</RootNamespace>
     <AssemblyName>ViscerealityCompanion.PreviewInstaller</AssemblyName>
-    <Description>Guided bootstrapper for installing the Viscereality Companion research preview on Windows.</Description>
+    <AssemblyTitle>Viscereality Companion Setup</AssemblyTitle>
+    <Product>Viscereality Companion Setup</Product>
+    <Description>Guided setup helper for installing or updating Viscereality Companion on Windows.</Description>
+    <Company>Mesmer Prism</Company>
     <ApplicationIcon>..\ViscerealityCompanion.App\Assets\viscereality-companion.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>

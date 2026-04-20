@@ -26,7 +26,7 @@ workflow, and keep operator control on Windows.
 ## Current Public Focus
 
 - the current release is being hardened for the collaboration with [Hugo Critchley's lab at Sussex](https://www.sussex.ac.uk/research/centres/sussex-neuroscience/phd/4yearphd/supervisors/translational-projects/hugo-critchley-project)
-- the packaged Sussex preview already bundles the approved Sussex APK, device profile, study shell, and operator diagnostics
+- the packaged Sussex release already bundles the approved Sussex APK, device profile, study shell, and operator diagnostics
 - the app opens directly into `Sussex University experiment mode` so a researcher can stay on one guided Windows workflow
 - broader general-purpose multi-study tooling comes after the Sussex-first release path is stable
 
@@ -66,7 +66,7 @@ Use these three pages in order:
   </a>
   <a class="path-card" href="download.md">
     <h3>Install The Launcher</h3>
-    <p>Preferred path for researchers and operators. The current public installer is a Sussex-focused preview that already bundles the study build and opens in the dedicated study shell.</p>
+    <p>Preferred path for researchers and operators. The current public installer is a Sussex-focused packaged release that already bundles the study build and opens in the dedicated study shell.</p>
   </a>
   <a class="path-card" href="first-session.md">
     <h3>First Sussex Session</h3>

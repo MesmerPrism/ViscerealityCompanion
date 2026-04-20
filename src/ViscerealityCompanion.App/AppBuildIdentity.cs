@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App;
 
@@ -20,11 +21,17 @@ internal static class AppBuildIdentity
         var packagedIdentity = TryReadPackagedIdentity() ?? TryReadPackagedIdentityFromProcessPath(processPath);
         if (packagedIdentity is not null)
         {
+            var buildSummary = PackagedAppIdentity.IsDevPackageName(packagedIdentity.Name)
+                ? $"Dev install {packagedIdentity.Version}"
+                : PackagedAppIdentity.IsLegacyPreviewPackageName(packagedIdentity.Name)
+                    ? $"Preview-family install {packagedIdentity.Version}"
+                    : $"Published install {packagedIdentity.Version}";
             return new AppBuildStamp(
-                $"Published install {packagedIdentity.Version}",
-                $"Installed package {packagedIdentity.Name}. Published MSIX updates should target this copy.",
+                buildSummary,
+                $"Installed package {PackagedAppIdentity.GetDisplayName(packagedIdentity.Name)} ({packagedIdentity.Name}). Published MSIX updates should target this copy.",
                 packagedIdentity.Version,
-                IsPackaged: true);
+                IsPackaged: true,
+                PackageName: packagedIdentity.Name);
         }
 
         var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
@@ -48,7 +55,8 @@ internal static class AppBuildIdentity
                 ? "This copy is not running from an installed MSIX package, so the packaged Windows update flow does not apply to it."
                 : $"Running unpackaged from {processPath}. The packaged Windows update flow does not apply to this copy.",
             string.IsNullOrWhiteSpace(bestVersion) ? "unpackaged" : bestVersion,
-            IsPackaged: false);
+            IsPackaged: false,
+            PackageName: null);
     }
 
     internal static string? TryReadPackagedVersionFromProcessPath(string? processPath)
@@ -137,7 +145,7 @@ internal static class AppBuildIdentity
     private static string FirstNonEmpty(params string[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
-    internal sealed record AppBuildStamp(string Summary, string Detail, string ShortId, bool IsPackaged);
+    internal sealed record AppBuildStamp(string Summary, string Detail, string ShortId, bool IsPackaged, string? PackageName);
 
     private sealed record PackagedIdentity(string Name, string Version);
 }

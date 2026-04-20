@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Validates Authenticode signing on the published preview setup EXE and MSIX package.
+    Validates Authenticode signing on the published guided setup EXE and MSIX package.
 #>
 [CmdletBinding()]
 param(
@@ -154,7 +154,7 @@ function Assert-PackagedExecutablePayloadSigning {
 
 $reports = @(
     (Get-SigningReport -Path $PreviewSetupPath -AllowSelfSigned:$AllowSelfSignedPreviewSetup |
-        Select-Object @{ Name = 'Asset'; Expression = { 'Preview setup' } }, *)
+        Select-Object @{ Name = 'Asset'; Expression = { 'Guided setup' } }, *)
     (Get-SigningReport -Path $PackagePath -AllowSelfSigned:$AllowSelfSignedPackage |
         Select-Object @{ Name = 'Asset'; Expression = { 'Windows package' } }, *)
 )
@@ -165,13 +165,13 @@ Assert-PackagedExecutablePayloadSigning -Path $PackagePath -AllowSelfSigned:$All
 $selfIssuedReports = $reports | Where-Object { $_.SelfIssued }
 foreach ($report in $selfIssuedReports) {
     $message = switch ($report.Asset) {
-        'Preview setup' {
-            "Preview setup bootstrapper is signed with a self-issued certificate. " +
+        'Guided setup' {
+            "Guided setup bootstrapper is signed with a self-issued certificate. " +
             "Smart App Control can still block the downloaded helper EXE on fresh machines."
         }
         'Windows package' {
             "Windows package is signed with a self-issued certificate. " +
-            "That remains workable only after the preview certificate is trusted explicitly for sideloading."
+            "That remains workable only after the package certificate is trusted explicitly for sideloading."
         }
         default {
             "One or more release assets are signed with a self-issued certificate."

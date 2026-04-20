@@ -18,8 +18,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 @(
+    'MesmerPrism.ViscerealityCompanionDev',
+    'MesmerPrism.ViscerealityCompanion',
     'MesmerPrism.ViscerealityCompanionPreview',
-    'MesmerPrism.ViscerealityCompanion'
 ) | ForEach-Object {
     Set-Variable -Name ($_.Replace('.', '_')) -Value $_ -Option ReadOnly -Scope Script
 } | Out-Null

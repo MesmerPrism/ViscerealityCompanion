@@ -61,7 +61,7 @@ The committed public Sussex package now uses the dedicated mode above:
 - startup study: `sussex-university`
 - startup lock: `true`
 
-That means the public Sussex preview is intended to behave like a dedicated
+That means the public Sussex packaged release is intended to behave like a dedicated
 researcher-facing operator surface, not like the broader multi-study app.
 
 It currently pins:
@@ -138,7 +138,7 @@ update:
 
 ## Self-Contained Sussex Package
 
-The public Sussex preview is supposed to be self-contained:
+The public Sussex packaged release is designed to be self-contained:
 
 - the packaged Windows install already includes the bundled Sussex APK
 - the study shell already knows the approved hash and device profile

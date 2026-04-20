@@ -3,6 +3,7 @@ using System.Xml.Linq;
 using Windows.ApplicationModel;
 using Windows.Foundation;
 using Windows.Management.Deployment;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.PreviewInstaller;
 
@@ -21,6 +22,7 @@ internal sealed record PreviewPackageCandidate(
 
 internal sealed record ExistingPreviewPackage(
     string FullName,
+    string Name,
     string Version,
     string FamilyName);
 
@@ -31,10 +33,30 @@ internal sealed record PreviewPackageInstallResult(
     string? PreviousVersion,
     string InstalledVersion);
 
+internal sealed record AppInstallerConflictCleanupAction(
+    string ButtonLabel,
+    string Summary,
+    string Detail,
+    IReadOnlyList<ExistingPreviewPackage> PackagesToRemove);
+
+internal sealed class AppInstallerAssociationConflictException : InvalidOperationException
+{
+    public AppInstallerAssociationConflictException(
+        string message,
+        AppInstallerConflictCleanupAction cleanupAction,
+        Exception innerException)
+        : base(message, innerException)
+    {
+        CleanupAction = cleanupAction;
+        HResult = innerException.HResult;
+    }
+
+    public AppInstallerConflictCleanupAction CleanupAction { get; }
+}
+
 internal sealed class PreviewPackageInstaller
 {
     internal const string MainApplicationId = "App";
-    private const string PreviewPackageNameSuffix = "Preview";
 
     internal static PreviewPackageIdentity ParseAppInstallerManifest(string appInstallerPath)
     {
@@ -93,6 +115,7 @@ internal sealed class PreviewPackageInstaller
             ? null
             : new ExistingPreviewPackage(
                 package.FullName,
+                package.Name,
                 package.Version,
                 package.FamilyName);
     }
@@ -116,15 +139,15 @@ internal sealed class PreviewPackageInstaller
         PreviewPackageIdentity packageIdentity,
         IEnumerable<PreviewPackageCandidate> packages)
     {
-        var legacyPackageName = TryResolveLegacyPackageName(packageIdentity.Name);
-        if (string.IsNullOrWhiteSpace(legacyPackageName))
+        var legacyPackageNames = PackagedAppIdentity.GetMigrationSourcePackageNames(packageIdentity.Name);
+        if (legacyPackageNames.Count == 0)
         {
             return null;
         }
 
         var package = packages
             .Where(candidate =>
-                string.Equals(candidate.Name, legacyPackageName, StringComparison.OrdinalIgnoreCase) &&
+                legacyPackageNames.Contains(candidate.Name, StringComparer.OrdinalIgnoreCase) &&
                 string.Equals(candidate.Publisher, packageIdentity.Publisher, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(candidate => ParseVersionOrDefault(candidate.Version))
             .FirstOrDefault();
@@ -133,8 +156,47 @@ internal sealed class PreviewPackageInstaller
             ? null
             : new ExistingPreviewPackage(
                 package.FullName,
+                package.Name,
                 package.Version,
                 package.FamilyName);
+    }
+
+    internal static IReadOnlyList<ExistingPreviewPackage> FindLegacyPackagesToRetire(
+        PreviewPackageIdentity packageIdentity,
+        IEnumerable<Package>? packages = null)
+    {
+        packages ??= new PackageManager().FindPackages();
+        return FindLegacyPackagesToRetire(
+            packageIdentity,
+            packages.Select(candidate => new PreviewPackageCandidate(
+                candidate.Id.FullName ?? string.Empty,
+                candidate.Id.Name ?? string.Empty,
+                candidate.Id.Publisher ?? string.Empty,
+                candidate.Id.Version.ToString() ?? string.Empty,
+                candidate.Id.FamilyName ?? string.Empty)));
+    }
+
+    internal static IReadOnlyList<ExistingPreviewPackage> FindLegacyPackagesToRetire(
+        PreviewPackageIdentity packageIdentity,
+        IEnumerable<PreviewPackageCandidate> packages)
+    {
+        var legacyPackageNames = PackagedAppIdentity.GetMigrationSourcePackageNames(packageIdentity.Name);
+        if (legacyPackageNames.Count == 0)
+        {
+            return [];
+        }
+
+        return packages
+            .Where(candidate =>
+                legacyPackageNames.Contains(candidate.Name, StringComparer.OrdinalIgnoreCase) &&
+                string.Equals(candidate.Publisher, packageIdentity.Publisher, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(candidate => ParseVersionOrDefault(candidate.Version))
+            .Select(candidate => new ExistingPreviewPackage(
+                candidate.FullName,
+                candidate.Name,
+                candidate.Version,
+                candidate.FamilyName))
+            .ToArray();
     }
 
     internal static string BuildAppsFolderLaunchTarget(string packageFamilyName, string applicationId = MainApplicationId)
@@ -155,13 +217,13 @@ internal sealed class PreviewPackageInstaller
     {
         if (package is null)
         {
-            detail = "The package is installed, but the helper could not resolve its packaged app registration afterward. Launch Viscereality Companion Preview from the Start menu.";
+            detail = "The package is installed, but the helper could not resolve its packaged app registration afterward. Launch Viscereality Companion from the Start menu.";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(package.FamilyName))
         {
-            detail = "The package is installed, but Windows did not report a usable package family name for automatic launch. Launch Viscereality Companion Preview from the Start menu.";
+            detail = "The package is installed, but Windows did not report a usable package family name for automatic launch. Launch Viscereality Companion from the Start menu.";
             return false;
         }
 
@@ -182,7 +244,7 @@ internal sealed class PreviewPackageInstaller
         }
         catch (Exception exception)
         {
-            detail = $"The package is installed, but Windows did not accept the automatic launch request ({exception.Message}). Launch Viscereality Companion Preview from the Start menu.";
+            detail = $"The package is installed, but Windows did not accept the automatic launch request ({exception.Message}). Launch Viscereality Companion from the Start menu.";
             return false;
         }
     }
@@ -190,11 +252,17 @@ internal sealed class PreviewPackageInstaller
     public async Task<PreviewPackageInstallResult> InstallOrUpdateAsync(
         PreviewPackageIdentity packageIdentity,
         ExistingPreviewPackage? existingPackage,
-        ExistingPreviewPackage? legacyPackage,
+        IReadOnlyList<ExistingPreviewPackage> legacyPackages,
         IProgress<InstallerProgressUpdate>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool removeLegacyPackagesBeforeInstall = false)
     {
-        if (existingPackage is null && legacyPackage is null)
+        legacyPackages ??= [];
+        var latestLegacyPackage = legacyPackages
+            .OrderByDescending(candidate => ParseVersionOrDefault(candidate.Version))
+            .FirstOrDefault();
+
+        if (existingPackage is null && latestLegacyPackage is null)
         {
             progress?.Report(new InstallerProgressUpdate(
                 "Installing packaged app",
@@ -203,9 +271,10 @@ internal sealed class PreviewPackageInstaller
         }
         else if (existingPackage is null)
         {
+            var targetDisplayName = PackagedAppIdentity.GetDisplayName(packageIdentity.Name);
             progress?.Report(new InstallerProgressUpdate(
                 "Installing packaged app",
-                $"Found legacy packaged install {legacyPackage!.Version}. Installing the refreshed preview family first, then removing the legacy registration so Windows stops pointing at the blocked package.",
+                $"Found legacy packaged install {latestLegacyPackage!.Version}. Installing {targetDisplayName} first, then removing the legacy registration so Windows keeps only the current packaged entry.",
                 88));
         }
         else
@@ -216,25 +285,47 @@ internal sealed class PreviewPackageInstaller
                 88));
         }
 
+        var removedLegacyInstall = false;
         try
         {
+            if (removeLegacyPackagesBeforeInstall && legacyPackages.Count > 0)
+            {
+                progress?.Report(new InstallerProgressUpdate(
+                    "Cleaning legacy packaged app",
+                    $"Removing {RenderLegacyPackageSummary(legacyPackages)} before retrying the current packaged install. This clears the stale App Installer family association that blocked the previous attempt.",
+                    88));
+                await RemoveExistingPackagesAsync(legacyPackages, cancellationToken).ConfigureAwait(false);
+                removedLegacyInstall = true;
+                legacyPackages = [];
+            }
+
             await AddPackageByAppInstallerAsync(packageIdentity.AppInstallerUri, progress, 88, 99, cancellationToken).ConfigureAwait(false);
 
-            if (legacyPackage is not null)
+            if (legacyPackages.Count > 0)
             {
                 progress?.Report(new InstallerProgressUpdate(
                     "Removing legacy packaged app",
-                    $"Installed the refreshed preview family. Removing the legacy packaged install {legacyPackage.Version} so the Start menu only keeps the working preview entry.",
+                    $"Installed the current packaged app. Removing {RenderLegacyPackageSummary(legacyPackages)} so the Start menu only keeps the current supported entry.",
                     99));
-                await RemoveExistingPackageAsync(legacyPackage.FullName, cancellationToken).ConfigureAwait(false);
+                await RemoveExistingPackagesAsync(legacyPackages, cancellationToken).ConfigureAwait(false);
+                removedLegacyInstall = true;
             }
 
             return new PreviewPackageInstallResult(
                 UpdatedExistingInstall: existingPackage is not null,
                 RemovedPreviousInstall: false,
-                RemovedLegacyInstall: legacyPackage is not null,
-                PreviousVersion: legacyPackage?.Version ?? existingPackage?.Version,
+                RemovedLegacyInstall: removedLegacyInstall,
+                PreviousVersion: latestLegacyPackage?.Version ?? existingPackage?.Version,
                 InstalledVersion: packageIdentity.Version);
+        }
+        catch (Exception firstFailure) when (!removeLegacyPackagesBeforeInstall &&
+                                            legacyPackages.Count > 0 &&
+                                            ShouldOfferLegacyCleanup(firstFailure))
+        {
+            throw new AppInstallerAssociationConflictException(
+                $"{firstFailure.Message}{Environment.NewLine}{Environment.NewLine}The downloaded feed targets the current public package family, but Windows still has a legacy package family associated with that feed on this machine.",
+                BuildLegacyCleanupAction(legacyPackages),
+                firstFailure);
         }
         catch (Exception firstFailure) when (existingPackage is not null && ShouldRetryAfterRemoval(firstFailure))
         {
@@ -249,7 +340,7 @@ internal sealed class PreviewPackageInstaller
             return new PreviewPackageInstallResult(
                 UpdatedExistingInstall: true,
                 RemovedPreviousInstall: true,
-                RemovedLegacyInstall: false,
+                RemovedLegacyInstall: removedLegacyInstall,
                 PreviousVersion: existingPackage.Version,
                 InstalledVersion: packageIdentity.Version);
         }
@@ -273,7 +364,7 @@ internal sealed class PreviewPackageInstaller
             var percent = minPercent + (int)Math.Round((maxPercent - minPercent) * (deploymentProgress.percentage / 100d));
             progress?.Report(new InstallerProgressUpdate(
                 $"Installing packaged app ({deploymentProgress.state})",
-                "Windows is downloading and applying the packaged preview directly from the App Installer feed.",
+                "Windows is downloading and applying the packaged app directly from the App Installer feed.",
                 Math.Clamp(percent, minPercent, maxPercent)));
         });
 
@@ -318,6 +409,18 @@ internal sealed class PreviewPackageInstaller
         }
     }
 
+    private static async Task RemoveExistingPackagesAsync(
+        IReadOnlyList<ExistingPreviewPackage> packages,
+        CancellationToken cancellationToken)
+    {
+        foreach (var package in packages
+                     .GroupBy(candidate => candidate.FullName, StringComparer.OrdinalIgnoreCase)
+                     .Select(group => group.First()))
+        {
+            await RemoveExistingPackageAsync(package.FullName, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private static void ThrowDeploymentFailure(string message, Exception? extendedError)
     {
         var exception = new InvalidOperationException(message, extendedError);
@@ -337,6 +440,45 @@ internal sealed class PreviewPackageInstaller
             unchecked((int)0x80073D02);
     }
 
+    private static bool ShouldOfferLegacyCleanup(Exception exception)
+    {
+        return exception.HResult is
+            unchecked((int)0x80073D36) or
+            unchecked((int)0x80073D37);
+    }
+
+    internal static AppInstallerConflictCleanupAction BuildLegacyCleanupAction(
+        IReadOnlyList<ExistingPreviewPackage> legacyPackages)
+    {
+        legacyPackages ??= [];
+        var renderedSummary = RenderLegacyPackageSummary(legacyPackages);
+        return new AppInstallerConflictCleanupAction(
+            ButtonLabel: legacyPackages.Count == 1 ? "Remove legacy install and retry" : "Remove legacy installs and retry",
+            Summary: "Legacy packaged install is blocking the update",
+            Detail: $"If you continue, the helper will uninstall {renderedSummary} first and then retry the current public package install. This is the cleanup path for stale App Installer URI ownership left behind by the retired package family.",
+            PackagesToRemove: legacyPackages);
+    }
+
+    private static string RenderLegacyPackageSummary(IReadOnlyList<ExistingPreviewPackage> legacyPackages)
+    {
+        if (legacyPackages is null || legacyPackages.Count == 0)
+        {
+            return "the legacy packaged install";
+        }
+
+        var names = legacyPackages
+            .Select(candidate => $"{PackagedAppIdentity.GetDisplayName(candidate.Name)} {candidate.Version}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return names.Length switch
+        {
+            1 => names[0],
+            2 => $"{names[0]} and {names[1]}",
+            _ => string.Join(", ", names[..^1]) + $", and {names[^1]}"
+        };
+    }
+
     private static Version ParseVersionOrDefault(string? version)
     {
         return Version.TryParse(version, out var parsed)
@@ -344,15 +486,4 @@ internal sealed class PreviewPackageInstaller
             : new Version(0, 0);
     }
 
-    private static string? TryResolveLegacyPackageName(string packageName)
-    {
-        if (string.IsNullOrWhiteSpace(packageName) ||
-            !packageName.EndsWith(PreviewPackageNameSuffix, StringComparison.OrdinalIgnoreCase) ||
-            packageName.Length <= PreviewPackageNameSuffix.Length)
-        {
-            return null;
-        }
-
-        return packageName[..^PreviewPackageNameSuffix.Length];
-    }
 }

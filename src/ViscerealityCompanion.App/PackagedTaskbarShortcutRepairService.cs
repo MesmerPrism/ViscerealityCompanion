@@ -1,13 +1,12 @@
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App;
 
 internal static class PackagedTaskbarShortcutRepairService
 {
-    internal const string PreviewPackageName = "MesmerPrism.ViscerealityCompanionPreview";
-    internal const string LegacyPackageName = "MesmerPrism.ViscerealityCompanion";
     private const int AppModelErrorNoPackage = 15700;
     private const int ErrorInsufficientBuffer = 122;
     private const string TaskbarPinnedRelativePath = @"Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar";
@@ -20,9 +19,9 @@ internal static class PackagedTaskbarShortcutRepairService
     internal static void TryRepairLegacyPinnedTaskbarShortcut(Action<string>? log)
     {
         var packageFamilyName = TryReadCurrentPackageFamilyName();
-        if (!IsPreviewPackageFamilyName(packageFamilyName))
+        if (!IsCurrentReleasePackageFamilyName(packageFamilyName))
         {
-            log?.Invoke("Taskbar shortcut repair skipped because the current process is not running under the preview package family.");
+            log?.Invoke("Taskbar shortcut repair skipped because the current process is not running under the public release package family.");
             return;
         }
 
@@ -77,9 +76,9 @@ internal static class PackagedTaskbarShortcutRepairService
         }
     }
 
-    internal static bool IsPreviewPackageFamilyName(string? packageFamilyName)
+    internal static bool IsCurrentReleasePackageFamilyName(string? packageFamilyName)
         => !string.IsNullOrWhiteSpace(packageFamilyName) &&
-           packageFamilyName.StartsWith($"{PreviewPackageName}_", StringComparison.OrdinalIgnoreCase);
+           packageFamilyName.StartsWith($"{PackagedAppIdentity.ReleasePackageName}_", StringComparison.OrdinalIgnoreCase);
 
     internal static bool ShouldInspectShortcutName(string shortcutName)
         => shortcutName.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) &&
@@ -100,8 +99,7 @@ internal static class PackagedTaskbarShortcutRepairService
 
     private static bool ContainsLegacyPackageReference(string? value)
         => !string.IsNullOrWhiteSpace(value) &&
-           value.IndexOf(LegacyPackageName, StringComparison.OrdinalIgnoreCase) >= 0 &&
-           value.IndexOf(PreviewPackageName, StringComparison.OrdinalIgnoreCase) < 0;
+           value.IndexOf(PackagedAppIdentity.LegacyPreviewPackageName, StringComparison.OrdinalIgnoreCase) >= 0;
 
     private static bool TryReadShortcut(object shell, string shortcutPath, out string targetPath, out string arguments)
     {
@@ -145,7 +143,7 @@ internal static class PackagedTaskbarShortcutRepairService
             shortcutDispatch.TargetPath = Path.Combine(windowsDirectory, "explorer.exe");
             shortcutDispatch.Arguments = BuildAppsFolderArguments(packageFamilyName);
             shortcutDispatch.WorkingDirectory = windowsDirectory;
-            shortcutDispatch.Description = "Launch Viscereality Companion Preview";
+            shortcutDispatch.Description = "Launch Viscereality Companion";
 
             var iconSource = Environment.ProcessPath;
             if (!string.IsNullOrWhiteSpace(iconSource))

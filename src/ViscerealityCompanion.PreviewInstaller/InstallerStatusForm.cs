@@ -26,6 +26,7 @@ internal sealed class InstallerStatusForm : Form
     private static readonly Color ButtonHoverColor = Color.FromArgb(14, 24, 36);
 
     private readonly Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> _installAsync;
+    private readonly Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> _installAfterLegacyCleanupAsync;
     private readonly string _releasePageUri;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Panel _shellPanel;
@@ -42,21 +43,25 @@ internal sealed class InstallerStatusForm : Form
     private readonly Label _progressValueLabel;
     private readonly Label _footerLabel;
     private readonly Button _titleBarCloseButton;
+    private readonly Button _cleanupButton;
     private readonly Button _openReleaseButton;
     private readonly Button _retryButton;
     private readonly Button _closeButton;
 
     private int _disposeState;
     private bool _started;
+    private bool _isRunning;
     private string? _lastAppInstallerPath = Program.GetDownloadedAppInstallerPath();
     private int _progressPercent = 5;
     private Color _statusAccentColor = AccentColor;
 
     public InstallerStatusForm(
         Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> installAsync,
+        Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> installAfterLegacyCleanupAsync,
         string releasePageUri)
     {
         _installAsync = installAsync ?? throw new ArgumentNullException(nameof(installAsync));
+        _installAfterLegacyCleanupAsync = installAfterLegacyCleanupAsync ?? throw new ArgumentNullException(nameof(installAfterLegacyCleanupAsync));
         _releasePageUri = releasePageUri ?? throw new ArgumentNullException(nameof(releasePageUri));
 
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -69,7 +74,7 @@ internal sealed class InstallerStatusForm : Form
         MinimumSize = new Size(900, 560);
         Padding = new Padding(1);
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "Viscereality Companion Preview Setup";
+        Text = "Viscereality Companion Setup";
         var framePanel = new Panel
         {
             BackColor = AppBackgroundColor,
@@ -151,6 +156,11 @@ internal sealed class InstallerStatusForm : Form
         _closeButton.Visible = false;
         buttonRow.Controls.Add(_closeButton);
 
+        _cleanupButton = BuildButton("Remove legacy install and retry", isPrimary: true, AccentColor);
+        _cleanupButton.Click += async (_, _) => await RetryAfterLegacyCleanupAsync().ConfigureAwait(true);
+        _cleanupButton.Visible = false;
+        buttonRow.Controls.Add(_cleanupButton);
+
         _retryButton = BuildButton("Open Downloaded App Installer", isPrimary: true, AccentColor);
         _retryButton.Click += (_, _) => RetryOpenAppInstaller();
         _retryButton.Visible = false;
@@ -206,7 +216,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0, 0, 0, 12),
             MaximumSize = new Size(780, 0),
-            Text = "The bootstrapper stages the latest public preview, refreshes the official Quest tooling cache from Meta and Google, trusts the preview certificate, and then installs or updates the packaged app directly."
+            Text = "The bootstrapper stages the latest public Windows package, refreshes the official Quest tooling cache from Meta and Google, trusts the package certificate, and then installs or updates the packaged app directly."
         };
         statusLayout.Controls.Add(_detailLabel, 0, 1);
 
@@ -309,7 +319,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0),
             MaximumSize = new Size(800, 0),
-            Text = "This installer stages the latest public preview, refreshes the official Quest tooling cache, and then installs or updates the packaged app directly.",
+            Text = "This installer stages the latest public Windows package, refreshes the official Quest tooling cache, and then installs or updates the packaged app directly.",
             TextAlign = ContentAlignment.TopLeft
         };
 
@@ -362,12 +372,28 @@ internal sealed class InstallerStatusForm : Form
     }
 
     private async Task RunInstallAsync()
+        => await RunInstallAsync(removeLegacyPackagesBeforeInstall: false).ConfigureAwait(true);
+
+    private async Task RunInstallAsync(bool removeLegacyPackagesBeforeInstall)
     {
+        if (_isRunning)
+        {
+            return;
+        }
+
+        _isRunning = true;
+        _cleanupButton.Visible = false;
+        _retryButton.Visible = false;
+        _openReleaseButton.Visible = false;
+        _closeButton.Visible = false;
         var progress = new Progress<InstallerProgressUpdate>(ApplyProgressUpdate);
 
         try
         {
-            var result = await _installAsync(progress, _cancellation.Token).ConfigureAwait(true);
+            var installDelegate = removeLegacyPackagesBeforeInstall
+                ? _installAfterLegacyCleanupAsync
+                : _installAsync;
+            var result = await installDelegate(progress, _cancellation.Token).ConfigureAwait(true);
             _lastAppInstallerPath = result.AppInstallerPath;
             ApplyStatusVisuals(StatusPanelSuccessBackgroundColor, SuccessColor, InkColor);
             _summaryLabel.Text = result.Summary;
@@ -381,6 +407,20 @@ internal sealed class InstallerStatusForm : Form
         {
             Close();
         }
+        catch (AppInstallerAssociationConflictException exception)
+        {
+            ApplyStatusVisuals(StatusPanelFailureBackgroundColor, FailureColor, FailureColor);
+            _summaryLabel.Text = exception.CleanupAction.Summary;
+            _detailLabel.Text = exception.Message;
+            _footerLabel.Text = exception.CleanupAction.Detail;
+            _progressPercent = 0;
+            UpdateProgressBarFill();
+            _cleanupButton.Text = exception.CleanupAction.ButtonLabel;
+            _cleanupButton.Visible = true;
+            _retryButton.Visible = File.Exists(_lastAppInstallerPath);
+            _openReleaseButton.Visible = true;
+            _closeButton.Visible = true;
+        }
         catch (Exception exception)
         {
             ApplyStatusVisuals(StatusPanelFailureBackgroundColor, FailureColor, FailureColor);
@@ -392,6 +432,10 @@ internal sealed class InstallerStatusForm : Form
             _retryButton.Visible = File.Exists(_lastAppInstallerPath);
             _openReleaseButton.Visible = true;
             _closeButton.Visible = true;
+        }
+        finally
+        {
+            _isRunning = false;
         }
     }
 
@@ -449,6 +493,16 @@ internal sealed class InstallerStatusForm : Form
             FileName = _releasePageUri,
             UseShellExecute = true
         });
+    }
+
+    private async Task RetryAfterLegacyCleanupAsync()
+    {
+        if (_isRunning)
+        {
+            return;
+        }
+
+        await RunInstallAsync(removeLegacyPackagesBeforeInstall: true).ConfigureAwait(true);
     }
 
     private static Button BuildButton(string text, bool isPrimary, Color accentColor)

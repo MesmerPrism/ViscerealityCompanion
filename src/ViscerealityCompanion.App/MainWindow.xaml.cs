@@ -31,7 +31,7 @@ public partial class MainWindow : Window
     private async Task CheckForStartupUpdatesAsync()
     {
         StartupUpdateDiagnostics.Write(
-            $"Startup update check begin. Build={AppBuildIdentity.Current.ShortId}, IsPackaged={AppBuildIdentity.Current.IsPackaged}, Summary=\"{AppBuildIdentity.Current.Summary}\".");
+            $"Startup update check begin. Build={AppBuildIdentity.Current.ShortId}, IsPackaged={AppBuildIdentity.Current.IsPackaged}, PackageName={AppBuildIdentity.Current.PackageName ?? "n/a"}, Summary=\"{AppBuildIdentity.Current.Summary}\".");
 
         try
         {
@@ -44,7 +44,7 @@ public partial class MainWindow : Window
             }
 
             StartupUpdateDiagnostics.Write(
-                $"Startup update dialog opening. AppUpdateAvailable={snapshot.App.UpdateAvailable}, CurrentVersion={snapshot.App.CurrentVersion ?? "n/a"}, AvailableVersion={snapshot.App.AvailableVersion ?? "n/a"}, ToolingUpdates={snapshot.HasToolingUpdates}.");
+                $"Startup update dialog opening. AppUpdateAvailable={snapshot.App.UpdateAvailable}, RequiresGuidedInstaller={snapshot.App.RequiresGuidedInstaller}, CurrentPackage={snapshot.App.CurrentPackageName ?? "n/a"}, PublishedPackage={snapshot.App.AvailablePackageName ?? "n/a"}, CurrentVersion={snapshot.App.CurrentVersion ?? "n/a"}, AvailableVersion={snapshot.App.AvailableVersion ?? "n/a"}, ToolingUpdates={snapshot.HasToolingUpdates}.");
             var dialog = new StartupUpdateWindow(new StartupUpdateWindowViewModel(snapshot))
             {
                 Owner = this

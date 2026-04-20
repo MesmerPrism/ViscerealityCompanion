@@ -5,8 +5,6 @@ namespace ViscerealityCompanion.Core.Services;
 public static class CompanionOperatorDataLayout
 {
     public const string RootOverrideEnvironmentVariable = "VISCEREALITY_OPERATOR_DATA_ROOT";
-    private const string CurrentPackagedName = "MesmerPrism.ViscerealityCompanionPreview";
-    private const string LegacyPackagedName = "MesmerPrism.ViscerealityCompanion";
 
     private static readonly Regex WindowsAppsPackageDirectoryPattern = new(
         @"^(?<name>.+?)_(?<version>\d+\.\d+\.\d+\.\d+)_[^_]+__(?<publisherid>.+)$",
@@ -95,16 +93,22 @@ public static class CompanionOperatorDataLayout
 
         directoryExists ??= Directory.Exists;
         if (!TrySplitPackageFamilyName(packageFamilyName, out var packageName, out var publisherId) ||
-            !string.Equals(packageName, CurrentPackagedName, StringComparison.OrdinalIgnoreCase))
+            !PackagedAppIdentity.IsReleasePackageName(packageName))
         {
             return null;
         }
 
-        var legacyFamilyName = $"{LegacyPackagedName}_{publisherId}";
-        var legacyRoot = Path.Combine(localAppDataPath, "Packages", legacyFamilyName, "LocalCache", "Local", "ViscerealityCompanion");
-        return directoryExists(legacyRoot)
-            ? legacyRoot
-            : null;
+        foreach (var migrationSourcePackageName in PackagedAppIdentity.GetMigrationSourcePackageNames(packageName))
+        {
+            var legacyFamilyName = $"{migrationSourcePackageName}_{publisherId}";
+            var legacyRoot = Path.Combine(localAppDataPath, "Packages", legacyFamilyName, "LocalCache", "Local", "ViscerealityCompanion");
+            if (directoryExists(legacyRoot))
+            {
+                return legacyRoot;
+            }
+        }
+
+        return null;
     }
 
     private static bool TrySplitPackageFamilyName(string packageFamilyName, out string packageName, out string publisherId)

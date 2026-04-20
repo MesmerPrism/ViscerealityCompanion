@@ -1,4 +1,4 @@
-name: Release Windows Sussex-Focused Preview
+name: Release Windows Companion
 
 on:
   push:
@@ -18,12 +18,11 @@ jobs:
   release:
     runs-on: windows-2022
     env:
-      PACKAGE_ID: MesmerPrism.ViscerealityCompanionPreview
-      PACKAGE_DISPLAY_NAME: Viscereality Companion Preview
+      PACKAGE_ID: MesmerPrism.ViscerealityCompanion
+      PACKAGE_DISPLAY_NAME: Viscereality Companion
       PACKAGE_PUBLISHER_DISPLAY_NAME: Mesmer Prism
       PACKAGE_FILE_NAME: ViscerealityCompanion.msix
-      PREVIEW_SETUP_FILE_NAME: ViscerealityCompanion-Preview-Setup.exe
-      PINNED_PREVIEW_SETUP_TAG: v0.1.46
+      SETUP_FILE_NAME: ViscerealityCompanion-Setup.exe
       APPINSTALLER_FILE_NAME: ViscerealityCompanion.appinstaller
       CERTIFICATE_FILE_NAME: ViscerealityCompanion.cer
       APPINSTALLER_URI: https://github.com/${{ github.repository }}/releases/latest/download/ViscerealityCompanion.appinstaller
@@ -73,7 +72,7 @@ jobs:
           WINDOWS_PACKAGE_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_BASE64 }}
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
           WINDOWS_PACKAGE_PUBLISHER: ${{ secrets.WINDOWS_PACKAGE_PUBLISHER }}
-          WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
+          WINDOWS_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
         run: |
           $missing = @()
           foreach ($name in 'WINDOWS_PACKAGE_CERTIFICATE_BASE64', 'WINDOWS_PACKAGE_CERTIFICATE_PASSWORD', 'WINDOWS_PACKAGE_PUBLISHER') {
@@ -86,11 +85,11 @@ jobs:
             throw "Missing required release secret(s): $($missing -join ', ')"
           }
 
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
-            Write-Host "No dedicated preview-setup signing certificate is configured. The workflow will reuse the pinned helper asset from $env:PINNED_PREVIEW_SETUP_TAG to preserve its known-good Smart App Control reputation." -ForegroundColor Yellow
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_CERTIFICATE_BASE64)) {
+            Write-Host "No dedicated guided-setup signing certificate is configured. The workflow will sign the helper with the package certificate for this release." -ForegroundColor Yellow
           }
           else {
-            Write-Host 'Dedicated preview-setup signing certificate detected.' -ForegroundColor Green
+            Write-Host 'Dedicated guided-setup signing certificate detected.' -ForegroundColor Green
           }
 
       - name: Restore
@@ -131,23 +130,23 @@ jobs:
           [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
           "path=$certificatePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Decode preview-setup signing certificate
-        id: preview_setup_certificate
+      - name: Decode guided-setup signing certificate
+        id: setup_certificate
         shell: pwsh
         env:
-          WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
+          WINDOWS_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_CERTIFICATE_BASE64)) {
             "path=" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             exit 0
           }
 
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'ViscerealityCompanion-preview-setup-signing.pfx'
-          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'ViscerealityCompanion-setup-signing.pfx'
+          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_SETUP_CERTIFICATE_BASE64)
           [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
           "path=$certificatePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Build signed Windows preview package
+      - name: Build signed Windows package
         shell: pwsh
         env:
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
@@ -176,56 +175,55 @@ jobs:
 
           & powershell -ExecutionPolicy Bypass -File .\tools\app\Build-App-Package.ps1 @args
 
-      - name: Publish preview setup bootstrapper
+      - name: Publish guided setup bootstrapper
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
           WINDOWS_PACKAGE_TIMESTAMP_URL: ${{ vars.WINDOWS_PACKAGE_TIMESTAMP_URL }}
-          WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD }}
-          WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL: ${{ vars.WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL }}
+          WINDOWS_SETUP_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD }}
+          WINDOWS_SETUP_TIMESTAMP_URL: ${{ vars.WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL }}
         run: |
-          $previewSetupCertificatePath = '${{ steps.preview_setup_certificate.outputs.path }}'
-          if ([string]::IsNullOrWhiteSpace($previewSetupCertificatePath)) {
-            New-Item -ItemType Directory -Force -Path artifacts\windows-installer | Out-Null
-            Write-Host "Reusing pinned preview setup helper from $env:PINNED_PREVIEW_SETUP_TAG" -ForegroundColor Cyan
-            gh release download $env:PINNED_PREVIEW_SETUP_TAG `
-              --repo $env:GITHUB_REPOSITORY `
-              --dir artifacts\windows-installer `
-              --pattern $env:PREVIEW_SETUP_FILE_NAME `
-              --clobber
+          $setupCertificatePath = '${{ steps.setup_certificate.outputs.path }}'
+          $setupCertificatePassword = $env:WINDOWS_SETUP_CERTIFICATE_PASSWORD
+          $setupTimestampUrl = $env:WINDOWS_PACKAGE_TIMESTAMP_URL
 
-            if ($LASTEXITCODE -ne 0) {
-              throw "Failed to download pinned preview setup helper from $env:PINNED_PREVIEW_SETUP_TAG"
-            }
+          if ([string]::IsNullOrWhiteSpace($setupCertificatePath)) {
+            $setupCertificatePath = '${{ steps.certificate.outputs.path }}'
+            $setupCertificatePassword = $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD
           }
-          else {
-            $previewSetupCertificatePassword = $env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_PASSWORD
-            $previewSetupTimestampUrl = $env:WINDOWS_PACKAGE_TIMESTAMP_URL
-            if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL)) {
-              $previewSetupTimestampUrl = $env:WINDOWS_PREVIEW_SETUP_TIMESTAMP_URL
-            }
 
-            & powershell -ExecutionPolicy Bypass -File .\tools\app\Publish-PreviewSetup.ps1 `
-              -Version '${{ steps.version.outputs.package_version }}' `
-              -FileName $env:PREVIEW_SETUP_FILE_NAME `
-              -PackageCertificatePath $previewSetupCertificatePath `
-              -PackageCertificatePassword $previewSetupCertificatePassword `
-              -PackageCertificateTimestampUrl $previewSetupTimestampUrl
+          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_TIMESTAMP_URL)) {
+            $setupTimestampUrl = $env:WINDOWS_SETUP_TIMESTAMP_URL
+          }
+
+          & powershell -ExecutionPolicy Bypass -File .\tools\app\Publish-PreviewSetup.ps1 `
+            -Version '${{ steps.version.outputs.package_version }}' `
+            -FileName $env:SETUP_FILE_NAME `
+            -PackageCertificatePath $setupCertificatePath `
+            -PackageCertificatePassword $setupCertificatePassword `
+            -PackageCertificateTimestampUrl $setupTimestampUrl
+
+      - name: Validate published App Installer identity
+        shell: pwsh
+        run: |
+          [xml]$appInstaller = Get-Content "artifacts\windows-installer\$env:APPINSTALLER_FILE_NAME"
+          $mainPackage = $appInstaller.AppInstaller.MainPackage
+          if ($mainPackage.Name -ne $env:PACKAGE_ID) {
+            throw "Published App Installer points at package $($mainPackage.Name), expected $env:PACKAGE_ID"
           }
 
       - name: Validate release asset signatures
         shell: pwsh
         env:
-          WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
+          WINDOWS_SETUP_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64 }}
         run: |
           $args = @(
-            '-PreviewSetupPath', "artifacts\windows-installer\$env:PREVIEW_SETUP_FILE_NAME",
+            '-PreviewSetupPath', "artifacts\windows-installer\$env:SETUP_FILE_NAME",
             '-PackagePath', "artifacts\windows-installer\$env:PACKAGE_FILE_NAME",
             '-AllowSelfSignedPackage'
           )
 
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PREVIEW_SETUP_CERTIFICATE_BASE64)) {
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SETUP_CERTIFICATE_BASE64)) {
             $args += '-AllowSelfSignedPreviewSetup'
           }
 
@@ -242,7 +240,7 @@ jobs:
         shell: pwsh
         run: |
           $files = @(
-            (Join-Path $PWD "artifacts\windows-installer\$env:PREVIEW_SETUP_FILE_NAME"),
+            (Join-Path $PWD "artifacts\windows-installer\$env:SETUP_FILE_NAME"),
             (Join-Path $PWD "artifacts\windows-installer\$env:PACKAGE_FILE_NAME"),
             (Join-Path $PWD "artifacts\windows-installer\$env:APPINSTALLER_FILE_NAME"),
             (Join-Path $PWD "artifacts\windows-installer\$env:CERTIFICATE_FILE_NAME"),
@@ -266,9 +264,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tagName = '${{ steps.version.outputs.tag_name }}'
-          $releaseTitle = "Viscereality Companion Sussex-Focused Research Preview ${{ steps.version.outputs.package_version }}"
+          $releaseTitle = "Viscereality Companion Sussex-Focused Research Release ${{ steps.version.outputs.package_version }}"
           $assets = @(
-            "artifacts\windows-installer\$env:PREVIEW_SETUP_FILE_NAME",
+            "artifacts\windows-installer\$env:SETUP_FILE_NAME",
             "artifacts\windows-installer\$env:PACKAGE_FILE_NAME",
             "artifacts\windows-installer\$env:APPINSTALLER_FILE_NAME",
             "artifacts\windows-installer\$env:CERTIFICATE_FILE_NAME",
@@ -293,7 +291,7 @@ jobs:
             Remove-Item -Force '${{ steps.certificate.outputs.path }}'
           }
 
-          $previewSetupCertificatePath = '${{ steps.preview_setup_certificate.outputs.path }}'
-          if (-not [string]::IsNullOrWhiteSpace($previewSetupCertificatePath) -and (Test-Path $previewSetupCertificatePath)) {
-            Remove-Item -Force $previewSetupCertificatePath
+          $setupCertificatePath = '${{ steps.setup_certificate.outputs.path }}'
+          if (-not [string]::IsNullOrWhiteSpace($setupCertificatePath) -and (Test-Path $setupCertificatePath)) {
+            Remove-Item -Force $setupCertificatePath
           }

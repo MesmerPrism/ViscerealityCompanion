@@ -5,6 +5,9 @@ namespace ViscerealityCompanion.Core.Services;
 public sealed record PublishedAppUpdateStatus(
     bool IsApplicable,
     bool UpdateAvailable,
+    bool RequiresGuidedInstaller,
+    string? CurrentPackageName,
+    string? AvailablePackageName,
     string? CurrentVersion,
     string? AvailableVersion,
     string Summary,
@@ -32,13 +35,14 @@ public sealed class PublishedPreviewUpdateService : IDisposable
     }
 
     public async Task<PublishedAppUpdateStatus> GetStatusAsync(
+        string? currentPackageName,
         string? currentVersion,
         bool isPackaged,
         CancellationToken cancellationToken = default)
     {
         var appInstallerXml = await _httpClient.GetStringAsync(AppInstallerDownloadUri, cancellationToken).ConfigureAwait(false);
-        var availableVersion = TryParseAppInstallerVersion(appInstallerXml);
-        return BuildStatus(currentVersion, isPackaged, availableVersion);
+        var availableIdentity = TryParseAppInstallerIdentity(appInstallerXml);
+        return BuildStatus(currentPackageName, currentVersion, isPackaged, availableIdentity.PackageName, availableIdentity.Version);
     }
 
     public async Task<string> DownloadLatestAppInstallerAsync(
@@ -68,13 +72,21 @@ public sealed class PublishedPreviewUpdateService : IDisposable
         }
     }
 
-    public static PublishedAppUpdateStatus BuildStatus(string? currentVersion, bool isPackaged, string? availableVersion)
+    public static PublishedAppUpdateStatus BuildStatus(
+        string? currentPackageName,
+        string? currentVersion,
+        bool isPackaged,
+        string? availablePackageName,
+        string? availableVersion)
     {
         if (!isPackaged)
         {
             return new PublishedAppUpdateStatus(
                 IsApplicable: false,
                 UpdateAvailable: false,
+                RequiresGuidedInstaller: false,
+                CurrentPackageName: currentPackageName,
+                AvailablePackageName: availablePackageName,
                 CurrentVersion: currentVersion,
                 AvailableVersion: availableVersion,
                 Summary: "Published Windows package updates apply only to installed MSIX builds.",
@@ -83,44 +95,56 @@ public sealed class PublishedPreviewUpdateService : IDisposable
                 ReleasePageUri: ReleasePageUri);
         }
 
-        var updateAvailable = IsUpdateAvailable(currentVersion, availableVersion);
+        var updateAvailable = SamePackageIdentity(currentPackageName, availablePackageName) && IsUpdateAvailable(currentVersion, availableVersion);
+        var requiresGuidedInstaller =
+            !SamePackageIdentity(currentPackageName, availablePackageName) &&
+            IsUpdateAvailable(currentVersion, availableVersion);
+        var currentDisplayName = PackagedAppIdentity.GetDisplayName(currentPackageName);
+        var availableDisplayName = PackagedAppIdentity.GetDisplayName(availablePackageName);
         return new PublishedAppUpdateStatus(
             IsApplicable: true,
             UpdateAvailable: updateAvailable,
+            RequiresGuidedInstaller: requiresGuidedInstaller,
+            CurrentPackageName: currentPackageName,
+            AvailablePackageName: availablePackageName,
             CurrentVersion: currentVersion,
             AvailableVersion: availableVersion,
-            Summary: updateAvailable
+            Summary: requiresGuidedInstaller
+                ? $"{availableDisplayName} {availableVersion ?? "n/a"} is available through the guided installer."
+                : updateAvailable
                 ? $"Windows package update {availableVersion} is available."
                 : "Windows package is current.",
-            Detail: updateAvailable
+            Detail: requiresGuidedInstaller
+                ? $"{currentDisplayName} {currentVersion ?? "n/a"} is installed under package name {currentPackageName ?? "n/a"}, but the published App Installer feed now targets {availablePackageName ?? "n/a"}. Use the guided installer or the manual certificate + App Installer path once instead of the in-app update button."
+                : updateAvailable
                 ? $"Installed package {currentVersion ?? "n/a"} can be updated directly from the published App Installer feed."
                 : $"Installed package {currentVersion ?? "n/a"} matches the latest published .appinstaller metadata.",
             AppInstallerUri: AppInstallerDownloadUri,
             ReleasePageUri: ReleasePageUri);
     }
 
-    internal static string? TryParseAppInstallerVersion(string appInstallerXml)
+    internal static PublishedAppInstallerIdentity TryParseAppInstallerIdentity(string appInstallerXml)
     {
         if (string.IsNullOrWhiteSpace(appInstallerXml))
         {
-            return null;
+            return new PublishedAppInstallerIdentity(null, null);
         }
 
         var document = XDocument.Parse(appInstallerXml, LoadOptions.PreserveWhitespace);
         var root = document.Root;
         if (root is null)
         {
-            return null;
-        }
-
-        var rootVersion = root.Attribute("Version")?.Value?.Trim();
-        if (!string.IsNullOrWhiteSpace(rootVersion))
-        {
-            return rootVersion;
+            return new PublishedAppInstallerIdentity(null, null);
         }
 
         var ns = root.Name.Namespace;
-        return root.Element(ns + "MainPackage")?.Attribute("Version")?.Value?.Trim();
+        var mainPackage = root.Element(ns + "MainPackage");
+        var rootVersion = root.Attribute("Version")?.Value?.Trim();
+        var version = !string.IsNullOrWhiteSpace(rootVersion)
+            ? rootVersion
+            : mainPackage?.Attribute("Version")?.Value?.Trim();
+        var packageName = mainPackage?.Attribute("Name")?.Value?.Trim();
+        return new PublishedAppInstallerIdentity(packageName, version);
     }
 
     internal static bool IsUpdateAvailable(string? currentVersion, string? availableVersion)
@@ -137,4 +161,11 @@ public sealed class PublishedPreviewUpdateService : IDisposable
 
         return available > current;
     }
+
+    private static bool SamePackageIdentity(string? currentPackageName, string? availablePackageName)
+        => !string.IsNullOrWhiteSpace(currentPackageName) &&
+           !string.IsNullOrWhiteSpace(availablePackageName) &&
+           string.Equals(currentPackageName, availablePackageName, StringComparison.OrdinalIgnoreCase);
 }
+
+internal sealed record PublishedAppInstallerIdentity(string? PackageName, string? Version);

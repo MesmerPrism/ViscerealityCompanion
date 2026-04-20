@@ -10,7 +10,12 @@ public sealed class StartupUpdateWindowViewModelTests
     public async Task Primary_action_refreshes_tooling_cards_to_post_install_versions()
     {
         var snapshot = new StartupUpdateSnapshot(
-            PublishedPreviewUpdateService.BuildStatus("0.1.46.0", isPackaged: true, availableVersion: "0.1.46.0"),
+            PublishedPreviewUpdateService.BuildStatus(
+                currentPackageName: "MesmerPrism.ViscerealityCompanion",
+                currentVersion: "0.1.46.0",
+                isPackaged: true,
+                availablePackageName: "MesmerPrism.ViscerealityCompanion",
+                availableVersion: "0.1.46.0"),
             new OfficialQuestToolingStatus(
                 new OfficialQuestToolStatus(
                     Id: "meta-hzdb",
@@ -67,6 +72,49 @@ public sealed class StartupUpdateWindowViewModelTests
         Assert.Equal("37.0.0", viewModel.PlatformToolsCurrentVersion);
         Assert.Equal("Current", viewModel.PlatformToolsStatusLabel);
         Assert.Equal("hzdb 1.0.1 | Android platform-tools 37.0.0", viewModel.Detail);
+    }
+
+    [Fact]
+    public void Migration_only_snapshot_uses_close_primary_action()
+    {
+        var snapshot = new StartupUpdateSnapshot(
+            PublishedPreviewUpdateService.BuildStatus(
+                currentPackageName: "MesmerPrism.ViscerealityCompanionPreview",
+                currentVersion: "0.1.57.0",
+                isPackaged: true,
+                availablePackageName: "MesmerPrism.ViscerealityCompanion",
+                availableVersion: "0.1.60.0"),
+            new OfficialQuestToolingStatus(
+                new OfficialQuestToolStatus(
+                    Id: "meta-hzdb",
+                    DisplayName: "Meta Horizon Debug Bridge (hzdb)",
+                    IsInstalled: true,
+                    InstalledVersion: "1.0.1",
+                    AvailableVersion: "1.0.1",
+                    UpdateAvailable: false,
+                    InstallPath: @"C:\tooling\hzdb\current\hzdb.exe",
+                    SourceUri: OfficialQuestToolingService.MetaHzdbMetadataUri,
+                    LicenseSummary: OfficialQuestToolingService.MetaHzdbLicenseSummary,
+                    LicenseUri: OfficialQuestToolingService.MetaHzdbLicenseUri),
+                new OfficialQuestToolStatus(
+                    Id: "android-platform-tools",
+                    DisplayName: "Android SDK Platform-Tools",
+                    IsInstalled: true,
+                    InstalledVersion: "37.0.0",
+                    AvailableVersion: "37.0.0",
+                    UpdateAvailable: false,
+                    InstallPath: @"C:\tooling\platform-tools\current\platform-tools\adb.exe",
+                    SourceUri: OfficialQuestToolingService.AndroidPlatformToolsRepositoryUri,
+                    LicenseSummary: OfficialQuestToolingService.AndroidPlatformToolsLicenseSummary,
+                    LicenseUri: OfficialQuestToolingService.AndroidPlatformToolsLicenseUri)));
+
+        var viewModel = new StartupUpdateWindowViewModel(
+            snapshot,
+            (_, _) => throw new InvalidOperationException("Tooling should not update in this scenario."),
+            (_, _, _) => throw new InvalidOperationException("In-app MSIX update should not run for migration-only snapshots."));
+
+        Assert.Equal("Close", viewModel.PrimaryActionLabel);
+        Assert.Equal("Use installer", viewModel.AppStatusLabel);
     }
 
     private static async Task WaitForAsync(Func<bool> condition)

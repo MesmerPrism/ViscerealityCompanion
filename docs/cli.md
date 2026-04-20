@@ -12,7 +12,7 @@ nav_order: 80
 The `viscereality` CLI mirrors the WPF desktop app's capabilities for
 scripting, automation, and headless operation.
 
-Installed Sussex preview builds now expose a local agent workspace under
+Installed Sussex packaged builds now expose a local agent workspace under
 the current operator-data root. For unpackaged/source builds that is typically
 `%LOCALAPPDATA%\ViscerealityCompanion\agent-workspace`; for packaged MSIX
 installs it is the host-visible packaged path under
@@ -227,7 +227,7 @@ bundled baseline:
 - `Small Motion Conservative`
 
 `Small Motion Conservative` is the pinned startup controller profile for the
-current Sussex preview. Startup/default pinning and current-session hotload are
+current Sussex packaged release. Startup/default pinning and current-session hotload are
 separate:
 
 - `sussex controller set-startup "<profile>"` changes what the next Sussex
