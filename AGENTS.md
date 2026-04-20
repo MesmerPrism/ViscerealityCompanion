@@ -254,11 +254,11 @@ Astral/companion sync.
 Freshly republished local harness executables can still be blocked by Windows
 Application Control on this machine; treat that as a launcher-path issue, not
 as evidence that the Sussex APK, scene config, or LSL contract regressed.
-For packaged preview installs on other Windows machines, do not assume the
-guided setup helper EXE is Smart App Control-safe just because it is
-Authenticode-signed. The current public preview certificate is still a
-self-issued preview cert, which is enough for the MSIX after explicit trust but
-not enough to guarantee helper-EXE admission under Smart App Control.
+For packaged installs on other Windows machines, do not assume the guided setup
+helper EXE is Smart App Control-safe just because it is Authenticode-signed.
+The current public package certificate is still a self-issued preview cert,
+which is enough for the MSIX after explicit trust but not enough to guarantee
+helper-EXE admission under Smart App Control.
 Cross-machine operator instructions should currently start with the guided
 setup helper and only fall back to the manual
 `ViscerealityCompanion.cer` + `ViscerealityCompanion.appinstaller` path if
@@ -266,6 +266,16 @@ Windows blocks the helper EXE.
 Current helper builds do now attempt to launch the packaged app automatically
 through its Windows `AppsFolder` target after install, but manual Start-menu
 launch remains the fallback if Windows suppresses that activation.
+Keep the current package identities straight:
+
+- public release: `MesmerPrism.ViscerealityCompanion`
+- packaged dev: `MesmerPrism.ViscerealityCompanionDev`
+- legacy preview family: `MesmerPrism.ViscerealityCompanionPreview` only for
+  migration / stale-pin cleanup
+
+If a downloaded helper EXE is blocked before install, treat that as a helper
+reputation / Smart App Control problem, not as proof that the MSIX or packaged
+app is broken.
 If an older packaged `Companion Updates` window reports
 `Official Quest tooling updated` with explicit version numbers like
 `hzdb 1.0.1 | Android platform-tools 37.0.0` while the per-tool cards still
@@ -280,6 +290,12 @@ against the built `ViscerealityCompanion-Setup.exe` and
 bug. Treat Smart App Control blocking a self-signed helper as a trust/reputation
 limitation until a trusted-provider certificate or Trusted Signing is wired
 into the release workflow.
+If the MSIX installs but the app dies immediately on launch, treat that as a
+different failure shape from a blocked helper EXE. Launch through
+`shell:AppsFolder\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y!App` and
+inspect `Microsoft-Windows-TWinUI/Operational` plus
+`Microsoft-Windows-CodeIntegrity/Operational` for the launch window before
+blaming app logic.
 If the packaged app installs but then dies on launch with Code Integrity events
 against `WindowsApps\...\ViscerealityCompanion.exe`, preserve the native
 WAP-produced MSIX path. Do not repack the finished layout for this repo just to
