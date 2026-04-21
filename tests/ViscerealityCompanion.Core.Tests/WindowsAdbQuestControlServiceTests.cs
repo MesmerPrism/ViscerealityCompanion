@@ -1,3 +1,4 @@
+using System.IO;
 using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
 
@@ -5,6 +6,29 @@ namespace ViscerealityCompanion.Core.Tests;
 
 public sealed class WindowsAdbQuestControlServiceTests
 {
+    [Fact]
+    public void BuildInstalledPackageHashTempPath_uses_unique_file_names_per_call()
+    {
+        var first = WindowsAdbQuestControlService.BuildInstalledPackageHashTempPath("com.Viscereality.SussexExperiment");
+        var second = WindowsAdbQuestControlService.BuildInstalledPackageHashTempPath("com.Viscereality.SussexExperiment");
+
+        Assert.NotEqual(first, second);
+        Assert.Equal(Path.GetDirectoryName(first), Path.GetDirectoryName(second));
+        Assert.StartsWith("com.Viscereality.SussexExperiment-", Path.GetFileNameWithoutExtension(first), StringComparison.Ordinal);
+        Assert.EndsWith(".apk", first, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith(".apk", second, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildInstalledPackageHashUnavailableDetail_appends_failure_reason_when_present()
+    {
+        var detail = WindowsAdbQuestControlService.BuildInstalledPackageHashUnavailableDetail(
+            "The process cannot access the file because it is being used by another process.");
+
+        Assert.StartsWith("Installed package hash unavailable.", detail, StringComparison.Ordinal);
+        Assert.Contains("used by another process", detail, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void BuildRuntimeHotloadRemotePaths_keeps_adb_push_path_unquoted()
     {

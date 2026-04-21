@@ -914,44 +914,46 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
             if (!string.IsNullOrWhiteSpace(packagePath))
             {
-                var tempPath = Path.Combine(
-                    Path.GetTempPath(),
-                    "ViscerealityCompanion",
-                    "package-hash",
-                    $"{SanitizeFileToken(target.PackageId)}.apk");
+                var tempPath = BuildInstalledPackageHashTempPath(target.PackageId);
                 Directory.CreateDirectory(Path.GetDirectoryName(tempPath)!);
+                var hashFailureDetail = string.Empty;
 
                 try
                 {
                     var pull = await RunAdbAsync(["-s", selector, "pull", packagePath, tempPath], cancellationToken).ConfigureAwait(false);
                     if (pull.ExitCode == 0 && File.Exists(tempPath))
                     {
-                        await using var stream = File.OpenRead(tempPath);
+                        await using var stream = new FileStream(
+                            tempPath,
+                            FileMode.Open,
+                            FileAccess.Read,
+                            FileShare.ReadWrite | FileShare.Delete);
                         using var sha256 = SHA256.Create();
                         var hash = await sha256.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
                         installedSha256 = Convert.ToHexString(hash);
                     }
                     else
                     {
-                        detail.Add($"Could not pull {packagePath} to compute a build hash.");
+                        hashFailureDetail = $"Could not pull {packagePath} to compute a build hash. {AdbShellSupport.Collapse(pull.CombinedOutput)}".Trim();
                     }
+                }
+                catch (Exception ex)
+                {
+                    hashFailureDetail = ex.Message;
                 }
                 finally
                 {
-                    try
-                    {
-                        if (File.Exists(tempPath))
-                        {
-                            File.Delete(tempPath);
-                        }
-                    }
-                    catch
-                    {
-                    }
+                    TryDeleteFile(tempPath);
+                }
+
+                if (string.IsNullOrWhiteSpace(installedSha256))
+                {
+                    detail.Add(BuildInstalledPackageHashUnavailableDetail(hashFailureDetail));
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(installedSha256))
+            if (string.IsNullOrWhiteSpace(installedSha256) &&
+                !detail.Any(static part => part.StartsWith("Installed package hash unavailable.", StringComparison.Ordinal)))
             {
                 detail.Add("Installed package hash unavailable.");
             }
@@ -2812,6 +2814,22 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             dumpsysOutput.Contains($"Package {packageId}", StringComparison.OrdinalIgnoreCase) ||
             !string.IsNullOrWhiteSpace(ParseDumpsysValue(dumpsysOutput, "versionName")));
 
+    internal static string BuildInstalledPackageHashTempPath(string packageId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+
+        return Path.Combine(
+            Path.GetTempPath(),
+            "ViscerealityCompanion",
+            "package-hash",
+            $"{SanitizeFileToken(packageId)}-{Guid.NewGuid():N}.apk");
+    }
+
+    internal static string BuildInstalledPackageHashUnavailableDetail(string? failureDetail)
+        => string.IsNullOrWhiteSpace(failureDetail)
+            ? "Installed package hash unavailable."
+            : $"Installed package hash unavailable. {failureDetail.Trim()}";
+
     private static string SanitizeFileToken(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
@@ -2822,6 +2840,20 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         }
 
         return builder.ToString();
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
     }
 
     private async Task<QuestWakeReadiness> QueryWakeReadinessAsync(
