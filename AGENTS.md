@@ -297,6 +297,11 @@ against the built `ViscerealityCompanion-Setup.exe` and
 bug. Treat Smart App Control blocking a self-signed helper as a trust/reputation
 limitation until a trusted-provider certificate or Trusted Signing is wired
 into the release workflow.
+For GitHub Actions release packaging, keep the workflow on
+`windows-2025-vs2026` (or another runner with Visual Studio 2026 / MSBuild 18
+or newer). This repo now packages a `net10.0-windows` WPF app, and the Desktop
+Bridge WAP build fails on `windows-2022` because its MSBuild 17.14 image cannot
+resolve the required .NET 10 SDK.
 If the MSIX installs but the app dies immediately on launch, treat that as a
 different failure shape from a blocked helper EXE. Launch through
 `shell:AppsFolder\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y!App` and
