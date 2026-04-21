@@ -452,15 +452,23 @@ gets an explicit diagnosis of:
 The Sussex shell now exposes a dedicated `Windows environment` page so the
 Windows-side diagnostics no longer crowd the `Pre-session` setup column. That
 page includes the `Machine LSL State` and `Analyze Windows Environment`
-surfaces, a one-button `Generate Diagnostics Report` action, plus the
-host-visible operator-data, tooling, workspace, and liblsl paths the guided
-installer is supposed to keep aligned. Use that page when the operator needs
-the Windows-side view instead of the headset-side view. It compares:
+surfaces, `Generate Diagnostics Report`, `Open Report Folder`, and `Clean
+Install Footprint` actions, plus the host-visible operator-data, tooling,
+workspace, and liblsl paths the guided installer is supposed to keep aligned.
+Use that page when the operator needs the Windows-side view instead of the
+headset-side view. It compares:
 
 - the currently visible `HRV_Biofeedback / HRV` publishers on Windows
 - a temporary local LSL outlet that should be rediscoverable from the same PC
 - the companion-owned TEST sender and twin outlets
 - the clock-alignment probe transport
+- the packaged local-agent workspace CLI, including its current build hash and
+  whether the exported CLI still answers `--version`
+- whether a stale unpackaged `agent-workspace` mirror is still present beside
+  the packaged workspace
+- when a local source checkout is available, whether the maintainer-only repo
+  `dotnet test --no-build --list-tests` path is blocked separately from the
+  packaged consumer tooling
 - the passive upstream monitor used during recording
 - when a live headset selector is available, the raw Quest Wi-Fi transport path
   from this PC to the headset endpoint
@@ -477,7 +485,11 @@ a timestamped diagnostics folder with JSON, LaTeX source, and a native PDF.
 The report also includes the Quest pinned APK/profile snapshot, the raw Quest
 Wi-Fi transport path, the `quest_twin_state` publisher inventory, the Step 9
 return-path interpretation, and a safe particle-off twin command
-acknowledgement probe.
+acknowledgement probe. The same card now exposes `Open Report Folder` so the
+operator can jump directly to the shareable artifacts after generation, and
+`Clean Install Footprint` removes stale shortcut files plus legacy generic CLI
+exports when a branded `Viscereality CLI.exe` export already exists beside
+them.
 
 The validation step now keeps the timing workflow inside the same guide
 surface. Instead of opening a separate timing window, step 12 shows:

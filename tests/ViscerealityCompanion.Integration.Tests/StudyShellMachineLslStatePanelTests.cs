@@ -77,9 +77,21 @@ public sealed class StudyShellMachineLslStatePanelTests
                 Assert.NotNull(analyzeButton);
                 Assert.Equal("Analyze Windows Environment", analyzeButton!.Content);
 
+                var cleanInstallFootprintButton = (Button?)view.FindName("CleanInstallFootprintButton");
+                Assert.NotNull(cleanInstallFootprintButton);
+                Assert.Equal("Clean Install Footprint", cleanInstallFootprintButton!.Content);
+
                 var diagnosticsButton = (Button?)view.FindName("GenerateDiagnosticsReportButton");
                 Assert.NotNull(diagnosticsButton);
                 Assert.Equal("Generate Diagnostics Report", diagnosticsButton!.Content);
+
+                var openReportFolderButton = (Button?)view.FindName("OpenDiagnosticsReportFolderButton");
+                Assert.NotNull(openReportFolderButton);
+                Assert.Equal("Open Report Folder", openReportFolderButton!.Content);
+
+                var openReportPdfButton = (Button?)view.FindName("OpenDiagnosticsReportPdfButton");
+                Assert.NotNull(openReportPdfButton);
+                Assert.Equal("Open Report PDF", openReportPdfButton!.Content);
             }
             finally
             {

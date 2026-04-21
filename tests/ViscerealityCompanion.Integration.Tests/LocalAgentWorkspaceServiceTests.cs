@@ -92,6 +92,32 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         Assert.Contains("VISCEREALITY_LSL_DLL", wrapperScript, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void EnsureWorkspace_RemovesLegacyCli_WhenBrandedCliAlreadyExists()
+    {
+        var docsRoot = CreateDirectory("docs");
+        var cliRoot = CreateDirectory(Path.Combine("cli", "current"));
+        var workspaceRoot = Path.Combine(_tempRoot, "agent-workspace-branded");
+
+        WriteFile(Path.Combine(docsRoot, "cli.md"), "# CLI");
+        WriteFile(Path.Combine(docsRoot, "study-shells.md"), "# Study Shells");
+        WriteFile(Path.Combine(docsRoot, "monitoring-and-control.md"), "# Monitoring");
+        WriteFile(Path.Combine(cliRoot, "Viscereality CLI.exe"), "branded-cli");
+        WriteFile(Path.Combine(cliRoot, "viscereality.exe"), "legacy-cli");
+        WriteFile(Path.Combine(cliRoot, "lsl.dll"), "stub-lsl");
+
+        var service = new LocalAgentWorkspaceService(
+            workspaceRoot: workspaceRoot,
+            docsRoot: docsRoot,
+            bundledCliRoot: cliRoot);
+
+        var snapshot = service.EnsureWorkspace();
+
+        Assert.True(snapshot.HasBundledCli);
+        Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "Viscereality CLI.exe")));
+        Assert.False(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "viscereality.exe")));
+    }
+
     public void Dispose()
     {
         try

@@ -39,6 +39,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck,
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
@@ -101,6 +103,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck,
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 30, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
@@ -173,7 +177,12 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
                 [@"C:\Users\operator\Desktop\Viscereality Companion.lnk"],
                 [@"C:\Users\operator\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Viscereality Companion Legacy.lnk"],
                 [@"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion\agent-workspace\cli\current\Viscereality CLI.exe"],
-                [@"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion\agent-workspace\cli\current\viscereality.exe"]));
+                [@"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion\agent-workspace\cli\current\viscereality.exe"],
+                @"C:\Users\operator\AppData\Local\ViscerealityCompanion",
+                @"C:\Users\operator\AppData\Local\ViscerealityCompanion\agent-workspace",
+                true),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck);
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -214,6 +223,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck,
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 45, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
@@ -272,7 +283,9 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
                     IPv4Addresses: ["100.101.102.103"],
                     Gateways: [])
             ],
-            installFootprintProvider: () => CleanInstallFootprint());
+            installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck);
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -317,6 +330,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             questWifiTransportDiagnosticsService: wifiDiagnostics,
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
             installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck,
             utcNow: () => new DateTimeOffset(2026, 04, 10, 15, 0, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest(
@@ -357,7 +372,9 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
-            installFootprintProvider: () => CleanInstallFootprint());
+            installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck);
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -395,7 +412,9 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
-            installFootprintProvider: () => CleanInstallFootprint());
+            installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck);
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -431,7 +450,9 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
-            installFootprintProvider: () => CleanInstallFootprint());
+            installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck);
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -492,7 +513,10 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             DesktopShortcutPaths: [@"C:\Users\operator\Desktop\Viscereality Companion.lnk"],
             StartMenuShortcutPaths: [@"C:\Users\operator\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Viscereality Companion.lnk"],
             BrandedCliExecutablePaths: [@"C:\Users\operator\AppData\Local\ViscerealityCompanion\agent-workspace\cli\current\Viscereality CLI.exe"],
-            LegacyCliExecutablePaths: []);
+            LegacyCliExecutablePaths: [],
+            UnpackagedOperatorDataRootPath: @"C:\Users\operator\AppData\Local\ViscerealityCompanion",
+            UnpackagedAgentWorkspaceRootPath: @"C:\Users\operator\AppData\Local\ViscerealityCompanion\agent-workspace",
+            UnpackagedAgentWorkspaceExists: false);
 
     private static HeadsetAppStatus CreateConnectedHeadsetStatus()
         => new(
@@ -519,6 +543,24 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
     private static Func<ILslOutletService> CreateLoopbackOutletFactory()
         => () => new FakeLslOutletService(new LslRuntimeState(true, "Fake outlet runtime ready."));
+
+    private static Task<WindowsEnvironmentCheckResult> PreviewExportedCliCheck(
+        WindowsInstallFootprintSnapshot snapshot,
+        CancellationToken cancellationToken)
+        => Task.FromResult(new WindowsEnvironmentCheckResult(
+            "packaged-cli-export",
+            "Exported packaged CLI workspace",
+            OperationOutcomeKind.Preview,
+            "Packaged CLI export probe skipped in unit test.",
+            "The WindowsEnvironmentAnalysisService unit tests inject a preview result so they stay hermetic."));
+
+    private static Task<WindowsEnvironmentCheckResult> PreviewRepoTestAssemblyLoadCheck(CancellationToken cancellationToken)
+        => Task.FromResult(new WindowsEnvironmentCheckResult(
+            "repo-test-assembly-load",
+            "Repo test assembly load path",
+            OperationOutcomeKind.Preview,
+            "Repo test assembly probe skipped in unit test.",
+            "The WindowsEnvironmentAnalysisService unit tests inject a preview result so they do not invoke dotnet."));
 
     private sealed class FakeMonitorService(LslRuntimeState runtimeState) : ILslMonitorService
     {

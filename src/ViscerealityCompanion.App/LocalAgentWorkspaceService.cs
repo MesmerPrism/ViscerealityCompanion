@@ -140,6 +140,10 @@ internal sealed class LocalAgentWorkspaceService
         {
             File.Move(legacyCliPath, brandedCliPath);
         }
+        else if (File.Exists(brandedCliPath) && File.Exists(legacyCliPath))
+        {
+            File.Delete(legacyCliPath);
+        }
     }
 
     private void MirrorQuestSessionKit()

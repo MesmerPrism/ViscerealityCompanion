@@ -160,6 +160,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private readonly ILslMonitorService _upstreamLslMonitorService = LslMonitorServiceFactory.CreateDefault();
     private readonly ILslStreamDiscoveryService _lslStreamDiscoveryService = LslStreamDiscoveryServiceFactory.CreateDefault();
     private readonly WindowsEnvironmentAnalysisService _windowsEnvironmentAnalysisService;
+    private readonly WindowsInstallFootprintCleanupService _windowsInstallFootprintCleanupService;
     private readonly QuestWifiTransportDiagnosticsService _questWifiTransportDiagnosticsService = new();
     private readonly LocalAgentWorkspaceService _localAgentWorkspaceService = new();
     private readonly StudyDataRecorderService _studyDataRecorderService = new();
@@ -506,6 +507,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _clockAlignmentService,
             _testLslSignalService,
             _twinBridge);
+        _windowsInstallFootprintCleanupService = new WindowsInstallFootprintCleanupService();
         _visualProfiles.StartupProfileChanged += OnStartupProfileChanged;
         _controllerBreathingProfiles.StartupProfileChanged += OnStartupProfileChanged;
         _endpointDraft = _appSessionState.ActiveEndpoint ?? string.Empty;
@@ -559,7 +561,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         ProbeLslConnectionCommand = new AsyncRelayCommand(ProbeLslConnectionAsync);
         RefreshMachineLslStateCommand = new AsyncRelayCommand(RefreshMachineLslStateAsync);
         AnalyzeWindowsEnvironmentCommand = new AsyncRelayCommand(AnalyzeWindowsEnvironmentAsync);
+        CleanInstallFootprintCommand = new AsyncRelayCommand(CleanInstallFootprintAsync);
         GenerateDiagnosticsReportCommand = new AsyncRelayCommand(GenerateDiagnosticsReportAsync);
+        OpenDiagnosticsReportFolderCommand = new AsyncRelayCommand(OpenDiagnosticsReportFolderAsync);
+        OpenDiagnosticsReportPdfCommand = new AsyncRelayCommand(OpenDiagnosticsReportPdfAsync);
         OpenWindowsEnvironmentPageCommand = new AsyncRelayCommand(OpenWindowsEnvironmentPageAsync);
         BrowseApkCommand = new AsyncRelayCommand(BrowseApkAsync);
         InstallStudyAppCommand = new AsyncRelayCommand(InstallStudyAppAsync);
@@ -1710,7 +1715,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public string DiagnosticsReportFolderPath
     {
         get => _diagnosticsReportFolderPath;
-        private set => SetProperty(ref _diagnosticsReportFolderPath, NormalizeHostVisibleOperatorPath(value));
+        private set
+        {
+            if (SetProperty(ref _diagnosticsReportFolderPath, NormalizeHostVisibleOperatorPath(value)))
+            {
+                OnPropertyChanged(nameof(CanOpenDiagnosticsReportFolder));
+            }
+        }
     }
 
     public string DiagnosticsReportPdfPath
@@ -1727,6 +1738,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     public bool CanOpenDiagnosticsReportPdf
         => CompanionOperatorDataLayout.TryResolveExistingFile(DiagnosticsReportPdfPath, out _);
+
+    public bool CanOpenDiagnosticsReportFolder
+        => CompanionOperatorDataLayout.TryResolveExistingDirectory(DiagnosticsReportFolderPath, out _);
 
     public string WindowsEnvironmentCardDetail
     {
@@ -2439,7 +2453,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand ProbeLslConnectionCommand { get; }
     public AsyncRelayCommand RefreshMachineLslStateCommand { get; }
     public AsyncRelayCommand AnalyzeWindowsEnvironmentCommand { get; }
+    public AsyncRelayCommand CleanInstallFootprintCommand { get; }
     public AsyncRelayCommand GenerateDiagnosticsReportCommand { get; }
+    public AsyncRelayCommand OpenDiagnosticsReportFolderCommand { get; }
+    public AsyncRelayCommand OpenDiagnosticsReportPdfCommand { get; }
     public AsyncRelayCommand OpenWindowsEnvironmentPageCommand { get; }
     public AsyncRelayCommand BrowseApkCommand { get; }
     public AsyncRelayCommand InstallStudyAppCommand { get; }
@@ -2694,6 +2711,63 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 result.Level,
                 result.Summary,
                 BuildWindowsEnvironmentActionDetail(result))).ConfigureAwait(false);
+    }
+
+    private async Task CleanInstallFootprintAsync()
+    {
+        await DispatchAsync(() =>
+        {
+            WindowsEnvironmentAnalysisLevel = OperationOutcomeKind.Preview;
+            WindowsEnvironmentAnalysisSummary = "Cleaning Windows install footprint...";
+            WindowsEnvironmentAnalysisDetail = "Removing stale Viscereality shortcuts, older unpackaged agent-workspace mirrors, and legacy generic CLI exports where a branded CLI is already present.";
+            WindowsEnvironmentAnalysisTimestampLabel = $"Started {DateTimeOffset.UtcNow.ToLocalTime():HH:mm:ss}.";
+        }).ConfigureAwait(false);
+
+        WindowsInstallFootprintCleanupResult cleanupResult;
+        WindowsEnvironmentAnalysisResult analysisResult;
+        try
+        {
+            cleanupResult = _windowsInstallFootprintCleanupService.Cleanup();
+            analysisResult = await _windowsEnvironmentAnalysisService
+                .AnalyzeAsync(BuildWindowsEnvironmentAnalysisRequest())
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await ApplyOutcomeAsync(
+                "Clean Install Footprint",
+                new OperationOutcome(
+                    OperationOutcomeKind.Failure,
+                    "Windows install-footprint cleanup failed.",
+                    exception.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() =>
+        {
+            ApplyWindowsEnvironmentAnalysisResult(analysisResult);
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+
+        var outcomeItems = cleanupResult.RemovedPaths
+            .Concat(cleanupResult.SkippedPaths)
+            .ToArray();
+        var actionDetail = string.Join(
+            Environment.NewLine,
+            new[]
+            {
+                cleanupResult.Detail,
+                $"Post-clean analysis: {analysisResult.Summary}",
+                analysisResult.Detail
+            });
+
+        await ApplyOutcomeAsync(
+            "Clean Install Footprint",
+            new OperationOutcome(
+                cleanupResult.Level,
+                cleanupResult.Summary,
+                actionDetail,
+                Items: outcomeItems)).ConfigureAwait(false);
     }
 
     private async Task GenerateDiagnosticsReportAsync()
@@ -5512,6 +5586,26 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             "Open Recording Session PDF",
             "Recording session PDF is not available yet.",
             "Finish a participant run first so the formatted session review PDF can be generated.").ConfigureAwait(false);
+    }
+
+    private async Task OpenDiagnosticsReportFolderAsync()
+    {
+        var folderPath = await DispatchAsync(() => DiagnosticsReportFolderPath).ConfigureAwait(false);
+        await OpenValidationCaptureFolderAsync(
+            folderPath,
+            "Open Diagnostics Report Folder",
+            "Diagnostics report folder is not available yet.",
+            "Generate the diagnostics report first so the shareable folder exists.").ConfigureAwait(false);
+    }
+
+    private async Task OpenDiagnosticsReportPdfAsync()
+    {
+        var pdfPath = await DispatchAsync(() => DiagnosticsReportPdfPath).ConfigureAwait(false);
+        await OpenValidationCaptureFileAsync(
+            pdfPath,
+            "Open Diagnostics Report PDF",
+            "Diagnostics report PDF is not available yet.",
+            "Generate the diagnostics report first so the native PDF exists.").ConfigureAwait(false);
     }
 
     private async Task OpenValidationCaptureFolderAsync(string folderPath, string actionLabel, string unavailableSummary, string unavailableDetail)

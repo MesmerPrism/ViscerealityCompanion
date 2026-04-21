@@ -54,7 +54,10 @@ public sealed record WindowsInstallFootprintSnapshot(
     IReadOnlyList<string> DesktopShortcutPaths,
     IReadOnlyList<string> StartMenuShortcutPaths,
     IReadOnlyList<string> BrandedCliExecutablePaths,
-    IReadOnlyList<string> LegacyCliExecutablePaths);
+    IReadOnlyList<string> LegacyCliExecutablePaths,
+    string UnpackagedOperatorDataRootPath,
+    string UnpackagedAgentWorkspaceRootPath,
+    bool UnpackagedAgentWorkspaceExists);
 
 public sealed class WindowsEnvironmentAnalysisService
 {
@@ -64,12 +67,6 @@ public sealed class WindowsEnvironmentAnalysisService
     private const string LslLoopbackProbeType = "viscereality.loopback";
     private const int LslLoopbackProbeAttempts = 3;
     private static readonly TimeSpan LslLoopbackProbeRetryDelay = TimeSpan.FromMilliseconds(250);
-    private static readonly HashSet<string> ExpectedLauncherFileNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Viscereality Companion.lnk",
-        "Viscereality Companion (Local Dev).lnk"
-    };
-
     private readonly ILslMonitorService _monitorService;
     private readonly ILslStreamDiscoveryService _streamDiscoveryService;
     private readonly IStudyClockAlignmentService _clockAlignmentService;
@@ -83,6 +80,8 @@ public sealed class WindowsEnvironmentAnalysisService
     private readonly Func<string?> _agentWorkspaceLslLocator;
     private readonly Func<bool> _agentWorkspacePresent;
     private readonly Func<WindowsInstallFootprintSnapshot> _installFootprintProvider;
+    private readonly Func<WindowsInstallFootprintSnapshot, CancellationToken, Task<WindowsEnvironmentCheckResult>> _exportedCliCheckProvider;
+    private readonly Func<CancellationToken, Task<WindowsEnvironmentCheckResult>> _repoTestAssemblyLoadCheckProvider;
     private readonly Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>> _networkAdapterSnapshotProvider;
     private readonly QuestWifiTransportDiagnosticsService _questWifiTransportDiagnosticsService;
     private readonly Func<DateTimeOffset> _utcNow;
@@ -100,6 +99,8 @@ public sealed class WindowsEnvironmentAnalysisService
         Func<string?>? agentWorkspaceLslLocator = null,
         Func<bool>? agentWorkspacePresent = null,
         Func<WindowsInstallFootprintSnapshot>? installFootprintProvider = null,
+        Func<WindowsInstallFootprintSnapshot, CancellationToken, Task<WindowsEnvironmentCheckResult>>? exportedCliCheckProvider = null,
+        Func<CancellationToken, Task<WindowsEnvironmentCheckResult>>? repoTestAssemblyLoadCheckProvider = null,
         Func<ILslOutletService>? loopbackOutletFactory = null,
         QuestWifiTransportDiagnosticsService? questWifiTransportDiagnosticsService = null,
         Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>>? networkAdapterSnapshotProvider = null,
@@ -118,6 +119,8 @@ public sealed class WindowsEnvironmentAnalysisService
         _agentWorkspaceLslLocator = agentWorkspaceLslLocator ?? ResolveAgentWorkspaceLslPath;
         _agentWorkspacePresent = agentWorkspacePresent ?? IsAgentWorkspacePresent;
         _installFootprintProvider = installFootprintProvider ?? SnapshotInstallFootprint;
+        _exportedCliCheckProvider = exportedCliCheckProvider ?? ((snapshot, cancellationToken) => new WindowsCompanionExecutionDiagnosticsService().AnalyzeExportedCliAsync(snapshot, cancellationToken));
+        _repoTestAssemblyLoadCheckProvider = repoTestAssemblyLoadCheckProvider ?? (cancellationToken => new WindowsCompanionExecutionDiagnosticsService().AnalyzeRepoTestAssemblyLoadAsync(cancellationToken));
         _networkAdapterSnapshotProvider = networkAdapterSnapshotProvider ?? SnapshotNetworkAdapters;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _questWifiTransportDiagnosticsService = questWifiTransportDiagnosticsService ?? new QuestWifiTransportDiagnosticsService(
@@ -131,10 +134,13 @@ public sealed class WindowsEnvironmentAnalysisService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        var installFootprint = _installFootprintProvider();
         var checks = new List<WindowsEnvironmentCheckResult>
         {
             BuildWindowsPlatformCheck(),
-            BuildInstallFootprintCheck(_installFootprintProvider()),
+            BuildInstallFootprintCheck(installFootprint),
+            await _exportedCliCheckProvider(installFootprint, cancellationToken).ConfigureAwait(false),
+            await _repoTestAssemblyLoadCheckProvider(cancellationToken).ConfigureAwait(false),
             BuildNetworkAdapterHazardCheck(_networkAdapterSnapshotProvider()),
             BuildManagedToolCacheCheck(_toolingStatusProvider()),
             BuildAdbCheck(),
@@ -307,16 +313,17 @@ public sealed class WindowsEnvironmentAnalysisService
     {
         if (!OperatingSystem.IsWindows())
         {
-            return new WindowsInstallFootprintSnapshot([], [], [], [], []);
+            return new WindowsInstallFootprintSnapshot([], [], [], [], [], string.Empty, string.Empty, false);
         }
 
         var localAppDataPath = Environment.GetEnvironmentVariable("LOCALAPPDATA")
             ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var packagedInstalls = EnumeratePackagedInstallFootprints(localAppDataPath);
         var unpackagedRoot = CompanionOperatorDataLayout.ResolveRootPath(localAppDataPath, packageFamilyName: null, overrideRoot: null);
+        var unpackagedWorkspaceRoot = Path.Combine(unpackagedRoot, "agent-workspace");
         var cliRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            Path.Combine(unpackagedRoot, "agent-workspace", "cli", "current")
+            Path.Combine(unpackagedWorkspaceRoot, "cli", "current")
         };
 
         foreach (var packagedInstall in packagedInstalls)
@@ -349,7 +356,10 @@ public sealed class WindowsEnvironmentAnalysisService
             EnumerateViscerealityShortcutPaths(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), SearchOption.TopDirectoryOnly),
             EnumerateViscerealityShortcutPaths(Environment.GetFolderPath(Environment.SpecialFolder.Programs), SearchOption.AllDirectories),
             brandedCliExecutables,
-            legacyCliExecutables);
+            legacyCliExecutables,
+            unpackagedRoot,
+            unpackagedWorkspaceRoot,
+            Directory.Exists(unpackagedWorkspaceRoot));
     }
 
     private static IReadOnlyList<WindowsPackagedInstallFootprint> EnumeratePackagedInstallFootprints(string localAppDataPath)
@@ -439,14 +449,8 @@ public sealed class WindowsEnvironmentAnalysisService
         var legacyPreviewInstalls = snapshot.PackagedInstalls
             .Where(static install => PackagedAppIdentity.IsLegacyPreviewPackageName(install.PackageName))
             .ToArray();
-        var allShortcutPaths = snapshot.DesktopShortcutPaths
-            .Concat(snapshot.StartMenuShortcutPaths)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        var unexpectedShortcutPaths = allShortcutPaths
-            .Where(static path => !ExpectedLauncherFileNames.Contains(Path.GetFileName(path)))
-            .ToArray();
+        var allShortcutPaths = WindowsInstallFootprintRules.GetAllShortcutPaths(snapshot);
+        var unexpectedShortcutPaths = WindowsInstallFootprintRules.GetUnexpectedShortcutPaths(snapshot);
 
         var issueHints = new List<string>();
         if (snapshot.PackagedInstalls.Count > 1)
@@ -464,7 +468,12 @@ public sealed class WindowsEnvironmentAnalysisService
             issueHints.Add("legacy generic CLI exports are still present in active operator-data roots");
         }
 
-        if (unexpectedShortcutPaths.Length > 0)
+        if (snapshot.UnpackagedAgentWorkspaceExists && snapshot.PackagedInstalls.Count > 0)
+        {
+            issueHints.Add("an unpackaged local-agent workspace is still present beside packaged installs");
+        }
+
+        if (unexpectedShortcutPaths.Count > 0)
         {
             issueHints.Add("unexpected Viscereality shortcut files are present");
         }
@@ -474,7 +483,9 @@ public sealed class WindowsEnvironmentAnalysisService
             $"Packaged footprints: release {releaseInstalls.Length}, dev {devInstalls.Length}, legacy preview {legacyPreviewInstalls.Length}.",
             $"Desktop launchers: {RenderInstallFootprintNames(snapshot.DesktopShortcutPaths)}.",
             $"Start Menu launchers: {RenderInstallFootprintNames(snapshot.StartMenuShortcutPaths)}.",
-            $"Bundled CLI exports: branded {snapshot.BrandedCliExecutablePaths.Count}, legacy-generic {snapshot.LegacyCliExecutablePaths.Count}."
+            $"Bundled CLI exports: branded {snapshot.BrandedCliExecutablePaths.Count}, legacy-generic {snapshot.LegacyCliExecutablePaths.Count}.",
+            $"Unpackaged operator-data root: {snapshot.UnpackagedOperatorDataRootPath}.",
+            $"Unpackaged local-agent workspace: {(snapshot.UnpackagedAgentWorkspaceExists ? snapshot.UnpackagedAgentWorkspaceRootPath : "not present")}."
         };
 
         if (releaseInstalls.Length > 0)
@@ -497,7 +508,12 @@ public sealed class WindowsEnvironmentAnalysisService
             detailLines.Add($"Legacy generic CLI exports:{Environment.NewLine}{RenderInstallFootprintPathList(snapshot.LegacyCliExecutablePaths)}");
         }
 
-        if (unexpectedShortcutPaths.Length > 0)
+        if (snapshot.UnpackagedAgentWorkspaceExists)
+        {
+            detailLines.Add($"Unpackaged local-agent workspace root:{Environment.NewLine}{RenderInstallFootprintPathList([snapshot.UnpackagedAgentWorkspaceRootPath])}");
+        }
+
+        if (unexpectedShortcutPaths.Count > 0)
         {
             detailLines.Add($"Unexpected Viscereality shortcuts:{Environment.NewLine}{RenderInstallFootprintPathList(unexpectedShortcutPaths)}");
         }
@@ -528,9 +544,14 @@ public sealed class WindowsEnvironmentAnalysisService
             remediation.Add("Refresh or reopen the packaged app so the exported local CLI uses `Viscereality CLI.exe` instead of `viscereality.exe`, which otherwise shows up as an ambiguous Windows Search hit.");
         }
 
-        if (unexpectedShortcutPaths.Length > 0)
+        if (snapshot.UnpackagedAgentWorkspaceExists && snapshot.PackagedInstalls.Count > 0)
         {
-            remediation.Add("Refresh the Desktop and Start Menu launchers so only `Viscereality Companion.lnk` and `Viscereality Companion (Local Dev).lnk` remain.");
+            remediation.Add("Use `Clean Install Footprint` if you want to retire the older unpackaged `agent-workspace` mirror and keep consumer-side diagnostics focused on the packaged workspace.");
+        }
+
+        if (unexpectedShortcutPaths.Count > 0)
+        {
+            remediation.Add("Use `Clean Install Footprint` or refresh the Desktop and Start Menu launchers so only `Viscereality Companion.lnk` and `Viscereality Companion (Local Dev).lnk` remain.");
         }
 
         detailLines.Add($"Fix: {string.Join(" ", remediation)}");

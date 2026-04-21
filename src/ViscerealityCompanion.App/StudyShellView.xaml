@@ -2206,6 +2206,9 @@
                                     <Button x:Name="AnalyzeWindowsEnvironmentOverviewButton"
                                             Content="Analyze Windows Environment"
                                             Command="{Binding AnalyzeWindowsEnvironmentCommand}" />
+                                    <Button x:Name="CleanInstallFootprintButton"
+                                            Content="Clean Install Footprint"
+                                            Command="{Binding CleanInstallFootprintCommand}" />
                                     <Button Content="Refresh Machine LSL State"
                                             Command="{Binding RefreshMachineLslStateCommand}" />
                                     <Button x:Name="GenerateDiagnosticsReportButton"
@@ -2241,15 +2244,35 @@
                                            Style="{StaticResource CompactCaptionStyle}"
                                            Margin="0,6,0,0"
                                            TextWrapping="Wrap" />
+                                <TextBlock Text="Report folder"
+                                           Style="{StaticResource InfoLabelStyle}"
+                                           Margin="0,10,0,6" />
+                                <TextBlock Text="{Binding DiagnosticsReportFolderPath}"
+                                           Style="{StaticResource CompactCaptionStyle}"
+                                           FontFamily="{StaticResource MonoFont}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="Report PDF"
+                                           Style="{StaticResource InfoLabelStyle}"
+                                           Margin="0,10,0,6" />
                                 <TextBlock Text="{Binding DiagnosticsReportPdfPath}"
                                            Style="{StaticResource CompactCaptionStyle}"
                                            FontFamily="{StaticResource MonoFont}"
-                                           Margin="0,6,0,0"
                                            TextWrapping="Wrap" />
-                                <Button Content="Generate Diagnostics Report"
-                                        Command="{Binding GenerateDiagnosticsReportCommand}"
-                                        Style="{StaticResource StateActionButtonStyle}"
-                                        Margin="0,10,0,0" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button Content="Generate Diagnostics Report"
+                                            Command="{Binding GenerateDiagnosticsReportCommand}"
+                                            Style="{StaticResource StateActionButtonStyle}" />
+                                    <Button x:Name="OpenDiagnosticsReportFolderButton"
+                                            Content="Open Report Folder"
+                                            Command="{Binding OpenDiagnosticsReportFolderCommand}"
+                                            IsEnabled="{Binding CanOpenDiagnosticsReportFolder}"
+                                            Style="{StaticResource StateActionButtonStyle}" />
+                                    <Button x:Name="OpenDiagnosticsReportPdfButton"
+                                            Content="Open Report PDF"
+                                            Command="{Binding OpenDiagnosticsReportPdfCommand}"
+                                            IsEnabled="{Binding CanOpenDiagnosticsReportPdf}"
+                                            Style="{StaticResource StateActionButtonStyle}" />
+                                </WrapPanel>
                             </StackPanel>
                         </Border>
 
