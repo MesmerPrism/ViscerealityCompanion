@@ -293,6 +293,64 @@ public sealed class StudyShellWorkflowGuideRegressionTests
     }
 
     [Fact]
+    public void LslGuideGate_StaysBlockedWhenProbeFallsBackToUsbAfterWifiBootstrapAttempt()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(
+            viewModel,
+            "_headsetStatus",
+            CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment") with
+            {
+                ConnectionLabel = "1WMHH000000000",
+                Detail = "Connected over USB ADB.",
+                IsWifiAdbTransport = false
+            });
+        SetPrivateField(viewModel, "_lslLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_lslSummary", "LSL input live: HRV_Biofeedback.");
+        SetPrivateField(viewModel, "_lslDetail", "The inlet is healthy and matches the study stream target.");
+        SetPrivateField(viewModel, "_lslExpectedStreamLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslRuntimeTargetLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslConnectedStreamLabel", "HRV_Biofeedback / HRV");
+        SetPrivateField(viewModel, "_lslConnectionStateLabel", "Connected 1, connecting 0, total 1");
+        SetPrivateField(viewModel, "_lslStatusLineLabel", "Runtime matched expected inlet.");
+        SetPrivateField(viewModel, "_lslEchoStateLabel", "Connected, but this public build does not echo the routed inlet value yet.");
+        SetPrivateField(viewModel, "_pinnedBuildLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_pinnedBuildSummary", "Pinned Sussex APK matches the recorded Sussex build.");
+        SetPrivateField(viewModel, "_deviceProfileLevel", OperationOutcomeKind.Success);
+        SetPrivateField(viewModel, "_deviceProfileSummary", "Pinned Quest device profile is active.");
+        SetPrivateField(viewModel, "_deviceProfileDetail", "Pinned Quest properties match.");
+        SetPrivateField(
+            viewModel,
+            "_questWifiTransportDiagnostics",
+            new QuestWifiTransportDiagnosticsResult(
+                OperationOutcomeKind.Warning,
+                "Quest is still not on Wi-Fi ADB, so this diagnostic cannot turn green yet.",
+                "Automatic Wi-Fi ADB switch attempt: [WARN] Wi-Fi ADB bootstrap started, but the Quest did not stay on the TCP endpoint. Automatic Connect Quest retry: [FAIL] Connect Quest failed. This keeps the diagnostic from turning green until the active Quest transport is Wi-Fi ADB. Keep USB attached, accept any in-headset debugging prompt, and if needed use Connect Quest with 192.168.0.55:5555.",
+                Selector: "Selector 1WMHH000000000 over USB ADB.",
+                HeadsetWifi: "Headset Wi-Fi SussexLab (192.168.0.55).",
+                HostWifi: "Host Wi-Fi SussexLab via Wi-Fi (192.168.0.22).",
+                Topology: "Topology not checked because Wi-Fi ADB is not active.",
+                Ping: "Ping not attempted.",
+                Tcp: "TCP probe not attempted.",
+                TcpReachable: false,
+                PingReachable: null,
+                SelectorMatchesHeadsetIp: null,
+                SameSubnet: null,
+                CheckedAtUtc: DateTimeOffset.UtcNow,
+                BootstrapAttempted: true,
+                BootstrapSucceeded: false,
+                Bootstrap: "Automatic Wi-Fi ADB switch attempt: [WARN] Wi-Fi ADB bootstrap started, but the Quest did not stay on the TCP endpoint."));
+
+        var gate = InvokePrivateMethod<WorkflowGuideGateState>(viewModel, "BuildLslWorkflowGuideGateState");
+
+        Assert.False(gate.Ready);
+        Assert.Equal(OperationOutcomeKind.Warning, gate.Level);
+        Assert.Contains("Wi-Fi ADB", gate.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cannot turn green", gate.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Connect Quest with 192.168.0.55:5555", gate.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReconnectTargetCheck_WarnsWhenSavedEndpointDiffersFromLiveQuestIp()
     {
         var viewModel = CreateViewModel(CreateStudy());
@@ -371,6 +429,46 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.Equal(OperationOutcomeKind.Failure, gate.Level);
         Assert.Contains("cannot reach", gate.Summary, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("TCP port 5555", gate.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WifiMatchGate_Passes_WhenQuestIsReachableOverEthernetRoutedHostPath()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment") with
+        {
+            HostWifiSsid = "OfficeWifi",
+            WifiSsidMatchesHost = false
+        });
+        SetPrivateField(viewModel, "_headsetWifiSummary", "Headset Wi-Fi: SussexLab");
+        SetPrivateField(viewModel, "_hostWifiSummary", "This PC Wi-Fi: OfficeWifi");
+        SetPrivateField(
+            viewModel,
+            "_questWifiTransportDiagnostics",
+            new QuestWifiTransportDiagnosticsResult(
+                OperationOutcomeKind.Success,
+                "Quest Wi-Fi path is reachable from Windows over the current wired/router path.",
+                "The Quest is on Wi-Fi, but Windows can still reach TCP port 5555 through the current routed host adapter. Matching PC Wi-Fi SSIDs are not required when the companion is on the same router over Ethernet or another valid routed link.",
+                Selector: "Selector 192.168.0.55:5555.",
+                HeadsetWifi: "Headset Wi-Fi SussexLab (192.168.0.55).",
+                HostWifi: "Host routed link via Ethernet (192.168.0.22); PC Wi-Fi SSID OfficeWifi.",
+                Topology: "SSIDs do not match. Selector IP matches the headset Wi-Fi IP. Host adapter Ethernet (Ethernet) IPv4 192.168.0.22, gateway 192.168.0.1. Quest and host appear to share the same IPv4 subnet.",
+                Ping: "ICMP ping reached the Quest.",
+                Tcp: "TCP port 5555 on the Quest is reachable from Windows.",
+                TcpReachable: true,
+                PingReachable: true,
+                SelectorMatchesHeadsetIp: true,
+                SameSubnet: true,
+                CheckedAtUtc: DateTimeOffset.UtcNow,
+                RoutedTopologyAccepted: true));
+
+        var gate = InvokePrivateMethod<WorkflowGuideGateState>(viewModel, "BuildWifiMatchWorkflowGuideGateState");
+
+        Assert.True(gate.Ready);
+        Assert.Equal(OperationOutcomeKind.Success, gate.Level);
+        Assert.Contains("router path", gate.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not required", gate.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("change the headset Wi-Fi manually", gate.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

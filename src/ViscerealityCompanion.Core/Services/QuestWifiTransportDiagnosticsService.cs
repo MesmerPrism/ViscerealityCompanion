@@ -20,7 +20,11 @@ public sealed record QuestWifiTransportDiagnosticsResult(
     bool? PingReachable,
     bool? SelectorMatchesHeadsetIp,
     bool? SameSubnet,
-    DateTimeOffset CheckedAtUtc);
+    DateTimeOffset CheckedAtUtc,
+    bool RoutedTopologyAccepted = false,
+    bool BootstrapAttempted = false,
+    bool BootstrapSucceeded = false,
+    string Bootstrap = "");
 
 public sealed class QuestWifiTransportDiagnosticsService
 {
@@ -137,7 +141,7 @@ public sealed class QuestWifiTransportDiagnosticsService
         }
 
         var adapters = _networkAdapterSnapshotProvider();
-        var hostAdapter = SelectHostAdapter(adapters, headset.HostWifiInterfaceName);
+        var hostAdapter = SelectHostAdapter(adapters, headset.HostWifiInterfaceName, headsetIpAddress);
         var selectorIp = ExtractIpAddressFromSelector(selector);
         bool? selectorMatchesHeadsetIp = !string.IsNullOrWhiteSpace(selectorIp)
             ? string.Equals(selectorIp, headsetIp, StringComparison.OrdinalIgnoreCase)
@@ -165,20 +169,33 @@ public sealed class QuestWifiTransportDiagnosticsService
 
         var level = OperationOutcomeKind.Success;
         var summary = "Quest Wi-Fi path is reachable from Windows.";
+        var routedTopologyAccepted = headset.WifiSsidMatchesHost == false
+            && tcpProbe.Reachable
+            && (sameSubnet == true || IsNonWirelessHostAdapter(hostAdapter));
 
-        if (headset.WifiSsidMatchesHost == false)
-        {
-            level = OperationOutcomeKind.Failure;
-            summary = "Quest and Windows are on different Wi-Fi networks.";
-            detailParts.Add("The headset and PC report different SSIDs. Change the headset Wi-Fi manually before continuing; this study flow assumes both devices share the same Wi-Fi network.");
-        }
-        else if (!tcpProbe.Reachable)
+        if (!tcpProbe.Reachable)
         {
             level = OperationOutcomeKind.Failure;
             summary = "Windows cannot reach the Quest ADB TCP endpoint over the current Wi-Fi path.";
             detailParts.Add(headset.WifiSsidMatchesHost == true
                 ? "The PC and Quest report the same SSID, but Windows could not open TCP port 5555 on the Quest IP. On the failing router this usually means guest Wi-Fi/client isolation, AP isolation, WLAN peer blocking, or a stale endpoint surviving an ADB restart."
                 : "Without a working TCP path to port 5555, Wi-Fi ADB recovery, probe actions, and Sussex relaunches will be unreliable.");
+        }
+        else if (routedTopologyAccepted)
+        {
+            level = sameSubnet == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
+            summary = IsNonWirelessHostAdapter(hostAdapter)
+                ? "Quest Wi-Fi path is reachable from Windows over the current wired/router path."
+                : "Quest Wi-Fi path is reachable from Windows even though the SSID names differ.";
+            detailParts.Add(IsNonWirelessHostAdapter(hostAdapter)
+                ? "The Quest is on Wi-Fi, but Windows can still reach TCP port 5555 through the current routed host adapter. Matching PC Wi-Fi SSIDs are not required when the companion is on the same router over Ethernet or another valid routed link."
+                : "The SSID names differ, but Windows can still reach TCP port 5555 on the Quest IP over the current routed path. Treat the SSID mismatch as advisory on this topology.");
+        }
+        else if (headset.WifiSsidMatchesHost == false)
+        {
+            level = OperationOutcomeKind.Failure;
+            summary = "Quest and Windows are on different network paths.";
+            detailParts.Add("The headset and PC report different SSIDs, and the current routed path does not yet prove that Windows can reach the Quest endpoint through a same-router Ethernet or equivalent routed setup. Move both devices onto the same reachable network path before continuing.");
         }
         else if (selectorMatchesHeadsetIp == false)
         {
@@ -225,16 +242,34 @@ public sealed class QuestWifiTransportDiagnosticsService
             PingReachable: pingProbe.Reachable,
             SelectorMatchesHeadsetIp: selectorMatchesHeadsetIp,
             SameSubnet: sameSubnet,
-            CheckedAtUtc: checkedAtUtc);
+            CheckedAtUtc: checkedAtUtc,
+            RoutedTopologyAccepted: routedTopologyAccepted);
     }
 
     private static WindowsNetworkAdapterSnapshot? SelectHostAdapter(
         IReadOnlyList<WindowsNetworkAdapterSnapshot> adapters,
-        string? hostInterfaceName)
+        string? hostInterfaceName,
+        IPAddress headsetIpAddress)
     {
+        var eligibleAdapters = adapters
+            .Where(adapter => adapter.IsUp && !adapter.IsLoopback && adapter.IPv4Addresses.Count > 0)
+            .ToArray();
+
+        var sameSubnetAdapters = eligibleAdapters
+            .Where(adapter => DetermineSameSubnet(headsetIpAddress, adapter) == true)
+            .ToArray();
+        if (sameSubnetAdapters.Length > 0)
+        {
+            return sameSubnetAdapters
+                .OrderByDescending(adapter => adapter.Gateways.Count > 0)
+                .ThenBy(adapter => IsWirelessAdapter(adapter) ? 1 : 0)
+                .ThenBy(adapter => adapter.Name, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+        }
+
         if (!string.IsNullOrWhiteSpace(hostInterfaceName))
         {
-            var match = adapters.FirstOrDefault(adapter =>
+            var match = eligibleAdapters.FirstOrDefault(adapter =>
                 string.Equals(adapter.Name, hostInterfaceName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(adapter.Description, hostInterfaceName, StringComparison.OrdinalIgnoreCase));
             if (match is not null)
@@ -243,13 +278,18 @@ public sealed class QuestWifiTransportDiagnosticsService
             }
         }
 
-        return adapters
-            .Where(adapter => adapter.IsUp && !adapter.IsLoopback && adapter.IPv4Addresses.Count > 0)
-            .OrderByDescending(adapter => string.Equals(adapter.InterfaceType, "Wireless80211", StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(adapter => adapter.Gateways.Count > 0)
+        return eligibleAdapters
+            .OrderByDescending(adapter => adapter.Gateways.Count > 0)
+            .ThenBy(adapter => IsWirelessAdapter(adapter) ? 1 : 0)
             .ThenBy(adapter => adapter.Name, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
     }
+
+    private static bool IsWirelessAdapter(WindowsNetworkAdapterSnapshot adapter)
+        => string.Equals(adapter.InterfaceType, "Wireless80211", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsNonWirelessHostAdapter(WindowsNetworkAdapterSnapshot? adapter)
+        => adapter is not null && !IsWirelessAdapter(adapter);
 
     private static bool? DetermineSameSubnet(IPAddress headsetIpAddress, WindowsNetworkAdapterSnapshot adapter)
     {
@@ -453,6 +493,11 @@ public sealed class QuestWifiTransportDiagnosticsService
         }
 
         var adapterIp = hostAdapter.IPv4Addresses.Count > 0 ? hostAdapter.IPv4Addresses[0] : "n/a";
+        if (!IsWirelessAdapter(hostAdapter))
+        {
+            return $"Host routed link via {hostAdapter.Name} ({adapterIp}); PC Wi-Fi SSID {ssid}.";
+        }
+
         return $"Host Wi-Fi {ssid} via {hostAdapter.Name} ({adapterIp}).";
     }
 

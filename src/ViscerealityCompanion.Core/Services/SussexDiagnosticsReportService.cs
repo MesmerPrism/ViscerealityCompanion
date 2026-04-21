@@ -159,9 +159,17 @@ public sealed class SussexDiagnosticsReportService
         var target = StudyShellOperatorBindings.CreateQuestTarget(study);
         var profile = StudyShellOperatorBindings.CreateDeviceProfile(study);
 
-        var headset = await _questService
+        var initialHeadset = await _questService
             .QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        var wifiPreparation = await new QuestWifiAdbDiagnosticPreparationService(_questService)
+            .PrepareAsync(
+                target,
+                request.DeviceSelector ?? initialHeadset.ConnectionLabel,
+                initialHeadset,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var headset = wifiPreparation.EffectiveHeadset;
         var installed = await _questService
             .QueryInstalledAppAsync(target, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -187,16 +195,20 @@ public sealed class SussexDiagnosticsReportService
         var expectedType = string.IsNullOrWhiteSpace(study.Monitoring.ExpectedLslStreamType)
             ? HrvBiofeedbackStreamContract.StreamType
             : study.Monitoring.ExpectedLslStreamType;
-        var wifiTransport = await _questWifiTransportDiagnosticsService
-            .AnalyzeAsync(headset, request.DeviceSelector ?? headset.ConnectionLabel, cancellationToken)
-            .ConfigureAwait(false);
+        var wifiTransport = wifiPreparation.ApplyTo(
+            await _questWifiTransportDiagnosticsService
+                .AnalyzeAsync(headset, request.DeviceSelector ?? headset.ConnectionLabel, cancellationToken)
+                .ConfigureAwait(false));
 
         var windowsEnvironment = await _windowsEnvironmentAnalysisService
             .AnalyzeAsync(
                 new WindowsEnvironmentAnalysisRequest(
                     expectedName,
                     expectedType,
-                    QuestWifiTransport: new QuestWifiTransportDiagnosticsContext(headset, request.DeviceSelector ?? headset.ConnectionLabel)),
+                    QuestWifiTransport: new QuestWifiTransportDiagnosticsContext(
+                        headset,
+                        request.DeviceSelector ?? headset.ConnectionLabel,
+                        wifiPreparation)),
                 cancellationToken)
             .ConfigureAwait(false);
         var machineLslState = await BuildMachineLslStateResultAsync(study, cancellationToken).ConfigureAwait(false);

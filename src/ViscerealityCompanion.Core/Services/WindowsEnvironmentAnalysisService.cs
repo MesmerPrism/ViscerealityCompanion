@@ -19,7 +19,8 @@ public sealed record WindowsEnvironmentAnalysisRequest(
 
 public sealed record QuestWifiTransportDiagnosticsContext(
     HeadsetAppStatus Headset,
-    string? RequestedSelector = null);
+    string? RequestedSelector = null,
+    QuestWifiAdbDiagnosticPreparationResult? Preparation = null);
 
 public sealed record WindowsEnvironmentAnalysisResult(
     OperationOutcomeKind Level,
@@ -863,6 +864,10 @@ public sealed class WindowsEnvironmentAnalysisService
         var result = await _questWifiTransportDiagnosticsService
             .AnalyzeAsync(context.Headset, context.RequestedSelector, cancellationToken)
             .ConfigureAwait(false);
+        if (context.Preparation is not null)
+        {
+            result = context.Preparation.ApplyTo(result);
+        }
 
         return new WindowsEnvironmentCheckResult(
             "quest-wifi-transport",

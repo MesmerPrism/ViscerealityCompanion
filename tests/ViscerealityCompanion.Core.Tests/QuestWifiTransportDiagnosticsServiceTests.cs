@@ -88,6 +88,62 @@ public sealed class QuestWifiTransportDiagnosticsServiceTests
         Assert.False(result.TcpReachable);
     }
 
+    [Fact]
+    public async Task AnalyzeAsync_AcceptsEthernetHostPath_WhenSsidDoesNotMatchButTcpIsReachable()
+    {
+        var service = new QuestWifiTransportDiagnosticsService(
+            networkAdapterSnapshotProvider: () =>
+            [
+                new WindowsNetworkAdapterSnapshot(
+                    "Ethernet",
+                    "Realtek PCIe GbE Family Controller",
+                    "Ethernet",
+                    IsUp: true,
+                    IsLoopback: false,
+                    IsTunnel: false,
+                    SupportsMulticast: true,
+                    IPv4Addresses: ["192.168.0.22"],
+                    Gateways: ["192.168.0.1"],
+                    IPv4Cidrs: ["192.168.0.22/24"]),
+                new WindowsNetworkAdapterSnapshot(
+                    "Wi-Fi",
+                    "Intel Wi-Fi",
+                    "Wireless80211",
+                    IsUp: true,
+                    IsLoopback: false,
+                    IsTunnel: false,
+                    SupportsMulticast: true,
+                    IPv4Addresses: ["10.0.0.20"],
+                    Gateways: ["10.0.0.1"],
+                    IPv4Cidrs: ["10.0.0.20/24"])
+            ],
+            pingProbe: (_, _, _, _) => Task.FromResult(new QuestWifiTransportDiagnosticsService.PingProbeResult(
+                Attempted: true,
+                Reachable: true,
+                Attempts: 2,
+                SuccessfulReplies: 2,
+                AverageLatencyMs: 8.2,
+                Error: string.Empty)),
+            tcpProbe: (_, _, _, _) => Task.FromResult(new QuestWifiTransportDiagnosticsService.TcpProbeResult(
+                Attempted: true,
+                Reachable: true,
+                ConnectLatencyMs: 18.7,
+                Error: string.Empty)));
+
+        var result = await service.AnalyzeAsync(CreateHeadsetStatus() with
+        {
+            HostWifiSsid = "OfficeWifi",
+            WifiSsidMatchesHost = false
+        });
+
+        Assert.Equal(OperationOutcomeKind.Success, result.Level);
+        Assert.True(result.TcpReachable);
+        Assert.True(result.RoutedTopologyAccepted);
+        Assert.True(result.SameSubnet);
+        Assert.Contains("wired/router path", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Ethernet", result.HostWifi, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static HeadsetAppStatus CreateHeadsetStatus()
         => new(
             IsConnected: true,

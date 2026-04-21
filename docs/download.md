@@ -19,7 +19,7 @@ line now uses the stable release package family instead of the older preview
 family.
 
 The current packaged public release line tracked by this repo is
-`0.1.60.0`.
+`0.1.71.0`.
 
 The recommended path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -178,7 +178,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed package
-   should identify itself as `Published install 0.1.60.0`; unpackaged local
+   should identify itself as `Published install 0.1.71.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an

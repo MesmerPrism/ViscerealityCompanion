@@ -60,18 +60,27 @@ internal static class DiagnosticsCliSupport
     {
         var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
         var profile = StudyShellOperatorBindings.CreateDeviceProfile(definition);
-        var headset = await questService
+        var initialHeadset = await questService
             .QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        var wifiPreparation = await new QuestWifiAdbDiagnosticPreparationService(questService)
+            .PrepareAsync(
+                target,
+                device ?? initialHeadset.ConnectionLabel,
+                initialHeadset,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var headset = wifiPreparation.EffectiveHeadset;
         var installed = await questService
             .QueryInstalledAppAsync(target, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         var profileStatus = await questService
             .QueryDeviceProfileStatusAsync(profile, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        var wifiTransport = await new QuestWifiTransportDiagnosticsService()
-            .AnalyzeAsync(headset, device ?? headset.ConnectionLabel, cancellationToken)
-            .ConfigureAwait(false);
+        var wifiTransport = wifiPreparation.ApplyTo(
+            await new QuestWifiTransportDiagnosticsService()
+                .AnalyzeAsync(headset, device ?? headset.ConnectionLabel, cancellationToken)
+                .ConfigureAwait(false));
 
         var checkedAtUtc = DateTimeOffset.UtcNow;
         var bridge = TwinModeBridgeFactory.CreateDefault();
@@ -271,6 +280,7 @@ internal static class DiagnosticsCliSupport
         var selectorIpMismatch = !string.IsNullOrWhiteSpace(selectorIp) &&
                                  !string.IsNullOrWhiteSpace(headset.HeadsetWifiIpAddress) &&
                                  !string.Equals(selectorIp, headset.HeadsetWifiIpAddress, StringComparison.OrdinalIgnoreCase);
+        var wifiTransportReady = headset.IsWifiAdbTransport;
 
         var connectionSummary = inletReady && returnPathReady
             ? "Quest inlet is connected and the Windows return path is live."
@@ -354,6 +364,40 @@ internal static class DiagnosticsCliSupport
         }
 
         detailParts.Add(wifiTransport.Detail);
+
+        if (!wifiTransportReady)
+        {
+            detailParts.Add("Wi-Fi ADB is still the gating requirement for this diagnostic. Even if the inlet and return path look alive over USB, this result cannot turn green until the active Quest transport is Wi-Fi ADB.");
+            return new StudyConnectionProbeResult(
+                pinnedBuildReady ? OperationOutcomeKind.Warning : OperationOutcomeKind.Failure,
+                !pinnedBuildReady
+                    ? "Pinned Sussex APK is not installed or does not match the study shell baseline."
+                    : inletReady && returnPathReady
+                        ? "Quest inlet and return path are live, but the session is still on USB ADB."
+                        : "Quest is still not on Wi-Fi ADB, so this diagnostic cannot turn green yet.",
+                string.Join(" ", detailParts),
+                inletReady,
+                ReturnPathReady: false,
+                pinnedBuildReady,
+                deviceProfileReady,
+                Selector: BuildSelectorLabel(device, headset),
+                ForegroundAndSnapshot: BuildForegroundAndSnapshotLabel(headset),
+                PinnedBuild: BuildPinnedBuildLabel(definition, installed),
+                DeviceProfile: BuildDeviceProfileLabel(profileStatus),
+                WifiTransport: $"[{RenderLevel(wifiTransport.Level)}] {wifiTransport.Summary}",
+                ExpectedInlet: $"{definition.Monitoring.ExpectedLslStreamName} / {definition.Monitoring.ExpectedLslStreamType}",
+                RuntimeTarget: runtimeTarget,
+                ConnectedInlet: connectedInlet,
+                Counts: counts,
+                QuestStatus: questStatus,
+                QuestEcho: questEcho,
+                ReturnPath: returnPath,
+                TwinStatePublisher: QuestTwinStatePublisherInventoryService.RenderForOperator(twinStatePublisher),
+                CommandChannel: "quest_twin_commands / quest.twin.command",
+                HotloadChannel: "quest_hotload_config / quest.config",
+                TransportDetail: bridge.Status.Detail,
+                CheckedAtUtc: checkedAtUtc);
+        }
 
         if (headsetForeground)
         {

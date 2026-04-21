@@ -118,7 +118,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     [
         new(1, "Verify USB visibility", "Start with a real USB connection. The headset must be visible over USB ADB before the guide can bootstrap remote control."),
         new(2, "Enable Wi-Fi ADB", "Turn on Wi-Fi ADB so the headset can stay reachable on its current Wi-Fi network. This exposes ADB over the headset's active Wi-Fi connection."),
-        new(3, "Match the Wi-Fi network", "Confirm the headset Wi-Fi name matches this PC. If it does not, change the headset Wi-Fi manually in-headset because remote Wi-Fi switching is not reliable."),
+        new(3, "Confirm the router path", "Confirm the headset is on a network path that Windows can really reach. Matching Wi-Fi names are fine, but the host can also be on the same router over Ethernet or another valid routed link."),
         new(4, "Confirm Wi-Fi ADB stays active", "Make sure the companion keeps reaching the headset over Wi-Fi ADB and does not silently fall back to USB. The later guided steps should keep showing the Wi-Fi endpoint as the active transport."),
         new(5, "Verify the Sussex APK", "Check whether the approved Sussex Experiment APK is installed. If not, install the bundled study APK before moving on."),
         new(6, "Review the device profile", "Apply the pinned CPU, GPU, brightness, and media-volume profile, then review the battery and remaining bench advisories before leaving the bench. These checks stay visible, but they do not block the Sussex flow."),
@@ -2643,9 +2643,104 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var wifiPreparation = await PrepareQuestWifiAdbForDiagnosticsAsync().ConfigureAwait(false);
         await RefreshQuestTwinStatePublisherInventoryAsync().ConfigureAwait(false);
-        await DispatchAsync(() => QueueQuestWifiTransportDiagnosticsRefresh(force: true)).ConfigureAwait(false);
+        await RefreshQuestWifiTransportDiagnosticsAsync(wifiPreparation).ConfigureAwait(false);
         await ApplyOutcomeAsync("Probe Connection", BuildLslConnectionProbeOutcome()).ConfigureAwait(false);
+    }
+
+    private async Task<QuestWifiAdbDiagnosticPreparationResult?> PrepareQuestWifiAdbForDiagnosticsAsync()
+    {
+        HeadsetAppStatus? initialHeadset = null;
+        string requestedSelector = string.Empty;
+        string? stagedApkPath = null;
+
+        await DispatchAsync(() =>
+        {
+            initialHeadset = _headsetStatus;
+            requestedSelector = ResolveHeadsetActionSelector();
+            stagedApkPath = StagedApkPath;
+        }).ConfigureAwait(false);
+
+        if (initialHeadset?.IsConnected != true)
+        {
+            return null;
+        }
+
+        var effectiveRequestedSelector = string.IsNullOrWhiteSpace(requestedSelector)
+            ? initialHeadset.ConnectionLabel
+            : requestedSelector;
+        var preparation = await new QuestWifiAdbDiagnosticPreparationService(_questService)
+            .PrepareAsync(
+                CreateStudyTarget(stagedApkPath),
+                effectiveRequestedSelector,
+                initialHeadset)
+            .ConfigureAwait(false);
+
+        var savedSelector = ResolveQuestWifiDiagnosticSelector(preparation, effectiveRequestedSelector);
+        if (!string.IsNullOrWhiteSpace(savedSelector))
+        {
+            await DispatchAsync(() =>
+            {
+                EndpointDraft = savedSelector;
+                SaveSession(endpoint: savedSelector);
+            }).ConfigureAwait(false);
+        }
+
+        if (preparation.Attempted)
+        {
+            await RefreshDeviceSnapshotBundleAsync(
+                forceProximity: true,
+                includeHostWifiStatus: true,
+                forceInstalledAppStatusRefresh: false).ConfigureAwait(false);
+        }
+
+        return preparation;
+    }
+
+    private async Task<QuestWifiTransportDiagnosticsResult?> RefreshQuestWifiTransportDiagnosticsAsync(
+        QuestWifiAdbDiagnosticPreparationResult? preparation = null,
+        CancellationToken cancellationToken = default)
+    {
+        HeadsetAppStatus? headset = null;
+        string requestedSelector = string.Empty;
+
+        await DispatchAsync(() =>
+        {
+            headset = _headsetStatus;
+            requestedSelector = ResolveHeadsetActionSelector();
+        }).ConfigureAwait(false);
+
+        if (headset?.IsConnected != true)
+        {
+            await DispatchAsync(() =>
+            {
+                _questWifiTransportDiagnostics = null;
+                _questWifiTransportDiagnosticsInputKey = string.Empty;
+                _questWifiTransportDiagnosticsPending = false;
+            }).ConfigureAwait(false);
+            return null;
+        }
+
+        var effectiveRequestedSelector = string.IsNullOrWhiteSpace(requestedSelector)
+            ? headset.ConnectionLabel
+            : requestedSelector;
+        var result = await _questWifiTransportDiagnosticsService
+            .AnalyzeAsync(headset, effectiveRequestedSelector, cancellationToken)
+            .ConfigureAwait(false);
+        if (preparation is not null)
+        {
+            result = preparation.ApplyTo(result);
+        }
+
+        var inputKey = BuildQuestWifiTransportDiagnosticsInputKey(headset, effectiveRequestedSelector);
+        await DispatchAsync(() =>
+        {
+            _questWifiTransportDiagnostics = result;
+            _questWifiTransportDiagnosticsInputKey = inputKey;
+            _questWifiTransportDiagnosticsPending = false;
+        }).ConfigureAwait(false);
+        return result;
     }
 
     private async Task RefreshQuestTwinStatePublisherInventoryAsync()
@@ -2682,9 +2777,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         WindowsEnvironmentAnalysisResult result;
         try
         {
+            if (AppBuildIdentity.Current.IsPackaged)
+            {
+                await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+            }
+
+            var wifiPreparation = await PrepareQuestWifiAdbForDiagnosticsAsync().ConfigureAwait(false);
             result = await _windowsEnvironmentAnalysisService
-                .AnalyzeAsync(BuildWindowsEnvironmentAnalysisRequest())
+                .AnalyzeAsync(BuildWindowsEnvironmentAnalysisRequest(wifiPreparation))
                 .ConfigureAwait(false);
+            await RefreshQuestWifiTransportDiagnosticsAsync(wifiPreparation).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -2702,7 +2804,6 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ApplyWindowsEnvironmentAnalysisResult(result);
             RefreshBenchToolsStatus();
         }).ConfigureAwait(false);
-        await DispatchAsync(() => QueueQuestWifiTransportDiagnosticsRefresh(force: true)).ConfigureAwait(false);
         QueueMachineLslStateRefresh();
 
         await ApplyOutcomeAsync(
@@ -2789,6 +2890,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         OperationOutcome pdfOutcome;
         try
         {
+            if (AppBuildIdentity.Current.IsPackaged)
+            {
+                await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+            }
+
             var reportService = new SussexDiagnosticsReportService(
                 _questService,
                 _windowsEnvironmentAnalysisService,
@@ -2876,17 +2982,25 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    private WindowsEnvironmentAnalysisRequest BuildWindowsEnvironmentAnalysisRequest()
-        => new(
+    private WindowsEnvironmentAnalysisRequest BuildWindowsEnvironmentAnalysisRequest(
+        QuestWifiAdbDiagnosticPreparationResult? wifiPreparation = null)
+    {
+        var headset = wifiPreparation?.EffectiveHeadset ?? _headsetStatus;
+        var requestedSelector = string.IsNullOrWhiteSpace(ResolveHeadsetActionSelector())
+            ? headset?.ConnectionLabel ?? string.Empty
+            : ResolveHeadsetActionSelector();
+
+        return new WindowsEnvironmentAnalysisRequest(
             string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
                 ? HrvBiofeedbackStreamContract.StreamName
                 : _study.Monitoring.ExpectedLslStreamName,
             string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
                 ? HrvBiofeedbackStreamContract.StreamType
                 : _study.Monitoring.ExpectedLslStreamType,
-            QuestWifiTransport: _headsetStatus?.IsConnected == true
-                ? new QuestWifiTransportDiagnosticsContext(_headsetStatus, ResolveHeadsetActionSelector())
+            QuestWifiTransport: headset?.IsConnected == true
+                ? new QuestWifiTransportDiagnosticsContext(headset, requestedSelector, wifiPreparation)
                 : null);
+    }
 
     private void ApplyWindowsEnvironmentAnalysisResult(WindowsEnvironmentAnalysisResult result)
     {
@@ -2925,7 +3039,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private void QueueQuestWifiTransportDiagnosticsRefresh(bool force = false)
     {
-        if (_headsetStatus?.IsConnected != true || _headsetStatus.IsWifiAdbTransport != true)
+        if (_headsetStatus?.IsConnected != true)
         {
             _questWifiTransportDiagnostics = null;
             _questWifiTransportDiagnosticsInputKey = string.Empty;
@@ -2933,14 +3047,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var currentInputKey = string.Join(
-            "|",
-            ResolveHeadsetActionSelector(),
-            _headsetStatus.ConnectionLabel,
-            _headsetStatus.HeadsetWifiIpAddress,
-            _headsetStatus.HeadsetWifiSsid,
-            _headsetStatus.HostWifiSsid,
-            _headsetStatus.HostWifiInterfaceName);
+        var requestedSelector = ResolveHeadsetActionSelector();
+        var currentInputKey = BuildQuestWifiTransportDiagnosticsInputKey(_headsetStatus, requestedSelector);
 
         if (!force &&
             _questWifiTransportDiagnosticsPending)
@@ -2963,7 +3071,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             try
             {
                 var result = await _questWifiTransportDiagnosticsService
-                    .AnalyzeAsync(_headsetStatus, ResolveHeadsetActionSelector())
+                    .AnalyzeAsync(_headsetStatus, requestedSelector)
                     .ConfigureAwait(false);
                 await DispatchAsync(() => _questWifiTransportDiagnostics = result).ConfigureAwait(false);
             }
@@ -2980,12 +3088,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
     private WorkflowGuideCheckItem BuildWifiTransportWorkflowGuideCheckItem()
     {
-        if (_headsetStatus?.IsConnected != true || _headsetStatus.IsWifiAdbTransport != true)
+        if (_headsetStatus?.IsConnected != true)
         {
             return new WorkflowGuideCheckItem(
                 "Wi-Fi router path",
                 "Wi-Fi router path not checked yet.",
-                "Switch the study path onto Wi-Fi ADB first. Once Wi-Fi ADB is active, this check will verify that Windows can actually reach the Quest endpoint over the current router path.",
+                "Connect the headset first. Probe Connection or Analyze Windows Environment will then try to switch onto Wi-Fi ADB before checking whether Windows can actually reach the Quest endpoint over the current router path.",
                 OperationOutcomeKind.Warning);
         }
 
@@ -2993,9 +3101,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         {
             return new WorkflowGuideCheckItem(
                 "Wi-Fi router path",
-                "Wi-Fi router path is still being measured.",
-                "The shell is waiting for a live PC↔Quest Wi-Fi transport probe. Refresh the snapshot again if this stays pending after the current ADB selector stabilizes.",
-                OperationOutcomeKind.Preview);
+                _headsetStatus.IsWifiAdbTransport
+                    ? "Wi-Fi router path is still being measured."
+                    : "Quest is not on Wi-Fi ADB yet.",
+                _headsetStatus.IsWifiAdbTransport
+                    ? "The shell is waiting for a live PC↔Quest Wi-Fi transport probe. Refresh the snapshot again if this stays pending after the current ADB selector stabilizes."
+                    : "Probe Connection or Analyze Windows Environment will try to switch the active Quest transport onto Wi-Fi ADB automatically. If that still fails, keep USB attached, accept any in-headset debugging prompt, and then use Connect Quest with the current headset Wi-Fi IP plus port 5555.",
+                _headsetStatus.IsWifiAdbTransport ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning);
         }
 
         return new WorkflowGuideCheckItem(
@@ -6973,33 +7085,41 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var routedTopologyAccepted = _questWifiTransportDiagnostics?.RoutedTopologyAccepted == true;
         WifiNetworkMatchLevel = _headsetStatus.WifiSsidMatchesHost switch
         {
             true => OperationOutcomeKind.Success,
+            false when routedTopologyAccepted => OperationOutcomeKind.Success,
             false => OperationOutcomeKind.Failure,
+            _ when routedTopologyAccepted => OperationOutcomeKind.Success,
             _ => OperationOutcomeKind.Warning
         };
         WifiNetworkMatchSummary = _headsetStatus.WifiSsidMatchesHost switch
         {
             true => "Wi-Fi names match.",
+            false when routedTopologyAccepted => "Different SSIDs, but the routed Quest path is valid.",
             false => "Wi-Fi names do not match.",
+            _ when routedTopologyAccepted => "Routed Quest path is valid.",
             _ => "Wi-Fi match unknown."
         };
 
         if (isWifiAdbActive)
         {
-            ConnectionCardLevel = _headsetStatus.WifiSsidMatchesHost == false
+            ConnectionCardLevel = _headsetStatus.WifiSsidMatchesHost == false && !routedTopologyAccepted
                 ? OperationOutcomeKind.Warning
                 : OperationOutcomeKind.Success;
-            ConnectionTransportLevel = _headsetStatus.WifiSsidMatchesHost == false
+            ConnectionTransportLevel = _headsetStatus.WifiSsidMatchesHost == false && !routedTopologyAccepted
                 ? OperationOutcomeKind.Failure
                 : OperationOutcomeKind.Success;
-            ConnectionTransportSummary = _headsetStatus.WifiSsidMatchesHost == false
+            ConnectionTransportSummary = _headsetStatus.WifiSsidMatchesHost == false && !routedTopologyAccepted
                 ? "ADB over Wi-Fi: on, but network names do not match."
+                : routedTopologyAccepted
+                    ? "ADB over Wi-Fi: on over a valid routed host path."
                 : "ADB over Wi-Fi: on.";
             ConnectionTransportDetail = _headsetStatus.WifiSsidMatchesHost switch
             {
                 true => $"Remote control is using {selector}, and the headset Wi-Fi matches this PC.",
+                false when routedTopologyAccepted => $"Remote control is using {selector}, and the Quest endpoint is reachable over the current routed host path. Matching PC Wi-Fi names are not required on this topology.",
                 false => $"Remote control is using {selector}, but the headset Wi-Fi does not match this PC.",
                 _ => $"Remote control is using {selector}. Verify the headset Wi-Fi name before starting the session."
             };
@@ -10200,6 +10320,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private WorkflowGuideGateState BuildWifiMatchWorkflowGuideGateState()
     {
         var match = _headsetStatus?.WifiSsidMatchesHost;
+        var routedTopologyAccepted = _questWifiTransportDiagnostics?.RoutedTopologyAccepted == true;
         if (_questWifiTransportDiagnostics is { Level: OperationOutcomeKind.Failure } wifiTransport)
         {
             return new WorkflowGuideGateState(
@@ -10207,6 +10328,20 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 wifiTransport.Summary,
                 $"{HeadsetWifiSummary} {HostWifiSummary} {wifiTransport.Detail}",
                 false);
+        }
+
+        if (routedTopologyAccepted)
+        {
+            var routedDetail = _questWifiTransportDiagnostics is { Level: OperationOutcomeKind.Warning } wifiTransportWarning
+                ? $"{HeadsetWifiSummary} {HostWifiSummary} {wifiTransportWarning.Detail}"
+                : $"{HeadsetWifiSummary} {HostWifiSummary} Matching Wi-Fi names are not required here because the current routed host path can already reach the Quest endpoint.";
+            return new WorkflowGuideGateState(
+                _questWifiTransportDiagnostics?.Level == OperationOutcomeKind.Warning
+                    ? OperationOutcomeKind.Warning
+                    : OperationOutcomeKind.Success,
+                "Quest router path is valid.",
+                routedDetail,
+                true);
         }
 
         var level = match switch
@@ -10391,6 +10526,24 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 false);
         }
 
+        if (_headsetStatus.IsWifiAdbTransport != true)
+        {
+            var wifiStopperDetail = _questWifiTransportDiagnostics?.Detail;
+            if (string.IsNullOrWhiteSpace(wifiStopperDetail))
+            {
+                wifiStopperDetail = "Wi-Fi ADB is still the gating requirement for this diagnostic. Even if the inlet and return path look alive over USB, this result cannot turn green until the active Quest transport is Wi-Fi ADB. Keep USB attached, accept any in-headset debugging prompt, and then use Connect Quest with the current headset Wi-Fi IP plus port 5555.";
+            }
+
+            return (
+                OperationOutcomeKind.Warning,
+                inletReady && returnPathReady
+                    ? "Quest inlet and return path are live, but the session is still on USB ADB."
+                    : "Quest is still not on Wi-Fi ADB, so this diagnostic cannot turn green yet.",
+                $"{detail} {wifiStopperDetail}".Trim(),
+                inletReady,
+                false);
+        }
+
         if (inletReady && returnPathReady)
         {
             var successSummary = !pinnedBuildReady
@@ -10469,7 +10622,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 : OperationOutcomeKind.Warning;
         var detail = ready
             ? $"{LslDetail} Connected stream {LslConnectedStreamLabel}. {probeState.Summary}"
-            : $"{LslDetail} {probeState.Detail} The experiment heartbeat stream is the operator's responsibility, but this step must turn green before the onboarding run continues.";
+            : $"{LslDetail} {probeState.Summary} {probeState.Detail} The experiment heartbeat stream is the operator's responsibility, but this step must turn green before the onboarding run continues.";
         return new WorkflowGuideGateState(level, ready ? "Heartbeat LSL is reaching the headset." : "Heartbeat LSL is not confirmed yet.", detail, ready);
     }
 
@@ -10680,6 +10833,39 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             OperationOutcomeKind.Success => 1,
             _ => 0
         };
+
+    private static string BuildQuestWifiTransportDiagnosticsInputKey(HeadsetAppStatus headset, string? requestedSelector)
+        => string.Join(
+            "|",
+            requestedSelector,
+            headset.ConnectionLabel,
+            headset.HeadsetWifiIpAddress,
+            headset.HeadsetWifiSsid,
+            headset.HostWifiSsid,
+            headset.HostWifiInterfaceName);
+
+    private static string ResolveQuestWifiDiagnosticSelector(
+        QuestWifiAdbDiagnosticPreparationResult preparation,
+        string fallbackSelector)
+    {
+        if (preparation.EffectiveHeadset.IsConnected &&
+            !string.IsNullOrWhiteSpace(preparation.EffectiveHeadset.ConnectionLabel))
+        {
+            return preparation.EffectiveHeadset.ConnectionLabel;
+        }
+
+        if (!string.IsNullOrWhiteSpace(preparation.ReconnectOutcome?.Endpoint))
+        {
+            return preparation.ReconnectOutcome.Endpoint.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(preparation.BootstrapOutcome?.Endpoint))
+        {
+            return preparation.BootstrapOutcome.Endpoint.Trim();
+        }
+
+        return fallbackSelector;
+    }
 
     private static string ExtractIpAddressFromSelector(string? selector)
     {
@@ -10906,8 +11092,32 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ],
             2 =>
             [
-                new WorkflowGuideCheckItem("Headset Wi-Fi", HeadsetWifiSummary, $"Headset IP {_headsetStatus?.HeadsetWifiIpAddress ?? "n/a"}.", _headsetStatus?.WifiSsidMatchesHost == true ? OperationOutcomeKind.Success : _headsetStatus?.WifiSsidMatchesHost == false ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning),
-                new WorkflowGuideCheckItem("PC Wi-Fi", HostWifiSummary, string.IsNullOrWhiteSpace(_headsetStatus?.HostWifiSsid) ? "Refresh the snapshot until the PC Wi-Fi name is visible. If it still stays unknown, the Windows-side Wi-Fi probe has not returned yet." : "If the names differ, change the headset Wi-Fi manually inside the headset before continuing.", _headsetStatus?.WifiSsidMatchesHost == true ? OperationOutcomeKind.Success : _headsetStatus?.WifiSsidMatchesHost == false ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem(
+                    "Headset Wi-Fi",
+                    HeadsetWifiSummary,
+                    $"Headset IP {_headsetStatus?.HeadsetWifiIpAddress ?? "n/a"}.",
+                    _questWifiTransportDiagnostics?.RoutedTopologyAccepted == true
+                        ? OperationOutcomeKind.Success
+                        : _headsetStatus?.WifiSsidMatchesHost == true
+                            ? OperationOutcomeKind.Success
+                            : _headsetStatus?.WifiSsidMatchesHost == false
+                                ? OperationOutcomeKind.Failure
+                                : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem(
+                    "PC network",
+                    HostWifiSummary,
+                    _questWifiTransportDiagnostics?.RoutedTopologyAccepted == true
+                        ? "The current routed host path can already reach the Quest endpoint, so matching PC Wi-Fi names are not required on this topology."
+                        : string.IsNullOrWhiteSpace(_headsetStatus?.HostWifiSsid)
+                            ? "If this PC is on Ethernet, that is still valid as long as the router-path check turns green. If you expect PC Wi-Fi here, refresh the snapshot until the Windows-side probe returns it."
+                            : "If the names differ and the router-path check stays red, move the headset onto the same reachable router path before continuing.",
+                    _questWifiTransportDiagnostics?.RoutedTopologyAccepted == true
+                        ? OperationOutcomeKind.Success
+                        : _headsetStatus?.WifiSsidMatchesHost == true
+                            ? OperationOutcomeKind.Success
+                            : _headsetStatus?.WifiSsidMatchesHost == false
+                                ? OperationOutcomeKind.Failure
+                                : OperationOutcomeKind.Warning),
                 BuildWifiTransportWorkflowGuideCheckItem()
             ],
             3 =>

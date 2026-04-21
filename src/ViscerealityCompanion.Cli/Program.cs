@@ -1545,12 +1545,19 @@ public static class Program
                 if (!string.IsNullOrWhiteSpace(selector))
                 {
                     var questService = CreateQuestService(device);
-                    var headset = await questService
+                    var initialHeadset = await questService
                         .QueryHeadsetStatusAsync(target: null, remoteOnlyControlEnabled: false)
                         .ConfigureAwait(false);
+                    var wifiPreparation = await new QuestWifiAdbDiagnosticPreparationService(questService)
+                        .PrepareAsync(
+                            target: null,
+                            selector,
+                            initialHeadset)
+                        .ConfigureAwait(false);
+                    var headset = wifiPreparation.EffectiveHeadset;
                     if (headset.IsConnected)
                     {
-                        wifiContext = new QuestWifiTransportDiagnosticsContext(headset, selector);
+                        wifiContext = new QuestWifiTransportDiagnosticsContext(headset, selector, wifiPreparation);
                     }
                 }
 
