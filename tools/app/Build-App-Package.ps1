@@ -445,6 +445,7 @@ try {
         "/p:AssemblyVersion=$Version",
         "/p:FileVersion=$Version",
         "/p:InformationalVersion=$Version",
+        '/p:StageBundledCliOnBuild=True',
         "/p:GenerateAppInstallerFile=False",
         '/p:AppxPackageSigningEnabled=False'
     )

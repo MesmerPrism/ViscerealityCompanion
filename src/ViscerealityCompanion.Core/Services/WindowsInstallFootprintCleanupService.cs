@@ -160,7 +160,7 @@ public sealed class WindowsInstallFootprintCleanupService
 
         if (snapshot.UnpackagedAgentWorkspaceExists && removableWorkspaceRoots.Count == 0)
         {
-            advisories.Add("The unpackaged `agent-workspace` mirror was left in place because no packaged install was detected to supersede it.");
+            advisories.Add("The unpackaged `agent-workspace` mirror was left in place because no packaged CLI workspace export was detected to supersede it yet.");
         }
 
         return advisories;
@@ -226,6 +226,7 @@ internal static class WindowsInstallFootprintRules
     {
         if (!snapshot.UnpackagedAgentWorkspaceExists ||
             snapshot.PackagedInstalls.Count == 0 ||
+            !HasPackagedCliWorkspaceExport(snapshot) ||
             string.IsNullOrWhiteSpace(snapshot.UnpackagedAgentWorkspaceRootPath))
         {
             return [];
@@ -243,4 +244,30 @@ internal static class WindowsInstallFootprintRules
                Path.TrimEndingDirectorySeparator(path),
                Path.TrimEndingDirectorySeparator(snapshot.UnpackagedAgentWorkspaceRootPath),
                StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasPackagedCliWorkspaceExport(WindowsInstallFootprintSnapshot snapshot)
+        => snapshot.BrandedCliExecutablePaths
+            .Concat(snapshot.LegacyCliExecutablePaths)
+            .Any(path => IsPathUnderAnyPackagedWorkspace(snapshot, path));
+
+    private static bool IsPathUnderAnyPackagedWorkspace(WindowsInstallFootprintSnapshot snapshot, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        return snapshot.PackagedInstalls.Any(install =>
+        {
+            if (string.IsNullOrWhiteSpace(install.OperatorDataRootPath))
+            {
+                return false;
+            }
+
+            var packagedWorkspaceRoot = Path.Combine(install.OperatorDataRootPath, "agent-workspace");
+            var normalizedRoot = Path.TrimEndingDirectorySeparator(packagedWorkspaceRoot) + Path.DirectorySeparatorChar;
+            var normalizedPath = Path.GetFullPath(path);
+            return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+        });
+    }
 }

@@ -55,4 +55,25 @@
   </ItemGroup>
 
   <Import Project="$(WapProjPath)\Microsoft.DesktopBridge.targets" />
+
+  <Target Name="InjectBundledCliIntoAppxPayload"
+          AfterTargets="_ComputeAppxPackagePayload"
+          Condition="'$(AppxPackage)' == 'true'">
+    <PropertyGroup>
+      <_BundledCliRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_BundledCliRuntimeIdentifier>
+      <_BundledCliRuntimeIdentifier Condition="'$(_BundledCliRuntimeIdentifier)' == ''">win-$(Platform)</_BundledCliRuntimeIdentifier>
+      <_BundledCliPublishDir>$([System.IO.Path]::Combine('$(MSBuildThisFileDirectory)', '..', 'ViscerealityCompanion.App', 'bin', '$(Platform)', '$(Configuration)', 'net10.0-windows10.0.19041.0', '$(_BundledCliRuntimeIdentifier)', 'msixpublish', 'cli', 'current'))</_BundledCliPublishDir>
+    </PropertyGroup>
+
+    <ItemGroup Condition="Exists('$(_BundledCliPublishDir)')">
+      <_BundledCliPayload Include="$(_BundledCliPublishDir)\**\*.*" />
+      <AppxPackagePayload Include="@(_BundledCliPayload)">
+        <TargetPath>ViscerealityCompanion.App\cli\current\%(_BundledCliPayload.RecursiveDir)%(_BundledCliPayload.Filename)%(_BundledCliPayload.Extension)</TargetPath>
+      </AppxPackagePayload>
+    </ItemGroup>
+
+    <Message Importance="High"
+             Condition="Exists('$(_BundledCliPublishDir)')"
+             Text="InjectBundledCliIntoAppxPayload: including bundled CLI payload from $(_BundledCliPublishDir)." />
+  </Target>
 </Project>

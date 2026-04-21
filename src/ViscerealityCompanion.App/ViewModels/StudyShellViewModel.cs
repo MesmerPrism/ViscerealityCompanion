@@ -2727,6 +2727,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         WindowsEnvironmentAnalysisResult analysisResult;
         try
         {
+            if (AppBuildIdentity.Current.IsPackaged)
+            {
+                await Task.Run(() => _localAgentWorkspaceService.EnsureWorkspace()).ConfigureAwait(false);
+            }
+
             cleanupResult = _windowsInstallFootprintCleanupService.Cleanup();
             analysisResult = await _windowsEnvironmentAnalysisService
                 .AnalyzeAsync(BuildWindowsEnvironmentAnalysisRequest())

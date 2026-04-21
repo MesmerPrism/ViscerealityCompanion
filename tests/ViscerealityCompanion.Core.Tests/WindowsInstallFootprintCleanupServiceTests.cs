@@ -30,6 +30,7 @@ public sealed class WindowsInstallFootprintCleanupServiceTests
                 ],
                 BrandedCliExecutablePaths:
                 [
+                    @"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion\agent-workspace\cli\current\Viscereality CLI.exe",
                     @"C:\Users\operator\AppData\Local\ViscerealityCompanion\agent-workspace\cli\current\Viscereality CLI.exe"
                 ],
                 LegacyCliExecutablePaths:
@@ -95,10 +96,10 @@ public sealed class WindowsInstallFootprintCleanupServiceTests
         var result = service.Cleanup();
 
         Assert.Equal(OperationOutcomeKind.Warning, result.Level);
-        Assert.Single(deletedPaths);
-        Assert.Contains(@"C:\Users\operator\AppData\Local\ViscerealityCompanion\agent-workspace", deletedPaths);
+        Assert.Empty(deletedPaths);
         Assert.Contains("legacy preview package family is still installed", result.Detail, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("branded `Viscereality CLI.exe` sibling", result.Detail, StringComparison.Ordinal);
+        Assert.Contains("no packaged cli workspace export", result.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -123,5 +124,39 @@ public sealed class WindowsInstallFootprintCleanupServiceTests
         Assert.Equal(OperationOutcomeKind.Warning, result.Level);
         Assert.Empty(deletedPaths);
         Assert.Contains("unpackaged `agent-workspace` mirror was left in place", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Cleanup_Warns_WhenPackagedInstallExists_ButNoPackagedCliWorkspaceExportExists()
+    {
+        var deletedPaths = new List<string>();
+        var service = new WindowsInstallFootprintCleanupService(
+            snapshotProvider: () => new WindowsInstallFootprintSnapshot(
+                PackagedInstalls:
+                [
+                    new WindowsPackagedInstallFootprint(
+                        PackagedAppIdentity.ReleasePackageName,
+                        "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y",
+                        @"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y",
+                        @"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion")
+                ],
+                DesktopShortcutPaths: [],
+                StartMenuShortcutPaths: [],
+                BrandedCliExecutablePaths:
+                [
+                    @"C:\Users\operator\AppData\Local\ViscerealityCompanion\agent-workspace\cli\current\Viscereality CLI.exe"
+                ],
+                LegacyCliExecutablePaths: [],
+                UnpackagedOperatorDataRootPath: @"C:\Users\operator\AppData\Local\ViscerealityCompanion",
+                UnpackagedAgentWorkspaceRootPath: @"C:\Users\operator\AppData\Local\ViscerealityCompanion\agent-workspace",
+                UnpackagedAgentWorkspaceExists: true),
+            deleteFile: deletedPaths.Add,
+            deleteDirectory: deletedPaths.Add);
+
+        var result = service.Cleanup();
+
+        Assert.Equal(OperationOutcomeKind.Warning, result.Level);
+        Assert.Empty(deletedPaths);
+        Assert.Contains("no packaged cli workspace export", result.Detail, StringComparison.OrdinalIgnoreCase);
     }
 }

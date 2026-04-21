@@ -54,6 +54,46 @@
     <Resource Include="Assets\viscereality-wordmark.png" />
   </ItemGroup>
 
+  <Target Name="CustomOutputGroupForPackaging"
+          Returns="@(_BundledCliPackagingOutput)"
+          Condition="'$(IsCrossTargetingBuild)' != 'true' and Exists('$(PublishDir)cli\\current')">
+    <ItemGroup>
+      <_BundledCliPackagingOutput Include="$(PublishDir)cli\\current\\**\\*.*">
+        <TargetPath>cli\\current\\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+      </_BundledCliPackagingOutput>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="StageBundledCliForBuild"
+          AfterTargets="Build"
+          Condition="'$(IsCrossTargetingBuild)' != 'true' and '$(StageBundledCliOnBuild)' == 'true'">
+    <PropertyGroup>
+      <_BundledCliRuntimeIdentifier Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_BundledCliRuntimeIdentifier>
+      <_BundledCliRuntimeIdentifier Condition="'$(_BundledCliRuntimeIdentifier)' == ''">win-x64</_BundledCliRuntimeIdentifier>
+      <_BundledCliPublishDir>$([System.IO.Path]::Combine('$(TargetDir)', 'cli', 'current'))</_BundledCliPublishDir>
+      <_BundledCliLslSource>$([System.IO.Path]::Combine('$(TargetDir)', 'runtimes', 'win-x64', 'native', 'lsl.dll'))</_BundledCliLslSource>
+      <_BundledCliRuntimeNativeDir>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'runtimes', 'win-x64', 'native'))</_BundledCliRuntimeNativeDir>
+      <_BundledCliPublishedExe>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'viscereality.exe'))</_BundledCliPublishedExe>
+      <_BundledCliBrandedExe>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'Viscereality CLI.exe'))</_BundledCliBrandedExe>
+    </PropertyGroup>
+    <MakeDir Directories="$(_BundledCliPublishDir)" />
+    <Exec Command="dotnet publish &quot;$(BundledCliProjectPath)&quot; --configuration &quot;$(Configuration)&quot; --runtime &quot;$(_BundledCliRuntimeIdentifier)&quot; -p:PublishSingleFile=true -p:SelfContained=true --output &quot;$(_BundledCliPublishDir)&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <Delete Files="$(_BundledCliBrandedExe)"
+            Condition="Exists('$(_BundledCliBrandedExe)')" />
+    <Move SourceFiles="$(_BundledCliPublishedExe)"
+          DestinationFiles="$(_BundledCliBrandedExe)"
+          Condition="Exists('$(_BundledCliPublishedExe)')" />
+    <MakeDir Directories="$(_BundledCliRuntimeNativeDir)"
+             Condition="Exists('$(_BundledCliLslSource)')" />
+    <Copy SourceFiles="$(_BundledCliLslSource)"
+          DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'lsl.dll'))"
+          Condition="Exists('$(_BundledCliLslSource)')" />
+    <Copy SourceFiles="$(_BundledCliLslSource)"
+          DestinationFiles="$([System.IO.Path]::Combine('$(_BundledCliRuntimeNativeDir)', 'lsl.dll'))"
+          Condition="Exists('$(_BundledCliLslSource)')" />
+  </Target>
+
   <Target Name="PublishBundledCli"
           AfterTargets="Publish"
           Condition="'$(IsCrossTargetingBuild)' != 'true'">
