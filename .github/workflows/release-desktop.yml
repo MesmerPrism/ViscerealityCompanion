@@ -219,12 +219,9 @@ jobs:
           $args = @(
             '-PreviewSetupPath', "artifacts\windows-installer\$env:SETUP_FILE_NAME",
             '-PackagePath', "artifacts\windows-installer\$env:PACKAGE_FILE_NAME",
+            '-AllowSelfSignedPreviewSetup',
             '-AllowSelfSignedPackage'
           )
-
-          if ($env:WINDOWS_SETUP_CERTIFICATE_BASE64 -eq $env:WINDOWS_PACKAGE_CERTIFICATE_BASE64) {
-            $args += '-AllowSelfSignedPreviewSetup'
-          }
 
           & powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ReleaseAssetSigning.ps1 @args
 

@@ -296,7 +296,10 @@ against the built `ViscerealityCompanion-Setup.exe` and
 `ViscerealityCompanion.msix`. Treat missing RFC3161 timestamps as a packaging
 bug. Treat Smart App Control blocking a self-signed helper as a trust/reputation
 limitation until a trusted-provider certificate or Trusted Signing is wired
-into the release workflow.
+into the release workflow. The GitHub Actions release validator should still
+verify both assets are signed and timestamped, but it must allow self-issued
+trust failures for the helper EXE (and currently also for the MSIX) until that
+trusted-provider path exists.
 For GitHub Actions release packaging, keep the workflow on
 `windows-2025-vs2026` (or another runner with Visual Studio 2026 / MSBuild 18
 or newer). This repo now packages a `net10.0-windows` WPF app, and the Desktop
