@@ -43,6 +43,19 @@ public sealed record WindowsNetworkAdapterSnapshot(
     public IReadOnlyList<string> SafeIPv4Cidrs => IPv4Cidrs ?? Array.Empty<string>();
 }
 
+public sealed record WindowsPackagedInstallFootprint(
+    string PackageName,
+    string FamilyName,
+    string PackageDirectoryPath,
+    string? OperatorDataRootPath);
+
+public sealed record WindowsInstallFootprintSnapshot(
+    IReadOnlyList<WindowsPackagedInstallFootprint> PackagedInstalls,
+    IReadOnlyList<string> DesktopShortcutPaths,
+    IReadOnlyList<string> StartMenuShortcutPaths,
+    IReadOnlyList<string> BrandedCliExecutablePaths,
+    IReadOnlyList<string> LegacyCliExecutablePaths);
+
 public sealed class WindowsEnvironmentAnalysisService
 {
     private const string LslDiscoveryProbeName = "viscereality_lsl_discovery_self_check";
@@ -51,6 +64,11 @@ public sealed class WindowsEnvironmentAnalysisService
     private const string LslLoopbackProbeType = "viscereality.loopback";
     private const int LslLoopbackProbeAttempts = 3;
     private static readonly TimeSpan LslLoopbackProbeRetryDelay = TimeSpan.FromMilliseconds(250);
+    private static readonly HashSet<string> ExpectedLauncherFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Viscereality Companion.lnk",
+        "Viscereality Companion (Local Dev).lnk"
+    };
 
     private readonly ILslMonitorService _monitorService;
     private readonly ILslStreamDiscoveryService _streamDiscoveryService;
@@ -64,6 +82,7 @@ public sealed class WindowsEnvironmentAnalysisService
     private readonly Func<string?> _bundledLslLocator;
     private readonly Func<string?> _agentWorkspaceLslLocator;
     private readonly Func<bool> _agentWorkspacePresent;
+    private readonly Func<WindowsInstallFootprintSnapshot> _installFootprintProvider;
     private readonly Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>> _networkAdapterSnapshotProvider;
     private readonly QuestWifiTransportDiagnosticsService _questWifiTransportDiagnosticsService;
     private readonly Func<DateTimeOffset> _utcNow;
@@ -80,6 +99,7 @@ public sealed class WindowsEnvironmentAnalysisService
         Func<string?>? bundledLslLocator = null,
         Func<string?>? agentWorkspaceLslLocator = null,
         Func<bool>? agentWorkspacePresent = null,
+        Func<WindowsInstallFootprintSnapshot>? installFootprintProvider = null,
         Func<ILslOutletService>? loopbackOutletFactory = null,
         QuestWifiTransportDiagnosticsService? questWifiTransportDiagnosticsService = null,
         Func<IReadOnlyList<WindowsNetworkAdapterSnapshot>>? networkAdapterSnapshotProvider = null,
@@ -97,6 +117,7 @@ public sealed class WindowsEnvironmentAnalysisService
         _bundledLslLocator = bundledLslLocator ?? ResolveBundledLslPath;
         _agentWorkspaceLslLocator = agentWorkspaceLslLocator ?? ResolveAgentWorkspaceLslPath;
         _agentWorkspacePresent = agentWorkspacePresent ?? IsAgentWorkspacePresent;
+        _installFootprintProvider = installFootprintProvider ?? SnapshotInstallFootprint;
         _networkAdapterSnapshotProvider = networkAdapterSnapshotProvider ?? SnapshotNetworkAdapters;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _questWifiTransportDiagnosticsService = questWifiTransportDiagnosticsService ?? new QuestWifiTransportDiagnosticsService(
@@ -113,6 +134,7 @@ public sealed class WindowsEnvironmentAnalysisService
         var checks = new List<WindowsEnvironmentCheckResult>
         {
             BuildWindowsPlatformCheck(),
+            BuildInstallFootprintCheck(_installFootprintProvider()),
             BuildNetworkAdapterHazardCheck(_networkAdapterSnapshotProvider()),
             BuildManagedToolCacheCheck(_toolingStatusProvider()),
             BuildAdbCheck(),
@@ -279,6 +301,264 @@ public sealed class WindowsEnvironmentAnalysisService
         }
 
         return snapshots;
+    }
+
+    internal static WindowsInstallFootprintSnapshot SnapshotInstallFootprint()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return new WindowsInstallFootprintSnapshot([], [], [], [], []);
+        }
+
+        var localAppDataPath = Environment.GetEnvironmentVariable("LOCALAPPDATA")
+            ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var packagedInstalls = EnumeratePackagedInstallFootprints(localAppDataPath);
+        var unpackagedRoot = CompanionOperatorDataLayout.ResolveRootPath(localAppDataPath, packageFamilyName: null, overrideRoot: null);
+        var cliRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Path.Combine(unpackagedRoot, "agent-workspace", "cli", "current")
+        };
+
+        foreach (var packagedInstall in packagedInstalls)
+        {
+            if (!string.IsNullOrWhiteSpace(packagedInstall.OperatorDataRootPath))
+            {
+                cliRoots.Add(Path.Combine(packagedInstall.OperatorDataRootPath, "agent-workspace", "cli", "current"));
+            }
+        }
+
+        var brandedCliExecutables = new List<string>();
+        var legacyCliExecutables = new List<string>();
+        foreach (var cliRoot in cliRoots.OrderBy(static path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            var brandedCliPath = Path.Combine(cliRoot, LocalAgentWorkspaceLayout.BundledCliExecutableFileName);
+            if (File.Exists(brandedCliPath))
+            {
+                brandedCliExecutables.Add(brandedCliPath);
+            }
+
+            var legacyCliPath = Path.Combine(cliRoot, LocalAgentWorkspaceLayout.LegacyBundledCliExecutableFileName);
+            if (File.Exists(legacyCliPath))
+            {
+                legacyCliExecutables.Add(legacyCliPath);
+            }
+        }
+
+        return new WindowsInstallFootprintSnapshot(
+            packagedInstalls,
+            EnumerateViscerealityShortcutPaths(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), SearchOption.TopDirectoryOnly),
+            EnumerateViscerealityShortcutPaths(Environment.GetFolderPath(Environment.SpecialFolder.Programs), SearchOption.AllDirectories),
+            brandedCliExecutables,
+            legacyCliExecutables);
+    }
+
+    private static IReadOnlyList<WindowsPackagedInstallFootprint> EnumeratePackagedInstallFootprints(string localAppDataPath)
+    {
+        if (string.IsNullOrWhiteSpace(localAppDataPath))
+        {
+            return [];
+        }
+
+        var packagesRoot = Path.Combine(localAppDataPath, "Packages");
+        if (!Directory.Exists(packagesRoot))
+        {
+            return [];
+        }
+
+        var footprints = new List<WindowsPackagedInstallFootprint>();
+        foreach (var packageName in new[]
+                 {
+                     PackagedAppIdentity.ReleasePackageName,
+                     PackagedAppIdentity.DevPackageName,
+                     PackagedAppIdentity.LegacyPreviewPackageName
+                 })
+        {
+            IEnumerable<string> packageDirectories;
+            try
+            {
+                packageDirectories = Directory.EnumerateDirectories(packagesRoot, $"{packageName}_*");
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var packageDirectoryPath in packageDirectories.OrderBy(static path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                var familyName = Path.GetFileName(packageDirectoryPath);
+                var operatorDataRootPath = Path.Combine(packageDirectoryPath, "LocalCache", "Local", "ViscerealityCompanion");
+                footprints.Add(new WindowsPackagedInstallFootprint(
+                    packageName,
+                    familyName,
+                    packageDirectoryPath,
+                    Directory.Exists(operatorDataRootPath) ? operatorDataRootPath : null));
+            }
+        }
+
+        return footprints;
+    }
+
+    private static IReadOnlyList<string> EnumerateViscerealityShortcutPaths(string rootPath, SearchOption searchOption)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+        {
+            return [];
+        }
+
+        try
+        {
+            return Directory.EnumerateFiles(rootPath, "*.lnk", searchOption)
+                .Where(static path => Path.GetFileName(path).Contains("Viscereality", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static WindowsEnvironmentCheckResult BuildInstallFootprintCheck(WindowsInstallFootprintSnapshot snapshot)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return new WindowsEnvironmentCheckResult(
+                "install-footprint",
+                "Windows install footprint",
+                OperationOutcomeKind.Preview,
+                "Install-footprint audit is Windows-only.",
+                "The packaged app, Desktop launcher, Start Menu launcher, and local CLI export checks only apply on Windows.");
+        }
+
+        var releaseInstalls = snapshot.PackagedInstalls
+            .Where(static install => PackagedAppIdentity.IsReleasePackageName(install.PackageName))
+            .ToArray();
+        var devInstalls = snapshot.PackagedInstalls
+            .Where(static install => PackagedAppIdentity.IsDevPackageName(install.PackageName))
+            .ToArray();
+        var legacyPreviewInstalls = snapshot.PackagedInstalls
+            .Where(static install => PackagedAppIdentity.IsLegacyPreviewPackageName(install.PackageName))
+            .ToArray();
+        var allShortcutPaths = snapshot.DesktopShortcutPaths
+            .Concat(snapshot.StartMenuShortcutPaths)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var unexpectedShortcutPaths = allShortcutPaths
+            .Where(static path => !ExpectedLauncherFileNames.Contains(Path.GetFileName(path)))
+            .ToArray();
+
+        var issueHints = new List<string>();
+        if (snapshot.PackagedInstalls.Count > 1)
+        {
+            issueHints.Add("multiple packaged Viscereality families or leftovers are present");
+        }
+
+        if (legacyPreviewInstalls.Length > 0)
+        {
+            issueHints.Add("legacy preview-family package roots are still present");
+        }
+
+        if (snapshot.LegacyCliExecutablePaths.Count > 0)
+        {
+            issueHints.Add("legacy generic CLI exports are still present in active operator-data roots");
+        }
+
+        if (unexpectedShortcutPaths.Length > 0)
+        {
+            issueHints.Add("unexpected Viscereality shortcut files are present");
+        }
+
+        var detailLines = new List<string>
+        {
+            $"Packaged footprints: release {releaseInstalls.Length}, dev {devInstalls.Length}, legacy preview {legacyPreviewInstalls.Length}.",
+            $"Desktop launchers: {RenderInstallFootprintNames(snapshot.DesktopShortcutPaths)}.",
+            $"Start Menu launchers: {RenderInstallFootprintNames(snapshot.StartMenuShortcutPaths)}.",
+            $"Bundled CLI exports: branded {snapshot.BrandedCliExecutablePaths.Count}, legacy-generic {snapshot.LegacyCliExecutablePaths.Count}."
+        };
+
+        if (releaseInstalls.Length > 0)
+        {
+            detailLines.Add($"Release package roots:{Environment.NewLine}{RenderInstallFootprintPathList(releaseInstalls.Select(static install => install.PackageDirectoryPath))}");
+        }
+
+        if (devInstalls.Length > 0)
+        {
+            detailLines.Add($"Dev package roots:{Environment.NewLine}{RenderInstallFootprintPathList(devInstalls.Select(static install => install.PackageDirectoryPath))}");
+        }
+
+        if (legacyPreviewInstalls.Length > 0)
+        {
+            detailLines.Add($"Legacy preview package roots:{Environment.NewLine}{RenderInstallFootprintPathList(legacyPreviewInstalls.Select(static install => install.PackageDirectoryPath))}");
+        }
+
+        if (snapshot.LegacyCliExecutablePaths.Count > 0)
+        {
+            detailLines.Add($"Legacy generic CLI exports:{Environment.NewLine}{RenderInstallFootprintPathList(snapshot.LegacyCliExecutablePaths)}");
+        }
+
+        if (unexpectedShortcutPaths.Length > 0)
+        {
+            detailLines.Add($"Unexpected Viscereality shortcuts:{Environment.NewLine}{RenderInstallFootprintPathList(unexpectedShortcutPaths)}");
+        }
+
+        if (issueHints.Count == 0)
+        {
+            return new WindowsEnvironmentCheckResult(
+                "install-footprint",
+                "Windows install footprint",
+                OperationOutcomeKind.Success,
+                "Windows-facing install footprint looks clean.",
+                string.Join(Environment.NewLine, detailLines));
+        }
+
+        var remediation = new List<string>();
+        if (snapshot.PackagedInstalls.Count > 1)
+        {
+            remediation.Add("Keep only the packaged families you intentionally use day-to-day, and treat release plus dev side-by-side as a maintainer-only setup.");
+        }
+
+        if (legacyPreviewInstalls.Length > 0)
+        {
+            remediation.Add("Retire the legacy preview-family package if it is no longer needed so App Installer and Start-menu triage stay on the public release family.");
+        }
+
+        if (snapshot.LegacyCliExecutablePaths.Count > 0)
+        {
+            remediation.Add("Refresh or reopen the packaged app so the exported local CLI uses `Viscereality CLI.exe` instead of `viscereality.exe`, which otherwise shows up as an ambiguous Windows Search hit.");
+        }
+
+        if (unexpectedShortcutPaths.Length > 0)
+        {
+            remediation.Add("Refresh the Desktop and Start Menu launchers so only `Viscereality Companion.lnk` and `Viscereality Companion (Local Dev).lnk` remain.");
+        }
+
+        detailLines.Add($"Fix: {string.Join(" ", remediation)}");
+        return new WindowsEnvironmentCheckResult(
+            "install-footprint",
+            "Windows install footprint",
+            OperationOutcomeKind.Warning,
+            "Windows-facing install footprint has multiple families or leftover launch artifacts.",
+            string.Join(Environment.NewLine, detailLines));
+    }
+
+    private static string RenderInstallFootprintNames(IReadOnlyList<string> paths)
+        => paths.Count == 0
+            ? "none"
+            : string.Join(", ", paths.Select(static path => Path.GetFileName(path)));
+
+    private static string RenderInstallFootprintPathList(IEnumerable<string> paths)
+    {
+        var ordered = paths
+            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToArray();
+
+        return ordered.Length == 0
+            ? "- none"
+            : string.Join(Environment.NewLine, ordered.Select(static path => $"- {path}"));
     }
 
     private static WindowsEnvironmentCheckResult BuildNetworkAdapterHazardCheck(

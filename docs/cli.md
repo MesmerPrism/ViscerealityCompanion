@@ -21,7 +21,7 @@ The Sussex shell Home page includes `Open Agent Workspace` plus `Copy Local
 Agent Prompt` so installed-app users can hand a local agent a bundled
 `viscereality` command, the mirrored CLI docs, and the Sussex example
 catalogs without pointing it at the protected WindowsApps payload. The
-generated workspace includes `cli/current/viscereality.exe` plus
+generated workspace includes `cli/current/Viscereality CLI.exe` plus
 `viscereality.ps1` and `viscereality.cmd` wrapper scripts that preload the
 mirrored sample-root overrides, point `VISCEREALITY_LSL_DLL` at the bundled
 workspace copy when it is present, and export `VISCEREALITY_OPERATOR_DATA_ROOT`

@@ -38,14 +38,19 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => CleanInstallFootprint(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
         Assert.Equal(OperationOutcomeKind.Success, result.Level);
         Assert.Equal("Windows environment analysis passed.", result.Summary);
-        Assert.Equal("Checks ok/warn/fail: 13/0/0.", result.Detail);
+        Assert.Equal("Checks ok/warn/fail: 14/0/0.", result.Detail);
         Assert.Equal(new DateTimeOffset(2026, 04, 10, 14, 0, 0, TimeSpan.Zero), result.CompletedAtUtc);
+
+        var installFootprintCheck = Assert.Single(result.Checks, check => check.Id == "install-footprint");
+        Assert.Equal(OperationOutcomeKind.Success, installFootprintCheck.Level);
+        Assert.Contains("looks clean", installFootprintCheck.Summary, StringComparison.OrdinalIgnoreCase);
 
         var streamCheck = Assert.Single(result.Checks, check => check.Id == "expected-stream");
         Assert.Equal(OperationOutcomeKind.Success, streamCheck.Level);
@@ -95,13 +100,14 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => CleanInstallFootprint(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 30, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
         Assert.Equal(OperationOutcomeKind.Failure, result.Level);
         Assert.Equal("Windows environment analysis found blocking issues.", result.Summary);
-        Assert.Equal("Checks ok/warn/fail: 5/4/4.", result.Detail);
+        Assert.Equal("Checks ok/warn/fail: 6/4/4.", result.Detail);
 
         var adbCheck = Assert.Single(result.Checks, check => check.Id == "adb");
         Assert.Equal(OperationOutcomeKind.Failure, adbCheck.Level);
@@ -123,6 +129,61 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
 
         var bundledLslCheck = Assert.Single(result.Checks, check => check.Id == "bundled-liblsl");
         Assert.Equal(OperationOutcomeKind.Warning, bundledLslCheck.Level);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_Warns_WhenInstallFootprintShowsMultipleFamiliesOrLegacyCli()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [
+                new LslVisibleStreamInfo("HRV_Biofeedback", "HRV", "external.sender.primary", 1, 10f, 100d)
+            ]);
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."));
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => true,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => new WindowsInstallFootprintSnapshot(
+                [
+                    new WindowsPackagedInstallFootprint(
+                        PackagedAppIdentity.ReleasePackageName,
+                        "MesmerPrism.ViscerealityCompanion_zncnfcs118r0y",
+                        @"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y",
+                        @"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion"),
+                    new WindowsPackagedInstallFootprint(
+                        PackagedAppIdentity.LegacyPreviewPackageName,
+                        "MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y",
+                        @"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y",
+                        @"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion")
+                ],
+                [@"C:\Users\operator\Desktop\Viscereality Companion.lnk"],
+                [@"C:\Users\operator\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Viscereality Companion Legacy.lnk"],
+                [@"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion\agent-workspace\cli\current\Viscereality CLI.exe"],
+                [@"C:\Users\operator\AppData\Local\Packages\MesmerPrism.ViscerealityCompanionPreview_zncnfcs118r0y\LocalCache\Local\ViscerealityCompanion\agent-workspace\cli\current\viscereality.exe"]));
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
+
+        Assert.Equal(OperationOutcomeKind.Warning, result.Level);
+        var installFootprintCheck = Assert.Single(result.Checks, check => check.Id == "install-footprint");
+        Assert.Equal(OperationOutcomeKind.Warning, installFootprintCheck.Level);
+        Assert.Contains("multiple families", installFootprintCheck.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("legacy preview", installFootprintCheck.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("viscereality.exe", installFootprintCheck.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Viscereality Companion Legacy.lnk", installFootprintCheck.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -152,6 +213,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => CleanInstallFootprint(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 45, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
@@ -209,7 +271,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
                     SupportsMulticast: false,
                     IPv4Addresses: ["100.101.102.103"],
                     Gateways: [])
-            ]);
+            ],
+            installFootprintProvider: () => CleanInstallFootprint());
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -253,6 +316,7 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
             questWifiTransportDiagnosticsService: wifiDiagnostics,
             networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => CleanInstallFootprint(),
             utcNow: () => new DateTimeOffset(2026, 04, 10, 15, 0, 0, TimeSpan.Zero));
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest(
@@ -292,7 +356,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
-            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => CleanInstallFootprint());
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -329,7 +394,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
-            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => CleanInstallFootprint());
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -364,7 +430,8 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
             bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
             agentWorkspacePresent: () => false,
             loopbackOutletFactory: CreateLoopbackOutletFactory(),
-            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter());
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => CleanInstallFootprint());
 
         var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
 
@@ -418,6 +485,14 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
                 IPv4Addresses: ["192.168.0.22"],
                 Gateways: ["192.168.0.1"])
         ];
+
+    private static WindowsInstallFootprintSnapshot CleanInstallFootprint()
+        => new(
+            PackagedInstalls: [],
+            DesktopShortcutPaths: [@"C:\Users\operator\Desktop\Viscereality Companion.lnk"],
+            StartMenuShortcutPaths: [@"C:\Users\operator\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Viscereality Companion.lnk"],
+            BrandedCliExecutablePaths: [@"C:\Users\operator\AppData\Local\ViscerealityCompanion\agent-workspace\cli\current\Viscereality CLI.exe"],
+            LegacyCliExecutablePaths: []);
 
     private static HeadsetAppStatus CreateConnectedHeadsetStatus()
         => new(

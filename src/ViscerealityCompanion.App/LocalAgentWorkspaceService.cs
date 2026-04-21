@@ -133,6 +133,13 @@ internal sealed class LocalAgentWorkspaceService
             _bundledCliRoot,
             Path.Combine(_workspaceRoot, "cli", "current"),
             _ => true);
+
+        var brandedCliPath = Path.Combine(_workspaceRoot, "cli", "current", LocalAgentWorkspaceLayout.BundledCliExecutableFileName);
+        var legacyCliPath = Path.Combine(_workspaceRoot, "cli", "current", LocalAgentWorkspaceLayout.LegacyBundledCliExecutableFileName);
+        if (!File.Exists(brandedCliPath) && File.Exists(legacyCliPath))
+        {
+            File.Move(legacyCliPath, brandedCliPath);
+        }
     }
 
     private void MirrorQuestSessionKit()
@@ -339,6 +346,7 @@ internal sealed class LocalAgentWorkspaceService
     private static string BuildPowerShellEnvScript(LocalAgentWorkspaceSnapshot snapshot)
     {
         var builder = new StringBuilder();
+        builder.AppendLine($"$workspaceRoot = \"{EscapeForPowerShell(snapshot.RootPath)}\"");
         builder.AppendLine($"$env:VISCEREALITY_QUEST_SESSION_KIT_ROOT = \"{EscapeForPowerShell(snapshot.QuestSessionKitRootPath)}\"");
         builder.AppendLine($"$env:VISCEREALITY_STUDY_SHELL_ROOT = \"{EscapeForPowerShell(snapshot.StudyShellRootPath)}\"");
         builder.AppendLine($"$env:VISCEREALITY_OSCILLATOR_CONFIG_ROOT = \"{EscapeForPowerShell(snapshot.OscillatorConfigRootPath)}\"");
@@ -346,14 +354,15 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine($"$bundledCliRoot = \"{EscapeForPowerShell(snapshot.BundledCliRootPath)}\"");
         builder.AppendLine("$bundledLslDll = Join-Path $bundledCliRoot 'lsl.dll'");
         builder.AppendLine("$bundledLslRuntimeDll = Join-Path $bundledCliRoot 'runtimes\\win-x64\\native\\lsl.dll'");
-        builder.AppendLine("$bundledCliExe = Join-Path $bundledCliRoot 'viscereality.exe'");
+        builder.AppendLine($"$bundledCliExe = Join-Path $bundledCliRoot \"{EscapeForPowerShell(LocalAgentWorkspaceLayout.BundledCliExecutableFileName)}\"");
+        builder.AppendLine($"$legacyBundledCliExe = Join-Path $bundledCliRoot \"{EscapeForPowerShell(LocalAgentWorkspaceLayout.LegacyBundledCliExecutableFileName)}\"");
         builder.AppendLine("if (Test-Path $bundledLslDll) {");
         builder.AppendLine("    $env:VISCEREALITY_LSL_DLL = $bundledLslDll");
         builder.AppendLine("} elseif (Test-Path $bundledLslRuntimeDll) {");
         builder.AppendLine("    $env:VISCEREALITY_LSL_DLL = $bundledLslRuntimeDll");
         builder.AppendLine("}");
-        builder.AppendLine("if (Test-Path $bundledCliExe) {");
-        builder.AppendLine("    $env:PATH = \"$bundledCliRoot;$env:PATH\"");
+        builder.AppendLine("if ((Test-Path $bundledCliExe) -or (Test-Path $legacyBundledCliExe)) {");
+        builder.AppendLine("    $env:PATH = \"$workspaceRoot;$bundledCliRoot;$env:PATH\"");
         builder.AppendLine("}");
         builder.AppendLine("Write-Host \"Set Viscereality CLI sample-root overrides and bundled liblsl path for this PowerShell session.\"");
         return builder.ToString();
@@ -363,13 +372,14 @@ internal sealed class LocalAgentWorkspaceService
     {
         var builder = new StringBuilder();
         builder.AppendLine("@echo off");
+        builder.AppendLine($"set \"WORKSPACE_ROOT={snapshot.RootPath}\"");
         builder.AppendLine($"set \"VISCEREALITY_QUEST_SESSION_KIT_ROOT={snapshot.QuestSessionKitRootPath}\"");
         builder.AppendLine($"set \"VISCEREALITY_STUDY_SHELL_ROOT={snapshot.StudyShellRootPath}\"");
         builder.AppendLine($"set \"VISCEREALITY_OSCILLATOR_CONFIG_ROOT={snapshot.OscillatorConfigRootPath}\"");
         builder.AppendLine($"set \"{CompanionOperatorDataLayout.RootOverrideEnvironmentVariable}={CompanionOperatorDataLayout.RootPath}\"");
         builder.AppendLine($"if exist \"{LslRuntimeLayout.GetLocalDllPath(snapshot.BundledCliRootPath)}\" set \"VISCEREALITY_LSL_DLL={LslRuntimeLayout.GetLocalDllPath(snapshot.BundledCliRootPath)}\"");
         builder.AppendLine($"if not defined VISCEREALITY_LSL_DLL if exist \"{LslRuntimeLayout.GetRuntimeDllPath(snapshot.BundledCliRootPath)}\" set \"VISCEREALITY_LSL_DLL={LslRuntimeLayout.GetRuntimeDllPath(snapshot.BundledCliRootPath)}\"");
-        builder.AppendLine($"set \"PATH={snapshot.BundledCliRootPath};%PATH%\"");
+        builder.AppendLine($"set \"PATH={snapshot.RootPath};{snapshot.BundledCliRootPath};%PATH%\"");
         builder.AppendLine("echo Set Viscereality CLI sample-root overrides and bundled liblsl path for this cmd.exe session.");
         return builder.ToString();
     }
@@ -384,16 +394,22 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine("$bundledCliRoot = Join-Path $PSScriptRoot 'cli\\current'");
         builder.AppendLine("$bundledLslDll = Join-Path $bundledCliRoot 'lsl.dll'");
         builder.AppendLine("$bundledLslRuntimeDll = Join-Path $bundledCliRoot 'runtimes\\win-x64\\native\\lsl.dll'");
-        builder.AppendLine("$bundledCliExe = Join-Path $bundledCliRoot 'viscereality.exe'");
-        builder.AppendLine("$bundledCliDll = Join-Path $bundledCliRoot 'viscereality.dll'");
+        builder.AppendLine("$bundledCliExe = Join-Path $bundledCliRoot \"" + EscapeForPowerShell(LocalAgentWorkspaceLayout.BundledCliExecutableFileName) + "\"");
+        builder.AppendLine("$legacyBundledCliExe = Join-Path $bundledCliRoot \"" + EscapeForPowerShell(LocalAgentWorkspaceLayout.LegacyBundledCliExecutableFileName) + "\"");
+        builder.AppendLine("$bundledCliDll = Join-Path $bundledCliRoot \"" + EscapeForPowerShell(LocalAgentWorkspaceLayout.BundledCliDllFileName) + "\"");
         builder.AppendLine("if (Test-Path $bundledLslDll) {");
         builder.AppendLine("    $env:VISCEREALITY_LSL_DLL = $bundledLslDll");
         builder.AppendLine("} elseif (Test-Path $bundledLslRuntimeDll) {");
         builder.AppendLine("    $env:VISCEREALITY_LSL_DLL = $bundledLslRuntimeDll");
         builder.AppendLine("}");
-        builder.AppendLine("$env:PATH = \"$bundledCliRoot;$env:PATH\"");
+        builder.AppendLine("$env:PATH = \"$PSScriptRoot;$bundledCliRoot;$env:PATH\"");
         builder.AppendLine("if (Test-Path $bundledCliExe) {");
         builder.AppendLine("    & $bundledCliExe @Args");
+        builder.AppendLine("    exit $LASTEXITCODE");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("if (Test-Path $legacyBundledCliExe) {");
+        builder.AppendLine("    & $legacyBundledCliExe @Args");
         builder.AppendLine("    exit $LASTEXITCODE");
         builder.AppendLine("}");
         builder.AppendLine();
@@ -419,13 +435,17 @@ internal sealed class LocalAgentWorkspaceService
         builder.AppendLine("set \"BUNDLED_CLI_ROOT=%~dp0cli\\current\"");
         builder.AppendLine("if exist \"%BUNDLED_CLI_ROOT%\\lsl.dll\" set \"VISCEREALITY_LSL_DLL=%BUNDLED_CLI_ROOT%\\lsl.dll\"");
         builder.AppendLine("if not defined VISCEREALITY_LSL_DLL if exist \"%BUNDLED_CLI_ROOT%\\runtimes\\win-x64\\native\\lsl.dll\" set \"VISCEREALITY_LSL_DLL=%BUNDLED_CLI_ROOT%\\runtimes\\win-x64\\native\\lsl.dll\"");
-        builder.AppendLine("set \"PATH=%BUNDLED_CLI_ROOT%;%PATH%\"");
-        builder.AppendLine("if exist \"%BUNDLED_CLI_ROOT%\\viscereality.exe\" (");
-        builder.AppendLine("  \"%BUNDLED_CLI_ROOT%\\viscereality.exe\" %*");
+        builder.AppendLine("set \"PATH=%~dp0;%BUNDLED_CLI_ROOT%;%PATH%\"");
+        builder.AppendLine("if exist \"%BUNDLED_CLI_ROOT%\\" + LocalAgentWorkspaceLayout.BundledCliExecutableFileName + "\" (");
+        builder.AppendLine("  \"%BUNDLED_CLI_ROOT%\\" + LocalAgentWorkspaceLayout.BundledCliExecutableFileName + "\" %*");
         builder.AppendLine("  exit /b %ERRORLEVEL%");
         builder.AppendLine(")");
-        builder.AppendLine("if exist \"%BUNDLED_CLI_ROOT%\\viscereality.dll\" (");
-        builder.AppendLine("  dotnet \"%BUNDLED_CLI_ROOT%\\viscereality.dll\" %*");
+        builder.AppendLine("if exist \"%BUNDLED_CLI_ROOT%\\" + LocalAgentWorkspaceLayout.LegacyBundledCliExecutableFileName + "\" (");
+        builder.AppendLine("  \"%BUNDLED_CLI_ROOT%\\" + LocalAgentWorkspaceLayout.LegacyBundledCliExecutableFileName + "\" %*");
+        builder.AppendLine("  exit /b %ERRORLEVEL%");
+        builder.AppendLine(")");
+        builder.AppendLine("if exist \"%BUNDLED_CLI_ROOT%\\" + LocalAgentWorkspaceLayout.BundledCliDllFileName + "\" (");
+        builder.AppendLine("  dotnet \"%BUNDLED_CLI_ROOT%\\" + LocalAgentWorkspaceLayout.BundledCliDllFileName + "\" %*");
         builder.AppendLine("  exit /b %ERRORLEVEL%");
         builder.AppendLine(")");
         builder.AppendLine("echo Bundled Viscereality CLI not found under \"%BUNDLED_CLI_ROOT%\". Open LOCAL_PATHS.md in this workspace for alternatives.");
@@ -480,13 +500,19 @@ internal sealed class LocalAgentWorkspaceService
 
     private static string? ResolveBundledCliEntryPointPath(string bundledCliRoot)
     {
-        var bundledCliExe = Path.Combine(bundledCliRoot, "viscereality.exe");
+        var bundledCliExe = Path.Combine(bundledCliRoot, LocalAgentWorkspaceLayout.BundledCliExecutableFileName);
         if (File.Exists(bundledCliExe))
         {
             return bundledCliExe;
         }
 
-        var bundledCliDll = Path.Combine(bundledCliRoot, "viscereality.dll");
+        var legacyBundledCliExe = Path.Combine(bundledCliRoot, LocalAgentWorkspaceLayout.LegacyBundledCliExecutableFileName);
+        if (File.Exists(legacyBundledCliExe))
+        {
+            return legacyBundledCliExe;
+        }
+
+        var bundledCliDll = Path.Combine(bundledCliRoot, LocalAgentWorkspaceLayout.BundledCliDllFileName);
         return File.Exists(bundledCliDll) ? bundledCliDll : null;
     }
 

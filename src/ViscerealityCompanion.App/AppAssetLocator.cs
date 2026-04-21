@@ -1,4 +1,5 @@
 using System.IO;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.App;
 
@@ -6,8 +7,9 @@ internal static class AppAssetLocator
 {
     private static readonly string[] BundledCliEntryPoints =
     [
-        "viscereality.exe",
-        "viscereality.dll"
+        LocalAgentWorkspaceLayout.BundledCliExecutableFileName,
+        LocalAgentWorkspaceLayout.LegacyBundledCliExecutableFileName,
+        LocalAgentWorkspaceLayout.BundledCliDllFileName
     ];
 
     public static string? TryResolveQuestSessionKitRoot()

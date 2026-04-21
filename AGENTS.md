@@ -273,6 +273,13 @@ Keep the current package identities straight:
 - legacy preview family: `MesmerPrism.ViscerealityCompanionPreview` only for
   migration / stale-pin cleanup
 
+When a machine looks confused about which Windows entry to launch, prefer
+`viscereality windows-env analyze` before ad hoc cleanup. It now audits the
+Windows-facing install footprint as well: release/dev/legacy packaged roots,
+unexpected Viscereality shortcut files, and stale generic `viscereality.exe`
+exports in active operator-data roots that can surface as ambiguous Search
+results.
+
 If a downloaded helper EXE is blocked before install, treat that as a helper
 reputation / Smart App Control problem, not as proof that the MSIX or packaged
 app is broken.

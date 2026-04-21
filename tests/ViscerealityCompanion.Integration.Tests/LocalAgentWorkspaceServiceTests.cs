@@ -64,7 +64,8 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         Assert.True(File.Exists(snapshot.CmdCliWrapperPath));
         Assert.True(snapshot.HasBundledCli);
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "docs", "cli.md")));
-        Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "viscereality.exe")));
+        Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "Viscereality CLI.exe")));
+        Assert.False(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "viscereality.exe")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "cli.runtimeconfig.json")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "cli", "current", "lsl.dll")));
         Assert.True(File.Exists(Path.Combine(workspaceRoot, "samples", "quest-session-kit", "HotloadProfiles", "baseline.csv")));
@@ -86,7 +87,7 @@ public sealed class LocalAgentWorkspaceServiceTests : IDisposable
         Assert.Contains("VISCEREALITY_LSL_DLL", envScript, StringComparison.OrdinalIgnoreCase);
 
         var wrapperScript = File.ReadAllText(snapshot.PowerShellCliWrapperPath);
-        Assert.Contains("viscereality.exe", wrapperScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Viscereality CLI.exe", wrapperScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("VISCEREALITY_STUDY_SHELL_ROOT", wrapperScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("VISCEREALITY_LSL_DLL", wrapperScript, StringComparison.OrdinalIgnoreCase);
     }

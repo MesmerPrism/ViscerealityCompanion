@@ -10,6 +10,7 @@ public sealed class CliDiagnosticsCommandTests
         var help = await InvokeCliAsync("windows-env", "analyze", "--help");
 
         Assert.Contains("Analyze Windows Environment", help, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("install-footprint", help, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--expected-stream", help, StringComparison.Ordinal);
         Assert.Contains("--expected-type", help, StringComparison.Ordinal);
         Assert.Contains("--skip-stream-probe", help, StringComparison.Ordinal);

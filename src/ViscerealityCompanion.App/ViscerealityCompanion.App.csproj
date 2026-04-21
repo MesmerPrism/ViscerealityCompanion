@@ -63,10 +63,17 @@
       <_BundledCliPublishDir>$([System.IO.Path]::Combine('$(PublishDir)', 'cli', 'current'))</_BundledCliPublishDir>
       <_BundledCliLslSource>$([System.IO.Path]::Combine('$(PublishDir)', 'runtimes', 'win-x64', 'native', 'lsl.dll'))</_BundledCliLslSource>
       <_BundledCliRuntimeNativeDir>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'runtimes', 'win-x64', 'native'))</_BundledCliRuntimeNativeDir>
+      <_BundledCliPublishedExe>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'viscereality.exe'))</_BundledCliPublishedExe>
+      <_BundledCliBrandedExe>$([System.IO.Path]::Combine('$(_BundledCliPublishDir)', 'Viscereality CLI.exe'))</_BundledCliBrandedExe>
     </PropertyGroup>
     <MakeDir Directories="$(_BundledCliPublishDir)" />
     <Exec Command="dotnet publish &quot;$(BundledCliProjectPath)&quot; --configuration &quot;$(Configuration)&quot; --runtime &quot;$(_BundledCliRuntimeIdentifier)&quot; -p:PublishSingleFile=true -p:SelfContained=true --output &quot;$(_BundledCliPublishDir)&quot;"
           WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <Delete Files="$(_BundledCliBrandedExe)"
+            Condition="Exists('$(_BundledCliBrandedExe)')" />
+    <Move SourceFiles="$(_BundledCliPublishedExe)"
+          DestinationFiles="$(_BundledCliBrandedExe)"
+          Condition="Exists('$(_BundledCliPublishedExe)')" />
     <MakeDir Directories="$(_BundledCliRuntimeNativeDir)"
              Condition="Exists('$(_BundledCliLslSource)')" />
     <Copy SourceFiles="$(_BundledCliLslSource)"

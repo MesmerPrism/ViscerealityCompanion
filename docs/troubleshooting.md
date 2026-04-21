@@ -182,10 +182,15 @@ The two probes deliberately cover different halves of the fault tree:
 
 - `Analyze Windows Environment` checks the local Windows machine: liblsl load
   path, active IPv4 adapters, VPN or virtual adapter hazards, multicast support,
-  local liblsl discovery health, twin bridge availability, and whether
-  `HRV_Biofeedback / HRV` is visible to this PC. When a live headset selector
-  is available, it also checks the raw PC↔Quest Wi-Fi path: selector drift,
-  host/Quest subnet shape, ICMP reachability, and TCP `5555` reachability.
+  local liblsl discovery health, twin bridge availability, install/launcher
+  footprint leftovers, and whether `HRV_Biofeedback / HRV` is visible to this
+  PC. The same pass now warns about multiple packaged Viscereality families,
+  legacy preview leftovers, stale generic `viscereality.exe` exports in active
+  operator-data roots, and unexpected Viscereality shortcut files that can make
+  Windows Search or App Installer triage confusing. When a live headset
+  selector is available, it also checks the raw PC↔Quest Wi-Fi path: selector
+  drift, host/Quest subnet shape, ICMP reachability, and TCP `5555`
+  reachability.
 - `Probe Connection` checks the headset path: the installed Sussex APK hash
   against the pinned release, the required Quest device profile, the current
   foreground/snapshot Wi-Fi context, the Sussex inlet reported by the runtime,

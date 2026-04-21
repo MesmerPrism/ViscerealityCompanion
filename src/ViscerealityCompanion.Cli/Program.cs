@@ -1509,13 +1509,13 @@ public static class Program
 
     private static Command BuildWindowsEnvironmentCommand()
     {
-        var windowsEnvCommand = new Command("windows-env", "CLI mirror of Analyze Windows Environment for liblsl, twin transport, and expected upstream stream checks");
+        var windowsEnvCommand = new Command("windows-env", "CLI mirror of Analyze Windows Environment for liblsl, twin transport, install-footprint, and expected upstream stream checks");
         var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
         var streamOption = new Option<string>("--expected-stream", () => HrvBiofeedbackStreamContract.StreamName, "Expected upstream LSL stream name to probe.");
         var typeOption = new Option<string>("--expected-type", () => HrvBiofeedbackStreamContract.StreamType, "Expected upstream LSL stream type to probe.");
         var skipStreamProbeOption = new Option<bool>("--skip-stream-probe", "Skip probing the expected upstream LSL stream.");
 
-        var analyzeCommand = new Command("analyze", "Mirror the GUI Analyze Windows Environment check for Windows tooling, liblsl runtimes, the twin bridge, and expected upstream stream visibility")
+        var analyzeCommand = new Command("analyze", "Mirror the GUI Analyze Windows Environment check for Windows tooling, install-footprint leftovers, liblsl runtimes, the twin bridge, and expected upstream stream visibility")
         {
             jsonOption,
             streamOption,
