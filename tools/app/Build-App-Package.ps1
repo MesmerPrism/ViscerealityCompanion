@@ -172,9 +172,11 @@ function Resolve-UapPlatformVersion {
             Select-Object -ExpandProperty Name
     }
 
-    $availableVersions = $availableVersions |
-        Sort-Object -Unique |
-        Sort-Object { [version]$_ } -Descending
+    $availableVersions = @(
+        $availableVersions |
+            Sort-Object -Unique |
+            Sort-Object { [version]$_ } -Descending
+    )
 
     if ($null -eq $availableVersions -or $availableVersions.Count -eq 0) {
         throw 'No installed UAP Windows SDK versions were found under Windows Kits\10.'
