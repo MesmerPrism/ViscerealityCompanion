@@ -22,6 +22,11 @@ internal static class DiagnosticsCliSupport
         string DeviceProfile,
         string WifiTransport,
         string ExpectedInlet,
+        bool WindowsExpectedStreamVisible,
+        bool WindowsExpectedStreamViaCompanionTestSender,
+        string WindowsExpectedStream,
+        IReadOnlyList<string> MissingLinks,
+        string FocusNext,
         string RuntimeTarget,
         string ConnectedInlet,
         string Counts,
@@ -83,18 +88,36 @@ internal static class DiagnosticsCliSupport
                 .ConfigureAwait(false));
 
         var checkedAtUtc = DateTimeOffset.UtcNow;
+        var streamDiscovery = LslStreamDiscoveryServiceFactory.CreateDefault();
+        var expectedUpstream = SussexConnectionAssessmentService.InspectExpectedUpstream(
+            streamDiscovery,
+            definition.Monitoring.ExpectedLslStreamName,
+            definition.Monitoring.ExpectedLslStreamType,
+            SussexConnectionAssessmentService.BuildCompanionTestSenderSourceId(definition));
         var bridge = TwinModeBridgeFactory.CreateDefault();
         try
         {
             if (bridge is not LslTwinModeBridge lslBridge)
             {
                 var previewTwinStatePublisher = QuestTwinStatePublisherInventoryService.Inspect(
-                    LslStreamDiscoveryServiceFactory.CreateDefault(),
+                    streamDiscovery,
                     definition.App.PackageId);
+                var previewAssessment = SussexConnectionAssessmentService.Assess(new SussexConnectionAssessmentInput(
+                    PinnedBuildReady: IsPinnedBuildReady(definition, installed),
+                    DeviceProfileReady: profileStatus.IsActive,
+                    HeadsetForeground: string.Equals(headset.ForegroundPackageId, definition.App.PackageId, StringComparison.OrdinalIgnoreCase),
+                    WifiTransportReady: headset.IsWifiAdbTransport,
+                    InletReady: false,
+                    ReturnPathReady: false,
+                    AnyTwinStatePublisherVisible: previewTwinStatePublisher.AnyPublisherVisible,
+                    ExpectedTwinStatePublisherVisible: previewTwinStatePublisher.ExpectedPublisherVisible,
+                    ExpectedUpstream: expectedUpstream,
+                    HeadsetAsleep: headset.IsAwake == false,
+                    HeadsetInWakeLimbo: headset.IsInWakeLimbo));
                 return new StudyConnectionProbeResult(
                     OperationOutcomeKind.Preview,
                     "Twin bridge transport is unavailable in this environment.",
-                    bridge.Status.Detail,
+                    $"{bridge.Status.Detail} Windows expected stream: {expectedUpstream.Summary} Missing links: {BuildInlineList(previewAssessment.MissingLinks)} Focus next: {previewAssessment.FocusNext}".Trim(),
                     InletReady: false,
                     ReturnPathReady: false,
                     PinnedBuildReady: IsPinnedBuildReady(definition, installed),
@@ -105,6 +128,11 @@ internal static class DiagnosticsCliSupport
                     DeviceProfile: BuildDeviceProfileLabel(profileStatus),
                     WifiTransport: $"[{RenderLevel(wifiTransport.Level)}] {wifiTransport.Summary}",
                     ExpectedInlet: $"{definition.Monitoring.ExpectedLslStreamName} / {definition.Monitoring.ExpectedLslStreamType}",
+                    WindowsExpectedStreamVisible: expectedUpstream.VisibleOnWindows,
+                    WindowsExpectedStreamViaCompanionTestSender: expectedUpstream.VisibleViaCompanionTestSender,
+                    WindowsExpectedStream: expectedUpstream.Summary,
+                    MissingLinks: previewAssessment.MissingLinks,
+                    FocusNext: previewAssessment.FocusNext,
                     RuntimeTarget: "Runtime target n/a",
                     ConnectedInlet: "Connected stream n/a",
                     Counts: "Connection counts n/a",
@@ -122,10 +150,10 @@ internal static class DiagnosticsCliSupport
             var openOutcome = lslBridge.Open();
             await WaitForTwinStateAsync(lslBridge, waitDuration, cancellationToken).ConfigureAwait(false);
             var twinStatePublisher = QuestTwinStatePublisherInventoryService.Inspect(
-                LslStreamDiscoveryServiceFactory.CreateDefault(),
+                streamDiscovery,
                 definition.App.PackageId);
 
-            var state = BuildStudyConnectionProbeState(definition, headset, installed, profileStatus, device, lslBridge, twinStatePublisher, wifiTransport, checkedAtUtc);
+            var state = BuildStudyConnectionProbeState(definition, headset, installed, profileStatus, device, lslBridge, twinStatePublisher, expectedUpstream, wifiTransport, checkedAtUtc);
             return openOutcome.Kind == OperationOutcomeKind.Failure
                 ? state with
                 {
@@ -152,6 +180,9 @@ internal static class DiagnosticsCliSupport
         Console.WriteLine($"Device profile:         {result.DeviceProfile}");
         Console.WriteLine($"Wi-Fi transport:        {result.WifiTransport}");
         Console.WriteLine($"Expected inlet:         {result.ExpectedInlet}");
+        Console.WriteLine($"Windows expected:       {result.WindowsExpectedStream}");
+        Console.WriteLine($"Missing links:          {BuildInlineList(result.MissingLinks)}");
+        Console.WriteLine($"Focus next:             {result.FocusNext}");
         Console.WriteLine($"Runtime target:         {result.RuntimeTarget}");
         Console.WriteLine($"Connected inlet:        {result.ConnectedInlet}");
         Console.WriteLine($"Counts:                 {result.Counts}");
@@ -190,6 +221,9 @@ internal static class DiagnosticsCliSupport
         Console.WriteLine($"Machine LSL state:   {RenderLevel(result.Report.MachineLslState.Level)} - {result.Report.MachineLslState.Summary}");
         Console.WriteLine($"Wi-Fi transport:     {RenderLevel(result.Report.QuestWifiTransport.Level)} - {result.Report.QuestWifiTransport.Summary}");
         Console.WriteLine($"Twin return path:    {RenderLevel(result.Report.TwinConnection.Level)} - {result.Report.TwinConnection.Summary}");
+        Console.WriteLine($"Expected stream:     {result.Report.TwinConnection.WindowsExpectedStream}");
+        Console.WriteLine($"Missing links:       {BuildInlineList(result.Report.TwinConnection.MissingLinks)}");
+        Console.WriteLine($"Focus next:          {result.Report.TwinConnection.FocusNext}");
         Console.WriteLine($"Command acceptance:  {RenderLevel(result.Report.CommandAcceptance.Level)} - {result.Report.CommandAcceptance.Summary}");
         Console.WriteLine($"Generated at:        {result.CompletedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}");
     }
@@ -202,6 +236,7 @@ internal static class DiagnosticsCliSupport
         string? device,
         LslTwinModeBridge bridge,
         QuestTwinStatePublisherInventory twinStatePublisher,
+        SussexExpectedUpstreamState expectedUpstream,
         QuestWifiTransportDiagnosticsResult wifiTransport,
         DateTimeOffset checkedAtUtc)
     {
@@ -281,41 +316,18 @@ internal static class DiagnosticsCliSupport
                                  !string.IsNullOrWhiteSpace(headset.HeadsetWifiIpAddress) &&
                                  !string.Equals(selectorIp, headset.HeadsetWifiIpAddress, StringComparison.OrdinalIgnoreCase);
         var wifiTransportReady = headset.IsWifiAdbTransport;
-
-        var connectionSummary = inletReady && returnPathReady
-            ? "Quest inlet is connected and the Windows return path is live."
-            : inletReady
-                ? headsetForeground && !twinStatePublisher.ExpectedPublisherVisible
-                    ? "Quest inlet is connected, but the Quest twin-state publisher stalled or became undiscoverable."
-                    : headsetForeground
-                        ? "Quest inlet is connected, but Windows is not receiving a fresh return path yet."
-                        : "Quest inlet is connected, but Sussex is not foregrounded and the Windows return path is stale."
-                : returnPathReady
-                    ? "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet."
-                    : !headsetForeground
-                        ? "Sussex is not foregrounded, so neither the LSL inlet nor the Windows return path is confirmed."
-                        : !twinStatePublisher.AnyPublisherVisible
-                            ? "Sussex is in front, but the Quest twin-state publisher is absent and the inlet is not confirmed."
-                            : "Quest is reachable, but neither the LSL inlet nor the Windows return path is confirmed.";
-
-        var connectionLevel = inletReady && returnPathReady
-            ? OperationOutcomeKind.Success
-            : inletReady || returnPathReady
-                ? OperationOutcomeKind.Warning
-                : headsetForeground
-                    ? OperationOutcomeKind.Failure
-                    : OperationOutcomeKind.Warning;
-
-        var summary = !pinnedBuildReady
-            ? "Pinned Sussex APK is not installed or does not match the study shell baseline."
-            : !deviceProfileReady && connectionLevel == OperationOutcomeKind.Success
-                ? "Quest path is live, but the required Sussex device profile still needs attention."
-                : connectionSummary;
-        var level = !pinnedBuildReady
-            ? OperationOutcomeKind.Failure
-            : !deviceProfileReady && connectionLevel == OperationOutcomeKind.Success
-                ? OperationOutcomeKind.Warning
-                : connectionLevel;
+        var assessment = SussexConnectionAssessmentService.Assess(new SussexConnectionAssessmentInput(
+            PinnedBuildReady: pinnedBuildReady,
+            DeviceProfileReady: deviceProfileReady,
+            HeadsetForeground: headsetForeground,
+            WifiTransportReady: wifiTransportReady,
+            InletReady: inletReady,
+            ReturnPathReady: returnPathReady,
+            AnyTwinStatePublisherVisible: twinStatePublisher.AnyPublisherVisible,
+            ExpectedTwinStatePublisherVisible: twinStatePublisher.ExpectedPublisherVisible,
+            ExpectedUpstream: expectedUpstream,
+            HeadsetAsleep: headset.IsAwake == false,
+            HeadsetInWakeLimbo: headset.IsInWakeLimbo));
 
         var detailParts = new List<string>();
         if (!pinnedBuildReady)
@@ -343,6 +355,11 @@ internal static class DiagnosticsCliSupport
             detailParts.Add($"USB {FormatOptionalValue(headset.VisibleUsbSerial, "ADB")} is visible while the study path is on Wi-Fi ADB. Reconnecting USB can restart ADB, break kiosk/task lock, or leave the remembered endpoint stale.");
         }
 
+        if (!string.IsNullOrWhiteSpace(expectedUpstream.Detail))
+        {
+            detailParts.Add($"Windows expected stream inventory: {expectedUpstream.Detail}");
+        }
+
         if (!inletReady && returnPathReady)
         {
             detailParts.Add("The headset is publishing twin state back to Windows, but it has not reported an active Sussex inlet connection yet.");
@@ -364,17 +381,14 @@ internal static class DiagnosticsCliSupport
         }
 
         detailParts.Add(wifiTransport.Detail);
+        detailParts.Add($"Missing links: {BuildInlineList(assessment.MissingLinks)}");
 
         if (!wifiTransportReady)
         {
-            detailParts.Add("Wi-Fi ADB is still the gating requirement for this diagnostic. Even if the inlet and return path look alive over USB, this result cannot turn green until the active Quest transport is Wi-Fi ADB.");
+            detailParts.Add($"Focus next: {assessment.FocusNext}");
             return new StudyConnectionProbeResult(
                 pinnedBuildReady ? OperationOutcomeKind.Warning : OperationOutcomeKind.Failure,
-                !pinnedBuildReady
-                    ? "Pinned Sussex APK is not installed or does not match the study shell baseline."
-                    : inletReady && returnPathReady
-                        ? "Quest inlet and return path are live, but the session is still on USB ADB."
-                        : "Quest is still not on Wi-Fi ADB, so this diagnostic cannot turn green yet.",
+                assessment.Summary,
                 string.Join(" ", detailParts),
                 inletReady,
                 ReturnPathReady: false,
@@ -386,6 +400,11 @@ internal static class DiagnosticsCliSupport
                 DeviceProfile: BuildDeviceProfileLabel(profileStatus),
                 WifiTransport: $"[{RenderLevel(wifiTransport.Level)}] {wifiTransport.Summary}",
                 ExpectedInlet: $"{definition.Monitoring.ExpectedLslStreamName} / {definition.Monitoring.ExpectedLslStreamType}",
+                WindowsExpectedStreamVisible: expectedUpstream.VisibleOnWindows,
+                WindowsExpectedStreamViaCompanionTestSender: expectedUpstream.VisibleViaCompanionTestSender,
+                WindowsExpectedStream: expectedUpstream.Summary,
+                MissingLinks: assessment.MissingLinks,
+                FocusNext: assessment.FocusNext,
                 RuntimeTarget: runtimeTarget,
                 ConnectedInlet: connectedInlet,
                 Counts: counts,
@@ -408,11 +427,11 @@ internal static class DiagnosticsCliSupport
             detailParts.Add("The pinned Sussex package is not currently confirmed in the foreground. Re-check the visible headset scene before blaming LSL.");
         }
 
-        detailParts.Add("If the expected upstream LSL stream is already visible on Windows, focus next on headset-side scene state, Wi-Fi/client-isolation issues, or whether the Quest build is actually publishing quest_twin_state.");
+        detailParts.Add($"Focus next: {assessment.FocusNext}");
 
         return new StudyConnectionProbeResult(
-            level,
-            summary,
+            assessment.Level,
+            assessment.Summary,
             string.Join(" ", detailParts),
             inletReady,
             returnPathReady,
@@ -424,6 +443,11 @@ internal static class DiagnosticsCliSupport
             DeviceProfile: BuildDeviceProfileLabel(profileStatus),
             WifiTransport: $"[{RenderLevel(wifiTransport.Level)}] {wifiTransport.Summary}",
             ExpectedInlet: $"{expectedName} / {expectedType}",
+            WindowsExpectedStreamVisible: expectedUpstream.VisibleOnWindows,
+            WindowsExpectedStreamViaCompanionTestSender: expectedUpstream.VisibleViaCompanionTestSender,
+            WindowsExpectedStream: expectedUpstream.Summary,
+            MissingLinks: assessment.MissingLinks,
+            FocusNext: assessment.FocusNext,
             RuntimeTarget: runtimeTarget,
             ConnectedInlet: connectedInlet,
             Counts: counts,
@@ -446,6 +470,11 @@ internal static class DiagnosticsCliSupport
             OperationOutcomeKind.Preview => "PREVIEW",
             _ => "INFO"
         };
+
+    private static string BuildInlineList(IReadOnlyList<string> values)
+        => values.Count == 0
+            ? "none"
+            : string.Join(" | ", values);
 
     private static string BuildSelectorLabel(string? device, HeadsetAppStatus headset)
     {

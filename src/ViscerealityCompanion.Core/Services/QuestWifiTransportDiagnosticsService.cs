@@ -169,9 +169,11 @@ public sealed class QuestWifiTransportDiagnosticsService
 
         var level = OperationOutcomeKind.Success;
         var summary = "Quest Wi-Fi path is reachable from Windows.";
-        var routedTopologyAccepted = headset.WifiSsidMatchesHost == false
-            && tcpProbe.Reachable
-            && (sameSubnet == true || IsNonWirelessHostAdapter(hostAdapter));
+        var hostUsesRoutedNonWirelessPath = IsNonWirelessHostAdapter(hostAdapter);
+        var routedTopologyAccepted =
+            tcpProbe.Reachable &&
+            (sameSubnet == true || hostUsesRoutedNonWirelessPath) &&
+            (headset.WifiSsidMatchesHost == false || hostUsesRoutedNonWirelessPath);
 
         if (!tcpProbe.Reachable)
         {
@@ -184,10 +186,10 @@ public sealed class QuestWifiTransportDiagnosticsService
         else if (routedTopologyAccepted)
         {
             level = sameSubnet == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning;
-            summary = IsNonWirelessHostAdapter(hostAdapter)
+            summary = hostUsesRoutedNonWirelessPath
                 ? "Quest Wi-Fi path is reachable from Windows over the current wired/router path."
                 : "Quest Wi-Fi path is reachable from Windows even though the SSID names differ.";
-            detailParts.Add(IsNonWirelessHostAdapter(hostAdapter)
+            detailParts.Add(hostUsesRoutedNonWirelessPath
                 ? "The Quest is on Wi-Fi, but Windows can still reach TCP port 5555 through the current routed host adapter. Matching PC Wi-Fi SSIDs are not required when the companion is on the same router over Ethernet or another valid routed link."
                 : "The SSID names differ, but Windows can still reach TCP port 5555 on the Quest IP over the current routed path. Treat the SSID mismatch as advisory on this topology.");
         }
@@ -394,7 +396,11 @@ public sealed class QuestWifiTransportDiagnosticsService
         bool? sameSubnet)
     {
         var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(headset.HostWifiSsid) || !string.IsNullOrWhiteSpace(headset.HeadsetWifiSsid))
+        if (IsNonWirelessHostAdapter(hostAdapter))
+        {
+            parts.Add("Host is using a routed non-Wi-Fi adapter, so direct PC Wi-Fi SSID matching is not required.");
+        }
+        else if (!string.IsNullOrWhiteSpace(headset.HostWifiSsid) || !string.IsNullOrWhiteSpace(headset.HeadsetWifiSsid))
         {
             parts.Add(headset.WifiSsidMatchesHost switch
             {

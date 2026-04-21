@@ -472,6 +472,47 @@ public sealed class StudyShellWorkflowGuideRegressionTests
     }
 
     [Fact]
+    public void WifiMatchGate_Passes_WhenQuestIsReachableOverEthernetRoutedHostPathAndWifiNamesAreUnavailable()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment") with
+        {
+            HostWifiSsid = string.Empty,
+            WifiSsidMatchesHost = null,
+            HostWifiInterfaceName = "Ethernet"
+        });
+        SetPrivateField(viewModel, "_headsetWifiSummary", "Headset Wi-Fi: TP-Link_COAC");
+        SetPrivateField(viewModel, "_hostWifiSummary", "This PC Wi-Fi: n/a");
+        SetPrivateField(
+            viewModel,
+            "_questWifiTransportDiagnostics",
+            new QuestWifiTransportDiagnosticsResult(
+                OperationOutcomeKind.Success,
+                "Quest Wi-Fi path is reachable from Windows over the current wired/router path.",
+                "Selector 192.168.0.130:5555. Headset Wi-Fi TP-Link_COAC (192.168.0.130). Host routed link via Ethernet (192.168.0.153); PC Wi-Fi SSID n/a. Host is using a routed non-Wi-Fi adapter, so direct PC Wi-Fi SSID matching is not required. Selector IP matches the headset Wi-Fi IP. Host adapter Ethernet (Ethernet) IPv4 192.168.0.153, gateway 192.168.0.1. Quest and host appear to share the same IPv4 subnet. ICMP ping reached the Quest across 2/2 reply/replies (12.5 ms avg). TCP port 5555 on the Quest is reachable from Windows (6.8 ms). The Quest is on Wi-Fi, but Windows can still reach TCP port 5555 through the current routed host adapter. Matching PC Wi-Fi SSIDs are not required when the companion is on the same router over Ethernet or another valid routed link.",
+                Selector: "Selector 192.168.0.130:5555.",
+                HeadsetWifi: "Headset Wi-Fi TP-Link_COAC (192.168.0.130).",
+                HostWifi: "Host routed link via Ethernet (192.168.0.153); PC Wi-Fi SSID n/a.",
+                Topology: "Host is using a routed non-Wi-Fi adapter, so direct PC Wi-Fi SSID matching is not required. Selector IP matches the headset Wi-Fi IP. Host adapter Ethernet (Ethernet) IPv4 192.168.0.153, gateway 192.168.0.1. Quest and host appear to share the same IPv4 subnet.",
+                Ping: "ICMP ping reached the Quest across 2/2 reply/replies (12.5 ms avg).",
+                Tcp: "TCP port 5555 on the Quest is reachable from Windows (6.8 ms).",
+                TcpReachable: true,
+                PingReachable: true,
+                SelectorMatchesHeadsetIp: true,
+                SameSubnet: true,
+                CheckedAtUtc: DateTimeOffset.UtcNow,
+                RoutedTopologyAccepted: true));
+
+        var gate = InvokePrivateMethod<WorkflowGuideGateState>(viewModel, "BuildWifiMatchWorkflowGuideGateState");
+
+        Assert.True(gate.Ready);
+        Assert.Equal(OperationOutcomeKind.Success, gate.Level);
+        Assert.Equal("Quest router path is valid.", gate.Summary);
+        Assert.Contains("not required", gate.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Refresh the headset snapshot until both the headset Wi-Fi and the PC Wi-Fi names are visible", gate.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void LslReturnPathCheck_DistinguishesStalledTwinStatePublisherFromGenericConnectionFailure()
     {
         var viewModel = CreateViewModel(CreateStudy());

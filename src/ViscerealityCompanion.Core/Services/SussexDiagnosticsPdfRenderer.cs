@@ -74,6 +74,9 @@ public static class SussexDiagnosticsPdfRenderer
         [
             ("twin-state outlet", QuestTwinStatePublisherInventoryService.RenderForOperator(report.TwinStatePublisherInventory)),
             ("expected inlet", report.TwinConnection.ExpectedInlet),
+            ("windows expected stream", report.TwinConnection.WindowsExpectedStream),
+            ("missing links", FormatDiagnosticList(report.TwinConnection.MissingLinks)),
+            ("focus next", report.TwinConnection.FocusNext),
             ("runtime target", report.TwinConnection.RuntimeTarget),
             ("connected inlet", report.TwinConnection.ConnectedInlet),
             ("counts", report.TwinConnection.Counts),
@@ -266,6 +269,11 @@ public static class SussexDiagnosticsPdfRenderer
                 ? safeDetail
                 : $"{safeSummary}\n{safeDetail}";
     }
+
+    private static string FormatDiagnosticList(IReadOnlyList<string> values)
+        => values.Count == 0
+            ? "none"
+            : string.Join(Environment.NewLine, values.Select(static value => $"- {value}"));
 
     private static Section AddSection(Document document, Orientation orientation = Orientation.Portrait)
     {

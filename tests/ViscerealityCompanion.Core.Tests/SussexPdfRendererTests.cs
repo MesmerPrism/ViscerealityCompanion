@@ -26,6 +26,18 @@ public sealed class SussexPdfRendererTests
     }
 
     [Fact]
+    public void DiagnosticsLatex_IncludesExpectedStreamMissingLinksAndFocusNext()
+    {
+        var latex = SussexDiagnosticsReportService.RenderLatexReport(CreateDiagnosticsReport(@"C:\temp\diagnostics"));
+
+        Assert.Contains("windows expected stream", latex, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("missing links", latex, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("focus next", latex, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("companion TEST sender", latex, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Sussex runtime state and twin telemetry", latex, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ValidationRenderer_CreatesPdf()
     {
         var root = CreateTempRoot();
@@ -205,6 +217,11 @@ public sealed class SussexPdfRendererTests
                 PinnedBuildReady: true,
                 DeviceProfileReady: true,
                 ExpectedInlet: "quest_twin_state / quest.twin.state",
+                WindowsExpectedStreamVisible: true,
+                WindowsExpectedStreamViaCompanionTestSender: true,
+                WindowsExpectedStream: "HRV_Biofeedback / HRV is visible on Windows via the companion TEST sender.",
+                MissingLinks: Array.Empty<string>(),
+                FocusNext: "Windows already sees the expected upstream stream, so focus next on Sussex runtime state and twin telemetry.",
                 RuntimeTarget: "com.Viscereality.SussexExperiment",
                 ConnectedInlet: "quest_twin_state / quest.twin.state",
                 Counts: "state=1, command=1, config=1",

@@ -73,6 +73,62 @@ public sealed class WindowsEnvironmentAnalysisServiceTests
     }
 
     [Fact]
+    public async Task AnalyzeAsync_ReportsCompanionTestSenderAsRepresentativeExpectedStream()
+    {
+        var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));
+        monitor.Enqueue(new LslMonitorReading(
+            "Streaming LSL sample.",
+            "Received a live HRV packet from the companion TEST sender.",
+            0.58f,
+            10f,
+            DateTimeOffset.UtcNow));
+        var discovery = new FakeLslStreamDiscoveryService(
+            new LslRuntimeState(true, "Fake discovery runtime ready."),
+            [
+                new LslVisibleStreamInfo(
+                    "HRV_Biofeedback",
+                    "HRV",
+                    "viscereality.companion.study-shell.test.sussex-university",
+                    1,
+                    10f,
+                    100d)
+            ]);
+
+        using var clockAlignment = new FakeClockAlignmentService(new LslRuntimeState(true, "Clock alignment ready."));
+        using var testSender = new FakeTestLslSignalService(new LslRuntimeState(true, "TEST sender ready."), isRunning: true);
+        var bridge = new FakeTwinModeBridge(new TwinBridgeStatus(true, false, "Twin bridge ready.", "Fake twin bridge is publishing."));
+        var service = new WindowsEnvironmentAnalysisService(
+            monitor,
+            discovery,
+            clockAlignment,
+            testSender,
+            bridge,
+            toolingStatusProvider: () => CreateToolingStatus(isReady: true),
+            adbLocator: () => @"C:\tooling\platform-tools\adb.exe",
+            hzdbLocator: () => @"C:\tooling\hzdb\hzdb.exe",
+            bundledLslLocator: () => @"C:\tooling\bundled\lsl.dll",
+            agentWorkspacePresent: () => false,
+            loopbackOutletFactory: CreateLoopbackOutletFactory(),
+            networkAdapterSnapshotProvider: () => SinglePhysicalAdapter(),
+            installFootprintProvider: () => CleanInstallFootprint(),
+            exportedCliCheckProvider: PreviewExportedCliCheck,
+            repoTestAssemblyLoadCheckProvider: PreviewRepoTestAssemblyLoadCheck,
+            utcNow: () => new DateTimeOffset(2026, 04, 10, 14, 5, 0, TimeSpan.Zero));
+
+        var result = await service.AnalyzeAsync(new WindowsEnvironmentAnalysisRequest("HRV_Biofeedback", "HRV"));
+
+        Assert.Equal(OperationOutcomeKind.Success, result.Level);
+
+        var streamCheck = Assert.Single(result.Checks, check => check.Id == "expected-stream");
+        Assert.Equal(OperationOutcomeKind.Success, streamCheck.Level);
+        Assert.Contains("visible on Windows", streamCheck.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("viscereality.companion.study-shell.test.sussex-university", streamCheck.Detail, StringComparison.Ordinal);
+
+        var testSenderRuntimeCheck = Assert.Single(result.Checks, check => check.Id == "test-sender-runtime");
+        Assert.Equal(OperationOutcomeKind.Success, testSenderRuntimeCheck.Level);
+    }
+
+    [Fact]
     public async Task AnalyzeAsync_ReturnsFailuresAndRemediation_WhenWindowsRequirementsAreMissing()
     {
         var monitor = new FakeMonitorService(new LslRuntimeState(true, "Fake monitor runtime ready."));

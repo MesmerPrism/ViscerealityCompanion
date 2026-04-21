@@ -144,6 +144,53 @@ public sealed class QuestWifiTransportDiagnosticsServiceTests
         Assert.Contains("Ethernet", result.HostWifi, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task AnalyzeAsync_AcceptsEthernetHostPath_WhenPcWifiSsidIsUnknownButTcpIsReachable()
+    {
+        var service = new QuestWifiTransportDiagnosticsService(
+            networkAdapterSnapshotProvider: () =>
+            [
+                new WindowsNetworkAdapterSnapshot(
+                    "Ethernet",
+                    "Realtek PCIe GbE Family Controller",
+                    "Ethernet",
+                    IsUp: true,
+                    IsLoopback: false,
+                    IsTunnel: false,
+                    SupportsMulticast: true,
+                    IPv4Addresses: ["192.168.0.153"],
+                    Gateways: ["192.168.0.1"],
+                    IPv4Cidrs: ["192.168.0.153/24"])
+            ],
+            pingProbe: (_, _, _, _) => Task.FromResult(new QuestWifiTransportDiagnosticsService.PingProbeResult(
+                Attempted: true,
+                Reachable: true,
+                Attempts: 2,
+                SuccessfulReplies: 2,
+                AverageLatencyMs: 12.5,
+                Error: string.Empty)),
+            tcpProbe: (_, _, _, _) => Task.FromResult(new QuestWifiTransportDiagnosticsService.TcpProbeResult(
+                Attempted: true,
+                Reachable: true,
+                ConnectLatencyMs: 6.8,
+                Error: string.Empty)));
+
+        var result = await service.AnalyzeAsync(CreateHeadsetStatus() with
+        {
+            HostWifiSsid = string.Empty,
+            WifiSsidMatchesHost = null,
+            HostWifiInterfaceName = "Ethernet"
+        });
+
+        Assert.Equal(OperationOutcomeKind.Success, result.Level);
+        Assert.True(result.RoutedTopologyAccepted);
+        Assert.True(result.TcpReachable);
+        Assert.True(result.SameSubnet);
+        Assert.Contains("wired/router path", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SSID matching is not required", result.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SSID match unknown", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static HeadsetAppStatus CreateHeadsetStatus()
         => new(
             IsConnected: true,
