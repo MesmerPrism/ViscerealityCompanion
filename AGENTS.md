@@ -301,7 +301,10 @@ For GitHub Actions release packaging, keep the workflow on
 `windows-2025-vs2026` (or another runner with Visual Studio 2026 / MSBuild 18
 or newer). This repo now packages a `net10.0-windows` WPF app, and the Desktop
 Bridge WAP build fails on `windows-2022` because its MSBuild 17.14 image cannot
-resolve the required .NET 10 SDK.
+resolve the required .NET 10 SDK. The current packaging script also needs to
+auto-resolve an installed UAP SDK version on that runner because the hosted
+image exposes Windows SDK `10.1.26100.7705`, not the older `10.0.19041.0`
+folder hard-coded in the package project.
 If the MSIX installs but the app dies immediately on launch, treat that as a
 different failure shape from a blocked helper EXE. Launch through
 `shell:AppsFolder\MesmerPrism.ViscerealityCompanion_zncnfcs118r0y!App` and

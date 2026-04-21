@@ -152,6 +152,41 @@ function Find-WindowsSdkTool {
     throw "$ToolName was not found. Install the Windows 10/11 SDK packaging tools."
 }
 
+function Resolve-UapPlatformVersion {
+    param(
+        [string]$PreferredVersion
+    )
+
+    $uapRoots = @(
+        (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Platforms\UAP'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\DesignTime\CommonConfiguration\Neutral\UAP')
+    )
+
+    $availableVersions = foreach ($root in $uapRoots) {
+        if (-not (Test-Path $root)) {
+            continue
+        }
+
+        Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Select-Object -ExpandProperty Name
+    }
+
+    $availableVersions = $availableVersions |
+        Sort-Object -Unique |
+        Sort-Object { [version]$_ } -Descending
+
+    if ($null -eq $availableVersions -or $availableVersions.Count -eq 0) {
+        throw 'No installed UAP Windows SDK versions were found under Windows Kits\10.'
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($PreferredVersion) -and $availableVersions -contains $PreferredVersion) {
+        return $PreferredVersion
+    }
+
+    return $availableVersions | Select-Object -First 1
+}
+
 function Invoke-SignToolSign {
     param(
         [Parameter(Mandatory = $true)]
@@ -333,15 +368,48 @@ if ($RefreshBundledSussexApk -or -not [string]::IsNullOrWhiteSpace($BundledSusse
 
 Initialize-DotNetSdkResolver -PreferredSdkVersion $PreferredDotNetSdkVersion
 
+$preferredTargetPlatformVersion = $null
+try {
+    [xml]$packageProjectXml = Get-Content $packageProjectPath -Raw
+    $packageProjectNamespaceManager = New-Object System.Xml.XmlNamespaceManager($packageProjectXml.NameTable)
+    $packageProjectNamespaceManager.AddNamespace('msbuild', 'http://schemas.microsoft.com/developer/msbuild/2003')
+    $targetPlatformVersionNode = $packageProjectXml.SelectSingleNode('//msbuild:TargetPlatformVersion', $packageProjectNamespaceManager)
+    if ($null -ne $targetPlatformVersionNode) {
+        $preferredTargetPlatformVersion = $targetPlatformVersionNode.InnerText
+    }
+}
+catch {
+}
+
+$resolvedTargetPlatformVersion = Resolve-UapPlatformVersion -PreferredVersion $preferredTargetPlatformVersion
+
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 if (Test-Path $appPackagesRoot) {
     Remove-Item -Recurse -Force $appPackagesRoot
 }
 
+$originalPackageProjectBytes = [System.IO.File]::ReadAllBytes($packageProjectPath)
 $originalManifest = Get-Content $manifestPath -Raw
 $originalManifestBytes = [System.IO.File]::ReadAllBytes($manifestPath)
 
 try {
+    if (-not [string]::IsNullOrWhiteSpace($preferredTargetPlatformVersion) -and $preferredTargetPlatformVersion -ne $resolvedTargetPlatformVersion) {
+        [xml]$packageProjectXml = Get-Content $packageProjectPath -Raw
+        $packageProjectNamespaceManager = New-Object System.Xml.XmlNamespaceManager($packageProjectXml.NameTable)
+        $packageProjectNamespaceManager.AddNamespace('msbuild', 'http://schemas.microsoft.com/developer/msbuild/2003')
+        $targetPlatformVersionNode = $packageProjectXml.SelectSingleNode('//msbuild:TargetPlatformVersion', $packageProjectNamespaceManager)
+        if ($null -eq $targetPlatformVersionNode) {
+            throw "Package project node not found: //msbuild:TargetPlatformVersion"
+        }
+
+        $targetPlatformVersionNode.InnerText = $resolvedTargetPlatformVersion
+        $packageProjectXml.Save($packageProjectPath)
+        Write-Host "Using installed UAP SDK $resolvedTargetPlatformVersion for packaging because project target $preferredTargetPlatformVersion is not available on this machine." -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "Using UAP SDK $resolvedTargetPlatformVersion for packaging." -ForegroundColor Cyan
+    }
+
     [xml]$manifest = $originalManifest
     $namespaceManager = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
     $namespaceManager.AddNamespace('appx', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
@@ -446,5 +514,6 @@ try {
     }
 }
 finally {
+    [System.IO.File]::WriteAllBytes($packageProjectPath, $originalPackageProjectBytes)
     [System.IO.File]::WriteAllBytes($manifestPath, $originalManifestBytes)
 }
