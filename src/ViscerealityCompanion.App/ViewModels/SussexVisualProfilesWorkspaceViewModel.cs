@@ -54,6 +54,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     private string _templatePathLabel = "Bundled Sussex visual tuning template not found.";
     private string _libraryRootLabel = string.Empty;
     private SussexVisualProfileStartupState? _startupState;
+    private Dictionary<string, double> _lastSessionTrackedControlValues = new(StringComparer.OrdinalIgnoreCase);
 
     public SussexVisualProfilesWorkspaceViewModel(
         StudyShellDefinition study,
@@ -111,6 +112,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     }
 
     public event EventHandler? StartupProfileChanged;
+    internal event EventHandler<SussexSessionParameterActivity>? SessionParameterActivity;
 
     public bool IsAvailable => _compiler is not null && _profileStore is not null;
 
@@ -576,6 +578,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             SelectedProfileName = string.Empty;
             SelectedProfileNotes = string.Empty;
             ComparisonRows.Clear();
+            ResetSessionTrackedControlValues();
             RefreshDraftState();
             return;
         }
@@ -600,12 +603,14 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             field.SetConfirmation("Not applied", OperationOutcomeKind.Preview);
         }
 
+        ResetSessionTrackedControlValues();
         RefreshComparisonState();
         RefreshDraftState();
     }
 
     private void OnFieldValueChanged()
     {
+        PublishDraftParameterActivity();
         RefreshComparisonState(syncCurrentValueText: true);
         RefreshDraftState();
     }
@@ -706,6 +711,106 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 .SelectMany(group => group.Fields)
                 .ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase));
     }
+
+    private void ResetSessionTrackedControlValues()
+        => _lastSessionTrackedControlValues = CaptureCurrentControlValues();
+
+    private Dictionary<string, double> CaptureCurrentControlValues()
+        => Groups
+            .SelectMany(group => group.Fields)
+            .ToDictionary(field => field.Id, field => field.Value, StringComparer.OrdinalIgnoreCase);
+
+    private void PublishDraftParameterActivity()
+    {
+        var currentValues = CaptureCurrentControlValues();
+        var changes = BuildDraftParameterDeltas(currentValues);
+        _lastSessionTrackedControlValues = new Dictionary<string, double>(currentValues, StringComparer.OrdinalIgnoreCase);
+        if (changes.Count == 0)
+        {
+            return;
+        }
+
+        var profile = CreateCurrentProfileRecord();
+        SessionParameterActivity?.Invoke(
+            this,
+            new SussexSessionParameterActivity(
+                Surface: "visual",
+                Kind: "draft_changed",
+                ProfileId: profile?.Id ?? _draftSourceProfileId,
+                ProfileName: profile?.Document.Profile.Name ?? SelectedProfileName,
+                RecordedAtUtc: DateTimeOffset.UtcNow,
+                Changes: changes,
+                CurrentValues: currentValues));
+    }
+
+    private List<SussexSessionParameterDelta> BuildDraftParameterDeltas(
+        IReadOnlyDictionary<string, double> currentValues)
+    {
+        var deltas = new List<SussexSessionParameterDelta>();
+        foreach (var field in Groups.SelectMany(group => group.Fields))
+        {
+            if (!currentValues.TryGetValue(field.Id, out var currentValue))
+            {
+                continue;
+            }
+
+            if (_lastSessionTrackedControlValues.TryGetValue(field.Id, out var previousValue) &&
+                VisualValuesMatch(field, previousValue, currentValue))
+            {
+                continue;
+            }
+
+            deltas.Add(new SussexSessionParameterDelta(
+                field.Id,
+                field.Label,
+                field.Type,
+                _lastSessionTrackedControlValues.TryGetValue(field.Id, out previousValue) ? previousValue : null,
+                currentValue));
+        }
+
+        return deltas;
+    }
+
+    private void PublishAppliedParameterActivity(
+        SussexVisualProfileRecord saved,
+        IReadOnlyDictionary<string, double?> previousReportedValues,
+        OperationOutcome outcome,
+        string detail)
+    {
+        var changes = saved.Document.Controls
+            .Select(control => new SussexSessionParameterDelta(
+                control.Id,
+                control.Label,
+                control.Type,
+                previousReportedValues.TryGetValue(control.Id, out var previousValue) ? previousValue : null,
+                control.Value))
+            .ToArray();
+
+        SessionParameterActivity?.Invoke(
+            this,
+            new SussexSessionParameterActivity(
+                Surface: "visual",
+                Kind: "applied",
+                ProfileId: saved.Id,
+                ProfileName: saved.Document.Profile.Name,
+                RecordedAtUtc: DateTimeOffset.UtcNow,
+                Changes: changes,
+                CurrentValues: new Dictionary<string, double>(saved.Document.ControlValues, StringComparer.OrdinalIgnoreCase),
+                PreviousReportedValues: new Dictionary<string, double?>(previousReportedValues, StringComparer.OrdinalIgnoreCase),
+                OutcomeKind: outcome.Kind,
+                Summary: outcome.Summary,
+                Detail: detail));
+
+        _lastSessionTrackedControlValues = new Dictionary<string, double>(saved.Document.ControlValues, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool VisualValuesMatch(
+        SussexVisualProfileFieldViewModel field,
+        double left,
+        double right)
+        => field.IsBoolean
+            ? (left >= 0.5d) == (right >= 0.5d)
+            : Math.Abs(left - right) <= 0.000001d;
 
     private async Task<SussexVisualProfileRecord?> SaveSnapshotAsync(
         SussexVisualProfileSnapshot snapshot,
@@ -1218,9 +1323,15 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 _applyStateStore?.Save(_lastApplyRecord);
             }
 
+            var applyDetail = BuildApplyOutcomeDetail(outcome, headsetStatus, csvPath, wakeOutcome, preferTwinRuntimePublish);
             ApplySummary = outcome.Summary;
-            ApplyDetail = BuildApplyOutcomeDetail(outcome, headsetStatus, csvPath, wakeOutcome, preferTwinRuntimePublish);
+            ApplyDetail = applyDetail;
             ApplyLevel = outcome.Kind;
+            if (outcome.Kind != OperationOutcomeKind.Failure)
+            {
+                PublishAppliedParameterActivity(saved, previousReportedValues, outcome, applyDetail);
+            }
+
             RefreshComparisonState();
         }
         catch (Exception ex)

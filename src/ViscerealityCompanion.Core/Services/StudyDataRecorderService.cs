@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Collections.Concurrent;
 using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -229,7 +230,75 @@ public sealed record StudyDataRecordingStartRequest(
     string RuntimeHotloadProfileChannel,
     string WindowsMachineName,
     string QuestSelector,
-    string SessionConditionsJson);
+    string SessionConditionsJson,
+    string InitialSessionParameterStateHash,
+    JsonNode? InitialSessionParameterState)
+{
+    public StudyDataRecordingStartRequest(
+        string StudyId,
+        string StudyLabel,
+        string ParticipantId,
+        string SessionId,
+        string DatasetId,
+        string DatasetHash,
+        string SettingsHash,
+        string EnvironmentHash,
+        DateTimeOffset SessionStartedAtUtc,
+        string PackageId,
+        string ApkSha256,
+        string AppVersionName,
+        string LaunchComponent,
+        string HeadsetSoftwareVersion,
+        string HeadsetBuildId,
+        string HeadsetDisplayId,
+        string DeviceProfileId,
+        string DeviceProfileLabel,
+        IReadOnlyDictionary<string, string> DeviceProfileProperties,
+        string ExpectedLslStreamName,
+        string ExpectedLslStreamType,
+        double RecenterDistanceThresholdUnits,
+        string RuntimeConfigJsonHash,
+        string RuntimeHotloadProfileId,
+        string RuntimeHotloadProfileVersion,
+        string RuntimeHotloadProfileChannel,
+        string WindowsMachineName,
+        string QuestSelector,
+        string SessionConditionsJson)
+        : this(
+            StudyId,
+            StudyLabel,
+            ParticipantId,
+            SessionId,
+            DatasetId,
+            DatasetHash,
+            SettingsHash,
+            EnvironmentHash,
+            SessionStartedAtUtc,
+            PackageId,
+            ApkSha256,
+            AppVersionName,
+            LaunchComponent,
+            HeadsetSoftwareVersion,
+            HeadsetBuildId,
+            HeadsetDisplayId,
+            DeviceProfileId,
+            DeviceProfileLabel,
+            DeviceProfileProperties,
+            ExpectedLslStreamName,
+            ExpectedLslStreamType,
+            RecenterDistanceThresholdUnits,
+            RuntimeConfigJsonHash,
+            RuntimeHotloadProfileId,
+            RuntimeHotloadProfileVersion,
+            RuntimeHotloadProfileChannel,
+            WindowsMachineName,
+            QuestSelector,
+            SessionConditionsJson,
+            string.Empty,
+            null)
+    {
+    }
+}
 
 public sealed class StudyDataRecordingSession : IDisposable
 {
@@ -265,7 +334,7 @@ public sealed class StudyDataRecordingSession : IDisposable
     private readonly StreamWriter _breathingWriter;
     private readonly StreamWriter _clockAlignmentWriter;
     private readonly StreamWriter _upstreamLslMonitorWriter;
-    private readonly string _sessionConditionsJson;
+    private string _sessionConditionsJson;
     private const int UpstreamLslMonitorSettingsPersistInterval = 25;
 
     private bool _disposed;
@@ -335,6 +404,12 @@ public sealed class StudyDataRecordingSession : IDisposable
             request.RuntimeHotloadProfileChannel,
             request.WindowsMachineName,
             request.QuestSelector,
+            request.InitialSessionParameterStateHash,
+            CloneJsonNode(request.InitialSessionParameterState),
+            request.InitialSessionParameterStateHash,
+            CloneJsonNode(request.InitialSessionParameterState),
+            request.SessionStartedAtUtc,
+            0,
             ClockAlignmentCsvPath,
             SussexClockAlignmentStreamContract.DefaultDurationSeconds,
             SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds,
@@ -601,6 +676,30 @@ public sealed class StudyDataRecordingSession : IDisposable
         }
     }
 
+    public void UpdateSessionContext(
+        JsonNode? latestSessionParameterState,
+        string? sessionConditionsJson,
+        DateTimeOffset updatedAtUtc,
+        bool incrementParameterChangeCount)
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposed();
+
+            _sessionConditionsJson = sessionConditionsJson ?? string.Empty;
+            _settings = _settings with
+            {
+                LatestSessionParameterStateHash = ComputeJsonHash(latestSessionParameterState),
+                LatestSessionParameterState = CloneJsonNode(latestSessionParameterState),
+                SessionParameterStateUpdatedAtUtc = updatedAtUtc,
+                SessionParameterChangeCount = incrementParameterChangeCount
+                    ? _settings.SessionParameterChangeCount + 1
+                    : _settings.SessionParameterChangeCount
+            };
+            WriteSettingsDocument();
+        }
+    }
+
     public void Complete(DateTimeOffset endedAtUtc)
     {
         lock (_sync)
@@ -666,6 +765,21 @@ public sealed class StudyDataRecordingSession : IDisposable
         }
 
         return snapshot.ToJsonString(_jsonOptions);
+    }
+
+    private static JsonNode? CloneJsonNode(JsonNode? node)
+        => node?.DeepClone();
+
+    private static string ComputeJsonHash(JsonNode? node)
+        => string.IsNullOrWhiteSpace(node?.ToJsonString())
+            ? string.Empty
+            : ComputeHashToken(node!.ToJsonString());
+
+    private static string ComputeHashToken(string payload)
+    {
+        var bytes = Encoding.UTF8.GetBytes(payload ?? string.Empty);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private void DisposeWriters()
@@ -783,6 +897,12 @@ public sealed class StudyDataRecordingSession : IDisposable
         string RuntimeHotloadProfileChannel,
         string WindowsMachineName,
         string QuestSelector,
+        string InitialSessionParameterStateHash,
+        JsonNode? InitialSessionParameterState,
+        string LatestSessionParameterStateHash,
+        JsonNode? LatestSessionParameterState,
+        DateTimeOffset? SessionParameterStateUpdatedAtUtc,
+        int SessionParameterChangeCount,
         string ClockAlignmentFile,
         int ClockAlignmentDurationSeconds,
         int ClockAlignmentProbeIntervalMilliseconds,

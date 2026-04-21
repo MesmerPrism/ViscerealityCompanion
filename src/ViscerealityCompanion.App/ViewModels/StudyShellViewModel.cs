@@ -137,8 +137,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         "signals_long.csv",
         "breathing_trace.csv",
         "clock_alignment_samples.csv",
-        "timing_markers.csv",
-        "lsl_samples.csv"
+        "timing_markers.csv"
     ];
     private static readonly string[] WorkflowExpectedWindowsRecordingFiles =
     [
@@ -509,7 +508,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             _twinBridge);
         _windowsInstallFootprintCleanupService = new WindowsInstallFootprintCleanupService();
         _visualProfiles.StartupProfileChanged += OnStartupProfileChanged;
+        _visualProfiles.SessionParameterActivity += OnSessionParameterActivity;
         _controllerBreathingProfiles.StartupProfileChanged += OnStartupProfileChanged;
+        _controllerBreathingProfiles.SessionParameterActivity += OnSessionParameterActivity;
         _endpointDraft = _appSessionState.ActiveEndpoint ?? string.Empty;
         _stagedApkPath = ResolveInitialApkPath();
 
@@ -2530,7 +2531,9 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         _testLslSignalService.StateChanged -= OnTestLslSignalServiceStateChanged;
         _visualProfiles.StartupProfileChanged -= OnStartupProfileChanged;
+        _visualProfiles.SessionParameterActivity -= OnSessionParameterActivity;
         _controllerBreathingProfiles.StartupProfileChanged -= OnStartupProfileChanged;
+        _controllerBreathingProfiles.SessionParameterActivity -= OnSessionParameterActivity;
 
         if (_twinRefreshTimer is not null)
         {
@@ -3780,6 +3783,44 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                         OperatorLogLevel.Warning,
                         "Saved launch profile sync failed.",
                         ex.Message)).ConfigureAwait(false);
+            }
+        });
+    }
+
+    private void OnSessionParameterActivity(object? sender, SussexSessionParameterActivity activity)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await DispatchAsync(() =>
+                {
+                    var recordingSession = _activeRecordingSession;
+                    if (recordingSession is null)
+                    {
+                        return;
+                    }
+
+                    recordingSession.RecordEvent(
+                        $"tuning.{activity.Surface}.{activity.Kind}",
+                        BuildSessionParameterActivityDetail(activity),
+                        null,
+                        "recorded",
+                        activity.RecordedAtUtc);
+                    recordingSession.UpdateSessionContext(
+                        BuildSessionParameterStateNode(activity.RecordedAtUtc),
+                        BuildSessionConditionsJson(activity.RecordedAtUtc),
+                        activity.RecordedAtUtc,
+                        incrementParameterChangeCount: true);
+                }).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                await DispatchAsync(() =>
+                    AppendLog(
+                        OperatorLogLevel.Warning,
+                        "Session tuning metadata capture failed.",
+                        exception.Message)).ConfigureAwait(false);
             }
         });
     }
@@ -7829,6 +7870,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                     questPullOutcome.Kind.ToString());
             }
 
+            var latestParameterState = await DispatchAsync(() => BuildSessionParameterStateNode(endedAtUtc)).ConfigureAwait(false);
+            var latestSessionConditionsJson = await DispatchAsync(() => BuildSessionConditionsJson(endedAtUtc)).ConfigureAwait(false);
+            recordingSession.UpdateSessionContext(
+                latestParameterState,
+                latestSessionConditionsJson,
+                endedAtUtc,
+                incrementParameterChangeCount: false);
             recordingSession.RecordEvent(eventName, eventDetail, null, result, endedAtUtc);
             recordingSession.Complete(endedAtUtc);
         }
@@ -7920,6 +7968,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var environmentHash = VerificationBaseline?.EnvironmentHash ?? string.Empty;
         var datasetId = BuildDatasetId(_study.Id, participantId, sessionId);
         var datasetHash = BuildDatasetHash(_study.Id, participantId, sessionId, startedAtUtc);
+        var sessionParameterState = BuildSessionParameterStateNode(startedAtUtc);
+        var sessionParameterStateHash = ComputeHashToken(sessionParameterState.ToJsonString());
         var sessionConditionsJson = BuildSessionConditionsJson(startedAtUtc);
         var settingsHash = BuildSettingsHash(
             _study.Id,
@@ -7939,6 +7989,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             runtimeHotloadProfileId,
             runtimeHotloadProfileVersion,
             runtimeHotloadProfileChannel,
+            sessionParameterStateHash,
             environmentHash);
         return new StudyDataRecordingStartRequest(
             _study.Id,
@@ -7969,7 +8020,90 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             runtimeHotloadProfileChannel,
             Environment.MachineName,
             ResolveHeadsetActionSelector(),
-            sessionConditionsJson);
+            sessionConditionsJson,
+            sessionParameterStateHash,
+            sessionParameterState);
+    }
+
+    private JsonObject BuildSessionParameterStateNode(DateTimeOffset capturedAtUtc)
+        => new()
+        {
+            ["SchemaVersion"] = "sussex-session-parameter-state-v1",
+            ["CapturedAtUtc"] = capturedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            ["RuntimeHotloadProfile"] = new JsonObject
+            {
+                ["Id"] = GetFirstValue("hotload.hotload_profile_id") ?? string.Empty,
+                ["Version"] = GetFirstValue("hotload.hotload_profile_version") ?? string.Empty,
+                ["Channel"] = GetFirstValue("hotload.hotload_profile_channel") ?? string.Empty,
+                ["RuntimeConfigHash"] = GetFirstValue("config.runtime_json_hash") ?? string.Empty
+            },
+            ["VisualTuning"] = JsonSerializer.SerializeToNode(_visualProfiles.CaptureSessionSnapshot()),
+            ["ControllerBreathingTuning"] = JsonSerializer.SerializeToNode(_controllerBreathingProfiles.CaptureSessionSnapshot())
+        };
+
+    private static string BuildSessionParameterActivityDetail(SussexSessionParameterActivity activity)
+    {
+        var payload = new
+        {
+            SchemaVersion = "sussex-session-parameter-activity-v1",
+            activity.Surface,
+            activity.Kind,
+            activity.ProfileId,
+            activity.ProfileName,
+            RecordedAtUtc = activity.RecordedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+            Outcome = activity.OutcomeKind?.ToString(),
+            activity.Summary,
+            activity.Detail,
+            Changes = activity.Changes.Select(change => new
+            {
+                change.Id,
+                change.Label,
+                change.Type,
+                PreviousValue = change.PreviousValue,
+                PreviousLabel = FormatSessionParameterValue(change.PreviousValue, change.Type),
+                CurrentValue = change.CurrentValue,
+                CurrentLabel = FormatSessionParameterValue(change.CurrentValue, change.Type)
+            }),
+            CurrentValues = activity.CurrentValues
+                .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(pair => new
+                {
+                    Id = pair.Key,
+                    Value = pair.Value,
+                    Label = FormatSessionParameterValue(
+                        pair.Value,
+                        activity.Changes.FirstOrDefault(change => string.Equals(change.Id, pair.Key, StringComparison.OrdinalIgnoreCase))?.Type)
+                }),
+            PreviousReportedValues = activity.PreviousReportedValues?
+                .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(pair => new
+                {
+                    Id = pair.Key,
+                    pair.Value
+                })
+        };
+
+        return JsonSerializer.Serialize(payload);
+    }
+
+    private static string FormatSessionParameterValue(double? value, string? type)
+    {
+        if (!value.HasValue)
+        {
+            return "n/a";
+        }
+
+        if (string.Equals(type, "bool", StringComparison.OrdinalIgnoreCase))
+        {
+            return value.Value >= 0.5d ? "On" : "Off";
+        }
+
+        if (string.Equals(type, "int", StringComparison.OrdinalIgnoreCase))
+        {
+            return Math.Round(value.Value, MidpointRounding.AwayFromZero).ToString(CultureInfo.InvariantCulture);
+        }
+
+        return value.Value.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
     private string BuildSessionConditionsJson(DateTimeOffset capturedAtUtc)
@@ -11123,7 +11257,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             3 =>
             [
                 new WorkflowGuideCheckItem("Current transport", ConnectionTransportSummary, ConnectionTransportDetail, _headsetStatus?.IsWifiAdbTransport == true ? OperationOutcomeKind.Success : _headsetStatus?.IsConnected == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Failure),
-                new WorkflowGuideCheckItem("USB visibility", _headsetStatus?.IsUsbAdbVisible == true ? $"USB {_headsetStatus.VisibleUsbSerial} is still visible." : "No USB ADB device is visible.", "USB visibility stays tracked here for awareness, but Sussex now only requires the active transport to remain on the Wi-Fi endpoint.", _headsetStatus?.IsUsbAdbVisible == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
+                new WorkflowGuideCheckItem(
+                    "USB visibility",
+                    _headsetStatus?.IsUsbAdbVisible == true
+                        ? $"USB ADB endpoint {_headsetStatus.VisibleUsbSerial} is still visible."
+                        : "No USB ADB endpoint is currently visible.",
+                    "USB visibility stays tracked here for awareness. The cable may still be physically attached; this card only reflects whether adb currently lists a USB endpoint. Sussex now only requires the active transport to remain on the Wi-Fi endpoint.",
+                    _headsetStatus?.IsUsbAdbVisible == true ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success)
             ],
             4 =>
             [
@@ -11661,6 +11801,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         string runtimeHotloadProfileId,
         string runtimeHotloadProfileVersion,
         string runtimeHotloadProfileChannel,
+        string sessionParameterStateHash,
         string environmentHash)
     {
         var builder = new StringBuilder(512);
@@ -11681,6 +11822,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         builder.AppendLine(runtimeHotloadProfileId ?? string.Empty);
         builder.AppendLine(runtimeHotloadProfileVersion ?? string.Empty);
         builder.AppendLine(runtimeHotloadProfileChannel ?? string.Empty);
+        builder.AppendLine(sessionParameterStateHash ?? string.Empty);
         builder.AppendLine(environmentHash ?? string.Empty);
         builder.AppendLine(SussexClockAlignmentStreamContract.ProbeStreamName);
         builder.AppendLine(SussexClockAlignmentStreamContract.ProbeStreamType);

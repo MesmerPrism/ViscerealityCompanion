@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ViscerealityCompanion.Core.Models;
 using ViscerealityCompanion.Core.Services;
 
@@ -336,7 +337,27 @@ public sealed class StudyDataRecorderServiceTests
                 }
               }
             }
-            """);
+            """,
+            "INITIAL_PARAMETER_STATE_HASH",
+            JsonNode.Parse(
+                """
+                {
+                  "SchemaVersion": "sussex-session-parameter-state-v1",
+                  "CapturedAtUtc": "2026-03-29T12:34:56Z",
+                  "RuntimeHotloadProfile": {
+                    "Id": "viscereality_lsltwin_scene",
+                    "Version": "2026.03.29",
+                    "Channel": "public",
+                    "RuntimeConfigHash": "CONFIG_HASH"
+                  },
+                  "VisualTuning": {
+                    "ApplySummary": "Visual profile applied."
+                  },
+                  "ControllerBreathingTuning": {
+                    "ApplySummary": "Controller profile applied."
+                  }
+                }
+                """));
 
     private static string CreateTempRoot()
     {
