@@ -24,6 +24,7 @@ param(
     [string]$PackageCertificatePath,
     [string]$PackageCertificatePassword,
     [string]$PackageCertificateTimestampUrl,
+    [string]$PreferredDotNetSdkVersion,
     [switch]$RefreshBundledSussexApk,
     [string]$BundledSussexApkSourcePath,
     [string]$BundledSussexApkVersion,
@@ -184,6 +185,10 @@ function Invoke-SignToolSign {
 }
 
 function Initialize-DotNetSdkResolver {
+    param(
+        [string]$PreferredSdkVersion
+    )
+
     $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
     if (-not $dotnetCommand) {
         return
@@ -195,16 +200,17 @@ function Initialize-DotNetSdkResolver {
         return
     }
 
-    $preferredSdkVersion = $null
-    $globalJsonPath = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..')) 'global.json'
-    if (Test-Path $globalJsonPath) {
-        try {
-            $globalJson = Get-Content -Path $globalJsonPath -Raw | ConvertFrom-Json
-            if (-not [string]::IsNullOrWhiteSpace($globalJson.sdk.version)) {
-                $preferredSdkVersion = $globalJson.sdk.version.Trim()
+    if ([string]::IsNullOrWhiteSpace($PreferredSdkVersion)) {
+        $globalJsonPath = Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..')) 'global.json'
+        if (Test-Path $globalJsonPath) {
+            try {
+                $globalJson = Get-Content -Path $globalJsonPath -Raw | ConvertFrom-Json
+                if (-not [string]::IsNullOrWhiteSpace($globalJson.sdk.version)) {
+                    $PreferredSdkVersion = $globalJson.sdk.version.Trim()
+                }
             }
-        }
-        catch {
+            catch {
+            }
         }
     }
 
@@ -215,9 +221,9 @@ function Initialize-DotNetSdkResolver {
         return
     }
 
-    $preferredSdkDir = if (-not [string]::IsNullOrWhiteSpace($preferredSdkVersion)) {
+    $preferredSdkDir = if (-not [string]::IsNullOrWhiteSpace($PreferredSdkVersion)) {
         $sdkCandidates |
-            Where-Object { $_.Name -eq $preferredSdkVersion } |
+            Where-Object { $_.Name -eq $PreferredSdkVersion } |
             Select-Object -First 1
     }
 
@@ -325,7 +331,7 @@ if ($RefreshBundledSussexApk -or -not [string]::IsNullOrWhiteSpace($BundledSusse
     & $syncBundledSussexApkScriptPath @syncArgs
 }
 
-Initialize-DotNetSdkResolver
+Initialize-DotNetSdkResolver -PreferredSdkVersion $PreferredDotNetSdkVersion
 
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 if (Test-Path $appPackagesRoot) {

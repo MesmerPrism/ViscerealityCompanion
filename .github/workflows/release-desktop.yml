@@ -35,7 +35,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.201
+          dotnet-version: |
+            10.0.201
+            10.0.100
 
       - name: Setup MSBuild.exe
         uses: microsoft/setup-msbuild@v2
@@ -156,6 +158,7 @@ jobs:
           WINDOWS_PACKAGE_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_PACKAGE_CERTIFICATE_PASSWORD }}
           WINDOWS_PACKAGE_PUBLISHER: ${{ secrets.WINDOWS_PACKAGE_PUBLISHER }}
           WINDOWS_PACKAGE_TIMESTAMP_URL: ${{ vars.WINDOWS_PACKAGE_TIMESTAMP_URL }}
+          WINDOWS_PACKAGE_DOTNET_SDK_VERSION: 10.0.100
         run: |
           $args = @(
             '-Configuration', 'Release',
@@ -170,7 +173,8 @@ jobs:
             '-AppInstallerUri', $env:APPINSTALLER_URI,
             '-MainPackageUri', $env:MAIN_PACKAGE_URI,
             '-PackageCertificatePath', '${{ steps.certificate.outputs.path }}',
-            '-PackageCertificatePassword', $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD
+            '-PackageCertificatePassword', $env:WINDOWS_PACKAGE_CERTIFICATE_PASSWORD,
+            '-PreferredDotNetSdkVersion', $env:WINDOWS_PACKAGE_DOTNET_SDK_VERSION
           )
 
           if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_PACKAGE_TIMESTAMP_URL)) {
