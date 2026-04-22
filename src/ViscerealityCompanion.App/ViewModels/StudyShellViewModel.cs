@@ -304,6 +304,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     private string _diagnosticsReportTimestampLabel = "Not generated yet.";
     private string _diagnosticsReportFolderPath = string.Empty;
     private string _diagnosticsReportPdfPath = string.Empty;
+    private SussexExpectedUpstreamState? _lslExpectedUpstreamProbeState;
     private string _questTwinStatePublisherInventoryDetail = "Quest twin-state outlet inventory has not run yet.";
     private QuestTwinStatePublisherInventory _questTwinStatePublisherInventory = new(
         OperationOutcomeKind.Preview,
@@ -2647,8 +2648,23 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         var wifiPreparation = await PrepareQuestWifiAdbForDiagnosticsAsync().ConfigureAwait(false);
+        var expectedUpstream = await RefreshExpectedUpstreamProbeStateAsync(autoStartCompanionTestSender: true).ConfigureAwait(false);
+        if (expectedUpstream.AutoStartedCompanionTestSender)
+        {
+            await RefreshDeviceSnapshotBundleAsync(
+                forceProximity: true,
+                includeHostWifiStatus: true,
+                forceInstalledAppStatusRefresh: false).ConfigureAwait(false);
+        }
+
         await RefreshQuestTwinStatePublisherInventoryAsync().ConfigureAwait(false);
         await RefreshQuestWifiTransportDiagnosticsAsync(wifiPreparation).ConfigureAwait(false);
+        var machineLslState = await BuildMachineLslStateResultAsync().ConfigureAwait(false);
+        await DispatchAsync(() =>
+        {
+            ApplyMachineLslStateResult(machineLslState);
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
         await ApplyOutcomeAsync("Probe Connection", BuildLslConnectionProbeOutcome()).ConfigureAwait(false);
     }
 
@@ -3257,6 +3273,13 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             clockProbeStreams = clockTask.Result;
         }
 
+        _lslExpectedUpstreamProbeState = BuildExpectedUpstreamProbeState(
+            expectedStreamName,
+            expectedStreamType,
+            runtimeState,
+            expectedStreams,
+            testSenderSourceId);
+
         var companionExpectedStreams = expectedStreams
             .Where(stream => string.Equals(stream.SourceId, testSenderSourceId, StringComparison.Ordinal))
             .ToArray();
@@ -3324,6 +3347,129 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             Environment.NewLine,
             new[] { result.Detail }
                 .Concat(result.Checks.Select(check => $"{check.Label}: {check.Summary}")));
+
+    private async Task<LslExpectedUpstreamProbeRefreshResult> RefreshExpectedUpstreamProbeStateAsync(
+        bool autoStartCompanionTestSender,
+        CancellationToken cancellationToken = default)
+    {
+        var expectedUpstream = InspectExpectedUpstreamOnWindows();
+        var autoStartedCompanionTestSender = false;
+        if (autoStartCompanionTestSender &&
+            expectedUpstream.DiscoveryAvailable &&
+            !expectedUpstream.ProbeFailed &&
+            !expectedUpstream.VisibleOnWindows)
+        {
+            autoStartedCompanionTestSender = await TryStartCompanionTestSenderForProbeAsync(cancellationToken).ConfigureAwait(false);
+            if (autoStartedCompanionTestSender)
+            {
+                await Task.Delay(MachineLslStateRefreshSettleDelay, cancellationToken).ConfigureAwait(false);
+                expectedUpstream = InspectExpectedUpstreamOnWindows();
+            }
+        }
+
+        _lslExpectedUpstreamProbeState = expectedUpstream;
+        return new LslExpectedUpstreamProbeRefreshResult(expectedUpstream, autoStartedCompanionTestSender);
+    }
+
+    private SussexExpectedUpstreamState InspectExpectedUpstreamOnWindows()
+    {
+        var expectedStreamName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
+            ? HrvBiofeedbackStreamContract.StreamName
+            : _study.Monitoring.ExpectedLslStreamName;
+        var expectedStreamType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
+            ? HrvBiofeedbackStreamContract.StreamType
+            : _study.Monitoring.ExpectedLslStreamType;
+        return SussexConnectionAssessmentService.InspectExpectedUpstream(
+            _lslStreamDiscoveryService,
+            expectedStreamName,
+            expectedStreamType,
+            BuildTestSenderSourceId());
+    }
+
+    private SussexExpectedUpstreamState BuildExpectedUpstreamProbeState(
+        string expectedStreamName,
+        string expectedStreamType,
+        LslRuntimeState runtimeState,
+        IReadOnlyList<LslVisibleStreamInfo> expectedStreams,
+        string companionTestSourceId)
+    {
+        if (!runtimeState.Available)
+        {
+            return new SussexExpectedUpstreamState(
+                expectedStreamName,
+                expectedStreamType,
+                DiscoveryAvailable: false,
+                ProbeFailed: false,
+                VisibleOnWindows: false,
+                VisibleViaCompanionTestSender: false,
+                VisibleMatchCount: 0,
+                VisibleMatches: [],
+                Summary: $"{expectedStreamName} / {expectedStreamType} could not be probed on Windows.",
+                Detail: runtimeState.Detail);
+        }
+
+        var visibleMatches = expectedStreams.ToArray();
+        var visibleViaCompanionTestSender = visibleMatches.Any(stream =>
+            string.Equals(stream.SourceId, companionTestSourceId, StringComparison.Ordinal));
+        var summary = visibleMatches.Length switch
+        {
+            0 => $"{expectedStreamName} / {expectedStreamType} is not currently visible on Windows.",
+            1 when visibleViaCompanionTestSender => $"{expectedStreamName} / {expectedStreamType} is visible on Windows via the companion TEST sender.",
+            1 => $"{expectedStreamName} / {expectedStreamType} is visible on Windows.",
+            _ when visibleViaCompanionTestSender => $"Multiple {expectedStreamName} / {expectedStreamType} sources are visible on Windows, including the companion TEST sender.",
+            _ => $"Multiple {expectedStreamName} / {expectedStreamType} sources are visible on Windows."
+        };
+        var detail = visibleMatches.Length == 0
+            ? "No matching visible streams."
+            : FormatVisibleStreamInventory(visibleMatches);
+        return new SussexExpectedUpstreamState(
+            expectedStreamName,
+            expectedStreamType,
+            DiscoveryAvailable: true,
+            ProbeFailed: false,
+            VisibleOnWindows: visibleMatches.Length > 0,
+            VisibleViaCompanionTestSender: visibleViaCompanionTestSender,
+            VisibleMatchCount: visibleMatches.Length,
+            VisibleMatches: visibleMatches,
+            Summary: summary,
+            Detail: detail);
+    }
+
+    private async Task<bool> TryStartCompanionTestSenderForProbeAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_testLslSignalService.RuntimeState.Available || _testLslSignalService.IsRunning)
+        {
+            return false;
+        }
+
+        var routeOutcome = await ApplyTestSenderRoutingAsync().ConfigureAwait(false);
+        if (routeOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            return false;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var streamName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
+            ? HrvBiofeedbackStreamContract.StreamName
+            : _study.Monitoring.ExpectedLslStreamName;
+        var streamType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
+            ? HrvBiofeedbackStreamContract.StreamType
+            : _study.Monitoring.ExpectedLslStreamType;
+        var startOutcome = _testLslSignalService.Start(streamName, streamType, BuildTestSenderSourceId());
+        if (startOutcome.Kind == OperationOutcomeKind.Failure)
+        {
+            await RestoreTestSenderRoutingAsync().ConfigureAwait(false);
+            return false;
+        }
+
+        await DispatchAsync(() =>
+        {
+            RefreshBenchToolsStatus();
+            UpdateLslCard();
+        }).ConfigureAwait(false);
+        return true;
+    }
 
     private LslMachineCheckResult BuildMachineLslRuntimeCheck(LslRuntimeState runtimeState)
         => runtimeState.Available
@@ -3563,6 +3709,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         string Detail,
         IReadOnlyList<LslMachineCheckResult> Checks,
         DateTimeOffset CompletedAtUtc);
+
+    private sealed record LslExpectedUpstreamProbeRefreshResult(
+        SussexExpectedUpstreamState State,
+        bool AutoStartedCompanionTestSender);
 
     private async Task BrowseApkAsync()
     {
@@ -10620,9 +10770,14 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             : string.Empty;
         var connectedFlag = ParseBool(GetFirstValue("study.lsl.connected"));
         var connectedCount = ParseInt(GetFirstValue("connection.lsl.connected_count"));
+        var connectedName = GetFirstValue("study.lsl.connected_name");
         var hasConnectedInput = connectedFlag == true
             || connectedCount.GetValueOrDefault() > 0
-            || !string.Equals(LslConnectedStreamLabel, "Connected stream n/a", StringComparison.OrdinalIgnoreCase);
+            || !string.IsNullOrWhiteSpace(connectedName);
+        var inletFailureSummary = BuildLslInletFailureSummary(
+            GetFirstValue("study.lsl.status") ?? LslStatusLineLabel,
+            _study.Monitoring.ExpectedLslStreamName,
+            _study.Monitoring.ExpectedLslStreamType);
         var inletReady = LslLevel == OperationOutcomeKind.Success || hasConnectedInput;
         var returnPathReady = twinStateFresh;
         var pinnedBuildReady = PinnedBuildLevel == OperationOutcomeKind.Success;
@@ -10726,8 +10881,10 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         if (returnPathReady)
         {
             return (
-                OperationOutcomeKind.Warning,
-                "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet.",
+                inletFailureSummary is not null ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning,
+                inletFailureSummary is not null
+                    ? $"{inletFailureSummary} Windows is still receiving quest_twin_state."
+                    : "Windows is receiving quest_twin_state, but Sussex has not confirmed an LSL inlet yet.",
                 detail + testSenderHint,
                 inletReady,
                 false);
@@ -10757,7 +10914,12 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var detail = ready
             ? $"{LslDetail} Connected stream {LslConnectedStreamLabel}. {probeState.Summary}"
             : $"{LslDetail} {probeState.Summary} {probeState.Detail} The experiment heartbeat stream is the operator's responsibility, but this step must turn green before the onboarding run continues.";
-        return new WorkflowGuideGateState(level, ready ? "Heartbeat LSL is reaching the headset." : "Heartbeat LSL is not confirmed yet.", detail, ready);
+        var summary = ready
+            ? "Heartbeat LSL is reaching the headset."
+            : level == OperationOutcomeKind.Failure && LooksLikeLslInletConnectFailure(LslStatusLineLabel)
+                ? "Quest failed to subscribe the heartbeat LSL inlet."
+                : "Heartbeat LSL is not confirmed yet.";
+        return new WorkflowGuideGateState(level, summary, detail, ready);
     }
 
     private WorkflowGuideCheckItem BuildLslReturnPathWorkflowGuideCheckItem()
@@ -11052,6 +11214,41 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 .Where(line => !string.IsNullOrWhiteSpace(line.Value))
                 .Select(line => $"{line.Label}: {line.Value.Trim()}"));
 
+    private WorkflowGuideCheckItem BuildLslUpstreamInventoryWorkflowGuideCheckItem()
+    {
+        const string Label = "Windows upstream inventory";
+        if (_lslExpectedUpstreamProbeState is null)
+        {
+            var expectedStreamName = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamName)
+                ? HrvBiofeedbackStreamContract.StreamName
+                : _study.Monitoring.ExpectedLslStreamName;
+            var expectedStreamType = string.IsNullOrWhiteSpace(_study.Monitoring.ExpectedLslStreamType)
+                ? HrvBiofeedbackStreamContract.StreamType
+                : _study.Monitoring.ExpectedLslStreamType;
+            return new WorkflowGuideCheckItem(
+                Label,
+                $"{expectedStreamName} / {expectedStreamType} has not been probed on Windows yet.",
+                "Run Probe Connection or Analyze Windows Environment to inspect whether the expected inlet is missing entirely or being shadowed by other Windows-side publishers.",
+                OperationOutcomeKind.Preview);
+        }
+
+        if (!_lslExpectedUpstreamProbeState.DiscoveryAvailable || _lslExpectedUpstreamProbeState.ProbeFailed)
+        {
+            return new WorkflowGuideCheckItem(
+                Label,
+                _lslExpectedUpstreamProbeState.Summary,
+                _lslExpectedUpstreamProbeState.Detail,
+                OperationOutcomeKind.Warning);
+        }
+
+        var check = BuildExpectedUpstreamInventoryCheck(
+            _lslExpectedUpstreamProbeState.ExpectedStreamName,
+            _lslExpectedUpstreamProbeState.ExpectedStreamType,
+            _lslExpectedUpstreamProbeState.VisibleMatches,
+            BuildTestSenderSourceId());
+        return new WorkflowGuideCheckItem(Label, check.Summary, check.Detail, check.Level);
+    }
+
     private WorkflowGuideGateState BuildParticleWorkflowGuideGateState()
     {
         var verified = _workflowGuideParticlesOnVerified
@@ -11291,6 +11488,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
                 BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
                 new WorkflowGuideCheckItem("LSL receipt", LslSummary, BuildLslReceiptWorkflowGuideDetail(), LslLevel),
                 new WorkflowGuideCheckItem("Expected vs connected stream", $"Expected {LslExpectedStreamLabel}", BuildLslStreamWorkflowGuideDetail(), LslLevel),
+                BuildLslUpstreamInventoryWorkflowGuideCheckItem(),
                 BuildLslReturnPathWorkflowGuideCheckItem(),
                 BuildLslHazardsWorkflowGuideCheckItem()
             ],
@@ -12165,10 +12363,11 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
     {
         var expectedName = _study.Monitoring.ExpectedLslStreamName;
         var expectedType = _study.Monitoring.ExpectedLslStreamType;
-        var testSenderActive = _testLslSignalService.IsRunning;
-        var lastBenchSendAt = _testLslSignalService.LastSentAtUtc;
+        var testSenderActive = _testLslSignalService?.IsRunning == true;
+        var lastBenchSendAt = _testLslSignalService?.LastSentAtUtc;
+        var lastBenchValue = _testLslSignalService?.LastValue ?? 0f;
         var lastBenchSendLabel = lastBenchSendAt.HasValue
-            ? $"{_testLslSignalService.LastValue:0.000} at {lastBenchSendAt.Value.ToLocalTime():HH:mm:ss}"
+            ? $"{lastBenchValue:0.000} at {lastBenchSendAt.Value.ToLocalTime():HH:mm:ss}"
             : null;
         var lastStateReceivedAt = _twinBridge is LslTwinModeBridge lslBridge
             ? lslBridge.LastStateReceivedAt
@@ -12186,6 +12385,7 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
         var connectedCount = ParseInt(GetFirstValue("connection.lsl.connected_count"));
         var connectingCount = ParseInt(GetFirstValue("connection.lsl.connecting_count"));
         var totalCount = ParseInt(GetFirstValue("connection.lsl.total_count"));
+        var inletFailureSummary = BuildLslInletFailureSummary(statusLine, expectedName, expectedType);
         var coherenceRouteLabel = GetFirstValue("routing.coherence.label");
         var coherenceRouteMode = GetFirstValue("routing.coherence.mode");
         var coherenceRouteIsExpected =
@@ -12237,6 +12437,8 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
 
         LslLevel = hasConnectedInput && streamMatches
             ? OperationOutcomeKind.Success
+            : inletFailureSummary is not null
+                ? OperationOutcomeKind.Failure
             : connectedFlag.HasValue || connectedCount.HasValue || connectingCount.HasValue || totalCount.HasValue
                 ? OperationOutcomeKind.Warning
                 : OperationOutcomeKind.Preview;
@@ -12244,12 +12446,16 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? string.IsNullOrWhiteSpace(connectedName)
                 ? $"LSL input live: {connectedCount?.ToString() ?? "1"} connected."
                 : $"LSL input live: {connectedName}."
+            : inletFailureSummary is not null
+                ? inletFailureSummary
             : connectingCount.GetValueOrDefault() > 0
                 ? $"LSL input connecting: {connectingCount} stream(s) still resolving."
                 : "No live LSL input reported yet.";
         if (hasInputValue)
         {
-            LslSummary += $" Inlet coherence {inputValue:0.000}.";
+            LslSummary += hasConnectedInput
+                ? $" Inlet coherence {inputValue:0.000}."
+                : $" Quest echo {inputValue:0.000}.";
         }
         else if (hasConnectedInput)
         {
@@ -12268,9 +12474,33 @@ public sealed class StudyShellViewModel : ObservableObject, IDisposable
             ? $"The inlet is healthy, but the runtime coherence route is still {coherenceRouteLabel} (mode {coherenceRouteMode ?? "n/a"}), so Sussex is not currently consuming this inlet for coherence."
             : hasConnectedInput
                 ? "The inlet is healthy and matches the study stream target."
+                : inletFailureSummary is not null
+                    ? $"{inletFailureSummary} Windows can still look healthy here because the Quest twin-state return path is separate from the Sussex inlet subscription."
                 : "The study runtime has not confirmed an active inlet connection yet.";
         LslDetail = $"{routeNote} {comparisonNote} {testSenderDetail}".Trim();
     }
+
+    private static string? BuildLslInletFailureSummary(string? statusLine, string expectedName, string expectedType)
+    {
+        if (string.IsNullOrWhiteSpace(statusLine) || !LooksLikeLslInletConnectFailure(statusLine))
+        {
+            return null;
+        }
+
+        var expectedLabel = $"{(string.IsNullOrWhiteSpace(expectedName) ? "n/a" : expectedName)} / {(string.IsNullOrWhiteSpace(expectedType) ? "n/a" : expectedType)}";
+        return LooksLikeTimeoutStatus(statusLine)
+            ? $"Quest inlet connect failed: timeout while subscribing {expectedLabel}."
+            : $"Quest inlet connect failed while subscribing {expectedLabel}.";
+    }
+
+    private static bool LooksLikeLslInletConnectFailure(string statusLine)
+        => statusLine.Contains("connect failed", StringComparison.OrdinalIgnoreCase)
+           || statusLine.Contains("connection failed", StringComparison.OrdinalIgnoreCase);
+
+    private static bool LooksLikeTimeoutStatus(string statusLine)
+        => statusLine.Contains("timeoutexception", StringComparison.OrdinalIgnoreCase)
+           || statusLine.Contains("timed out", StringComparison.OrdinalIgnoreCase)
+           || statusLine.Contains("timeout", StringComparison.OrdinalIgnoreCase);
 
     private bool IsAutomaticBreathingActiveFromTwinState()
         => CaptureAutomaticBreathingTelemetry().AutomaticRoute;

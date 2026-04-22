@@ -10,7 +10,7 @@ param(
     [string]$Platform = 'x64',
     [ValidateSet('Release', 'Dev')]
     [string]$IdentityFlavor = 'Release',
-    [string]$Version = '0.1.74.0',
+    [string]$Version = '0.1.75.0',
     [string]$PackageId,
     [string]$Publisher = 'CN=MesmerPrism',
     [string]$DisplayName,

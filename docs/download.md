@@ -19,7 +19,7 @@ line now uses the stable release package family instead of the older preview
 family.
 
 The current packaged public release line tracked by this repo is
-`0.1.74.0`.
+`0.1.75.0`.
 
 The recommended path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -28,11 +28,14 @@ runtime inside the app payload.
 
 This release also expands the Sussex diagnostics used by the sequential guide
 and packaged CLI. `Analyze Windows Environment` checks local liblsl discovery
-health, a temporary local LSL outlet rediscovery path, and active Windows
-adapter hazards, while `Probe Connection` reports the pinned Sussex APK match,
-pinned device profile state, headset Wi-Fi snapshot context, runtime inlet,
-`quest_twin_state` return path, and the Windows-visible Quest twin-state outlet
-source id in one place.
+health, a temporary local LSL outlet rediscovery path, active Windows adapter
+hazards, and duplicate expected-stream publishers. `Probe Connection` now
+inspects the Windows-side `HRV_Biofeedback / HRV` inventory directly, can
+auto-start the built-in companion TEST sender when no expected upstream stream
+is visible at all, and reports pinned Sussex APK match, pinned device profile
+state, headset Wi-Fi snapshot context, runtime inlet, `quest_twin_state`
+return path, and the Windows-visible Quest twin-state outlet source id in one
+place.
 
 The release ships **both** install paths:
 
@@ -178,7 +181,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed package
-   should identify itself as `Published install 0.1.74.0`; unpackaged local
+   should identify itself as `Published install 0.1.75.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an

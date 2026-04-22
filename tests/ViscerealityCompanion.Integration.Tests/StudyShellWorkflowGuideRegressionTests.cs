@@ -229,6 +229,29 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         SetPrivateField(viewModel, "_liveProximitySelector", "192.168.0.55:5555");
         SetPrivateField(
             viewModel,
+            "_lslExpectedUpstreamProbeState",
+            new SussexExpectedUpstreamState(
+                ExpectedStreamName: "HRV_Biofeedback",
+                ExpectedStreamType: "HRV",
+                DiscoveryAvailable: true,
+                ProbeFailed: false,
+                VisibleOnWindows: true,
+                VisibleViaCompanionTestSender: true,
+                VisibleMatchCount: 1,
+                VisibleMatches:
+                [
+                    new LslVisibleStreamInfo(
+                        "HRV_Biofeedback",
+                        "HRV",
+                        "viscereality.companion.study-shell.test.sussex-test",
+                        ChannelCount: 1,
+                        SampleRateHz: 0f,
+                        CreatedAtSeconds: 0d)
+                ],
+                Summary: "HRV_Biofeedback / HRV is visible on Windows via the companion TEST sender.",
+                Detail: "HRV_Biofeedback / HRV | source_id `viscereality.companion.study-shell.test.sussex-test` | channels 1 | nominal 0 Hz"));
+        SetPrivateField(
+            viewModel,
             "_liveProximityStatus",
             new QuestProximityStatus(
                 Available: true,
@@ -243,7 +266,7 @@ public sealed class StudyShellWorkflowGuideRegressionTests
 
         var checks = InvokePrivateMethod<IReadOnlyList<WorkflowGuideCheckItem>>(viewModel, "BuildWorkflowGuideCheckItems", 8);
 
-        Assert.Equal(5, checks.Count);
+        Assert.Equal(6, checks.Count);
         Assert.Equal("Headset wake + proximity", checks[0].Label);
         Assert.Equal(OperationOutcomeKind.Success, checks[0].Level);
         Assert.Contains("Keep-awake proximity", checks[0].Detail, StringComparison.Ordinal);
@@ -252,18 +275,141 @@ public sealed class StudyShellWorkflowGuideRegressionTests
         Assert.Contains(Environment.NewLine, checks[1].Detail, StringComparison.Ordinal);
         Assert.Contains("Runtime target:", checks[2].Detail, StringComparison.Ordinal);
         Assert.Contains("Counts:", checks[2].Detail, StringComparison.Ordinal);
-        Assert.Equal("Windows return path", checks[3].Label);
+        Assert.Equal("Windows upstream inventory", checks[3].Label);
         Assert.Equal(OperationOutcomeKind.Success, checks[3].Level);
-        Assert.Contains("Selector:", checks[3].Detail, StringComparison.Ordinal);
-        Assert.Contains("Pinned build:", checks[3].Detail, StringComparison.Ordinal);
-        Assert.Contains("Device profile:", checks[3].Detail, StringComparison.Ordinal);
-        Assert.Contains("Return path:", checks[3].Detail, StringComparison.Ordinal);
-        Assert.Contains("Twin-state outlet:", checks[3].Detail, StringComparison.Ordinal);
-        Assert.Contains("quest_twin_state / quest.twin.state", checks[3].Detail, StringComparison.Ordinal);
-        Assert.Contains("quest_twin_commands / quest.twin.command", checks[3].Detail, StringComparison.Ordinal);
-        Assert.Contains("quest_hotload_config / quest.config", checks[3].Detail, StringComparison.Ordinal);
-        Assert.Equal("Potential hazards", checks[4].Label);
+        Assert.Contains("source_id `viscereality.companion.study-shell.test.sussex-test`", checks[3].Detail, StringComparison.Ordinal);
+        Assert.Equal("Windows return path", checks[4].Label);
         Assert.Equal(OperationOutcomeKind.Success, checks[4].Level);
+        Assert.Contains("Selector:", checks[4].Detail, StringComparison.Ordinal);
+        Assert.Contains("Pinned build:", checks[4].Detail, StringComparison.Ordinal);
+        Assert.Contains("Device profile:", checks[4].Detail, StringComparison.Ordinal);
+        Assert.Contains("Return path:", checks[4].Detail, StringComparison.Ordinal);
+        Assert.Contains("Twin-state outlet:", checks[4].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_twin_state / quest.twin.state", checks[4].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_twin_commands / quest.twin.command", checks[4].Detail, StringComparison.Ordinal);
+        Assert.Contains("quest_hotload_config / quest.config", checks[4].Detail, StringComparison.Ordinal);
+        Assert.Equal("Potential hazards", checks[5].Label);
+        Assert.Equal(OperationOutcomeKind.Success, checks[5].Level);
+    }
+
+    [Fact]
+    public void LslGuideChecks_SurfaceDuplicateWindowsUpstreamPublishers()
+    {
+        var viewModel = CreateViewModel(CreateStudy());
+        SetPrivateField(viewModel, "_lslExpectedUpstreamProbeState", new SussexExpectedUpstreamState(
+            ExpectedStreamName: "HRV_Biofeedback",
+            ExpectedStreamType: "HRV",
+            DiscoveryAvailable: true,
+            ProbeFailed: false,
+            VisibleOnWindows: true,
+            VisibleViaCompanionTestSender: true,
+            VisibleMatchCount: 2,
+            VisibleMatches:
+            [
+                new LslVisibleStreamInfo(
+                    "HRV_Biofeedback",
+                    "HRV",
+                    "viscereality.companion.study-shell.test.sussex-test",
+                    ChannelCount: 1,
+                    SampleRateHz: 0f,
+                    CreatedAtSeconds: 0d),
+                new LslVisibleStreamInfo(
+                    "HRV_Biofeedback",
+                    "HRV",
+                    "python.sender.external",
+                    ChannelCount: 1,
+                    SampleRateHz: 30f,
+                    CreatedAtSeconds: 0d)
+            ],
+            Summary: "Multiple HRV_Biofeedback / HRV sources are visible on Windows, including the companion TEST sender.",
+            Detail: "Visible matches on Windows."));
+
+        var check = InvokePrivateMethod<WorkflowGuideCheckItem>(viewModel, "BuildLslUpstreamInventoryWorkflowGuideCheckItem");
+
+        Assert.Equal(OperationOutcomeKind.Warning, check.Level);
+        Assert.Contains("including the companion TEST sender", check.Summary, StringComparison.Ordinal);
+        Assert.Contains("python.sender.external", check.Detail, StringComparison.Ordinal);
+        Assert.Contains("switching between the companion TEST sender and external sources unreliable", check.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LslGuideChecks_CallOutQuestInletTimeoutInsteadOfStillResolving()
+    {
+        var study = CreateStudy();
+        study = study with
+        {
+            Monitoring = study.Monitoring with
+            {
+                ExpectedLslStreamName = "HRV_Biofeedback",
+                ExpectedLslStreamType = "HRV"
+            }
+        };
+
+        var viewModel = CreateViewModel(study);
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(viewModel, "_reportedTwinState", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["study.lsl.filter_name"] = "HRV_Biofeedback",
+            ["study.lsl.filter_type"] = "HRV",
+            ["study.lsl.status"] = "LSL: connect failed (TimeoutException: The operation failed due to a timeout.)",
+            ["connection.lsl.connected_count"] = "0",
+            ["connection.lsl.connecting_count"] = "1",
+            ["connection.lsl.total_count"] = "2",
+            ["signal01.coherence_lsl"] = "0.5"
+        });
+
+        InvokePrivateVoid(viewModel, "UpdateLslCard");
+
+        var checks = InvokePrivateMethod<IReadOnlyList<WorkflowGuideCheckItem>>(viewModel, "BuildWorkflowGuideCheckItems", 8);
+        var lslReceipt = Assert.Single(checks, item => string.Equals(item.Label, "LSL receipt", StringComparison.Ordinal));
+        var streamCheck = Assert.Single(checks, item => string.Equals(item.Label, "Expected vs connected stream", StringComparison.Ordinal));
+
+        Assert.Equal(OperationOutcomeKind.Failure, lslReceipt.Level);
+        Assert.Contains("Quest inlet connect failed:", lslReceipt.Summary, StringComparison.Ordinal);
+        Assert.Contains("timeout", lslReceipt.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("still resolving", lslReceipt.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Assessment: Quest inlet connect failed:", lslReceipt.Detail, StringComparison.Ordinal);
+        Assert.Contains("Connected inlet: n/a / n/a", streamCheck.Detail, StringComparison.Ordinal);
+        Assert.Contains("Quest status: LSL: connect failed (TimeoutException: The operation failed due to a timeout.)", streamCheck.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LslGuideGate_UsesExplicitQuestInletTimeoutSummary()
+    {
+        var study = CreateStudy();
+        study = study with
+        {
+            Monitoring = study.Monitoring with
+            {
+                ExpectedLslStreamName = "HRV_Biofeedback",
+                ExpectedLslStreamType = "HRV"
+            }
+        };
+
+        var viewModel = CreateViewModel(study);
+        SetPrivateField(viewModel, "_headsetStatus", CreateConnectedHeadsetStatus("com.Viscereality.SussexExperiment"));
+        SetPrivateField(viewModel, "_reportedTwinState", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["study.lsl.filter_name"] = "HRV_Biofeedback",
+            ["study.lsl.filter_type"] = "HRV",
+            ["study.lsl.status"] = "LSL: connect failed (TimeoutException: The operation failed due to a timeout.)",
+            ["connection.lsl.connected_count"] = "0",
+            ["connection.lsl.connecting_count"] = "1",
+            ["connection.lsl.total_count"] = "2"
+        });
+
+        InvokePrivateVoid(viewModel, "UpdateLslCard");
+
+        var gate = InvokePrivateMethod<WorkflowGuideGateState>(viewModel, "BuildLslWorkflowGuideGateState");
+        var returnPath = InvokePrivateMethod<WorkflowGuideCheckItem>(viewModel, "BuildLslReturnPathWorkflowGuideCheckItem");
+
+        Assert.False(gate.Ready);
+        Assert.Equal(OperationOutcomeKind.Failure, gate.Level);
+        Assert.Contains("failed to subscribe", gate.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Quest inlet connect failed:", gate.Detail, StringComparison.Ordinal);
+        Assert.Equal(OperationOutcomeKind.Failure, returnPath.Level);
+        Assert.Contains("Quest inlet connect failed:", returnPath.Summary, StringComparison.Ordinal);
+        Assert.Contains("quest_twin_state", returnPath.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
