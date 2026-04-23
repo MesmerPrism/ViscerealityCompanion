@@ -74,7 +74,7 @@ It currently pins:
 - expected LSL input target: `HRV_Biofeedback / HRV`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
 - profile workspaces: `Visual Profiles` and `Breathing Profiles`
-- runtime launch mode: `launchInKioskMode=true`
+- runtime launch mode: best-effort task pinning on launch
 
 For the committed Sussex shell, the runtime toggle is intentionally a
 task-pinned launch/stop button rather than a plain launch/stop button:
