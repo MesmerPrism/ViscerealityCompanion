@@ -27,7 +27,7 @@ dotnet run --project src/ViscerealityCompanion.App
 If you update the docs site:
 
 ```powershell
-npm install
+npm ci
 npm run pages:build
 ```
 

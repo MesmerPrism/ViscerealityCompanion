@@ -61,7 +61,8 @@ powershell -ExecutionPolicy Bypass -File .\tools\app\Invoke-Signed-DotNetTest.ps
 
 That wrapper builds the test target, signs unsigned test output `.dll` and
 `.exe` files with the shared trusted `CN=MesmerPrism` signer from the local
-certificate store, and then runs `dotnet test --no-build`.
+certificate store, and then runs `dotnet test --no-build` with heartbeat
+progress, TRX output, and hang diagnostics under `artifacts/test-results/`.
 
 If you want a separate launcher for the repo-local development build, use:
 
@@ -117,7 +118,7 @@ See [CLI Reference](cli.md) for the full command set.
 ## Build The Docs Site
 
 ```powershell
-npm install
+npm ci
 npm run pages:build
 ```
 

@@ -456,7 +456,7 @@ start the packaged process.
 Confirm Node.js is installed, then run:
 
 ```powershell
-npm install
+npm ci
 npm run pages:build
 ```
 

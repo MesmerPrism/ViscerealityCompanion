@@ -20,14 +20,15 @@ $ErrorActionPreference = 'Stop'
 @(
     'MesmerPrism.ViscerealityCompanionDev',
     'MesmerPrism.ViscerealityCompanion',
-    'MesmerPrism.ViscerealityCompanionPreview',
+    'MesmerPrism.ViscerealityCompanionPreview'
 ) | ForEach-Object {
     Set-Variable -Name ($_.Replace('.', '_')) -Value $_ -Option ReadOnly -Scope Script
 } | Out-Null
 
 $script:SupportedPackageIds = @(
-    $script:MesmerPrism_ViscerealityCompanionPreview,
-    $script:MesmerPrism_ViscerealityCompanion
+    $script:MesmerPrism_ViscerealityCompanion,
+    $script:MesmerPrism_ViscerealityCompanionDev,
+    $script:MesmerPrism_ViscerealityCompanionPreview
 )
 
 function Test-InstalledPackagePresent {

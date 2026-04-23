@@ -144,7 +144,8 @@ powershell -ExecutionPolicy Bypass -File .\tools\app\Invoke-Signed-DotNetTest.ps
 
 That wrapper builds the target, signs unsigned test output `.dll` and `.exe`
 files with the shared trusted `CN=MesmerPrism` signer from the local
-certificate store, and then runs `dotnet test --no-build`.
+certificate store, and then runs `dotnet test --no-build` with heartbeat
+progress, TRX output, and hang diagnostics under `artifacts/test-results/`.
 
 If Windows Smart App Control or Code Integrity blocks the repo-built WPF app,
 use:
@@ -160,7 +161,7 @@ sources or bundled sample assets change.
 Build the docs site locally with:
 
 ```powershell
-npm install
+npm ci
 npm run pages:build
 ```
 
