@@ -58,7 +58,7 @@ operator workspace.
 
 For first-time Sussex setup, stay on the `Home` tab and use the
 `Open Sequential Guide` window there. It walks the operator through USB probe,
-Wi-Fi ADB handoff, Wi-Fi-only verification, APK/profile checks, kiosk launch,
+Wi-Fi ADB handoff, Wi-Fi-only verification, APK/profile checks, runtime launch,
 LSL confirmation, particle verification, a controller-tracking guarded
 calibration check, and the short 20 second validation capture. After that
 capture finishes, the guide now gives one-click access to the Windows session
@@ -121,7 +121,7 @@ viscereality perf 4 4
 **WPF App:** In a study shell, click **Launch Study Runtime**. In the full app,
 click **Launch App**.
 
-For the Sussex kiosk path, keep the headset on-face for launch and the first
+For the Sussex launch path, keep the headset on-face for launch and the first
 visual verification pass. If the shell says **Wake Headset To Enable
 Launching**, physically wake the headset first and do not launch from sleep.
 On the current April 2026 Meta OS build, launching while asleep can leave
@@ -130,11 +130,11 @@ If the headset is sitting in Guardian or another Meta visual-blocker state,
 clear that blocker first and wait for launch to re-enable. The app no longer
 offers remote wake/sleep controls in the GUI for Sussex; manual wake/sleep is
 the only supported operator path for now.
-Kiosk pinning and the proximity hold are separate: launch first, confirm the
+Task pinning and the proximity hold are separate: launch first, confirm the
 runtime is correct, and only then decide whether you need the optional
-proximity bypass for a longer unattended phase. Also treat kiosk as best-effort
-task pinning only: do not rely on it to disable the controller Meta / menu
-button on this build.
+proximity bypass for a longer unattended phase. Also treat launch as
+best-effort task pinning only: do not rely on it to disable the controller
+Meta / menu button on this build.
 
 Use the app to confirm:
 
@@ -173,8 +173,8 @@ On the current Quest build, that readback is intentionally literal:
 - `Virtual proximity state: DISABLED` means `automation_disable` restored normal
   wear-sensor behavior.
 
-Treat that keep-awake override as a wear-sensor bypass, not as the kiosk
-switch. Kiosk behavior still comes from task pinning. If you need a
+Treat that keep-awake override as a wear-sensor bypass, not as the launch
+switch. Task pinning still comes from the launch path. If you need a
 participant-facing black screen or idle view during the run, prefer doing that
 inside Unity instead of putting the headset to sleep with the hardware power
 button.
@@ -194,9 +194,9 @@ Before the participant starts, a good operator state is:
 
 ## 7. End Session
 
-**WPF App:** If you are in a kiosk study shell such as Sussex and the headset
+**WPF App:** If you are in a study shell such as Sussex and the headset
 is on-face with a visible runtime scene, the operator can click
-**Exit Kiosk Runtime** before closing the app. That exit path clears active
+**Stop Study Runtime** before closing the app. That stop path clears active
 proximity automation, stops task pinning, returns Home to the front, and then
 stops the Sussex APK. Do not trigger that quit path from an off-face automated
 cleanup pass on this machine. If exit matters, ask the wearer to quit while
@@ -221,7 +221,7 @@ viscereality twin send twin-pause
 - the GUI no longer exposes remote headset wake/sleep controls for Sussex; use manual headset wake/sleep only
 - if the launch button reads `Wake Headset To Enable Launching`, wake the headset first; Sussex launch is now blocked while the headset reports asleep
 - if launch stays disabled because Guardian or another Meta visual blocker is active, clear that blocker in-headset before trying again
-- on the current April 2026 Meta OS build, Sussex kiosk mode no longer reliably disables the controller Meta / menu button, so use screenshot/scene confirmation instead of menu-button behavior as the success signal
+- on the current April 2026 Meta OS build, Sussex launch no longer reliably disables the controller Meta / menu button, so use screenshot/scene confirmation instead of menu-button behavior as the success signal
 - controller breathing calibration is guarded by live controller tracking; if the right controller is not tracked, the GUI reports that state and the runtime does not start calibration
 - calibrate from the `Experiment Session` window before `Start Recording` when the participant run should use controller breathing; `Start Recording` preserves the current controller calibration
 - if `Install Sussex APK` or `Launch Study Runtime` does nothing, check developer mode and ADB trust before assuming the Sussex APK is wrong

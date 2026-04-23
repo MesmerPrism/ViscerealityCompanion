@@ -684,7 +684,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             detailParts.Add(settleVerification.Detail);
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                $"Launch completed for {target.Label}, but kiosk mode was not confirmed.",
+                $"Launch completed for {target.Label}, but task pinning was not confirmed.",
                 string.Join(" ", detailParts),
                 PackageId: target.PackageId);
         }
@@ -693,10 +693,10 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var taskId = await ResolveRecentTaskIdAsync(selector, target.PackageId, cancellationToken).ConfigureAwait(false);
         if (!taskId.HasValue)
         {
-            detailParts.Add("Quest did not expose a live task id in recents after launch, so kiosk pinning was not verified.");
+            detailParts.Add("Quest did not expose a live task id in recents after launch, so task pinning was not verified.");
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                $"Launch completed for {target.Label}, but kiosk mode was not confirmed.",
+                $"Launch completed for {target.Label}, but task pinning was not confirmed.",
                 string.Join(" ", detailParts),
                 PackageId: target.PackageId);
         }
@@ -705,7 +705,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         var verification = await VerifyPinnedForegroundAsync(selector, target.PackageId, cancellationToken).ConfigureAwait(false);
         if (verification.Succeeded)
         {
-            detailParts.Add($"Pinned task {taskId.Value} in front for kiosk mode.");
+            detailParts.Add($"Pinned task {taskId.Value} in front.");
             if (!string.IsNullOrWhiteSpace(verification.Detail))
             {
                 detailParts.Add(verification.Detail);
@@ -713,7 +713,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
             return new OperationOutcome(
                 OperationOutcomeKind.Success,
-                $"Launched {target.Label} in kiosk mode.",
+                $"Launched {target.Label} with task pinning.",
                 string.Join(" ", detailParts),
                 PackageId: target.PackageId,
                 Items: [$"taskId={taskId.Value}"]);
@@ -723,7 +723,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         detailParts.Add(verification.Detail);
         return new OperationOutcome(
             OperationOutcomeKind.Warning,
-            $"Launch completed for {target.Label}, but kiosk mode was not fully confirmed.",
+            $"Launch completed for {target.Label}, but task pinning was not fully confirmed.",
             string.Join(" ", detailParts),
             PackageId: target.PackageId,
             Items: [$"taskId={taskId.Value}"]);
@@ -759,8 +759,8 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         return new OperationOutcome(
             verification.Succeeded ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
             verification.Succeeded
-                ? $"Exited kiosk mode for {target.Label}."
-                : $"Sent kiosk-exit sequence for {target.Label}, but Home was not fully confirmed.",
+                ? $"Stopped {target.Label} and restored Home-side shell focus."
+                : $"Sent the stop-and-restore sequence for {target.Label}, but Home was not fully confirmed.",
             string.Join(" ", detailParts),
             PackageId: target.PackageId);
     }
@@ -2365,7 +2365,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                     {
                         return new ForegroundVerification(
                             true,
-                            $"Quest reported Home-side shell foreground ownership with no pinned {targetPackageId} task across {KioskStableForegroundConfirmationCount} consecutive kiosk-exit polls. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
+                            $"Quest reported Home-side shell foreground ownership with no pinned {targetPackageId} task across {KioskStableForegroundConfirmationCount} consecutive stop-and-restore polls. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
                     }
                 }
                 else
@@ -2379,7 +2379,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         return new ForegroundVerification(
             false,
-            $"Quest did not report a clean Home-side foreground after exiting kiosk mode across {KioskStableForegroundConfirmationCount} consecutive polls within {KioskVerificationPollCount} attempts. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
+            $"Quest did not report a clean Home-side foreground after releasing task pinning across {KioskStableForegroundConfirmationCount} consecutive polls within {KioskVerificationPollCount} attempts. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
     }
 
     private async Task<AdbCommandResult> RunShellAsync(string selector, string command, CancellationToken cancellationToken)

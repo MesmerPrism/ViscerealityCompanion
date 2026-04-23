@@ -152,8 +152,8 @@ Options:
 | `study list` | List available pinned study shells |
 | `study install <study>` | Install the pinned study APK |
 | `study apply-profile <study>` | Apply the pinned study device profile |
-| `study launch <study>` | Launch the pinned study runtime using the study kiosk policy. The command now refuses to launch while the headset reports asleep; wake the headset first. |
-| `study stop <study>` | Stop the pinned study runtime using the study kiosk-exit policy |
+| `study launch <study>` | Launch the pinned study runtime using the study launch policy. The command now refuses to launch while the headset reports asleep; wake the headset first. |
+| `study stop <study>` | Stop the pinned study runtime and unwind any study task-pinning policy |
 | `study status <study>` | Compare current headset state against the pinned study baseline |
 | `study probe-connection <study>` | Mirror the Step 9 `Probe Connection` check: inspect the pinned APK match, pinned device profile state, Quest Wi-Fi transport reachability, expected inlet, `quest_twin_state` return path, Wi-Fi snapshot context, and twin transport detail |
 | `study diagnostics-report <study>` | Run the Windows LSL, machine inventory, Quest setup, Quest Wi-Fi transport, twin return-path, and safe command-acceptance diagnostics and write a shareable JSON/LaTeX/PDF report folder |

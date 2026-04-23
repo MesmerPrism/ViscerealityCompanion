@@ -44,7 +44,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private const string LaunchSleepBlockInstruction = "Wake the headset to enable launching.";
     private const string LaunchLockScreenInstruction = "Clear the headset lock screen before launching.";
     private const string LaunchVisualBlockInstruction = "Clear the current Guardian, tracking-loss, or ClearActivity blocker before launching.";
-    private const string KioskMenuButtonAdvisory = "On the current Meta OS build, kiosk is best-effort task pinning only and does not reliably disable the controller Meta/menu button.";
+    private const string KioskMenuButtonAdvisory = "On the current Meta OS build, launch uses best-effort task pinning only and does not reliably disable the controller Meta/menu button.";
     private const string TwinCommandStreamName = "quest_twin_commands";
     private const string TwinCommandStreamType = "quest.twin.command";
     private const string TwinStateStreamName = "quest_twin_state";
@@ -286,8 +286,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowSetupSummary = "Headset setup still needs attention.";
     private string _workflowSetupDetail = "Connect over Wi-Fi ADB, confirm the Sussex build, and apply the pinned device profile.";
     private OperationOutcomeKind _workflowKioskLevel = OperationOutcomeKind.Preview;
-    private string _workflowKioskSummary = "Boundary setup and kiosk entry have not started yet.";
-    private string _workflowKioskDetail = "Keep the session on Wi-Fi ADB, wake the headset to enable launching, wake the controller, then launch kiosk mode.";
+    private string _workflowKioskSummary = "Boundary setup and runtime launch have not started yet.";
+    private string _workflowKioskDetail = "Keep the session on Wi-Fi ADB, wake the headset to enable launching, wake the controller, then launch the runtime.";
     private OperationOutcomeKind _workflowBenchLevel = OperationOutcomeKind.Preview;
     private string _workflowBenchSummary = "Bench verification is waiting for the Sussex runtime.";
     private string _workflowBenchDetail = "Run particles, recenter, LSL, and controller calibration checks before participant handoff.";
@@ -1908,14 +1908,14 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
     public string StudyRuntimeActionLabel
         => IsStudyRuntimeToggleState
-            ? (_study.App.LaunchInKioskMode ? "Exit Kiosk Runtime" : "Stop Study Runtime")
+            ? "Stop Study Runtime"
             : IsLaunchBlockedBySleepingHeadset
                 ? LaunchSleepBlockButtonLabel
                 : IsLaunchBlockedByHeadsetLockScreen
                     ? LaunchLockScreenBlockButtonLabel
                 : IsLaunchBlockedByHeadsetVisualBlocker
                     ? LaunchVisualBlockButtonLabel
-                : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
+                : "Launch Study Runtime";
 
     public bool IsStudyRuntimeToggleState
         => IsStudyRuntimeForeground();
@@ -1944,7 +1944,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 ? LaunchLockScreenBlockButtonLabel
             : IsLaunchBlockedByHeadsetVisualBlocker
                 ? LaunchVisualBlockButtonLabel
-            : (_study.App.LaunchInKioskMode ? "Launch Kiosk Runtime" : "Launch Study Runtime");
+            : "Launch Study Runtime";
 
     public string TestLslSenderSummary
     {
@@ -3722,7 +3722,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             .ConfigureAwait(false);
 
         await ApplyOutcomeAsync(
-            _study.App.LaunchInKioskMode ? "Launch Sussex APK In Kiosk Mode" : "Launch Sussex APK",
+            "Launch Sussex Runtime",
             outcome).ConfigureAwait(false);
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
@@ -3819,7 +3819,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             .ConfigureAwait(false);
 
         await ApplyOutcomeAsync(
-            _study.App.LaunchInKioskMode ? "Exit Sussex Kiosk Mode" : "Stop Sussex APK",
+            "Stop Sussex Runtime",
             outcome).ConfigureAwait(false);
 
         if (outcome.Kind != OperationOutcomeKind.Failure)
@@ -7385,7 +7385,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             {
                 HeadsetAwakeLevel = OperationOutcomeKind.Warning;
                 HeadsetAwakeSummary = "Guardian or tracking blocker active.";
-                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but Android still sees a concrete Guardian, tracking-loss, or ClearActivity blocker in front of the usable scene. {LaunchVisualBlockInstruction} Use Capture Quest Screenshot to confirm the actual visible state before deciding whether to launch or exit kiosk mode. {proximityContext}".Trim();
+                HeadsetAwakeDetail = $"{powerEvidence} Quest reports the display awake, but Android still sees a concrete Guardian, tracking-loss, or ClearActivity blocker in front of the usable scene. {LaunchVisualBlockInstruction} Use Capture Quest Screenshot to confirm the actual visible state before deciding whether to launch or stop the runtime. {proximityContext}".Trim();
             }
             else if (_headsetStatus.IsAwake == true)
             {
@@ -9892,8 +9892,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 "Draw the experiment boundary in-headset.",
                 "Cover the participant position, the experimenter position, and the full experiment area before using Next."),
             7 => (
-                "Launch Sussex in kiosk mode.",
-                $"{LaunchSleepBlockInstruction} {LaunchVisualBlockInstruction} Disable proximity before launching, wake the right controller first, confirm the connection still shows the Wi-Fi endpoint, and do not rely on kiosk to disable the controller Meta/menu button on the current Meta OS build."),
+                "Launch Sussex from the guide.",
+                $"{LaunchSleepBlockInstruction} {LaunchVisualBlockInstruction} Disable proximity before launching, wake the right controller first, confirm the connection still shows the Wi-Fi endpoint, and do not rely on the launch path to disable the controller Meta/menu button on the current Meta OS build."),
             8 => (
                 "Turn on the test LSL sender if needed, then run Probe Connection or Analyze Windows Environment.",
                 "Probe Connection checks the headset path. Analyze Windows Environment checks the Windows tooling, liblsl runtimes, twin bridge, and whether the expected upstream sender is visible on this PC. Keep the headset on-face or leave the keep-awake proximity override active while you probe."),
@@ -10167,8 +10167,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         var launchBlockInstruction = BuildLaunchBlockInstruction();
         var detail = ready
             ? $"Sussex Experiment is active in the foreground. The launch path should already have armed the keep-awake proximity override. {KioskMenuButtonAdvisory} If the controller was asleep at launch, wake it and relaunch before moving on."
-            : $"{(string.IsNullOrWhiteSpace(launchBlockInstruction) ? string.Empty : $"{launchBlockInstruction} ")}Disable proximity, wake the right controller, confirm the connection still shows the Wi-Fi endpoint, then launch kiosk mode. {KioskMenuButtonAdvisory}";
-        return new WorkflowGuideGateState(level, ready ? "Sussex runtime is active in kiosk." : "Sussex runtime is not active in kiosk yet.", detail, ready);
+            : $"{(string.IsNullOrWhiteSpace(launchBlockInstruction) ? string.Empty : $"{launchBlockInstruction} ")}Disable proximity, wake the right controller, confirm the connection still shows the Wi-Fi endpoint, then launch the runtime. {KioskMenuButtonAdvisory}";
+        return new WorkflowGuideGateState(level, ready ? "Sussex runtime is active." : "Sussex runtime is not active yet.", detail, ready);
     }
 
     private OperationOutcome BuildLslConnectionProbeOutcome()
@@ -10459,7 +10459,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             AddHazard(
                 OperationOutcomeKind.Warning,
                 "USB visibility can destabilize the Wi-Fi ADB session.",
-                $"USB {FormatOptionalValue(_headsetStatus.VisibleUsbSerial, "ADB")} is visible again while the study path is using Wi-Fi ADB on {liveSelector}. Reconnecting USB can restart ADB, break kiosk/task lock, or leave the remembered Wi-Fi endpoint stale.");
+                $"USB {FormatOptionalValue(_headsetStatus.VisibleUsbSerial, "ADB")} is visible again while the study path is using Wi-Fi ADB on {liveSelector}. Reconnecting USB can restart ADB, interrupt runtime focus or task pinning, or leave the remembered Wi-Fi endpoint stale.");
         }
 
         if (_headsetStatus.IsWifiAdbTransport &&
@@ -11016,7 +11016,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                     CanToggleProximity,
                     $"{(string.IsNullOrWhiteSpace(ProximityActionLabel) ? "Disable Proximity" : ProximityActionLabel)}...",
                     stateIsOn: IsProximityKeepAwakeActive()),
-                BuildWorkflowGuideActionItem(WorkflowGuideLaunchActionLabel, LaunchStudyAppCommand, CanLaunchStudyRuntime, "Launching Kiosk Runtime..."),
+                BuildWorkflowGuideActionItem(WorkflowGuideLaunchActionLabel, LaunchStudyAppCommand, CanLaunchStudyRuntime, "Launching Study Runtime..."),
                 BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
             ],
             8 =>
@@ -11140,15 +11140,15 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         var active = ParseBool(GetFirstValue("tracker.breathing.controller.active"));
         return active == true
             ? "Right controller activity is already visible."
-            : "Wake the right controller before entering kiosk.";
+            : "Wake the right controller before launch.";
     }
 
     private string BuildControllerWakeReminderDetail()
     {
         var state = GetFirstValue("tracker.breathing.controller.state");
         return ParseBool(GetFirstValue("tracker.breathing.controller.active")) == true
-            ? $"Runtime state {(string.IsNullOrWhiteSpace(state) ? "n/a" : state)}. The controller only needs to stay awake through kiosk entry."
-            : "If the right controller is asleep when kiosk starts, it may not become active afterward. Wake it on the headset before you launch.";
+            ? $"Runtime state {(string.IsNullOrWhiteSpace(state) ? "n/a" : state)}. The controller only needs to stay awake through launch."
+            : "If the right controller is asleep when Sussex starts, it may not become active afterward. Wake it on the headset before you launch.";
     }
 
     private OperationOutcomeKind BuildControllerWakeReminderLevel()
@@ -11287,7 +11287,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             ready
                 ? $"Right controller {controllerLabel} meets the {minimum.Value}% floor."
                 : $"Right controller {controllerLabel} is below the {minimum.Value}% floor.",
-            "Wake the right controller before launching kiosk so it remains active afterward.",
+            "Wake the right controller before launching Sussex so it remains active afterward.",
             ready);
     }
 
@@ -11595,12 +11595,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                     : OperationOutcomeKind.Success
                 : OperationOutcomeKind.Warning;
         WorkflowKioskSummary = !setupReady
-            ? "Finish headset setup before boundary work and kiosk entry."
+            ? "Finish headset setup before boundary work and runtime launch."
             : runtimeForeground
                 ? QuestScreenshotLevel == OperationOutcomeKind.Warning
-                    ? "Sussex kiosk is up, but visual confirmation is still pending."
-                    : "Sussex kiosk is up and ready for bench verification."
-                : "Boundary setup and kiosk entry are still pending.";
+                    ? "Sussex runtime is up, but visual confirmation is still pending."
+                    : "Sussex runtime is up and ready for bench verification."
+                : "Boundary setup and runtime launch are still pending.";
         WorkflowKioskDetail =
             $"{HeadsetAwakeSummary} {ControllerSummary} {(string.IsNullOrWhiteSpace(BuildLaunchBlockInstruction()) ? string.Empty : $"{BuildLaunchBlockInstruction()} ")}Keep watching the connection card so the guided path stays on the Wi-Fi endpoint used during the study. {KioskMenuButtonAdvisory} " +
             "The launch path now disables the proximity wear-sensor before Sussex starts. Keep that keep-awake override active through the guide, then restore normal proximity when you are done with the live session.";
@@ -11639,7 +11639,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 ? OperationOutcomeKind.Success
                 : OperationOutcomeKind.Warning;
         WorkflowHandoffSummary = !runtimeForeground
-            ? "Participant handoff follows kiosk entry and bench verification."
+            ? "Participant handoff follows runtime launch and bench verification."
             : !canResetCalibration
                 ? "Calibration reset is still missing from the mirrored Sussex APK."
                 : controllerCalibrated
@@ -11670,7 +11670,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                     : canStartExperiment
                         ? "Experiment Session is waiting for participant metadata or final visual checks."
                         : "Participant-start controls are still pending in the companion."
-            : "Participant-start controls come after kiosk and bench verification.";
+            : "Participant-start controls come after runtime launch and bench verification.";
         WorkflowParticipantStartDetail =
             $"{ParticipantEntrySummary} {ParticipantEntryDetail} " +
             (canStartExperiment
@@ -11717,7 +11717,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         if (!runtimeForeground)
         {
             WorkflowCurrentStepLevel = WorkflowKioskLevel;
-            WorkflowCurrentStepSummary = "2. Boundary plus kiosk entry is the next operator step.";
+            WorkflowCurrentStepSummary = "2. Boundary plus runtime launch is the next operator step.";
             WorkflowCurrentStepDetail = WorkflowKioskDetail;
             UpdateWorkflowGuideState();
             return;

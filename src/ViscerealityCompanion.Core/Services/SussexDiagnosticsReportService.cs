@@ -642,7 +642,7 @@ public sealed class SussexDiagnosticsReportService
 
         if (headset.IsWifiAdbTransport && headset.IsUsbAdbVisible)
         {
-            detailParts.Add($"USB {FormatOptionalValue(headset.VisibleUsbSerial, "ADB")} is visible while the study path is on Wi-Fi ADB. Reconnecting USB can restart ADB, break kiosk/task lock, or leave the remembered endpoint stale.");
+            detailParts.Add($"USB {FormatOptionalValue(headset.VisibleUsbSerial, "ADB")} is visible while the study path is on Wi-Fi ADB. Reconnecting USB can restart ADB, interrupt runtime focus or task pinning, or leave the remembered endpoint stale.");
         }
 
         if (!string.IsNullOrWhiteSpace(expectedUpstream.Detail))

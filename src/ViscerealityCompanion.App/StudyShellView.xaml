@@ -283,7 +283,7 @@
                                     BorderBrush="{Binding WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}">
                                 <StackPanel>
                                     <TextBlock Text="Sequential guide" Style="{StaticResource InfoLabelStyle}" />
-                                    <TextBlock Text="Run this directly before the live session: setup, Wi-Fi handoff, kiosk launch, LSL checks, optional validation capture, then hand off into Experiment Session."
+                                    <TextBlock Text="Run this directly before the live session: setup, Wi-Fi handoff, runtime launch, LSL checks, optional validation capture, then hand off into Experiment Session."
                                                Style="{StaticResource CompactCaptionStyle}" />
                                     <TextBlock Text="{Binding WorkflowCurrentStepSummary}"
                                                FontWeight="Bold"
@@ -424,7 +424,7 @@
                                         Background="{Binding WorkflowKioskLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
                                         BorderBrush="{Binding WorkflowKioskLevel, Converter={StaticResource OutcomeKindToBrush}}">
                                     <StackPanel>
-                                        <TextBlock Text="2. Boundary and kiosk entry" Style="{StaticResource InfoLabelStyle}" />
+                                        <TextBlock Text="2. Boundary and runtime launch" Style="{StaticResource InfoLabelStyle}" />
                                         <TextBlock Text="{Binding WorkflowKioskSummary}"
                                                    FontSize="14"
                                                    FontWeight="Bold"
@@ -545,10 +545,10 @@
                                                    FontWeight="SemiBold"
                                                    Margin="0,4,0,0"
                                                    TextWrapping="Wrap" />
-                                        <TextBlock Text="Keep the proximity sensor in normal mode during kiosk entry and kiosk exit."
+                                        <TextBlock Text="Keep the proximity override active through launch and bench checks, then restore normal proximity after the live session."
                                                    Style="{StaticResource CompactCaptionStyle}"
                                                    Margin="0,4,0,0" />
-                                        <TextBlock Text="Wake the controller before entering the kiosk scene."
+                                        <TextBlock Text="Wake the controller before launching Sussex."
                                                    FontWeight="SemiBold"
                                                    Margin="0,8,0,0"
                                                    TextWrapping="Wrap" />

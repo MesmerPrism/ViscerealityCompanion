@@ -162,11 +162,11 @@ public static class Program
 
     private static Command BuildLaunchCommand()
     {
-        var kioskOption = new Option<bool>("--kiosk", "Enter kiosk mode after launching the app.");
+        var kioskOption = new Option<bool>(["--pin-task", "--kiosk"], "Apply best-effort task pinning after launching the app.");
         var componentOption = new Option<string?>("--component", "Explicit launch component to use for the app.");
         var packageArg = new Argument<string>("package", description: "Package ID to launch");
         var command = new Command("launch", "Launch an app on the connected Quest. Wake the headset first; the launcher now blocks while the headset reports asleep.") { packageArg, kioskOption, componentOption };
-        command.Handler = CommandHandler.Create(async (string package, bool kiosk, string? component, string? device) =>
+        command.Handler = CommandHandler.Create(async (string package, bool pinTask, string? component, string? device) =>
         {
             var service = CreateQuestService(device);
             var target = new QuestAppTarget(
@@ -178,7 +178,7 @@ public static class Program
                 BrowserPackageId: string.Empty,
                 Description: $"CLI launch: {package}",
                 Tags: []);
-            var result = await service.LaunchAppAsync(target, kioskMode: kiosk);
+            var result = await service.LaunchAppAsync(target, kioskMode: pinTask);
             PrintOutcome(result);
         });
         return command;
@@ -186,10 +186,10 @@ public static class Program
 
     private static Command BuildStopCommand()
     {
-        var exitKioskOption = new Option<bool>("--exit-kiosk", "Exit kiosk mode before stopping the app.");
+        var exitKioskOption = new Option<bool>(["--restore-shell", "--exit-kiosk"], "Release best-effort task pinning before stopping the app.");
         var packageArg = new Argument<string>("package", description: "Package ID to stop");
         var command = new Command("stop", "Stop an app on the connected Quest") { packageArg, exitKioskOption };
-        command.Handler = CommandHandler.Create(async (string package, bool exitKiosk, string? device) =>
+        command.Handler = CommandHandler.Create(async (string package, bool restoreShell, string? device) =>
         {
             var service = CreateQuestService(device);
             var target = new QuestAppTarget(
@@ -201,7 +201,7 @@ public static class Program
                 BrowserPackageId: string.Empty,
                 Description: $"CLI stop: {package}",
                 Tags: []);
-            var result = await service.StopAppAsync(target, exitKioskMode: exitKiosk);
+            var result = await service.StopAppAsync(target, exitKioskMode: restoreShell);
             PrintOutcome(result);
         });
         return command;
@@ -484,7 +484,7 @@ public static class Program
 
             foreach (var study in catalog.Studies)
             {
-                var kioskLabel = study.App.LaunchInKioskMode ? "kiosk" : "standard";
+                var kioskLabel = study.App.LaunchInKioskMode ? "task-pin" : "standard";
                 Console.WriteLine($"  {study.Id,-24} {study.App.PackageId,-40} {kioskLabel,-8} {study.Label}");
             }
         });
@@ -507,7 +507,7 @@ public static class Program
             PrintOutcome(result);
         });
 
-        var launchCommand = new Command("launch", "Launch the pinned study runtime using the study kiosk policy. Wake the headset first; the launcher now blocks while the headset reports asleep.") { studyArg, rootOption };
+        var launchCommand = new Command("launch", "Launch the pinned study runtime using the study launch policy. Wake the headset first; the launcher now blocks while the headset reports asleep.") { studyArg, rootOption };
         launchCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
         {
             var definition = await ResolveStudyShellAsync(study, root);
@@ -532,7 +532,7 @@ public static class Program
             PrintOutcome(result);
         });
 
-        var stopCommand = new Command("stop", "Stop the pinned study runtime using the study kiosk-exit policy") { studyArg, rootOption };
+        var stopCommand = new Command("stop", "Stop the pinned study runtime and unwind any study task-pinning policy") { studyArg, rootOption };
         stopCommand.Handler = CommandHandler.Create(async (string study, string? root, string? device) =>
         {
             var definition = await ResolveStudyShellAsync(study, root);
@@ -590,7 +590,7 @@ public static class Program
 
             Console.WriteLine($"Study:             {definition.Label}");
             Console.WriteLine($"Package:           {definition.App.PackageId}");
-            Console.WriteLine($"Kiosk policy:      {definition.App.LaunchInKioskMode}");
+            Console.WriteLine($"Task pinning:      {definition.App.LaunchInKioskMode}");
             Console.WriteLine($"Pinned SHA256:     {definition.App.Sha256}");
             Console.WriteLine($"Installed SHA256:  {(string.IsNullOrWhiteSpace(installed.InstalledSha256) ? "n/a" : installed.InstalledSha256)}");
             Console.WriteLine($"Installed match:   {installedMatchesPinned}");

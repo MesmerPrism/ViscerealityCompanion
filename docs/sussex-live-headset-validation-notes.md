@@ -13,7 +13,7 @@ Use this file as the running checklist for the next full on-head headset pass. A
   `C:\Users\tillh\source\repos\ViscerealityCompanion\samples\quest-session-kit\APKs\SussexExperiment.apk`
 - Current Windows installer artifacts refreshed at:
   `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\windows-installer`
-- Current readiness caveat: the rebuilt `0.1.2` bundle now has a fresh CLI-driven off-face validation of controller command feedback, controller-tracking calibration guards, and external Python LSL coherence routing, but the next worn-head pass should still recheck kiosk exit and the full participant-facing handoff path.
+- Current readiness caveat: the rebuilt `0.1.2` bundle now has a fresh CLI-driven off-face validation of controller command feedback, controller-tracking calibration guards, and external Python LSL coherence routing, but the next worn-head pass should still recheck runtime stop and the full participant-facing handoff path.
 - Quest OS baseline still matches the approved Sussex software identity:
   `14 | build 2921110053000610 | display UP1A.231005.007.A1`
 - Wi-Fi ADB was last confirmed live during the previous readiness pass on:
@@ -22,7 +22,7 @@ Use this file as the running checklist for the next full on-head headset pass. A
   `MagentaWLAN-R5V4`
 - Companion build/test passed after the timing-contract update and APK sync.
 - Participant-facing runtime validation checks passed before the fresh Sussex APK build.
-- Expected note for the next worn-head run: controller-breathing calibration should be started from the `Experiment Session` window and preserved across `Start Recording`; the rebuilt `0.1.2` package still needs a worn-head recheck of kiosk exit and the full participant handoff path.
+- Expected note for the next worn-head run: controller-breathing calibration should be started from the `Experiment Session` window and preserved across `Start Recording`; the rebuilt `0.1.2` package still needs a worn-head recheck of runtime stop and the full participant handoff path.
 - With the controller disconnected, the pinned device profile now stays active with advisory battery warnings instead of downgrading the Sussex build status.
 
 ## Latest Live Result
@@ -30,7 +30,7 @@ Use this file as the running checklist for the next full on-head headset pass. A
 - The last completed live Sussex validation pass completed successfully on `2026-04-03` with the headset exercised off-face.
 - That pass used the accepted published GUI path instead of a freshly republished harness executable because Windows Application Control still blocks newly published local harness binaries on this machine.
 - The run confirmed `Use Automatic Driver`, `Pause Automatic`, `Start Automatic`, and `Use Controller Volume Driver` end to end, including live GUI readback and on-headset value movement on the current `0.1.2` Sussex APK.
-- The same off-face validation also reconfirmed the pinned-build hash path against the current approved Sussex APK and left kiosk exit intentionally skipped to avoid the known off-face passthrough limbo path.
+- The same off-face validation also reconfirmed the pinned-build hash path against the current approved Sussex APK and left runtime-stop verification intentionally skipped to avoid the known off-face passthrough limbo path.
 - Latest live-validation log:
   `C:\Users\tillh\source\repos\ViscerealityCompanion\artifacts\verify\sussex-manual-accept-run\automation-log.txt`
 - Latest live-validation screenshots:
@@ -65,8 +65,8 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
   keep-awake override. Treat `Virtual proximity state: CLOSE` as override
   active, and `Virtual proximity state: DISABLED` as normal wear-sensor
   behavior restored after `automation_disable`.
-- Wake the right controller before kiosk entry. If it is asleep during the transition, it may stay inactive afterward.
-- Off-head kiosk exit can still behave differently from on-head exit. Judge the final runtime path from an actual worn-head test.
+- Wake the right controller before launch. If it is asleep during the transition, it may stay inactive afterward.
+- Off-head runtime stop can still behave differently from on-head stop. Judge the final runtime path from an actual worn-head test.
 - Manual headset-side volume may still be required if Wi-Fi ADB volume enforcement does not stick.
 
 ## Before The Run
@@ -76,7 +76,7 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - Confirm the headset OS build still matches the approved Sussex software baseline.
 - Confirm the headset is on the same Wi-Fi network as the Windows machine.
 - Confirm the WPF app can reach the headset over Wi-Fi ADB after USB is unplugged.
-- Confirm the experiment heartbeat / coherence LSL source is running on the Windows side before kiosk launch.
+- Confirm the experiment heartbeat / coherence LSL source is running on the Windows side before launch.
 
 ## Sequential Guide Checks
 
@@ -86,8 +86,8 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - USB unplug step stays blocked while USB is still attached and turns green after unplug.
 - APK check shows the correct Sussex package and expected APK hash.
 - Device profile check reports CPU, GPU, brightness, volume, headset battery, controller battery, and OS build correctly.
-- Boundary step is followed manually before kiosk launch.
-- Kiosk launch succeeds over Wi-Fi ADB.
+- Boundary step is followed manually before launch.
+- Launch succeeds over Wi-Fi ADB.
 - LSL connection shows as connected both on the headset side and in the WPF app.
 - Particle on/off test responds correctly.
 - Quest screenshot capture updates with a fresh runtime image each time, not a stale cached frame.
@@ -103,7 +103,7 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - The operator can verify the scene both visually in-headset and from a captured Quest screenshot.
 - Recenter visibly changes the scene alignment when requested.
 - Particle visibility commands visibly change the runtime state.
-- The right controller remains active after kiosk entry.
+- The right controller remains active after launch.
 - The runtime remains controllable after USB is unplugged.
 - LSL coherence values keep arriving during the run.
 - The clock-alignment window completes its 10 second handshake at experiment start.
@@ -149,7 +149,7 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - Do Windows and Quest recording windows now align closely enough after the clock-alignment and recorder-scope changes?
 - Does the passive upstream Windows LSL monitor line up cleanly with the Quest timing markers for heartbeat/coherence delivery?
 - How close is `orbit_radius_peak` to the earliest participant-visible peak in the rendered particle motion?
-- Are there any participant-facing visual issues after sleep, wake, recenter, or kiosk exit that only appear on-head?
+- Are there any participant-facing visual issues after sleep, wake, recenter, or runtime stop that only appear on-head?
 
 ## Log Useful Artifacts Here
 

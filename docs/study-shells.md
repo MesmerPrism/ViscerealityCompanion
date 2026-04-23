@@ -76,16 +76,16 @@ It currently pins:
 - profile workspaces: `Visual Profiles` and `Breathing Profiles`
 - runtime launch mode: `launchInKioskMode=true`
 
-For the committed Sussex shell, the runtime toggle is intentionally a kiosk
-toggle rather than a plain launch/stop button:
+For the committed Sussex shell, the runtime toggle is intentionally a
+task-pinned launch/stop button rather than a plain launch/stop button:
 
-- `Launch Kiosk Runtime` launches the Sussex APK, resolves the live Unity task,
+- `Launch Study Runtime` launches the Sussex APK, resolves the live Unity task,
   and pins it with `am task lock <TASK_ID>`
 - if the headset reports asleep, the launch surface now blocks the action and
   tells the operator `Wake the headset to enable launching`
 - if a concrete Guardian, tracking-loss, or ClearActivity blocker is active, the launch surface also
   stays blocked until that blocker is cleared in-headset
-- `Exit Kiosk Runtime` sends the confirmed Home-return stack:
+- `Stop Study Runtime` sends the confirmed Home-return stack:
   `automation_disable -> task lock stop -> HomeActivity -> force-stop Sussex`
   when an operator intentionally invokes it from a visible on-head runtime
   state
@@ -108,7 +108,7 @@ manual headset wake/sleep only.
 
 Current operator rule:
 
-- if kiosk launch or exit only reaches shell-level confirmation, the Sussex
+- if launch or stop only reaches shell-level confirmation, the Sussex
   shell must leave a visual-confirmation warning in place instead of claiming
   success
 - on this machine, the shell can still end up in black / Guardian-blocked
@@ -116,7 +116,7 @@ Current operator rule:
   Sussex task is reported without a usable visible scene
 - treat the screenshot card as mandatory for launch/exit verification in those
   cases
-- do not use `Exit Kiosk Runtime` or `viscereality study stop
+- do not use `Stop Study Runtime` or `viscereality study stop
   sussex-university` as off-face automated cleanup on this machine
 - if Sussex must be exited, ask the wearer to quit while the headset is on-face
   and visually confirm the Home-side result afterward
@@ -126,11 +126,11 @@ Current operator rule:
 Current confirmed GUI behavior on this machine after the April 2026 Meta OS
 update:
 
-- from visible Meta Home, `Launch Kiosk Runtime` can still reach a working
+- from visible Meta Home, `Launch Study Runtime` can still reach a working
   Sussex runtime in front
-- the controller Meta / menu button is no longer a reliable kiosk-success
+- the controller Meta / menu button is no longer a reliable launch-success
   signal, because it can remain active even while Sussex stays in front
-- from a worn-head, visible Sussex runtime state, `Exit Kiosk Runtime` can
+- from a worn-head, visible Sussex runtime state, `Stop Study Runtime` can
   still return the headset to visible Meta Home, but screenshot confirmation
   remains mandatory
 - if the headset is already asleep or in black `SensorLock` limbo before the
@@ -412,7 +412,7 @@ window that walks the operator through the fixed Sussex protocol step by step:
 - Wi-Fi match confirmation
 - USB unplug and Wi-Fi-only confirmation
 - APK and device-profile verification
-- kiosk launch
+- runtime launch
 - LSL and particle verification
 - controller-tracking guarded calibration
 - 20 second validation capture with inline timing alignment, local and pulled Quest output folders, and a generated PDF review report
@@ -577,7 +577,7 @@ That harness:
 - starts a local float LSL sender on `HRV_Biofeedback / HRV`
 - publishes smoothed `0..1` HRV biofeedback packets from this Windows machine on an irregular heartbeat-timed cadence
 - installs, launches, and profiles the bundled Sussex APK
-- captures GUI and Quest screenshots for kiosk-launch and kiosk-exit review
+- captures GUI and Quest screenshots for runtime-launch and runtime-stop review
 - writes a text report alongside those screenshots
 
 The latest completed harness-driven Sussex validation pass on `2026-04-02`:
@@ -610,14 +610,14 @@ can be consumed by the headset and mirrored back to the desktop GUI. Treat the
 these controller/LSL updates, and the newer hash above as the current shipped
 Sussex bundle.
 
-That `2026-04-03` pass was also run off-face, so kiosk exit was intentionally
+That `2026-04-03` pass was also run off-face, so runtime-stop verification was intentionally
 skipped instead of being re-verified in the same run. On this machine, Windows
 Application Control still blocks freshly republished local harness executables,
 so the accepted published GUI path remains the reliable live-validation route
 for now.
 
 Treat those screenshots as evidence to inspect, not as an automatic proof that
-Meta Home was visibly restored. On the current HorizonOS build, kiosk exit can
+Meta Home was visibly restored. On the current HorizonOS build, runtime stop can
 still land in a passthrough / placeholder limbo even after `HomeActivity` has
 focus again, so the operator must review the captured Quest screenshot before
 calling the exit side "good". See `docs/quest-adb-hzdb-recovery-notes.md` for

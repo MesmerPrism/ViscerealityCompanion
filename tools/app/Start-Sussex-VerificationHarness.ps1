@@ -11,7 +11,6 @@ param(
     [string]$OutputRelativePath = 'artifacts\\publish\\ViscerealityCompanion.VerificationHarness',
     [switch]$Refresh,
     [switch]$CalibrationOnly,
-    [switch]$SkipKioskExit,
     [switch]$Wait
 )
 
@@ -90,20 +89,12 @@ if (-not (Test-Path $exePath)) {
 }
 
 $previousCalibrationOnly = $env:VC_CALIBRATION_ONLY
-$previousSkipKioskExit = $env:VC_SKIP_KIOSK_EXIT
 try {
     if ($CalibrationOnly) {
         $env:VC_CALIBRATION_ONLY = '1'
     }
     else {
         Remove-Item Env:VC_CALIBRATION_ONLY -ErrorAction SilentlyContinue
-    }
-
-    if ($SkipKioskExit) {
-        $env:VC_SKIP_KIOSK_EXIT = '1'
-    }
-    else {
-        Remove-Item Env:VC_SKIP_KIOSK_EXIT -ErrorAction SilentlyContinue
     }
 
     $process = Start-Process -FilePath $exePath -WorkingDirectory $repoRoot -PassThru
@@ -116,12 +107,6 @@ finally {
         $env:VC_CALIBRATION_ONLY = $previousCalibrationOnly
     }
 
-    if ($null -eq $previousSkipKioskExit) {
-        Remove-Item Env:VC_SKIP_KIOSK_EXIT -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:VC_SKIP_KIOSK_EXIT = $previousSkipKioskExit
-    }
 }
 
 if ($Wait) {

@@ -144,10 +144,10 @@ public sealed class PreviewQuestControlService : IQuestControlService
     public Task<OperationOutcome> LaunchAppAsync(QuestAppTarget target, bool kioskMode = false, CancellationToken cancellationToken = default)
         => Task.FromResult(Preview(
             kioskMode
-                ? $"Kiosk launch queued for {target.Label}."
+                ? $"Task-pinned launch queued for {target.Label}."
                 : $"Launch queued for {target.Label}.",
             kioskMode
-                ? "The preview transport would launch the app and pin its task in front."
+                ? "The preview transport would launch the app and apply best-effort task pinning in front."
                 : string.IsNullOrWhiteSpace(target.LaunchComponent)
                     ? "The target does not define an explicit component; the transport would launch by package id."
                     : $"Launch component: {target.LaunchComponent}",
@@ -156,10 +156,10 @@ public sealed class PreviewQuestControlService : IQuestControlService
     public Task<OperationOutcome> StopAppAsync(QuestAppTarget target, bool exitKioskMode = false, CancellationToken cancellationToken = default)
         => Task.FromResult(Preview(
             exitKioskMode
-                ? $"Kiosk exit queued for {target.Label}."
+                ? $"Task-pin release queued for {target.Label}."
                 : $"Stop queued for {target.Label}.",
             exitKioskMode
-                ? $"The preview transport would unwind kiosk mode, return Home, and then stop {target.PackageId}."
+                ? $"The preview transport would release task pinning, return Home, and then stop {target.PackageId}."
                 : $"The preview transport would force-stop {target.PackageId}.",
             PackageId: target.PackageId));
 

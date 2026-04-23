@@ -10,7 +10,7 @@ nav_order: 36
 # Sussex Stable Session Workflow
 
 This page freezes the current best-known Sussex operator path after the March
-2026 Quest, kiosk, and GUI verification passes. The goal is to reduce
+2026 Quest, task-pinning, and GUI verification passes. The goal is to reduce
 run-to-run variability by turning the verified findings into one fixed operator
 workflow with explicit hazards and a concrete implementation backlog.
 
@@ -28,21 +28,21 @@ workflow with explicit hazards and a concrete implementation backlog.
   - `Virtual proximity state: CLOSE` means the keep-awake override is active.
   - `Virtual proximity state: DISABLED` means normal wear-sensor behavior is
     active again.
-- Wake the headset before kiosk launch. Do not launch Sussex while the headset
+- Wake the headset before launch. Do not launch Sussex while the headset
   reports asleep; on the current April 2026 Meta OS build that can leave the
   runtime running in a black or limbo scene that may require a headset restart.
 - Do not use remote GUI wake/sleep controls for Sussex. Manual headset
   wake/sleep is the only supported operator path for now.
-- Do not enter kiosk mode until the right controller is awake and tracked.
-- Do not treat kiosk mode as a reliable right-controller Meta / menu button
-  lockout on the current April 2026 Meta OS build. Treat it as best-effort task
+- Do not launch until the right controller is awake and tracked.
+- Do not treat the launch path as a reliable right-controller Meta / menu
+  button lockout on the current April 2026 Meta OS build. Treat it as best-effort task
   pinning plus screenshot-confirmed foreground only.
 - Do not allow an experimenter's bench calibration to survive into the
   participant run. Calibration intentionally performed in the `Experiment
   Session` window before `Start Recording` is participant calibration and must
   survive the recording start command.
 - Keep the Sussex APK running across participants unless a real failure
-  requires kiosk exit or runtime restart.
+  requires a runtime stop or restart.
 
 ## Fixed Session Workflow
 
@@ -67,7 +67,7 @@ workflow with explicit hazards and a concrete implementation backlog.
 Important: USB can stay attached for setup, but the readiness state should
 explicitly prefer a live Wi-Fi ADB transport before continuing.
 
-### 2. Boundary plus kiosk entry by the experimenter
+### 2. Boundary plus runtime launch by the experimenter
 
 1. Disconnect USB.
 2. The experimenter puts on the headset in the subject position.
@@ -78,12 +78,11 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
    keep-awake override, but the guide should still show its state explicitly.
    Expect `CLOSE` while the override is active and `DISABLED` after you restore
    normal proximity.
-6. Wake the right controller if needed and verify it is active before kiosk
-   entry.
-7. Launch Sussex in kiosk mode from the GUI.
+6. Wake the right controller if needed and verify it is active before launch.
+7. Launch Sussex from the GUI.
 8. If Guardian or another Meta visual blocker is still visible, clear it before
    launching.
-9. Do not use controller Meta / menu-button behavior as the kiosk-success
+9. Do not use controller Meta / menu-button behavior as the launch-success
    signal on this build.
 10. Confirm the visible scene on-headset. If shell focus and the visible scene
    disagree, use one Quest screenshot as the source of truth.
@@ -143,12 +142,12 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
    - generate `session_review_report.pdf`
 3. The experimenter removes the headset from the participant.
 4. Put the headset to sleep with the physical power button.
-5. Return to the participant-number entry state without forcing kiosk exit, so
+5. Return to the participant-number entry state without forcing a runtime stop, so
    the next participant can reuse the same prepared runtime.
 
 ### 6. Exception path
 
-- If kiosk launch or exit reaches only shell-level confirmation, require a
+- If launch or stop reaches only shell-level confirmation, require a
   Quest screenshot review before proceeding.
 - If Guardian, SensorLock, or FocusPlaceholder blockers appear, use the
   recovery notes and physical power-button path instead of trying to automate
@@ -169,7 +168,7 @@ explicitly prefer a live Wi-Fi ADB transport before continuing.
      and a current-step banner.
 
 2. Readiness gate and greenlight model
-   - Compute a single `Ready For Kiosk` and `Ready For Participant` state from:
+   - Compute a single `Ready For Runtime` and `Ready For Participant` state from:
      - Wi-Fi ADB connected
      - pinned APK hash verified
      - pinned device profile active
@@ -344,7 +343,7 @@ Capture workflow and command markers as discrete events:
 
 - participant number entered
 - duplicate-id warning shown
-- kiosk launched
+- runtime launched
 - particles on and off
 - recenter sent
 - calibration started

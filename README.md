@@ -78,9 +78,9 @@ For Sussex specifically, the packaged app now opens on a Home/orientation tab
 that includes the `Open Sequential Guide` entrypoint plus the condensed
 operator checklist. That step-by-step window is the intended first-run path for
 USB trust, Wi-Fi handoff, APK/profile checks, awake-headset launch gating,
-kiosk launch, LSL verification, particle checks, the controller-tracking
+runtime launch, LSL verification, particle checks, the controller-tracking
 guarded calibration check, and the short validation capture. On the current
-April 2026 Meta OS build, Sussex kiosk launch should be treated as launch plus
+April 2026 Meta OS build, Sussex launch should be treated as launch plus
 best-effort task pinning, not as a reliable Meta/menu-button lockout. The
 validation step now keeps the timing alignment flow inline in the guide
 itself, instead of opening a separate timing window, and the `During session`

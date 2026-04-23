@@ -55,6 +55,7 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-initial.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-live.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-kiosk-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-runtime-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-home-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-tab.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-applied.png"));
@@ -63,6 +64,7 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-automatic.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-paused.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "quest-runtime-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-home-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-controller-breathing-applied.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-automatic-breathing-automatic.png"));
@@ -129,7 +131,6 @@ public static class HarnessScenarioRunner
     {
         var useValidationCapture = ReadBoolEnvironmentVariable("VC_USE_VALIDATION_CAPTURE");
         var calibrationOnly = ReadBoolEnvironmentVariable("VC_CALIBRATION_ONLY");
-        var skipKioskExit = ReadBoolEnvironmentVariable("VC_SKIP_KIOSK_EXIT");
 
         if (window.DataContext is not MainWindowViewModel mainViewModel)
         {
@@ -181,7 +182,7 @@ public static class HarnessScenarioRunner
         await Task.Delay(TimeSpan.FromSeconds(1.5));
         await EnsureStudyRuntimeLaunchedForHarnessAsync(
             studyViewModel,
-            allowOffFaceRecovery: skipKioskExit);
+            allowOffFaceRecovery: true);
 
         await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
 
@@ -209,12 +210,12 @@ public static class HarnessScenarioRunner
 
         await WarmUpLslAsync(outlet, studyViewModel);
         await Task.Delay(TimeSpan.FromSeconds(4));
-        var kioskScreenshotPath = await CaptureQuestScreenshotProofAsync(
+        var runtimeScreenshotPath = await CaptureQuestScreenshotProofAsync(
             studyViewModel,
             window,
             outputRoot,
-            "quest-kiosk-proof.png",
-            "sussex-main-window-kiosk-proof.png");
+            "quest-runtime-proof.png",
+            "sussex-main-window-runtime-proof.png");
         var latencyResults = await MeasureLslRoundTripAsync(outlet, studyViewModel);
         var senderRestartResult = await VerifyLslSenderRestartRecoveryAsync(outlet, studyViewModel);
 
@@ -286,17 +287,12 @@ public static class HarnessScenarioRunner
 
         var fallbackScreenshotPath = validationCaptureResult?.EndedQuestScreenshotPath
                                      ?? participantRunResult?.EndedQuestScreenshotPath
-                                     ?? kioskScreenshotPath;
-        var stopVerification = skipKioskExit
-            ? new StopAppVerificationResult(
-                OperationOutcomeKind.Preview,
-                "Skipped kiosk-exit verification for this harness run because the headset is currently being exercised off-face.",
-                fallbackScreenshotPath)
-            : await ValidateKioskExitAsync(
-                studyViewModel,
-                window,
-                outputRoot,
-                fallbackScreenshotPath);
+                                     ?? runtimeScreenshotPath;
+        var stopVerification = await ValidateStudyRuntimeStopAsync(
+            studyViewModel,
+            window,
+            outputRoot,
+            fallbackScreenshotPath);
         var stopActionLevel = stopVerification.Level;
         var stopActionDetail = stopVerification.Detail;
         var homeScreenshotPath = stopVerification.HomeScreenshotPath;
@@ -329,7 +325,7 @@ public static class HarnessScenarioRunner
                     particlesOnResult,
                     stopActionLevel,
                     stopActionDetail,
-                    kioskScreenshotPath,
+                    runtimeScreenshotPath,
                     homeScreenshotPath,
                     verificationPersistence)
                 : BuildReport(
@@ -345,7 +341,7 @@ public static class HarnessScenarioRunner
                     particlesOnResult,
                     stopActionLevel,
                     stopActionDetail,
-                    kioskScreenshotPath,
+                    runtimeScreenshotPath,
                     homeScreenshotPath,
                     verificationPersistence));
     }
@@ -459,7 +455,7 @@ public static class HarnessScenarioRunner
         }
     }
 
-    private static async Task<StopAppVerificationResult> ValidateKioskExitAsync(
+    private static async Task<StopAppVerificationResult> ValidateStudyRuntimeStopAsync(
         StudyShellViewModel studyViewModel,
         Window window,
         string outputRoot,
@@ -473,7 +469,7 @@ public static class HarnessScenarioRunner
                     !studyViewModel.HeadsetForegroundLabel.Contains(studyViewModel.PinnedPackageId, StringComparison.OrdinalIgnoreCase)
                     && !studyViewModel.QuestStatusSummary.Contains("is active", StringComparison.OrdinalIgnoreCase),
                 TimeSpan.FromSeconds(20),
-                "The Sussex runtime stayed foregrounded after Exit Kiosk Runtime.");
+                "The Sussex runtime stayed foregrounded after Stop Study Runtime.");
 
             var homeScreenshotPath = await CaptureQuestScreenshotProofAsync(
                 studyViewModel,
@@ -484,14 +480,14 @@ public static class HarnessScenarioRunner
 
             return new StopAppVerificationResult(
                 OperationOutcomeKind.Success,
-                $"Exit Kiosk Runtime returned the headset to a non-study foreground scene ({studyViewModel.HeadsetForegroundLabel}).",
+                $"Stop Study Runtime returned the headset to a non-study foreground scene ({studyViewModel.HeadsetForegroundLabel}).",
                 homeScreenshotPath);
         }
         catch (Exception exception)
         {
             return new StopAppVerificationResult(
                 OperationOutcomeKind.Warning,
-                $"Exit Kiosk Runtime could not be fully verified. {exception.Message}",
+                $"Stop Study Runtime could not be fully verified. {exception.Message}",
                 fallbackScreenshotPath);
         }
     }
@@ -1277,7 +1273,7 @@ public static class HarnessScenarioRunner
         ObservationResult particlesOnResult,
         OperationOutcomeKind stopActionLevel,
         string stopActionDetail,
-        string kioskScreenshotPath,
+        string runtimeScreenshotPath,
         string homeScreenshotPath,
         VerificationPersistenceResult verificationPersistence)
     {
@@ -1307,10 +1303,10 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Recenter detail: {studyViewModel.RecenterDetail}");
         builder.AppendLine($"Particles: {studyViewModel.ParticlesSummary}");
         builder.AppendLine($"Particles detail: {studyViewModel.ParticlesDetail}");
-        builder.AppendLine($"Kiosk exit outcome: {stopActionLevel}");
-        builder.AppendLine($"Kiosk exit detail: {stopActionDetail}");
+        builder.AppendLine($"Runtime stop outcome: {stopActionLevel}");
+        builder.AppendLine($"Runtime stop detail: {stopActionDetail}");
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
-        builder.AppendLine($"Quest kiosk screenshot: {kioskScreenshotPath}");
+        builder.AppendLine($"Quest runtime screenshot: {runtimeScreenshotPath}");
         builder.AppendLine($"Quest final screenshot: {homeScreenshotPath}");
         AppendQuestScreenshotWarnings(builder);
         builder.AppendLine();
@@ -1461,7 +1457,7 @@ public static class HarnessScenarioRunner
         ObservationResult particlesOnResult,
         OperationOutcomeKind stopActionLevel,
         string stopActionDetail,
-        string kioskScreenshotPath,
+        string runtimeScreenshotPath,
         string homeScreenshotPath,
         VerificationPersistenceResult verificationPersistence)
     {
@@ -1487,10 +1483,10 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Coherence route: {studyViewModel.CoherenceRouteSummary}");
         builder.AppendLine($"Recenter: {studyViewModel.RecenterSummary}");
         builder.AppendLine($"Particles: {studyViewModel.ParticlesSummary}");
-        builder.AppendLine($"Kiosk exit outcome: {stopActionLevel}");
-        builder.AppendLine($"Kiosk exit detail: {stopActionDetail}");
+        builder.AppendLine($"Runtime stop outcome: {stopActionLevel}");
+        builder.AppendLine($"Runtime stop detail: {stopActionDetail}");
         builder.AppendLine($"Last action: {studyViewModel.LastActionLabel}");
-        builder.AppendLine($"Quest kiosk screenshot: {kioskScreenshotPath}");
+        builder.AppendLine($"Quest runtime screenshot: {runtimeScreenshotPath}");
         builder.AppendLine($"Quest final screenshot: {homeScreenshotPath}");
         AppendQuestScreenshotWarnings(builder);
         builder.AppendLine();
@@ -2409,7 +2405,7 @@ public static class HarnessScenarioRunner
             return new VerificationPersistenceResult(
                 Persisted: false,
                 Summary: "Verification baseline not updated.",
-                Detail: $"The Sussex run completed, but one or more critical pass conditions failed or the headset identity could not be read back cleanly. Kiosk exit detail: {stopActionDetail}",
+                Detail: $"The Sussex run completed, but one or more critical pass conditions failed or the headset identity could not be read back cleanly. Runtime stop detail: {stopActionDetail}",
                 Baseline: null);
         }
 

@@ -17,6 +17,10 @@ history:
 - which commands looked promising but did not solve the issue
 - what the current best recovery sequence is
 
+Current operator-facing docs and UI now use `runtime` / `task pinning`
+wording. Any `kiosk` terminology below is historical context for the March
+2026 lock-task behavior that was observed on this machine.
+
 ## Command Setup For This Repo
 
 If you want this repo to stage the current official Quest tooling first, run:

@@ -993,7 +993,7 @@
                                        FontWeight="Bold"
                                        Foreground="{Binding ActiveStudyShell.WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                        TextWrapping="Wrap" />
-                            <TextBlock Text="Use the guide for setup, Wi-Fi handoff, kiosk launch, and validation. Use Experiment Session for the actual participant recording run."
+                            <TextBlock Text="Use the guide for setup, Wi-Fi handoff, runtime launch, and validation. Use Experiment Session for the actual participant recording run."
                                        Style="{StaticResource MicroCaptionStyle}"
                                        Margin="0,6,0,0"
                                        TextWrapping="Wrap" />
