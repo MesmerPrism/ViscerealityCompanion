@@ -1052,15 +1052,21 @@ public static class Program
         Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
     {
         var condition = new Command("condition", "Sussex condition commands that mirror the GUI Conditions tab. A condition combines one visual profile, one controller-breathing profile, and an active-selection flag.");
+        var conditionRootOption = new Option<string?>("--condition-root", "Override the local Sussex condition library root.");
+        conditionRootOption.IsHidden = true;
+        condition.AddGlobalOption(conditionRootOption);
 
         async Task<(
             StudyShellDefinition Study,
             IReadOnlyList<SussexCliSupport.ConditionResolvedItem> Conditions,
             IReadOnlyList<SussexCliSupport.VisualResolvedProfile> VisualProfiles,
-            IReadOnlyList<SussexCliSupport.ControllerResolvedProfile> ControllerProfiles)> LoadContextAsync(string study, string? root)
+            IReadOnlyList<SussexCliSupport.ControllerResolvedProfile> ControllerProfiles)> LoadContextAsync(
+                string study,
+                string? root,
+                string? conditionRoot)
         {
             var definition = await ResolveStudyShellAsync(study, root);
-            var conditions = await SussexCliSupport.LoadConditionsAsync(definition);
+            var conditions = await SussexCliSupport.LoadConditionsAsync(definition, conditionRoot);
             var visualProfiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
             var controllerProfiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             return (definition, conditions, visualProfiles, controllerProfiles);
@@ -1078,9 +1084,9 @@ public static class Program
 
         var activeOnlyOption = new Option<bool>("--active-only", "Only list conditions that appear in the Experiment Session condition dropdown.");
         var list = new Command("list", "List bundled and local Sussex conditions") { activeOnlyOption };
-        list.Handler = CommandHandler.Create(async (bool activeOnly, string study, string? root, bool json) =>
+        list.Handler = CommandHandler.Create(async (bool activeOnly, string study, string? root, string? conditionRoot, bool json) =>
         {
-            var context = await LoadContextAsync(study, root);
+            var context = await LoadContextAsync(study, root, conditionRoot);
             var conditions = activeOnly
                 ? context.Conditions.Where(item => item.Definition.IsActive).ToArray()
                 : context.Conditions;
@@ -1099,9 +1105,9 @@ public static class Program
 
         var conditionArg = new Argument<string>("condition", "Condition id or label.");
         var show = new Command("show", "Show one Sussex condition, including resolved visual and controller-breathing profile names") { conditionArg };
-        show.Handler = CommandHandler.Create(async (string condition, string study, string? root) =>
+        show.Handler = CommandHandler.Create(async (string condition, string study, string? root, string? conditionRoot) =>
         {
-            var context = await LoadContextAsync(study, root);
+            var context = await LoadContextAsync(study, root, conditionRoot);
             var resolved = SussexCliSupport.ResolveCondition(context.Conditions, condition);
             SussexCliSupport.WriteJson(SussexCliSupport.BuildConditionView(
                 resolved,
@@ -1147,9 +1153,10 @@ public static class Program
             string[] property,
             string study,
             string? root,
+            string? conditionRoot,
             bool json) =>
         {
-            var context = await LoadContextAsync(study, root);
+            var context = await LoadContextAsync(study, root, conditionRoot);
             if (context.Conditions.Any(item => string.Equals(item.Definition.Id, id, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidOperationException($"A Sussex condition with id '{id}' already exists. Use update to create a local override.");
@@ -1165,7 +1172,7 @@ public static class Program
                 breathing,
                 ResolveActiveFlag(active, inactive, currentValue: false),
                 property);
-            var store = SussexCliSupport.CreateConditionStore(study);
+            var store = SussexCliSupport.CreateConditionStore(study, conditionRoot);
             var saved = await store.SaveAsync(existingPath: null, definition);
             var savedItem = new SussexCliSupport.ConditionResolvedItem(saved.Definition, saved, IsBundled: false, IsLocalOverride: false);
 
@@ -1208,9 +1215,10 @@ public static class Program
             bool clearProperties,
             string study,
             string? root,
+            string? conditionRoot,
             bool json) =>
         {
-            var context = await LoadContextAsync(study, root);
+            var context = await LoadContextAsync(study, root, conditionRoot);
             var target = SussexCliSupport.ResolveCondition(context.Conditions, condition);
             var nextDefinition = SussexCliSupport.UpdateConditionDefinition(
                 target.Definition,
@@ -1232,7 +1240,7 @@ public static class Program
                 throw new InvalidOperationException($"Another Sussex condition already uses id '{nextDefinition.Id}'.");
             }
 
-            var store = SussexCliSupport.CreateConditionStore(study);
+            var store = SussexCliSupport.CreateConditionStore(study, conditionRoot);
             var saved = await SussexCliSupport.SaveConditionExistingAsync(store, target, nextDefinition);
             var savedOverridesBundledCondition = context.Study.Conditions.Any(condition =>
                 string.Equals(condition.Id, saved.Id, StringComparison.OrdinalIgnoreCase));
@@ -1271,9 +1279,10 @@ public static class Program
             bool inactive,
             string study,
             string? root,
+            string? conditionRoot,
             bool json) =>
         {
-            var context = await LoadContextAsync(study, root);
+            var context = await LoadContextAsync(study, root, conditionRoot);
             if (context.Conditions.Any(item => string.Equals(item.Definition.Id, id, StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidOperationException($"A Sussex condition with id '{id}' already exists.");
@@ -1286,7 +1295,7 @@ public static class Program
                 Label = string.IsNullOrWhiteSpace(label) ? $"{source.Definition.Label} Copy" : label.Trim(),
                 IsActive = ResolveActiveFlag(active, inactive, currentValue: false)
             };
-            var store = SussexCliSupport.CreateConditionStore(study);
+            var store = SussexCliSupport.CreateConditionStore(study, conditionRoot);
             var saved = await store.SaveAsync(existingPath: null, next);
             var savedItem = new SussexCliSupport.ConditionResolvedItem(saved.Definition, saved, IsBundled: false, IsLocalOverride: false);
 
@@ -1302,16 +1311,16 @@ public static class Program
         });
 
         var delete = new Command("delete", "Delete a local Sussex condition file, or remove the local override for a bundled condition") { conditionArg };
-        delete.Handler = CommandHandler.Create(async (string condition, string study, string? root, bool json) =>
+        delete.Handler = CommandHandler.Create(async (string condition, string study, string? root, string? conditionRoot, bool json) =>
         {
-            var context = await LoadContextAsync(study, root);
+            var context = await LoadContextAsync(study, root, conditionRoot);
             var target = SussexCliSupport.ResolveCondition(context.Conditions, condition);
             if (!target.HasLocalFile)
             {
                 throw new InvalidOperationException("Bundled Sussex conditions are read-only. Update one first to create a local override, or duplicate it into a local condition.");
             }
 
-            var store = SussexCliSupport.CreateConditionStore(study);
+            var store = SussexCliSupport.CreateConditionStore(study, conditionRoot);
             await store.DeleteAsync(target.LocalRecord!.FilePath);
             if (json)
             {
@@ -1331,10 +1340,10 @@ public static class Program
 
         var importArg = new Argument<string>("path", "Path to a Sussex condition JSON file.");
         var import = new Command("import", "Import a Sussex condition JSON file") { importArg };
-        import.Handler = CommandHandler.Create(async (string path, string study, string? root, bool json) =>
+        import.Handler = CommandHandler.Create(async (string path, string study, string? root, string? conditionRoot, bool json) =>
         {
-            var context = await LoadContextAsync(study, root);
-            var store = SussexCliSupport.CreateConditionStore(study);
+            var context = await LoadContextAsync(study, root, conditionRoot);
+            var store = SussexCliSupport.CreateConditionStore(study, conditionRoot);
             var imported = await store.ImportAsync(path);
             var importedItem = new SussexCliSupport.ConditionResolvedItem(
                 imported.Definition,
@@ -1355,11 +1364,11 @@ public static class Program
 
         var exportArg = new Argument<string>("path", "Destination JSON path.");
         var export = new Command("export", "Export one Sussex condition as JSON") { conditionArg, exportArg };
-        export.Handler = CommandHandler.Create(async (string condition, string path, string study, string? root, bool json) =>
+        export.Handler = CommandHandler.Create(async (string condition, string path, string study, string? root, string? conditionRoot, bool json) =>
         {
-            var context = await LoadContextAsync(study, root);
+            var context = await LoadContextAsync(study, root, conditionRoot);
             var target = SussexCliSupport.ResolveCondition(context.Conditions, condition);
-            var store = SussexCliSupport.CreateConditionStore(study);
+            var store = SussexCliSupport.CreateConditionStore(study, conditionRoot);
             await store.ExportAsync(target.Definition, path);
             if (json)
             {

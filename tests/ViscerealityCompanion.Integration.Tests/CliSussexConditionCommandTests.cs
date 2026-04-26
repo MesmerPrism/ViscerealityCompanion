@@ -8,26 +8,35 @@ public sealed class CliSussexConditionCommandTests
     [Fact]
     public async Task Sussex_condition_list_resolves_bundled_profile_references()
     {
-        var output = await InvokeCliAsync("sussex", "--root", ResolveStudyShellRoot(), "condition", "list", "--json");
-        using var document = JsonDocument.Parse(output);
+        var conditionRoot = CreateTempConditionRoot();
+        try
+        {
+            var output = await InvokeCliAsync("sussex", "--root", ResolveStudyShellRoot(), "condition", "--condition-root", conditionRoot, "list", "--json");
+            using var document = JsonDocument.Parse(output);
 
-        Assert.True(document.RootElement.GetArrayLength() >= 2);
-        var current = FindCondition(document, "current");
-        Assert.True(current.GetProperty("is_active").GetBoolean());
-        Assert.Equal("Condition A - Current Visuals", current.GetProperty("visual_profile_name").GetString());
-        Assert.Equal("Condition A - Current Breathing", current.GetProperty("controller_breathing_profile_name").GetString());
+            Assert.True(document.RootElement.GetArrayLength() >= 2);
+            var current = FindCondition(document, "current");
+            Assert.True(current.GetProperty("is_active").GetBoolean());
+            Assert.Equal("Condition A - Current Visuals", current.GetProperty("visual_profile_name").GetString());
+            Assert.Equal("Condition A - Current Breathing", current.GetProperty("controller_breathing_profile_name").GetString());
 
-        var fixedRadius = FindCondition(document, "fixed-radius-no-orbit");
-        Assert.True(fixedRadius.GetProperty("is_active").GetBoolean());
-        Assert.Equal("Condition B - Fixed Radius, No Orbit", fixedRadius.GetProperty("visual_profile_name").GetString());
-        Assert.Equal("Condition B - Fixed Radius Breathing", fixedRadius.GetProperty("controller_breathing_profile_name").GetString());
+            var fixedRadius = FindCondition(document, "fixed-radius-no-orbit");
+            Assert.True(fixedRadius.GetProperty("is_active").GetBoolean());
+            Assert.Equal("Condition B - Fixed Radius, No Orbit", fixedRadius.GetProperty("visual_profile_name").GetString());
+            Assert.Equal("Condition B - Fixed Radius Breathing", fixedRadius.GetProperty("controller_breathing_profile_name").GetString());
+        }
+        finally
+        {
+            DeleteDirectoryIfExists(conditionRoot);
+        }
     }
 
     [Fact]
     public async Task Sussex_condition_create_update_export_import_and_delete_round_trip()
     {
         var conditionId = $"cli-test-{Guid.NewGuid():N}";
-        var exportPath = Path.Combine(Path.GetTempPath(), $"{conditionId}.json");
+        var conditionRoot = CreateTempConditionRoot();
+        var exportPath = Path.Combine(conditionRoot, $"{conditionId}.json");
         var studyRoot = ResolveStudyShellRoot();
         try
         {
@@ -36,6 +45,8 @@ public sealed class CliSussexConditionCommandTests
                 "--root",
                 studyRoot,
                 "condition",
+                "--condition-root",
+                conditionRoot,
                 "create",
                 "--id",
                 conditionId,
@@ -59,6 +70,8 @@ public sealed class CliSussexConditionCommandTests
                 "--root",
                 studyRoot,
                 "condition",
+                "--condition-root",
+                conditionRoot,
                 "update",
                 conditionId,
                 "--active",
@@ -73,14 +86,14 @@ public sealed class CliSussexConditionCommandTests
             Assert.Equal("condition-fixed-radius-no-orbit", updated.GetProperty("visual_profile_id").GetString());
             Assert.Equal("updated", updated.GetProperty("properties").GetProperty("phase").GetString());
 
-            await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "export", conditionId, exportPath, "--json");
+            await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "--condition-root", conditionRoot, "export", conditionId, exportPath, "--json");
             Assert.True(File.Exists(exportPath));
 
-            await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "delete", conditionId, "--json");
-            var activeOnlyAfterDelete = await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "list", "--active-only", "--json");
+            await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "--condition-root", conditionRoot, "delete", conditionId, "--json");
+            var activeOnlyAfterDelete = await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "--condition-root", conditionRoot, "list", "--active-only", "--json");
             Assert.DoesNotContain(conditionId, activeOnlyAfterDelete, StringComparison.OrdinalIgnoreCase);
 
-            var importOutput = await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "import", exportPath, "--json");
+            var importOutput = await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "--condition-root", conditionRoot, "import", exportPath, "--json");
             using var importDocument = JsonDocument.Parse(importOutput);
             Assert.Equal(conditionId, importDocument.RootElement.GetProperty("imported").GetProperty("id").GetString());
         }
@@ -93,12 +106,14 @@ public sealed class CliSussexConditionCommandTests
 
             try
             {
-                await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "delete", conditionId, "--json");
+                await InvokeCliAsync("sussex", "--root", studyRoot, "condition", "--condition-root", conditionRoot, "delete", conditionId, "--json");
             }
             catch
             {
                 // Best-effort cleanup for a unique test condition.
             }
+
+            DeleteDirectoryIfExists(conditionRoot);
         }
     }
 
@@ -129,6 +144,21 @@ public sealed class CliSussexConditionCommandTests
             "samples",
             "study-shells"));
 
+    private static string CreateTempConditionRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"vc-condition-cli-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
     private static async Task<string> InvokeCliAsync(params string[] args)
     {
         await CliConsoleTestGate.Instance.WaitAsync();
@@ -141,7 +171,7 @@ public sealed class CliSussexConditionCommandTests
             Console.SetOut(writer);
             Console.SetError(writer);
             var exitCode = await Program.Main(args);
-            Assert.Equal(0, exitCode);
+            Assert.True(exitCode == 0, $"CLI exited with {exitCode} for: {string.Join(" ", args)}{Environment.NewLine}{writer}");
             return writer.ToString();
         }
         finally

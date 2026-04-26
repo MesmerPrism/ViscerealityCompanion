@@ -103,9 +103,11 @@ internal static class SussexCliSupport
         return profiles;
     }
 
-    internal static async Task<IReadOnlyList<ConditionResolvedItem>> LoadConditionsAsync(StudyShellDefinition study)
+    internal static async Task<IReadOnlyList<ConditionResolvedItem>> LoadConditionsAsync(
+        StudyShellDefinition study,
+        string? conditionRoot = null)
     {
-        var store = CreateConditionStore(study.Id);
+        var store = CreateConditionStore(study.Id, conditionRoot);
         var localRecords = await store.LoadAllAsync().ConfigureAwait(false);
         var localById = localRecords.ToDictionary(record => record.Id, StringComparer.OrdinalIgnoreCase);
         var items = new List<ConditionResolvedItem>();
@@ -146,7 +148,8 @@ internal static class SussexCliSupport
 
     internal static SussexControllerBreathingProfileStore CreateControllerStore(SussexControllerBreathingTuningCompiler compiler) => new(compiler);
 
-    internal static SussexStudyConditionStore CreateConditionStore(string studyId) => new(studyId);
+    internal static SussexStudyConditionStore CreateConditionStore(string studyId, string? conditionRoot = null)
+        => new(studyId, conditionRoot);
 
     internal static VisualResolvedProfile ResolveVisualProfile(
         IReadOnlyList<VisualResolvedProfile> profiles,
