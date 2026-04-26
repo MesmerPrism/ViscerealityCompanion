@@ -65,7 +65,7 @@ public sealed class StudyShellMachineLslStatePanelTests
                 Assert.NotNull(openPageButton);
                 Assert.Equal("Open Windows Environment Page", openPageButton!.Content);
 
-                tabs.SelectedIndex = 6;
+                tabs.SelectedIndex = 7;
                 view.UpdateLayout();
                 await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
 

@@ -33,8 +33,45 @@ public sealed record StudyShellDefinition(
     StudyPinnedApp App,
     StudyPinnedDeviceProfile DeviceProfile,
     StudyMonitoringProfile Monitoring,
-    StudyControlProfile Controls)
+    StudyControlProfile Controls,
+    IReadOnlyList<StudyConditionDefinition>? Conditions = null)
 {
+    public IReadOnlyList<StudyConditionDefinition> Conditions { get; init; } =
+        Conditions ?? Array.Empty<StudyConditionDefinition>();
+
+    public override string ToString() => Label;
+}
+
+public sealed record StudyConditionDefinition
+{
+    public StudyConditionDefinition(
+        string id,
+        string label,
+        string description,
+        string visualProfileId,
+        string controllerBreathingProfileId,
+        bool isActive = true,
+        IReadOnlyDictionary<string, string>? properties = null)
+    {
+        Id = id;
+        Label = label;
+        Description = description;
+        VisualProfileId = visualProfileId;
+        ControllerBreathingProfileId = controllerBreathingProfileId;
+        IsActive = isActive;
+        Properties = properties is null
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(properties, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public string Id { get; init; }
+    public string Label { get; init; }
+    public string Description { get; init; }
+    public string VisualProfileId { get; init; }
+    public string ControllerBreathingProfileId { get; init; }
+    public bool IsActive { get; init; }
+    public IReadOnlyDictionary<string, string> Properties { get; init; }
+
     public override string ToString() => Label;
 }
 

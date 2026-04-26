@@ -164,7 +164,8 @@
 
             <TabControl x:Name="StudyPhaseTabs"
                         Grid.Row="2"
-                        SelectedIndex="{Binding SelectedPhaseTabIndex}">
+                        SelectedIndex="{Binding SelectedPhaseTabIndex}"
+                        SelectionChanged="OnStudyPhaseTabsSelectionChanged">
                 <TabItem Header="Home">
                     <StackPanel Margin="0,8,0,0">
 
@@ -1996,6 +1997,267 @@
                                 </Grid>
                             </Border>
                         </Grid>
+                    </Grid>
+                </TabItem>
+
+                <TabItem x:Name="ConditionsTab"
+                         Header="Conditions"
+                         DataContext="{Binding ConditionProfiles}">
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="440" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="1*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <Border Style="{StaticResource StudyPanelStyle}"
+                                    Background="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToSoftBrush}}"
+                                    BorderBrush="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToBrush}}">
+                                <StackPanel>
+                                    <TextBlock Text="Condition library" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="{Binding LibrarySummary}"
+                                               FontSize="16"
+                                               FontWeight="Bold"
+                                               Foreground="{Binding LibraryLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                               Margin="0,2,0,0"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Text="{Binding LibraryDetail}"
+                                               Style="{StaticResource SectionCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <TextBlock Text="{Binding LibraryRootLabel, StringFormat=Folder: {0}}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button x:Name="NewConditionButton"
+                                                Content="New Condition"
+                                                Command="{Binding NewConditionCommand}" />
+                                        <Button Content="Duplicate"
+                                                Command="{Binding DuplicateSelectedCommand}" />
+                                        <Button x:Name="SaveConditionButton"
+                                                Content="Save"
+                                                Command="{Binding SaveSelectedCommand}" />
+                                        <Button x:Name="LoadConditionButton"
+                                                Content="Load"
+                                                Command="{Binding LoadConditionCommand}" />
+                                        <Button x:Name="ShareConditionButton"
+                                                Content="Share"
+                                                Command="{Binding ShareSelectedCommand}" />
+                                        <Button Content="Refresh"
+                                                Command="{Binding RefreshCommand}" />
+                                        <Button Content="Open Folder"
+                                                Command="{Binding OpenFolderCommand}" />
+                                        <Button Content="Delete Local"
+                                                Command="{Binding DeleteSelectedCommand}" />
+                                    </WrapPanel>
+                                    <TextBlock Text="{Binding ActiveConditionsSummary}"
+                                               Style="{StaticResource CompactCaptionStyle}"
+                                               Margin="0,8,0,0" />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource StudyPanelStyle}" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Configured conditions" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="Only rows with Active checked appear in the Experiment Session condition dropdown."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <DataGrid x:Name="ConditionsTable"
+                                              ItemsSource="{Binding ConditionItems}"
+                                              SelectedItem="{Binding SelectedCondition}"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              CanUserDeleteRows="False"
+                                              HeadersVisibility="Column"
+                                              Margin="0,10,0,0"
+                                              Height="520"
+                                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                              ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                                        <DataGrid.Columns>
+                                            <DataGridCheckBoxColumn Header="Active"
+                                                                    Binding="{Binding IsActive, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                    Width="70" />
+                                            <DataGridTextColumn Header="Condition"
+                                                                Binding="{Binding Label}"
+                                                                Width="1.35*"
+                                                                IsReadOnly="True"
+                                                                ElementStyle="{StaticResource DataGridCellTextStyle}" />
+                                            <DataGridTextColumn Header="Origin"
+                                                                Binding="{Binding OriginLabel}"
+                                                                Width="120"
+                                                                IsReadOnly="True"
+                                                                ElementStyle="{StaticResource DataGridCellTextStyle}" />
+                                            <DataGridTextColumn Header="Status"
+                                                                Binding="{Binding StatusLabel}"
+                                                                Width="1.6*"
+                                                                IsReadOnly="True"
+                                                                ElementStyle="{StaticResource DataGridCellTextStyle}" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <Border Grid.Column="2"
+                                Style="{StaticResource StudyPanelStyle}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="10" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="10" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="10" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+
+                                <StackPanel Grid.Row="0">
+                                    <TextBlock Text="Selected condition" Style="{StaticResource SectionTitleStyle}" />
+                                    <TextBlock Text="A condition is the operator-facing bundle that links one visual profile and one breathing profile for the participant session selector."
+                                               Style="{StaticResource SectionCaptionStyle}" />
+                                    <CheckBox x:Name="ConditionActiveCheckBox"
+                                              Content="Active in Experiment Session"
+                                              IsChecked="{Binding SelectedCondition.IsActive, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              Margin="0,12,0,0" />
+                                </StackPanel>
+
+                                <Grid Grid.Row="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="8" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="8" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="8" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0"
+                                               Grid.Column="0"
+                                               Text="Condition id"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               VerticalAlignment="Center" />
+                                    <TextBox Grid.Row="0"
+                                             Grid.Column="1"
+                                             Text="{Binding SelectedCondition.Id, UpdateSourceTrigger=PropertyChanged}" />
+
+                                    <TextBlock Grid.Row="2"
+                                               Grid.Column="0"
+                                               Text="Label"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               VerticalAlignment="Center" />
+                                    <TextBox Grid.Row="2"
+                                             Grid.Column="1"
+                                             Text="{Binding SelectedCondition.Label, UpdateSourceTrigger=PropertyChanged}" />
+
+                                    <TextBlock Grid.Row="4"
+                                               Grid.Column="0"
+                                               Text="Description"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               VerticalAlignment="Top" />
+                                    <TextBox Grid.Row="4"
+                                             Grid.Column="1"
+                                             AcceptsReturn="True"
+                                             MinHeight="70"
+                                             Text="{Binding SelectedCondition.Description, UpdateSourceTrigger=PropertyChanged}"
+                                             TextWrapping="Wrap"
+                                             VerticalScrollBarVisibility="Auto" />
+
+                                    <TextBlock Grid.Row="6"
+                                               Grid.Column="0"
+                                               Text="Save state"
+                                               Style="{StaticResource InfoLabelStyle}"
+                                               VerticalAlignment="Top" />
+                                    <TextBlock Grid.Row="6"
+                                               Grid.Column="1"
+                                               Text="{Binding SelectedCondition.StatusLabel}"
+                                               Style="{StaticResource CompactCaptionStyle}" />
+                                </Grid>
+
+                                <Border Grid.Row="4"
+                                        Style="{StaticResource StudyInsetPanelStyle}"
+                                        Background="{StaticResource SurfaceTintBrush}"
+                                        BorderBrush="{StaticResource LineBrush}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="1*" />
+                                            <ColumnDefinition Width="14" />
+                                            <ColumnDefinition Width="1*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="Visual profile" Style="{StaticResource InfoLabelStyle}" />
+                                            <ComboBox x:Name="ConditionVisualProfileComboBox"
+                                                      ItemsSource="{Binding VisualProfileOptions}"
+                                                      SelectedItem="{Binding SelectedVisualProfileOption, Mode=TwoWay}"
+                                                      DisplayMemberPath="DisplayLabel"
+                                                      MinHeight="34"
+                                                      Margin="0,6,0,0" />
+                                            <TextBox Text="{Binding SelectedCondition.VisualProfileId, UpdateSourceTrigger=PropertyChanged}"
+                                                     FontFamily="{StaticResource MonoFont}"
+                                                     FontSize="13"
+                                                     Margin="0,8,0,0" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="Breathing profile" Style="{StaticResource InfoLabelStyle}" />
+                                            <ComboBox x:Name="ConditionBreathingProfileComboBox"
+                                                      ItemsSource="{Binding ControllerBreathingProfileOptions}"
+                                                      SelectedItem="{Binding SelectedControllerBreathingProfileOption, Mode=TwoWay}"
+                                                      DisplayMemberPath="DisplayLabel"
+                                                      MinHeight="34"
+                                                      Margin="0,6,0,0" />
+                                            <TextBox Text="{Binding SelectedCondition.ControllerBreathingProfileId, UpdateSourceTrigger=PropertyChanged}"
+                                                     FontFamily="{StaticResource MonoFont}"
+                                                     FontSize="13"
+                                                     Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <Expander Grid.Row="6">
+                                    <Expander.Header>
+                                        <TextBlock Text="Extension properties"
+                                                   Style="{StaticResource InfoLabelStyle}" />
+                                    </Expander.Header>
+                                    <TextBox Text="{Binding SelectedCondition.PropertiesText, UpdateSourceTrigger=PropertyChanged}"
+                                             AcceptsReturn="True"
+                                             FontFamily="{StaticResource MonoFont}"
+                                             FontSize="13"
+                                             MinHeight="120"
+                                             Margin="0,8,0,0"
+                                             TextWrapping="Wrap"
+                                             VerticalScrollBarVisibility="Auto"
+                                             HorizontalScrollBarVisibility="Auto" />
+                                </Expander>
+
+                                <Border Grid.Row="7"
+                                        Style="{StaticResource StudyInsetPanelStyle}"
+                                        Margin="0,12,0,0"
+                                        Background="{StaticResource SurfaceTintBrush}"
+                                        BorderBrush="{StaticResource LineBrush}"
+                                        VerticalAlignment="Bottom">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding SelectedCondition.SecondaryLabel}"
+                                                   Style="{StaticResource CompactCaptionStyle}" />
+                                        <WrapPanel Margin="0,10,0,0">
+                                            <Button Content="Save Condition"
+                                                    Command="{Binding SaveSelectedCommand}"
+                                                    MinWidth="150"
+                                                    MinHeight="38" />
+                                            <Button Content="Share Condition"
+                                                    Command="{Binding ShareSelectedCommand}"
+                                                    MinWidth="150"
+                                                    MinHeight="38" />
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Border>
                     </Grid>
                 </TabItem>
 

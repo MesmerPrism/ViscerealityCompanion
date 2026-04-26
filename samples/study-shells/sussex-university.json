@@ -139,5 +139,31 @@
                      "setBreathingModeAutomaticCycleActionId":  "46",
                      "startAutomaticBreathingActionId":  "47",
                      "pauseAutomaticBreathingActionId":  "48"
-                 }
+                 },
+    "conditions":  [
+                       {
+                           "id":  "current",
+                            "label":  "Current",
+                            "description":  "Current Sussex visual and controller-breathing settings.",
+                            "isActive":  true,
+                            "visualProfileId":  "condition-current-visual",
+                           "controllerBreathingProfileId":  "condition-current-breathing",
+                           "properties":  {
+                                              "visual.orbit":  "current",
+                                              "visual.sphereRadius":  "current"
+                                          }
+                       },
+                       {
+                           "id":  "fixed-radius-no-orbit",
+                            "label":  "Fixed Radius, No Orbit",
+                            "description":  "Orbit distance is locked to 0 and the sphere radius envelope is locked to 2 world units.",
+                            "isActive":  true,
+                            "visualProfileId":  "condition-fixed-radius-no-orbit",
+                           "controllerBreathingProfileId":  "condition-fixed-radius-breathing",
+                           "properties":  {
+                                              "visual.orbit":  "0..0",
+                                              "visual.sphereRadius":  "2..2"
+                                          }
+                       }
+                   ]
 }

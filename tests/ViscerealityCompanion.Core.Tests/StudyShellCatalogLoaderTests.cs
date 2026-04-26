@@ -38,6 +38,14 @@ public sealed class StudyShellCatalogLoaderTests
             Assert.Contains("signal01.coherence_lsl", study.Monitoring.LslValueKeys);
             Assert.Contains("study.performance.fps", study.Monitoring.PerformanceFpsKeys);
             Assert.Equal(0.2d, study.Monitoring.RecenterDistanceThresholdUnits);
+            Assert.Equal(2, study.Conditions.Count);
+            Assert.True(Assert.Single(study.Conditions, condition => condition.Id == "current").IsActive);
+            var fixedRadiusCondition = Assert.Single(study.Conditions, condition => condition.Id == "fixed-radius-no-orbit");
+            Assert.Equal("Fixed Radius, No Orbit", fixedRadiusCondition.Label);
+            Assert.False(fixedRadiusCondition.IsActive);
+            Assert.Equal("condition-fixed-radius-no-orbit", fixedRadiusCondition.VisualProfileId);
+            Assert.Equal("condition-fixed-radius-breathing", fixedRadiusCondition.ControllerBreathingProfileId);
+            Assert.Equal("2..2", fixedRadiusCondition.Properties["visual.sphereRadius"]);
         }
         finally
         {
@@ -289,7 +297,32 @@ public sealed class StudyShellCatalogLoaderTests
                 "setBreathingModeAutomaticCycleActionId": "46",
                 "startAutomaticBreathingActionId": "47",
                 "pauseAutomaticBreathingActionId": "48"
-              }
+              },
+              "conditions": [
+                {
+                  "id": "current",
+                  "label": "Current",
+                  "description": "Current study settings.",
+                  "visualProfileId": "condition-current-visual",
+                  "controllerBreathingProfileId": "condition-current-breathing",
+                  "properties": {
+                    "visual.orbit": "current",
+                    "visual.sphereRadius": "current"
+                  }
+                },
+                {
+                  "id": "fixed-radius-no-orbit",
+                  "label": "Fixed Radius, No Orbit",
+                  "description": "Fixed radius and no orbit.",
+                  "isActive": false,
+                  "visualProfileId": "condition-fixed-radius-no-orbit",
+                  "controllerBreathingProfileId": "condition-fixed-radius-breathing",
+                  "properties": {
+                    "visual.orbit": "0..0",
+                    "visual.sphereRadius": "2..2"
+                  }
+                }
+              ]
             }
             """);
 

@@ -22,6 +22,7 @@ public static class CompanionOperatorDataLayout
     public static string LocalAgentWorkspaceRootPath => Path.Combine(RootPath, "agent-workspace");
     public static string SussexVisualProfilesRootPath => Path.Combine(RootPath, "sussex-visual-profiles");
     public static string SussexControllerBreathingProfilesRootPath => Path.Combine(RootPath, "sussex-controller-breathing-profiles");
+    public static string StudyConditionsRootPath => Path.Combine(RootPath, "study-conditions");
     public static string PerfTraceRootPath => Path.Combine(RootPath, "perf-traces");
     public static string DiagnosticsRootPath => Path.Combine(RootPath, "diagnostics");
 

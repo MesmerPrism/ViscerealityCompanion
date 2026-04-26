@@ -345,6 +345,45 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         RefreshComparisonState(syncCurrentValueText: true);
     }
 
+    public bool TrySelectProfile(
+        string? profileReference,
+        out string selectedLabel,
+        out string? error)
+    {
+        selectedLabel = string.Empty;
+        error = null;
+        if (string.IsNullOrWhiteSpace(profileReference))
+        {
+            error = "No Sussex controller-breathing profile was configured for the selected condition.";
+            return false;
+        }
+
+        var profile = ResolveProfileReference(profileReference);
+        if (profile is null)
+        {
+            error = $"Sussex controller-breathing profile '{profileReference}' was not found.";
+            return false;
+        }
+
+        SelectedProfile = profile;
+        selectedLabel = profile.DisplayLabel;
+        return ReferenceEquals(SelectedProfile, profile);
+    }
+
+    public async Task<bool> PinSelectedProfileForStartupAsync()
+    {
+        if (SelectedProfile is null || !IsAvailable)
+        {
+            return false;
+        }
+
+        await SetStartupProfileAsync().ConfigureAwait(false);
+        return IsSelectedProfileStartupDefault;
+    }
+
+    public Task ApplySelectedProfileToCurrentSessionAsync()
+        => ApplySelectedAsync();
+
     public void RefreshReportedTwinState(IReadOnlyDictionary<string, string> reportedTwinState)
     {
         _reportedTwinState = new Dictionary<string, string>(reportedTwinState, StringComparer.OrdinalIgnoreCase);
@@ -1482,6 +1521,49 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             .OrderBy(record => record.Document.Profile.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private SussexControllerBreathingProfileListItemViewModel? ResolveProfileReference(string profileReference)
+    {
+        var trimmed = profileReference.Trim();
+        return Profiles.FirstOrDefault(profile => MatchesProfileReference(profile, trimmed));
+    }
+
+    private static bool MatchesProfileReference(SussexControllerBreathingProfileListItemViewModel profile, string profileReference)
+    {
+        if (string.Equals(profile.Id, profileReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(GetProfileIdSuffix(profile.Id), profileReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(profile.DisplayLabel, profileReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(profile.Document.Profile.Name, profileReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(TryGetFileStem(profile.FilePath), profileReference, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var referenceStem = TryGetFileStem(profileReference);
+        return !string.IsNullOrWhiteSpace(referenceStem) &&
+               !string.Equals(referenceStem, profileReference, StringComparison.OrdinalIgnoreCase) &&
+               MatchesProfileReference(profile, referenceStem);
+    }
+
+    private static string GetProfileIdSuffix(string profileId)
+    {
+        var separatorIndex = profileId.LastIndexOf("::", StringComparison.Ordinal);
+        return separatorIndex >= 0
+            ? profileId[(separatorIndex + 2)..]
+            : profileId;
+    }
+
+    private static string TryGetFileStem(string value)
+    {
+        try
+        {
+            return Path.GetFileNameWithoutExtension(value) ?? string.Empty;
+        }
+        catch (ArgumentException)
+        {
+            return string.Empty;
+        }
     }
 
     private SussexControllerBreathingProfileFieldViewModel? FindField(string fieldId)

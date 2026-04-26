@@ -115,7 +115,8 @@ public sealed class StudyShellCatalogLoader
                     dto.Controls?.SetBreathingModeControllerVolumeActionId ?? string.Empty,
                     dto.Controls?.SetBreathingModeAutomaticCycleActionId ?? string.Empty,
                     dto.Controls?.StartAutomaticBreathingActionId ?? string.Empty,
-                    dto.Controls?.PauseAutomaticBreathingActionId ?? string.Empty)));
+                    dto.Controls?.PauseAutomaticBreathingActionId ?? string.Empty),
+                BuildConditions(dto.Conditions)));
         }
 
         return new StudyShellCatalog(
@@ -177,6 +178,15 @@ public sealed class StudyShellCatalogLoader
         RequireValue(dto.Controls.SetBreathingModeAutomaticCycleActionId, definitionFile, "controls.setBreathingModeAutomaticCycleActionId");
         RequireValue(dto.Controls.StartAutomaticBreathingActionId, definitionFile, "controls.startAutomaticBreathingActionId");
         RequireValue(dto.Controls.PauseAutomaticBreathingActionId, definitionFile, "controls.pauseAutomaticBreathingActionId");
+
+        foreach (var condition in dto.Conditions ?? Array.Empty<StudyConditionDto>())
+        {
+            var id = string.IsNullOrWhiteSpace(condition.Id) ? "<missing id>" : condition.Id;
+            RequireValue(condition.Id, definitionFile, $"conditions[{id}].id");
+            RequireValue(condition.Label, definitionFile, $"conditions[{id}].label");
+            RequireValue(condition.VisualProfileId, definitionFile, $"conditions[{id}].visualProfileId");
+            RequireValue(condition.ControllerBreathingProfileId, definitionFile, $"conditions[{id}].controllerBreathingProfileId");
+        }
     }
 
     private static void RequireValue(string? value, string definitionFile, string fieldName)
@@ -193,6 +203,20 @@ public sealed class StudyShellCatalogLoader
             .Select(value => value.Trim())
             .ToArray()
             ?? Array.Empty<string>();
+
+    private static IReadOnlyList<StudyConditionDefinition> BuildConditions(StudyConditionDto[]? conditions)
+        => conditions?
+            .Where(condition => !string.IsNullOrWhiteSpace(condition.Id))
+            .Select(condition => new StudyConditionDefinition(
+                condition.Id!.Trim(),
+                condition.Label?.Trim() ?? condition.Id!.Trim(),
+                condition.Description?.Trim() ?? string.Empty,
+                condition.VisualProfileId?.Trim() ?? string.Empty,
+                condition.ControllerBreathingProfileId?.Trim() ?? string.Empty,
+                condition.IsActive ?? true,
+                new Dictionary<string, string>(condition.Properties ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase)))
+            .ToArray()
+            ?? Array.Empty<StudyConditionDefinition>();
 
     private static string ResolveRelativePath(string definitionDirectory, string? value)
     {
@@ -252,6 +276,33 @@ public sealed class StudyShellCatalogLoader
 
         [JsonPropertyName("controls")]
         public StudyControlProfileDto? Controls { get; init; }
+
+        [JsonPropertyName("conditions")]
+        public StudyConditionDto[]? Conditions { get; init; }
+    }
+
+    private sealed class StudyConditionDto
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
+        [JsonPropertyName("label")]
+        public string? Label { get; init; }
+
+        [JsonPropertyName("description")]
+        public string? Description { get; init; }
+
+        [JsonPropertyName("visualProfileId")]
+        public string? VisualProfileId { get; init; }
+
+        [JsonPropertyName("controllerBreathingProfileId")]
+        public string? ControllerBreathingProfileId { get; init; }
+
+        [JsonPropertyName("isActive")]
+        public bool? IsActive { get; init; }
+
+        [JsonPropertyName("properties")]
+        public Dictionary<string, string>? Properties { get; init; }
     }
 
     private sealed class StudyPinnedAppDto

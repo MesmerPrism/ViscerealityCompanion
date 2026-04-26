@@ -326,6 +326,62 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         RefreshComparisonState(syncCurrentValueText: true);
     }
 
+    public bool TrySelectProfile(
+        string? profileReference,
+        out string selectedLabel,
+        out string? error)
+    {
+        selectedLabel = string.Empty;
+        error = null;
+        if (string.IsNullOrWhiteSpace(profileReference))
+        {
+            error = "No Sussex visual profile was configured for the selected condition.";
+            return false;
+        }
+
+        var profile = ResolveProfileReference(profileReference);
+        if (profile is null)
+        {
+            error = $"Sussex visual profile '{profileReference}' was not found.";
+            return false;
+        }
+
+        if (!ReferenceEquals(SelectedProfile, profile) && HasUnsavedDraftChanges)
+        {
+            error = "Save or discard the current unsaved visual draft before switching condition profiles.";
+            return false;
+        }
+
+        _suppressSelectionChangePrompt = true;
+        try
+        {
+            SelectedProfile = profile;
+        }
+        finally
+        {
+            _suppressSelectionChangePrompt = false;
+        }
+
+        selectedLabel = profile.DisplayLabel;
+        return ReferenceEquals(SelectedProfile, profile);
+    }
+
+    public async Task<bool> PinSelectedProfileForStartupAsync()
+    {
+        if (SelectedProfile is null || !IsAvailable)
+        {
+            return false;
+        }
+
+        await SetStartupProfileAsync().ConfigureAwait(false);
+        return SelectedProfile.IsBundledBaseline
+            ? !HasPinnedStartupProfile
+            : IsSelectedProfileStartupDefault;
+    }
+
+    public Task ApplySelectedProfileToCurrentSessionAsync()
+        => ApplySelectedAsync();
+
     public void RefreshReportedTwinState(IReadOnlyDictionary<string, string> reportedTwinState)
     {
         _reportedTwinState = new Dictionary<string, string>(reportedTwinState, StringComparer.OrdinalIgnoreCase);
@@ -1672,6 +1728,49 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             .OrderBy(record => record.Document.Profile.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private SussexVisualProfileListItemViewModel? ResolveProfileReference(string profileReference)
+    {
+        var trimmed = profileReference.Trim();
+        return Profiles.FirstOrDefault(profile => MatchesProfileReference(profile, trimmed));
+    }
+
+    private static bool MatchesProfileReference(SussexVisualProfileListItemViewModel profile, string profileReference)
+    {
+        if (string.Equals(profile.Id, profileReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(GetProfileIdSuffix(profile.Id), profileReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(profile.DisplayLabel, profileReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(profile.Document.Profile.Name, profileReference, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(TryGetFileStem(profile.FilePath), profileReference, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var referenceStem = TryGetFileStem(profileReference);
+        return !string.IsNullOrWhiteSpace(referenceStem) &&
+               !string.Equals(referenceStem, profileReference, StringComparison.OrdinalIgnoreCase) &&
+               MatchesProfileReference(profile, referenceStem);
+    }
+
+    private static string GetProfileIdSuffix(string profileId)
+    {
+        var separatorIndex = profileId.LastIndexOf("::", StringComparison.Ordinal);
+        return separatorIndex >= 0
+            ? profileId[(separatorIndex + 2)..]
+            : profileId;
+    }
+
+    private static string TryGetFileStem(string value)
+    {
+        try
+        {
+            return Path.GetFileNameWithoutExtension(value) ?? string.Empty;
+        }
+        catch (ArgumentException)
+        {
+            return string.Empty;
+        }
     }
 
     private SussexVisualProfileListItemViewModel? ResolvePinnedStartupProfile()

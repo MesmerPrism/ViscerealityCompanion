@@ -10,6 +10,7 @@ param(
     [string]$RuntimeIdentifier = 'win-x64',
     [string]$OutputRelativePath = 'artifacts\\publish\\ViscerealityCompanion.VerificationHarness',
     [switch]$Refresh,
+    [switch]$ConditionLibraryOnly,
     [switch]$CalibrationOnly,
     [switch]$Wait
 )
@@ -88,8 +89,16 @@ if (-not (Test-Path $exePath)) {
     throw "Published verification harness executable not found at $exePath"
 }
 
+$previousConditionLibraryOnly = $env:VC_CONDITION_LIBRARY_ONLY
 $previousCalibrationOnly = $env:VC_CALIBRATION_ONLY
 try {
+    if ($ConditionLibraryOnly) {
+        $env:VC_CONDITION_LIBRARY_ONLY = '1'
+    }
+    else {
+        Remove-Item Env:VC_CONDITION_LIBRARY_ONLY -ErrorAction SilentlyContinue
+    }
+
     if ($CalibrationOnly) {
         $env:VC_CALIBRATION_ONLY = '1'
     }
@@ -100,6 +109,13 @@ try {
     $process = Start-Process -FilePath $exePath -WorkingDirectory $repoRoot -PassThru
 }
 finally {
+    if ($null -eq $previousConditionLibraryOnly) {
+        Remove-Item Env:VC_CONDITION_LIBRARY_ONLY -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:VC_CONDITION_LIBRARY_ONLY = $previousConditionLibraryOnly
+    }
+
     if ($null -eq $previousCalibrationOnly) {
         Remove-Item Env:VC_CALIBRATION_ONLY -ErrorAction SilentlyContinue
     }

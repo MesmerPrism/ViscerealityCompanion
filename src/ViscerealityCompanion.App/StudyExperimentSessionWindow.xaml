@@ -139,6 +139,38 @@
                                        Margin="0,6,0,0"
                                        Visibility="{Binding ParticipantHasExistingSessions, Converter={StaticResource BoolToVisibility}}" />
 
+                            <StackPanel Margin="0,14,0,0"
+                                        Visibility="{Binding HasConditions, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="Condition"
+                                           Style="{StaticResource SessionMicroLabelStyle}" />
+                                <ComboBox x:Name="SessionConditionComboBox"
+                                          ItemsSource="{Binding Conditions}"
+                                          SelectedItem="{Binding SelectedCondition, Mode=TwoWay}"
+                                          DisplayMemberPath="Label"
+                                          MinHeight="34"
+                                          Margin="0,6,0,0" />
+                                <TextBlock Text="{Binding ConditionSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding ConditionLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding ConditionDetail}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding SelectedConditionVisualProfileLabel}"
+                                           Style="{StaticResource SessionCodeStyle}"
+                                           Margin="0,6,0,0" />
+                                <TextBlock Text="{Binding SelectedConditionControllerBreathingProfileLabel}"
+                                           Style="{StaticResource SessionCodeStyle}"
+                                           Margin="0,4,0,0" />
+                                <Button x:Name="ApplySessionConditionButton"
+                                        Content="Apply Condition"
+                                        Command="{Binding ApplySelectedConditionCommand}"
+                                        IsEnabled="{Binding CanApplySelectedCondition}"
+                                        Margin="0,8,0,0" />
+                            </StackPanel>
+
                             <TextBlock Text="{Binding RecordingSessionLabel}"
                                        Style="{StaticResource SessionCodeStyle}"
                                        Margin="0,12,0,0" />

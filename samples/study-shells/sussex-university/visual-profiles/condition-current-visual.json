@@ -1,0 +1,679 @@
+{
+  "schemaVersion": "sussex-visual-tuning/v1",
+  "documentKind": "sussex_visual_tuning",
+  "study": {
+    "packageId": "com.Viscereality.SussexExperiment",
+    "baselineHotloadProfileId": "viscereality_lsltwin_scene",
+    "baselineRuntimeConfigAssetPath": "Assets/Configs/SussexStudyConfig.asset",
+    "notes": [
+      "This is an experimenter-facing Sussex visual profile.",
+      "The companion compiles the approved visual envelope, sphere-radius, and particle-size mode values into showcase_active_runtime_config_json before upload.",
+      "The companion also exposes a simplified tracer wrapper and translates it into the existing particle-engine tracer fields during hotload export.",
+      "Coupling, drivers, splines, cycle multipliers, routing, and scene topology stay locked."
+    ]
+  },
+  "profile": {
+    "name": "Condition A - Current Visuals",
+    "notes": "Current Sussex visual settings preserved as an editable bundled condition profile."
+  },
+  "intent": "Adjust only the approved Sussex visual envelope minimum and maximum values, the approved oblateness endpoint limits, and the simplified Sussex tracer wrapper while leaving coupling and all other non-visual runtime behavior unchanged.",
+  "llmEditingRules": {
+    "editOnlyPaths": [
+      "profile.name",
+      "profile.notes",
+      "controls.tracers_enabled.value",
+      "controls.tracers_lifetime_seconds.value",
+      "controls.tracers_per_oscillator.value",
+      "controls.oblateness_by_radius_min.value",
+      "controls.oblateness_by_radius_max.value",
+      "controls.sphere_radius_min.value",
+      "controls.sphere_radius_max.value",
+      "controls.particle_size_relative_to_radius.value",
+      "controls.particle_size_min.value",
+      "controls.particle_size_max.value",
+      "controls.transparency_min.value",
+      "controls.transparency_max.value",
+      "controls.saturation_min.value",
+      "controls.saturation_max.value",
+      "controls.brightness_min.value",
+      "controls.brightness_max.value"
+    ],
+    "doNotEditPaths": [
+      "schemaVersion",
+      "documentKind",
+      "study",
+      "intent",
+      "llmEditingRules",
+      "systemDynamics",
+      "lockedBaselineAssumptions",
+      "controls.*.id",
+      "controls.*.label",
+      "controls.*.editable",
+      "controls.*.baselineValue",
+      "controls.*.type",
+      "controls.*.units",
+      "controls.*.safeRange",
+      "controls.*.runtimeMapping",
+      "controls.*.info",
+      "compilerHints"
+    ]
+  },
+  "systemDynamics": {
+    "summary": "These controls are visual envelope bounds plus approved sphere-deformation oblateness endpoint values, shared sphere-radius limits, particle-size interpretation mode, and a simplified tracer wrapper. The Sussex runtime uses the existing oscillator-phase drivers and existing envelope curves, and the companion derives tracer copies-per-second from lifetime and tracers-per-oscillator so the underlying particle-engine behavior stays internally consistent."
+  },
+  "lockedBaselineAssumptions": {
+    "size": {
+      "baselineParticleSizeRelativeToRadius": true,
+      "sizeDimensionIndex": 1,
+      "sizeDriverMode": "oscillator",
+      "sizeEnvelopeCycleMultiplier": 1
+    },
+    "transparency": {
+      "transparencyDimensionIndex": 0,
+      "transparencyDriverMode": "live_stream_mix",
+      "transparencyCycleMultiplier": 1
+    },
+    "saturation": {
+      "saturationDimensionIndex": 1,
+      "saturationDriverMode": "live_stream_mix",
+      "saturationCycleMultiplier": 1
+    },
+    "brightness": {
+      "brightnessDimensionIndex": 3,
+      "brightnessDriverMode": "live_stream_mix",
+      "brightnessCycleMultiplier": 1
+    },
+    "sharedRadiusDriveMode": "breathing_state",
+    "tracers": {
+      "gpuPathRequested": false,
+      "gpuOnlyMode": false,
+      "visualsFollowEnabled": true,
+      "hiddenFixedMaxSpawnBatchesPerFrame": 4,
+      "hiddenFixedSizeMultiplier": 1.0,
+      "copiesPerSecondFormula": "tracers_per_oscillator / tracers_lifetime_seconds"
+    }
+  },
+  "controls": {
+    "tracers_enabled": {
+      "id": "tracers_enabled",
+      "label": "Tracers Enabled",
+      "editable": true,
+      "value": true,
+      "baselineValue": true,
+      "type": "bool",
+      "units": "enabled_disabled",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "ParticleEngine.integratedTracersEnabled + integratedTracersVisualsEnabled",
+        "compiledUnityJsonField": "integrated_tracers_enabled"
+      },
+      "info": {
+        "effect": "Turns the particle-engine tracer trail system on or off while keeping the rest of the Sussex shell unchanged.",
+        "increaseLooksLike": "Tracer trails render behind the oscillator particles using the existing AKD tracer implementation.",
+        "decreaseLooksLike": "The main oscillator particles remain, but the trailing tracer history disappears entirely.",
+        "tradeoffs": [
+          "Disabling tracers is the fastest way to remove trail overdraw without changing the other Sussex visuals.",
+          "Enabling tracers restores the existing tracer behavior and uses the hidden fixed defaults below for the non-researcher knobs."
+        ]
+      }
+    },
+    "tracers_lifetime_seconds": {
+      "id": "tracers_lifetime_seconds",
+      "label": "Tracer Lifetime Seconds",
+      "editable": true,
+      "value": 0.5,
+      "baselineValue": 0.5,
+      "type": "float",
+      "units": "seconds",
+      "safeRange": {
+        "minimum": 0.1,
+        "maximum": 1.5
+      },
+      "runtimeMapping": {
+        "unityConfigField": "ParticleEngine.integratedTracersLifetimeSeconds",
+        "compiledUnityJsonField": "integrated_tracers_lifetime_seconds"
+      },
+      "info": {
+        "effect": "Controls how long each tracer snapshot remains alive before it fades out of the ring buffer.",
+        "increaseLooksLike": "Trails stay visible longer and feel smoother and more continuous.",
+        "decreaseLooksLike": "Trails decay faster and feel shorter and more staccato.",
+        "tradeoffs": [
+          "Longer lifetimes increase the number of simultaneously alive tracers for the same per-oscillator budget.",
+          "Short lifetimes can make the shell feel cleaner, but they reduce temporal continuity."
+        ]
+      }
+    },
+    "tracers_per_oscillator": {
+      "id": "tracers_per_oscillator",
+      "label": "Tracers Per Oscillator",
+      "editable": true,
+      "value": 5,
+      "baselineValue": 7,
+      "type": "int",
+      "units": "count",
+      "safeRange": {
+        "minimum": 1.0,
+        "maximum": 16.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "ParticleEngine.integratedTracersPerOscillator",
+        "compiledUnityJsonField": "integrated_tracers_per_oscillator"
+      },
+      "info": {
+        "effect": "Controls how many tracer slots are allocated per oscillator and therefore how many snapshots can be alive per oscillator at once.",
+        "increaseLooksLike": "Each oscillator keeps a denser, longer visible tracer history.",
+        "decreaseLooksLike": "Each oscillator shows fewer trailing snapshots and the trail looks sparser.",
+        "tradeoffs": [
+          "Higher counts increase tracer memory and overdraw cost.",
+          "The companion keeps emission density stable by deriving copies-per-second from this count and the tracer lifetime."
+        ]
+      }
+    },
+    "sphere_deformation_enabled": {
+      "id": "sphere_deformation_enabled",
+      "label": "Sphere Deformation Enabled",
+      "editable": true,
+      "value": true,
+      "baselineValue": true,
+      "type": "bool",
+      "units": "enabled_disabled",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.UseSphereDeformation",
+        "compiledUnityJsonField": "UseSphereDeformation"
+      },
+      "info": {
+        "effect": "Turns the stretched shell deformation model on or off.",
+        "increaseLooksLike": "The sphere can deform and stretch instead of staying perfectly round.",
+        "decreaseLooksLike": "The sphere stays rigid and undeformed even while the other particle effects continue running.",
+        "tradeoffs": [
+          "Turning deformation off reduces one of the strongest shape cues in the Sussex scene.",
+          "Turning deformation on keeps the intended Sussex shell geometry active."
+        ]
+      }
+    },
+    "oblateness_by_radius_min": {
+      "id": "oblateness_by_radius_min",
+      "label": "Oblateness Minimum",
+      "editable": true,
+      "value": 0.3,
+      "baselineValue": 0.25,
+      "type": "float",
+      "units": "deformation_scalar_0_to_1",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.OblatenessByRadiusCurveLimits.x",
+        "compiledUnityJsonField": "OblatenessByRadiusCurveLimits.x"
+      },
+      "info": {
+        "effect": "Controls the lowest oblateness value reached across the normalized sphere-deformation curve.",
+        "increaseLooksLike": "The low-radius state keeps more perpendicular width instead of collapsing inward as much.",
+        "decreaseLooksLike": "The low-radius state becomes more pinched and elongated along the deformation axis.",
+        "tradeoffs": [
+          "Higher values make the shell feel rounder and calmer at the low end of the radius cycle.",
+          "Very low values can make the trough state look overly squeezed or stylized."
+        ]
+      }
+    },
+    "oblateness_by_radius_max": {
+      "id": "oblateness_by_radius_max",
+      "label": "Oblateness Maximum",
+      "editable": true,
+      "value": 0.5,
+      "baselineValue": 0.5,
+      "type": "float",
+      "units": "deformation_scalar_0_to_1",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.OblatenessByRadiusCurveLimits.y",
+        "compiledUnityJsonField": "OblatenessByRadiusCurveLimits.y"
+      },
+      "info": {
+        "effect": "Controls the highest oblateness value reached across the normalized sphere-deformation curve.",
+        "increaseLooksLike": "The high-radius state keeps more perpendicular width and reads as rounder for the fixed Sussex axis profile.",
+        "decreaseLooksLike": "The expanded state stays more pinched and stretched along the deformation axis.",
+        "tradeoffs": [
+          "Higher values reduce the apparent stretch at the top of the radius cycle.",
+          "Very low values can make the shell look unnaturally narrow even when fully expanded."
+        ]
+      }
+    },
+    "sphere_radius_min": {
+      "id": "sphere_radius_min",
+      "label": "Sphere Radius Minimum",
+      "editable": true,
+      "value": 1,
+      "baselineValue": 1.0,
+      "type": "float",
+      "units": "world_units",
+      "safeRange": {
+        "minimum": 0.5,
+        "maximum": 3.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.SharedRadiusLimits.x",
+        "compiledUnityJsonField": "SharedRadiusLimits.x"
+      },
+      "info": {
+        "effect": "Controls the smallest breathing-driven sphere radius reached by the shared radius channel.",
+        "increaseLooksLike": "The shell never contracts as small, so the calmest breathing state stays visibly larger.",
+        "decreaseLooksLike": "The shell can contract further and the low-radius phase feels tighter and more compressed.",
+        "tradeoffs": [
+          "Higher minimum radius reduces contrast between small and large breathing phases.",
+          "When particle size is relative to radius, raising the minimum radius also raises the minimum world-space particle size."
+        ]
+      }
+    },
+    "sphere_radius_max": {
+      "id": "sphere_radius_max",
+      "label": "Sphere Radius Maximum",
+      "editable": true,
+      "value": 3,
+      "baselineValue": 2.0,
+      "type": "float",
+      "units": "world_units",
+      "safeRange": {
+        "minimum": 0.5,
+        "maximum": 3.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.SharedRadiusLimits.y",
+        "compiledUnityJsonField": "SharedRadiusLimits.y"
+      },
+      "info": {
+        "effect": "Controls the largest breathing-driven sphere radius reached by the shared radius channel.",
+        "increaseLooksLike": "The expanded shell gets larger and the breathing crest feels more spacious.",
+        "decreaseLooksLike": "The expanded shell stays tighter and the breathing crest feels more contained.",
+        "tradeoffs": [
+          "Higher maximum radius makes the large phase more dominant in the room.",
+          "When particle size is relative to radius, raising the maximum radius also raises the peak world-space particle size."
+        ]
+      }
+    },
+    "particle_size_relative_to_radius": {
+      "id": "particle_size_relative_to_radius",
+      "label": "Particle Size Relative To Radius",
+      "editable": true,
+      "value": false,
+      "baselineValue": true,
+      "type": "bool",
+      "units": "enabled_disabled",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.UsePercentSize",
+        "compiledUnityJsonField": "UsePercentSize"
+      },
+      "info": {
+        "effect": "Chooses whether particle size limits are interpreted as fractions of the current sphere radius or as fixed world units.",
+        "increaseLooksLike": "When enabled, particles scale up and down with the breathing-driven sphere size.",
+        "decreaseLooksLike": "When disabled, particles keep fixed world-space sizes even while the sphere radius changes.",
+        "tradeoffs": [
+          "Relative mode preserves the baseline Sussex coupling between shell size and particle size.",
+          "Raw mode can make particle-size edits easier to reason about in absolute units, but it decouples size from the breathing-driven shell radius."
+        ]
+      }
+    },
+    "particle_size_min": {
+      "id": "particle_size_min",
+      "label": "Particle Size Minimum",
+      "editable": true,
+      "value": 0.04,
+      "baselineValue": 0.04,
+      "type": "float",
+      "units": "fraction_of_radius_or_world_units",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 0.5
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.ParticleSizeEnvelopeLimits.x",
+        "compiledUnityJsonField": "ParticleSizeEnvelopeLimits.x"
+      },
+      "info": {
+        "effect": "Controls the smallest particle size reached at the low points of the existing size envelope.",
+        "increaseLooksLike": "The field stays thicker and less fine-grained even at troughs.",
+        "decreaseLooksLike": "The field allows finer particles and stronger contrast against the peak size.",
+        "tradeoffs": [
+          "Higher values reduce the visual contrast between small and large phases.",
+          "The numeric meaning depends on the mode above: fractions of sphere radius when enabled, fixed world units when disabled."
+        ]
+      }
+    },
+    "particle_size_max": {
+      "id": "particle_size_max",
+      "label": "Particle Size Maximum",
+      "editable": true,
+      "value": 0.115,
+      "baselineValue": 0.115,
+      "type": "float",
+      "units": "fraction_of_radius_or_world_units",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 0.5
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.ParticleSizeEnvelopeLimits.y",
+        "compiledUnityJsonField": "ParticleSizeEnvelopeLimits.y"
+      },
+      "info": {
+        "effect": "Controls the largest particle size reached at the peak of the existing size envelope.",
+        "increaseLooksLike": "Particles become larger and visually heavier at the peak.",
+        "decreaseLooksLike": "Peak particles stay finer and the scene feels lighter.",
+        "tradeoffs": [
+          "Higher values increase overdraw and visual dominance risk.",
+          "The numeric meaning depends on the mode above: fractions of sphere radius when enabled, fixed world units when disabled."
+        ]
+      }
+    },
+    "depth_wave_min": {
+      "id": "depth_wave_min",
+      "label": "Depth Wave Minimum",
+      "editable": true,
+      "value": 0,
+      "baselineValue": 0.0,
+      "type": "float",
+      "units": "fraction_of_final_particle_radius",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.DepthWavePercentLimits.x",
+        "compiledUnityJsonField": "DepthWavePercentLimits.x"
+      },
+      "info": {
+        "effect": "Controls the smallest depth-wave amplitude reached across the existing depth-wave envelope.",
+        "increaseLooksLike": "Even the low phase keeps more wave motion and depth texture.",
+        "decreaseLooksLike": "The low phase flattens out more and the shell looks calmer between peaks.",
+        "tradeoffs": [
+          "Higher values reduce the contrast between quiet and active depth-wave phases.",
+          "Very low values can make the shell feel too static at the trough."
+        ]
+      }
+    },
+    "depth_wave_max": {
+      "id": "depth_wave_max",
+      "label": "Depth Wave Maximum",
+      "editable": true,
+      "value": 0.1,
+      "baselineValue": 0.1,
+      "type": "float",
+      "units": "fraction_of_final_particle_radius",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.DepthWavePercentLimits.y",
+        "compiledUnityJsonField": "DepthWavePercentLimits.y"
+      },
+      "info": {
+        "effect": "Controls the strongest depth-wave amplitude reached at the top of the existing depth-wave envelope.",
+        "increaseLooksLike": "The shell gets more visibly rippled and spatially layered at the peak.",
+        "decreaseLooksLike": "Peak wave motion stays subtler and the shell reads as smoother.",
+        "tradeoffs": [
+          "Higher values can make the shell feel busier and visually noisier.",
+          "Very low values reduce the sense of depth-wave motion almost entirely."
+        ]
+      }
+    },
+    "transparency_min": {
+      "id": "transparency_min",
+      "label": "Transparency Minimum",
+      "editable": true,
+      "value": 1,
+      "baselineValue": 1.0,
+      "type": "float",
+      "units": "alpha_0_to_1",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.TransparencyLimits.x",
+        "compiledUnityJsonField": "TransparencyLimits.x"
+      },
+      "info": {
+        "effect": "Controls the lowest alpha reached by the transparency envelope.",
+        "increaseLooksLike": "Particles remain more consistently visible through the full cycle.",
+        "decreaseLooksLike": "Particles can fade more strongly at the low end of the transparency cycle.",
+        "tradeoffs": [
+          "Higher values reduce softness and fade contrast.",
+          "Very low values can make parts of the field disappear too aggressively."
+        ]
+      }
+    },
+    "transparency_max": {
+      "id": "transparency_max",
+      "label": "Transparency Maximum",
+      "editable": true,
+      "value": 1,
+      "baselineValue": 1.0,
+      "type": "float",
+      "units": "alpha_0_to_1",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.TransparencyLimits.y",
+        "compiledUnityJsonField": "TransparencyLimits.y"
+      },
+      "info": {
+        "effect": "Controls the highest alpha reached by the transparency envelope.",
+        "increaseLooksLike": "Particles reach full opacity more readily at the top of the cycle.",
+        "decreaseLooksLike": "Even the peak state remains softer and more translucent.",
+        "tradeoffs": [
+          "Higher values can make the field feel denser and more occluding.",
+          "Very low values can reduce visual presence even at the peak."
+        ]
+      }
+    },
+    "saturation_min": {
+      "id": "saturation_min",
+      "label": "Saturation Minimum",
+      "editable": true,
+      "value": 0.3,
+      "baselineValue": 0.3,
+      "type": "float",
+      "units": "post_process_scalar",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.GlobalSaturationLimits.x",
+        "compiledUnityJsonField": "GlobalSaturationLimits.x"
+      },
+      "info": {
+        "effect": "Controls the lowest global saturation reached across the saturation envelope.",
+        "increaseLooksLike": "Colors stay richer even at the muted part of the cycle.",
+        "decreaseLooksLike": "The low phase becomes more washed out and subdued.",
+        "tradeoffs": [
+          "Higher values reduce muted-versus-rich contrast.",
+          "Very low values can make the scene feel drained or flat."
+        ]
+      }
+    },
+    "saturation_max": {
+      "id": "saturation_max",
+      "label": "Saturation Maximum",
+      "editable": true,
+      "value": 1,
+      "baselineValue": 1.0,
+      "type": "float",
+      "units": "post_process_scalar",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.GlobalSaturationLimits.y",
+        "compiledUnityJsonField": "GlobalSaturationLimits.y"
+      },
+      "info": {
+        "effect": "Controls the highest global saturation reached across the saturation envelope.",
+        "increaseLooksLike": "Colors become more vivid at the top of the cycle.",
+        "decreaseLooksLike": "The scene stays more restrained and less chromatically intense.",
+        "tradeoffs": [
+          "Higher values can make the image feel harsher or more synthetic.",
+          "Very low values limit expressive color contrast."
+        ]
+      }
+    },
+    "brightness_min": {
+      "id": "brightness_min",
+      "label": "Brightness Minimum",
+      "editable": true,
+      "value": 0.3,
+      "baselineValue": 0.3,
+      "type": "float",
+      "units": "post_process_scalar",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.GlobalBrightnessLimits.x",
+        "compiledUnityJsonField": "GlobalBrightnessLimits.x"
+      },
+      "info": {
+        "effect": "Controls the dimmest global brightness reached across the brightness envelope.",
+        "increaseLooksLike": "The scene stays more luminous even in its darker phase.",
+        "decreaseLooksLike": "The low phase becomes dimmer and more contrasty against the peak.",
+        "tradeoffs": [
+          "Higher values reduce dark-versus-bright contrast.",
+          "Very low values can make the trough phase feel underlit."
+        ]
+      }
+    },
+    "brightness_max": {
+      "id": "brightness_max",
+      "label": "Brightness Maximum",
+      "editable": true,
+      "value": 1,
+      "baselineValue": 1.0,
+      "type": "float",
+      "units": "post_process_scalar",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.GlobalBrightnessLimits.y",
+        "compiledUnityJsonField": "GlobalBrightnessLimits.y"
+      },
+      "info": {
+        "effect": "Controls the brightest global brightness reached across the brightness envelope.",
+        "increaseLooksLike": "The peak phase becomes brighter and more radiant.",
+        "decreaseLooksLike": "The whole scene stays softer and more restrained at the top end.",
+        "tradeoffs": [
+          "Higher values can make the peak phase feel harsher or blow out detail.",
+          "Very low values limit brightness contrast and overall punch."
+        ]
+      }
+    },
+    "orbit_distance_min": {
+      "id": "orbit_distance_min",
+      "label": "Orbit Distance Minimum",
+      "editable": true,
+      "value": 0.2,
+      "baselineValue": 0.2,
+      "type": "float",
+      "units": "radius_multiplier",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 2.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.OrbitRadiusMultiplierLimits.x",
+        "compiledUnityJsonField": "OrbitRadiusMultiplierLimits.x"
+      },
+      "info": {
+        "effect": "Controls the smallest orbit radius multiplier reached across the orbit-distance envelope.",
+        "increaseLooksLike": "Particles keep more lateral offset even in the calmer orbit phase.",
+        "decreaseLooksLike": "The low orbit phase pulls particles closer to their base positions.",
+        "tradeoffs": [
+          "Higher values reduce the contrast between tight and wide orbit phases.",
+          "Very low values can make the low orbit phase look almost stationary."
+        ]
+      }
+    },
+    "orbit_distance_max": {
+      "id": "orbit_distance_max",
+      "label": "Orbit Distance Maximum",
+      "editable": true,
+      "value": 1.5,
+      "baselineValue": 1.5,
+      "type": "float",
+      "units": "radius_multiplier",
+      "safeRange": {
+        "minimum": 0.0,
+        "maximum": 2.0
+      },
+      "runtimeMapping": {
+        "unityConfigField": "PEOscillatorConfig.OrbitRadiusMultiplierLimits.y",
+        "compiledUnityJsonField": "OrbitRadiusMultiplierLimits.y"
+      },
+      "info": {
+        "effect": "Controls the widest orbit radius multiplier reached at the peak of the orbit-distance envelope.",
+        "increaseLooksLike": "Particles travel farther from their base positions and the shell feels more expansive.",
+        "decreaseLooksLike": "Peak orbit spread stays tighter and more compact.",
+        "tradeoffs": [
+          "Higher values can make the shell feel more chaotic and spatially diffuse.",
+          "Very low values flatten the orbit effect and reduce motion richness."
+        ]
+      }
+    }
+  },
+  "crossFieldValidation": [
+    "controls.sphere_radius_min.value must be less than or equal to controls.sphere_radius_max.value",
+    "controls.particle_size_min.value must be less than or equal to controls.particle_size_max.value",
+    "controls.transparency_min.value must be less than or equal to controls.transparency_max.value",
+    "controls.saturation_min.value must be less than or equal to controls.saturation_max.value",
+    "controls.brightness_min.value must be less than or equal to controls.brightness_max.value"
+  ],
+  "compilerHints": {
+    "mergeStrategy": "approved_visual_overlay_only",
+    "hotloadTargetKey": "showcase_active_runtime_config_json",
+    "outputContract": "Compile the approved visual envelope, sphere-radius, and particle-size mode fields into the runtime json payload, then append the simplified tracer wrapper as flat hotload keys that translate back into the existing particle-engine tracer parameters before upload. Do not upload this source file directly to the headset as the final hotload artifact.",
+    "compiledUnityJsonOverlayExample": {
+      "SharedRadiusLimits": {
+        "x": 1.0,
+        "y": 2.0
+      },
+      "UsePercentSize": true,
+      "ParticleSizeEnvelopeLimits": {
+        "x": 0.04,
+        "y": 0.115
+      },
+      "TransparencyLimits": {
+        "x": 1.0,
+        "y": 1.0
+      },
+      "GlobalSaturationLimits": {
+        "x": 0.3,
+        "y": 1.0
+      },
+      "GlobalBrightnessLimits": {
+        "x": 0.3,
+        "y": 1.0
+      }
+    }
+  }
+}

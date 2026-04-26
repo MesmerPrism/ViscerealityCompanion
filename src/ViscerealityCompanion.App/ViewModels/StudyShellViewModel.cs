@@ -99,6 +99,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private readonly SemaphoreSlim _machineLslStateRefreshGate = new(1, 1);
     private readonly SussexVisualProfilesWorkspaceViewModel _visualProfiles;
     private readonly SussexControllerBreathingProfilesWorkspaceViewModel _controllerBreathingProfiles;
+    private readonly SussexConditionWorkspaceViewModel _conditionProfiles;
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
@@ -320,6 +321,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private string _lastCompletedRecordingFolderPath = string.Empty;
     private string _lastCompletedRecordingDevicePullFolderPath = string.Empty;
     private string _lastCompletedRecordingPdfPath = string.Empty;
+    private StudyConditionDefinition? _selectedCondition;
+    private string _conditionSummary = "No Sussex condition selected.";
+    private string _conditionDetail = "Choose a condition before starting a participant run.";
+    private OperationOutcomeKind _conditionLevel = OperationOutcomeKind.Preview;
+    private string _selectedConditionVisualProfileLabel = "Visual profile: n/a";
+    private string _selectedConditionControllerBreathingProfileLabel = "Breathing profile: n/a";
     private bool _participantRunStopping;
     private string _recorderFaultDetail = string.Empty;
     private StudyDataRecordingSession? _activeRecordingSession;
@@ -432,6 +439,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         _questService = QuestControlServiceFactory.CreateDefault(_appSessionState.ActiveEndpoint);
         _visualProfiles = new SussexVisualProfilesWorkspaceViewModel(study, _questService, _twinBridge);
         _controllerBreathingProfiles = new SussexControllerBreathingProfilesWorkspaceViewModel(study, _questService, _twinBridge);
+        _conditionProfiles = new SussexConditionWorkspaceViewModel(study, _visualProfiles, _controllerBreathingProfiles);
         _windowsEnvironmentAnalysisService = new WindowsEnvironmentAnalysisService(
             _upstreamLslMonitorService,
             _lslStreamDiscoveryService,
@@ -443,6 +451,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         _visualProfiles.SessionParameterActivity += OnSessionParameterActivity;
         _controllerBreathingProfiles.StartupProfileChanged += OnStartupProfileChanged;
         _controllerBreathingProfiles.SessionParameterActivity += OnSessionParameterActivity;
+        _conditionProfiles.ActiveConditionsChanged += OnActiveConditionsChanged;
         _endpointDraft = _appSessionState.ActiveEndpoint ?? string.Empty;
         _stagedApkPath = ResolveInitialApkPath();
 
@@ -452,6 +461,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         _selectedLiveSection = LiveSections.FirstOrDefault();
+        ReplaceActiveConditions(_study.Conditions.Where(condition => condition.IsActive).ToArray());
 
         _twinRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
         {
@@ -518,6 +528,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         StartExperimentCommand = new AsyncRelayCommand(StartExperimentAsync);
         EndExperimentCommand = new AsyncRelayCommand(EndExperimentAsync);
         ToggleRecordingCommand = new AsyncRelayCommand(ToggleRecordingAsync);
+        ApplySelectedConditionCommand = new AsyncRelayCommand(ApplySelectedConditionAsync, () => CanApplySelectedCondition);
         RecenterCommand = new AsyncRelayCommand(RecenterAsync);
         ParticlesOnCommand = new AsyncRelayCommand(ParticlesOnAsync);
         ParticlesOffCommand = new AsyncRelayCommand(ParticlesOffAsync);
@@ -541,6 +552,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         UpdateLslRuntimeLibraryState();
         UpdateHeadsetSnapshotModeState();
         UpdateDeviceSnapshotTimerState();
+        RefreshConditionSelectionState();
         UpdateParticipantSessionState();
         UpdateWorkflowStatus();
     }
@@ -562,6 +574,58 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         "Open the folder, then paste the built-in prompt into your local agent. The workspace includes `viscereality.ps1`, `viscereality.cmd`, and the bundled CLI payload under `cli\\current`, and the wrappers keep the CLI pointed at the same host-visible operator-data root as the installed app.";
     public SussexVisualProfilesWorkspaceViewModel VisualProfiles => _visualProfiles;
     public SussexControllerBreathingProfilesWorkspaceViewModel ControllerBreathingProfiles => _controllerBreathingProfiles;
+    public SussexConditionWorkspaceViewModel ConditionProfiles => _conditionProfiles;
+    public ObservableCollection<StudyConditionDefinition> Conditions { get; } = new();
+    public bool HasConditions => Conditions.Count > 0;
+
+    public StudyConditionDefinition? SelectedCondition
+    {
+        get => _selectedCondition;
+        set
+        {
+            if (SetProperty(ref _selectedCondition, value))
+            {
+                RefreshConditionSelectionState();
+            }
+        }
+    }
+
+    public string ConditionSummary
+    {
+        get => _conditionSummary;
+        private set => SetProperty(ref _conditionSummary, value);
+    }
+
+    public string ConditionDetail
+    {
+        get => _conditionDetail;
+        private set => SetProperty(ref _conditionDetail, value);
+    }
+
+    public OperationOutcomeKind ConditionLevel
+    {
+        get => _conditionLevel;
+        private set => SetProperty(ref _conditionLevel, value);
+    }
+
+    public string SelectedConditionVisualProfileLabel
+    {
+        get => _selectedConditionVisualProfileLabel;
+        private set => SetProperty(ref _selectedConditionVisualProfileLabel, value);
+    }
+
+    public string SelectedConditionControllerBreathingProfileLabel
+    {
+        get => _selectedConditionControllerBreathingProfileLabel;
+        private set => SetProperty(ref _selectedConditionControllerBreathingProfileLabel, value);
+    }
+
+    public bool CanApplySelectedCondition
+        => HasConditions &&
+           SelectedCondition is not null &&
+           _activeRecordingSession is null &&
+           !_participantRunStopping;
+
     public string DeviceSnapshotRefreshPhase => _deviceSnapshotRefreshPhase;
 
     private void RegisterWorkflowGuideCommands()
@@ -2410,6 +2474,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand StartExperimentCommand { get; }
     public AsyncRelayCommand EndExperimentCommand { get; }
     public AsyncRelayCommand ToggleRecordingCommand { get; }
+    public AsyncRelayCommand ApplySelectedConditionCommand { get; }
     public AsyncRelayCommand RecenterCommand { get; }
     public AsyncRelayCommand ParticlesOnCommand { get; }
     public AsyncRelayCommand ParticlesOffCommand { get; }
@@ -2440,6 +2505,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         _initialized = true;
         await _visualProfiles.InitializeAsync().ConfigureAwait(false);
         await _controllerBreathingProfiles.InitializeAsync().ConfigureAwait(false);
+        await _conditionProfiles.InitializeAsync().ConfigureAwait(false);
         EnsureTwinBridgeMonitoringStarted();
         await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
         var autoConnected = await ConnectQuestCoreAsync(warnWhenMissingEndpoint: false).ConfigureAwait(false);
@@ -2466,6 +2532,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         _visualProfiles.SessionParameterActivity -= OnSessionParameterActivity;
         _controllerBreathingProfiles.StartupProfileChanged -= OnStartupProfileChanged;
         _controllerBreathingProfiles.SessionParameterActivity -= OnSessionParameterActivity;
+        _conditionProfiles.ActiveConditionsChanged -= OnActiveConditionsChanged;
 
         if (_twinRefreshTimer is not null)
         {
@@ -4993,6 +5060,116 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 ? Task.CompletedTask
                 : StartExperimentAsync();
 
+    public async Task ApplySelectedConditionAsync()
+    {
+        var condition = await DispatchAsync(() => SelectedCondition).ConfigureAwait(false);
+        if (condition is null)
+        {
+            await DispatchAsync(() => SetConditionStatus(
+                OperationOutcomeKind.Warning,
+                "No Sussex condition selected.",
+                "Choose a condition before applying session profiles.")).ConfigureAwait(false);
+            return;
+        }
+
+        if (!await DispatchAsync(() => CanApplySelectedCondition).ConfigureAwait(false))
+        {
+            await DispatchAsync(() => SetConditionStatus(
+                OperationOutcomeKind.Warning,
+                "Condition switch blocked during the active run.",
+                "Stop the current participant recording before changing condition profiles.")).ConfigureAwait(false);
+            return;
+        }
+
+        await DispatchAsync(() => SetConditionStatus(
+            OperationOutcomeKind.Preview,
+            $"Applying {condition.Label}.",
+            "Loading the linked Sussex visual and controller-breathing profiles.")).ConfigureAwait(false);
+
+        await _visualProfiles.InitializeAsync().ConfigureAwait(false);
+        await _controllerBreathingProfiles.InitializeAsync().ConfigureAwait(false);
+
+        var visualSelection = await DispatchAsync(() =>
+        {
+            var ok = _visualProfiles.TrySelectProfile(condition.VisualProfileId, out var label, out var error);
+            return new ProfileConditionSelectionResult(ok, label, error);
+        }).ConfigureAwait(false);
+        if (!visualSelection.Success)
+        {
+            await DispatchAsync(() => SetConditionStatus(
+                OperationOutcomeKind.Failure,
+                $"Condition {condition.Label} could not select its visual profile.",
+                visualSelection.Error ?? "The configured Sussex visual profile reference did not resolve.")).ConfigureAwait(false);
+            return;
+        }
+
+        var controllerSelection = await DispatchAsync(() =>
+        {
+            var ok = _controllerBreathingProfiles.TrySelectProfile(condition.ControllerBreathingProfileId, out var label, out var error);
+            return new ProfileConditionSelectionResult(ok, label, error);
+        }).ConfigureAwait(false);
+        if (!controllerSelection.Success)
+        {
+            await DispatchAsync(() => SetConditionStatus(
+                OperationOutcomeKind.Failure,
+                $"Condition {condition.Label} could not select its breathing profile.",
+                controllerSelection.Error ?? "The configured Sussex controller-breathing profile reference did not resolve.")).ConfigureAwait(false);
+            return;
+        }
+
+        var visualPinned = await _visualProfiles.PinSelectedProfileForStartupAsync().ConfigureAwait(false);
+        if (!visualPinned)
+        {
+            await DispatchAsync(() => SetConditionStatus(
+                OperationOutcomeKind.Warning,
+                $"Condition {condition.Label} visual profile was selected but not pinned.",
+                _visualProfiles.LibraryDetail)).ConfigureAwait(false);
+            return;
+        }
+
+        var controllerPinned = await _controllerBreathingProfiles.PinSelectedProfileForStartupAsync().ConfigureAwait(false);
+        if (!controllerPinned)
+        {
+            await DispatchAsync(() => SetConditionStatus(
+                OperationOutcomeKind.Warning,
+                $"Condition {condition.Label} breathing profile was selected but not pinned.",
+                _controllerBreathingProfiles.LibraryDetail)).ConfigureAwait(false);
+            return;
+        }
+
+        var runtimeForeground = await DispatchAsync(IsStudyRuntimeForeground).ConfigureAwait(false);
+        if (runtimeForeground)
+        {
+            await _visualProfiles.ApplySelectedProfileToCurrentSessionAsync().ConfigureAwait(false);
+            await _controllerBreathingProfiles.ApplySelectedProfileToCurrentSessionAsync().ConfigureAwait(false);
+        }
+
+        var applyLevel = runtimeForeground &&
+                         (_visualProfiles.ApplyLevel == OperationOutcomeKind.Failure ||
+                          _controllerBreathingProfiles.ApplyLevel == OperationOutcomeKind.Failure)
+            ? OperationOutcomeKind.Warning
+            : OperationOutcomeKind.Success;
+        var runtimeAction = runtimeForeground
+            ? "The profiles were also hotloaded into the foreground Sussex runtime."
+            : "The profiles were pinned for the next Sussex launch; no live hotload was attempted because Sussex is not foregrounded.";
+        var detail =
+            $"Visual: {visualSelection.Label}. Breathing: {controllerSelection.Label}. {runtimeAction}";
+
+        await DispatchAsync(() =>
+        {
+            SelectedConditionVisualProfileLabel = $"Visual profile: {visualSelection.Label}";
+            SelectedConditionControllerBreathingProfileLabel = $"Breathing profile: {controllerSelection.Label}";
+            SetConditionStatus(
+                applyLevel,
+                $"Condition {condition.Label} ready.",
+                detail);
+            AppendLog(
+                applyLevel == OperationOutcomeKind.Success ? OperatorLogLevel.Info : OperatorLogLevel.Warning,
+                $"Condition {condition.Label} selected.",
+                detail);
+        }).ConfigureAwait(false);
+    }
+
     public async Task StartExperimentAsync()
     {
         var recordingSession = await TryBeginParticipantRecordingAsync().ConfigureAwait(false);
@@ -7466,6 +7643,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsRecordingToggleState));
         OnPropertyChanged(nameof(RecordingToggleActionLabel));
         OnPropertyChanged(nameof(CanToggleRecording));
+        OnPropertyChanged(nameof(CanApplySelectedCondition));
         OnPropertyChanged(nameof(CanRunWorkflowValidationCapture));
         OnPropertyChanged(nameof(CanToggleParticles));
         OnPropertyChanged(nameof(IsParticlesToggleState));
@@ -7479,6 +7657,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsTestLslSenderToggleState));
         StartDynamicAxisCalibrationCommand.RaiseCanExecuteChanged();
         StartFixedAxisCalibrationCommand.RaiseCanExecuteChanged();
+        ApplySelectedConditionCommand.RaiseCanExecuteChanged();
         UpdateWorkflowStatus();
     }
 
@@ -7891,6 +8070,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 ["Channel"] = GetFirstValue("hotload.hotload_profile_channel") ?? string.Empty,
                 ["RuntimeConfigHash"] = GetFirstValue("config.runtime_json_hash") ?? string.Empty
             },
+            ["SelectedCondition"] = JsonSerializer.SerializeToNode(CaptureConditionSnapshot(SelectedCondition)),
             ["VisualTuning"] = JsonSerializer.SerializeToNode(_visualProfiles.CaptureSessionSnapshot()),
             ["ControllerBreathingTuning"] = JsonSerializer.SerializeToNode(_controllerBreathingProfiles.CaptureSessionSnapshot())
         };
@@ -7960,6 +8140,20 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         return value.Value.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
+    private static object? CaptureConditionSnapshot(StudyConditionDefinition? condition)
+        => condition is null
+            ? null
+            : new
+            {
+                condition.Id,
+                condition.Label,
+                condition.Description,
+                condition.VisualProfileId,
+                condition.ControllerBreathingProfileId,
+                condition.IsActive,
+                Properties = new Dictionary<string, string>(condition.Properties, StringComparer.OrdinalIgnoreCase)
+            };
+
     private string BuildSessionConditionsJson(DateTimeOffset capturedAtUtc)
     {
         var twinStateSnapshot = new Dictionary<string, string>(_reportedTwinState, StringComparer.OrdinalIgnoreCase);
@@ -7994,6 +8188,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                     _study.Monitoring.RecenterDistanceThresholdUnits
                 }
             },
+            SelectedCondition = CaptureConditionSnapshot(SelectedCondition),
+            AvailableConditions = Conditions.Select(CaptureConditionSnapshot).ToArray(),
             Runtime = new
             {
                 StagedApkPath,
@@ -9544,8 +9740,82 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             _recorderFaultDetail);
     }
 
+    private void RefreshConditionSelectionState()
+    {
+        OnPropertyChanged(nameof(HasConditions));
+        if (!HasConditions)
+        {
+            ConditionLevel = OperationOutcomeKind.Preview;
+            ConditionSummary = "No Sussex conditions configured.";
+            ConditionDetail = "This study shell can run without a named condition selector.";
+            SelectedConditionVisualProfileLabel = "Visual profile: n/a";
+            SelectedConditionControllerBreathingProfileLabel = "Breathing profile: n/a";
+            OnPropertyChanged(nameof(CanApplySelectedCondition));
+            ApplySelectedConditionCommand?.RaiseCanExecuteChanged();
+            return;
+        }
+
+        if (SelectedCondition is null)
+        {
+            ConditionLevel = OperationOutcomeKind.Warning;
+            ConditionSummary = "Choose a Sussex condition.";
+            ConditionDetail = "Each condition links one visual profile and one controller-breathing profile.";
+            SelectedConditionVisualProfileLabel = "Visual profile: n/a";
+            SelectedConditionControllerBreathingProfileLabel = "Breathing profile: n/a";
+            OnPropertyChanged(nameof(CanApplySelectedCondition));
+            ApplySelectedConditionCommand?.RaiseCanExecuteChanged();
+            return;
+        }
+
+        ConditionLevel = OperationOutcomeKind.Preview;
+        ConditionSummary = $"{SelectedCondition.Label} selected.";
+        ConditionDetail = string.IsNullOrWhiteSpace(SelectedCondition.Description)
+            ? "Apply this condition before starting the participant recording."
+            : $"{SelectedCondition.Description} Apply this condition before starting the participant recording.";
+        SelectedConditionVisualProfileLabel = $"Visual profile: {SelectedCondition.VisualProfileId}";
+        SelectedConditionControllerBreathingProfileLabel = $"Breathing profile: {SelectedCondition.ControllerBreathingProfileId}";
+        OnPropertyChanged(nameof(CanApplySelectedCondition));
+        ApplySelectedConditionCommand?.RaiseCanExecuteChanged();
+    }
+
+    private void OnActiveConditionsChanged(object? sender, IReadOnlyList<StudyConditionDefinition> activeConditions)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _dispatcher.Invoke(() => ReplaceActiveConditions(activeConditions));
+            return;
+        }
+
+        ReplaceActiveConditions(activeConditions);
+    }
+
+    private void ReplaceActiveConditions(IReadOnlyList<StudyConditionDefinition> activeConditions)
+    {
+        var selectedId = SelectedCondition?.Id;
+        Conditions.Clear();
+        foreach (var condition in activeConditions)
+        {
+            Conditions.Add(condition);
+        }
+
+        SelectedCondition = Conditions.FirstOrDefault(condition => string.Equals(condition.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                            ?? Conditions.FirstOrDefault();
+        RefreshConditionSelectionState();
+    }
+
+    private void SetConditionStatus(OperationOutcomeKind level, string summary, string detail)
+    {
+        ConditionLevel = level;
+        ConditionSummary = summary;
+        ConditionDetail = detail;
+        OnPropertyChanged(nameof(CanApplySelectedCondition));
+        ApplySelectedConditionCommand?.RaiseCanExecuteChanged();
+    }
+
     private void UpdateParticipantSessionState()
     {
+        OnPropertyChanged(nameof(CanApplySelectedCondition));
+        ApplySelectedConditionCommand?.RaiseCanExecuteChanged();
         StudyParticipantStatus? participantStatus = null;
         var normalizedParticipantId = string.Empty;
         if (!string.IsNullOrWhiteSpace(_participantIdDraft))
@@ -14392,6 +14662,11 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             Logs.RemoveAt(Logs.Count - 1);
         }
     }
+
+    private readonly record struct ProfileConditionSelectionResult(
+        bool Success,
+        string Label,
+        string? Error);
 
     private static OperatorLogLevel MapLevel(OperationOutcomeKind kind)
         => kind switch

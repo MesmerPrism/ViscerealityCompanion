@@ -27,6 +27,9 @@ workflow, and keep operator control on Windows.
 
 - the current release is being hardened for the collaboration with [Hugo Critchley's lab at Sussex](https://www.sussex.ac.uk/research/centres/sussex-neuroscience/phd/4yearphd/supervisors/translational-projects/hugo-critchley-project)
 - the packaged Sussex release already bundles the approved Sussex APK, device profile, study shell, and operator diagnostics
+- the Sussex shell includes editable experiment-session conditions so the
+  operator can choose between the current profile bundle and the fixed-radius,
+  no-orbit profile bundle
 - the app opens directly into `Sussex University experiment mode` so a researcher can stay on one guided Windows workflow
 - broader general-purpose multi-study tooling comes after the Sussex-first release path is stable
 
@@ -76,6 +79,10 @@ Use these three pages in order:
     <h3>Dedicated Study Shell</h3>
     <p>Understand what the Sussex package pins, hides, and bundles so researchers stay on the safe operator path.</p>
   </a>
+  <a class="path-card" href="sussex-conditions.md">
+    <h3>Sussex Conditions</h3>
+    <p>Inspect and share the active experiment-session choices that combine visual and breathing profiles.</p>
+  </a>
   <a class="path-card" href="runtime-config.md">
     <h3>Runtime Config</h3>
     <p>Use the grouped runtime editor to stage tracked desktop-side changes without dropping into the Quest project.</p>
@@ -103,6 +110,7 @@ adaptation work around both the Viscereality system and this Windows companion.
 - [Download](download.md)
 - [First Session](first-session.md)
 - [Study Shells](study-shells.md)
+- [Sussex Conditions](sussex-conditions.md)
 - [App Overview](app-overview.md)
 - [Monitoring and Control](monitoring-and-control.md)
 - [Troubleshooting](troubleshooting.md)

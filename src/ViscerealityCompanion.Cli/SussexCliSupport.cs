@@ -37,6 +37,16 @@ internal static class SussexCliSupport
         public bool IsWritableLocalProfile => !IsBaselineTemplate && !IsBundledProfile;
     }
 
+    internal sealed record ConditionResolvedItem(
+        StudyConditionDefinition Definition,
+        SussexStudyConditionRecord? LocalRecord,
+        bool IsBundled,
+        bool IsLocalOverride)
+    {
+        public string DisplayLabel => Definition.Label;
+        public bool HasLocalFile => LocalRecord is not null && !string.IsNullOrWhiteSpace(LocalRecord.FilePath);
+    }
+
     internal sealed record StartupSyncResult(
         bool AppliedToDevice,
         bool DeferredWhileStudyRunning,
@@ -93,6 +103,33 @@ internal static class SussexCliSupport
         return profiles;
     }
 
+    internal static async Task<IReadOnlyList<ConditionResolvedItem>> LoadConditionsAsync(StudyShellDefinition study)
+    {
+        var store = CreateConditionStore(study.Id);
+        var localRecords = await store.LoadAllAsync().ConfigureAwait(false);
+        var localById = localRecords.ToDictionary(record => record.Id, StringComparer.OrdinalIgnoreCase);
+        var items = new List<ConditionResolvedItem>();
+
+        foreach (var bundled in study.Conditions)
+        {
+            if (localById.Remove(bundled.Id, out var localOverride))
+            {
+                items.Add(new ConditionResolvedItem(localOverride.Definition, localOverride, IsBundled: true, IsLocalOverride: true));
+            }
+            else
+            {
+                items.Add(new ConditionResolvedItem(bundled, LocalRecord: null, IsBundled: true, IsLocalOverride: false));
+            }
+        }
+
+        items.AddRange(localById.Values
+            .OrderBy(record => record.Definition.Label, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(record => new ConditionResolvedItem(record.Definition, record, IsBundled: false, IsLocalOverride: false)));
+
+        return items;
+    }
+
     internal static SussexVisualTuningCompiler CreateVisualCompiler()
     {
         var path = ResolveSussexVisualTuningTemplatePath();
@@ -108,6 +145,8 @@ internal static class SussexCliSupport
     internal static SussexVisualProfileStore CreateVisualStore(SussexVisualTuningCompiler compiler) => new(compiler);
 
     internal static SussexControllerBreathingProfileStore CreateControllerStore(SussexControllerBreathingTuningCompiler compiler) => new(compiler);
+
+    internal static SussexStudyConditionStore CreateConditionStore(string studyId) => new(studyId);
 
     internal static VisualResolvedProfile ResolveVisualProfile(
         IReadOnlyList<VisualResolvedProfile> profiles,
@@ -137,6 +176,7 @@ internal static class SussexCliSupport
             normalized,
             profile => profile.Record.Id,
             profile => profile.Record.Document.Profile.Name,
+            profile => profile.Record.FilePath,
             "visual profile");
     }
 
@@ -164,7 +204,33 @@ internal static class SussexCliSupport
             normalized,
             profile => profile.Record.Id,
             profile => profile.Record.Document.Profile.Name,
+            profile => profile.Record.FilePath,
             "controller-breathing profile");
+    }
+
+    internal static ConditionResolvedItem ResolveCondition(
+        IReadOnlyList<ConditionResolvedItem> conditions,
+        string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("A Sussex condition id or label is required.");
+        }
+
+        var normalized = token.Trim();
+        var matches = conditions
+            .Where(condition =>
+                string.Equals(condition.Definition.Id, normalized, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(condition.Definition.Label, normalized, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(TryGetFileStem(condition.LocalRecord?.FilePath), normalized, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        return matches.Length switch
+        {
+            1 => matches[0],
+            > 1 => throw new InvalidOperationException($"Multiple Sussex conditions match '{token}'. Use the condition id instead."),
+            _ => throw new InvalidOperationException($"Could not resolve Sussex condition '{token}'.")
+        };
     }
 
     internal static IReadOnlyList<SurfaceFieldSpec> BuildVisualFieldSpecs()
@@ -257,6 +323,67 @@ internal static class SussexCliSupport
             values);
     }
 
+    internal static StudyConditionDefinition BuildConditionDefinition(
+        IReadOnlyList<VisualResolvedProfile> visualProfiles,
+        IReadOnlyList<ControllerResolvedProfile> controllerProfiles,
+        string id,
+        string label,
+        string? description,
+        string visualProfile,
+        string controllerBreathingProfile,
+        bool isActive,
+        IReadOnlyList<string>? propertySpecs)
+    {
+        var visual = ResolveVisualProfile(visualProfiles, visualProfile);
+        var controller = ResolveControllerProfile(controllerProfiles, controllerBreathingProfile, allowBaselineTemplate: true);
+        return new StudyConditionDefinition(
+            id.Trim(),
+            label.Trim(),
+            description?.Trim() ?? string.Empty,
+            ToPortableProfileReference(visual.Record.Id),
+            ToPortableProfileReference(controller.Record.Id),
+            isActive,
+            BuildConditionProperties(propertySpecs));
+    }
+
+    internal static StudyConditionDefinition UpdateConditionDefinition(
+        StudyConditionDefinition source,
+        IReadOnlyList<VisualResolvedProfile> visualProfiles,
+        IReadOnlyList<ControllerResolvedProfile> controllerProfiles,
+        string? id,
+        string? label,
+        string? description,
+        string? visualProfile,
+        string? controllerBreathingProfile,
+        bool? isActive,
+        IReadOnlyList<string>? propertySpecs,
+        bool clearProperties)
+    {
+        var visualReference = string.IsNullOrWhiteSpace(visualProfile)
+            ? source.VisualProfileId
+            : ToPortableProfileReference(ResolveVisualProfile(visualProfiles, visualProfile).Record.Id);
+        var controllerReference = string.IsNullOrWhiteSpace(controllerBreathingProfile)
+            ? source.ControllerBreathingProfileId
+            : ToPortableProfileReference(ResolveControllerProfile(controllerProfiles, controllerBreathingProfile, allowBaselineTemplate: true).Record.Id);
+        var properties = clearProperties
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(source.Properties, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var property in BuildConditionProperties(propertySpecs))
+        {
+            properties[property.Key] = property.Value;
+        }
+
+        return new StudyConditionDefinition(
+            string.IsNullOrWhiteSpace(id) ? source.Id : id.Trim(),
+            string.IsNullOrWhiteSpace(label) ? source.Label : label.Trim(),
+            description is null ? source.Description : description.Trim(),
+            visualReference,
+            controllerReference,
+            isActive ?? source.IsActive,
+            properties);
+    }
+
     internal static async Task<SussexVisualProfileRecord> SaveVisualAsNewAsync(
         SussexVisualProfileStore store,
         SussexVisualTuningDocument document)
@@ -308,6 +435,14 @@ internal static class SussexCliSupport
             document.Profile.Notes,
             document.ControlValues).ConfigureAwait(false);
     }
+
+    internal static async Task<SussexStudyConditionRecord> SaveConditionExistingAsync(
+        SussexStudyConditionStore store,
+        ConditionResolvedItem existing,
+        StudyConditionDefinition condition)
+        => await store.SaveAsync(
+            existing.HasLocalFile ? existing.LocalRecord!.FilePath : null,
+            condition).ConfigureAwait(false);
 
     internal static void SaveVisualStartupState(string studyId, SussexVisualProfileRecord? record)
     {
@@ -819,6 +954,31 @@ internal static class SussexCliSupport
         };
     }
 
+    internal static object BuildConditionView(
+        ConditionResolvedItem condition,
+        IReadOnlyList<VisualResolvedProfile> visualProfiles,
+        IReadOnlyList<ControllerResolvedProfile> controllerProfiles)
+    {
+        var visualProfile = TryResolveVisualProfile(visualProfiles, condition.Definition.VisualProfileId);
+        var controllerProfile = TryResolveControllerProfile(controllerProfiles, condition.Definition.ControllerBreathingProfileId);
+        return new
+        {
+            condition_kind = condition.IsLocalOverride ? "local-override" : condition.IsBundled ? "bundled-condition" : "local-condition",
+            id = condition.Definition.Id,
+            label = condition.Definition.Label,
+            description = condition.Definition.Description,
+            is_active = condition.Definition.IsActive,
+            visual_profile_id = condition.Definition.VisualProfileId,
+            visual_profile_name = visualProfile?.DisplayLabel,
+            controller_breathing_profile_id = condition.Definition.ControllerBreathingProfileId,
+            controller_breathing_profile_name = controllerProfile?.DisplayLabel,
+            path = condition.LocalRecord?.FilePath,
+            file_hash = condition.LocalRecord?.FileHash,
+            modified_at_utc = condition.LocalRecord?.ModifiedAtUtc,
+            properties = new Dictionary<string, string>(condition.Definition.Properties, StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
     internal static void WriteJson(object value)
         => Console.WriteLine(JsonSerializer.Serialize(value, JsonOptions));
 
@@ -849,6 +1009,33 @@ internal static class SussexCliSupport
             var startupMark = string.Equals(startup?.ProfileId, profile.Record.Id, StringComparison.OrdinalIgnoreCase) ? " [startup]" : string.Empty;
             var kind = profile.IsBundledProfile ? "bundled" : "local";
             Console.WriteLine($"  {profile.Record.Id,-44} {kind,-16} {profile.DisplayLabel}{startupMark}");
+        }
+    }
+
+    internal static void PrintConditions(
+        IReadOnlyList<ConditionResolvedItem> conditions,
+        IReadOnlyList<VisualResolvedProfile> visualProfiles,
+        IReadOnlyList<ControllerResolvedProfile> controllerProfiles)
+    {
+        Console.WriteLine("Sussex Conditions:");
+        foreach (var condition in conditions)
+        {
+            var kind = condition.IsLocalOverride
+                ? "local-override"
+                : condition.IsBundled
+                    ? "bundled"
+                    : "local";
+            var active = condition.Definition.IsActive ? "active" : "inactive";
+            var visualProfile = TryResolveVisualProfile(visualProfiles, condition.Definition.VisualProfileId);
+            var controllerProfile = TryResolveControllerProfile(controllerProfiles, condition.Definition.ControllerBreathingProfileId);
+
+            Console.WriteLine($"  {condition.Definition.Id,-28} {kind,-16} {active,-8} {condition.DisplayLabel}");
+            Console.WriteLine($"    Visual:    {condition.Definition.VisualProfileId} ({visualProfile?.DisplayLabel ?? "unresolved"})");
+            Console.WriteLine($"    Breathing: {condition.Definition.ControllerBreathingProfileId} ({controllerProfile?.DisplayLabel ?? "unresolved"})");
+            if (!string.IsNullOrWhiteSpace(condition.LocalRecord?.FilePath))
+            {
+                Console.WriteLine($"    Path:      {condition.LocalRecord.FilePath}");
+            }
         }
     }
 
@@ -1107,6 +1294,23 @@ internal static class SussexCliSupport
         ApplySetMutations(setSpecs, values, controls.ToDictionary(pair => pair.Key, pair => pair.Value.Type, StringComparer.OrdinalIgnoreCase));
     }
 
+    private static Dictionary<string, string> BuildConditionProperties(IReadOnlyList<string>? propertySpecs)
+    {
+        var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (propertySpecs is null)
+        {
+            return properties;
+        }
+
+        foreach (var spec in propertySpecs.Where(spec => !string.IsNullOrWhiteSpace(spec)))
+        {
+            var (key, value) = ParseAssignment(spec, "property");
+            properties[key] = value;
+        }
+
+        return properties;
+    }
+
     private static void ApplyScaleMutations(
         IReadOnlyList<string>? scaleSpecs,
         IDictionary<string, double> values,
@@ -1239,30 +1443,99 @@ internal static class SussexCliSupport
         string token,
         Func<T, string> resolveId,
         Func<T, string> resolveName,
+        Func<T, string?> resolvePath,
         string label)
     {
-        var byId = profiles
-            .Where(profile => string.Equals(resolveId(profile), token, StringComparison.OrdinalIgnoreCase))
+        var matches = profiles
+            .Where(profile => EnumerateProfileReferenceAliases(
+                    resolveId(profile),
+                    resolveName(profile),
+                    resolvePath(profile))
+                .Any(alias => string.Equals(alias, token, StringComparison.OrdinalIgnoreCase)))
             .ToArray();
-        if (byId.Length == 1)
+        if (matches.Length == 1)
         {
-            return byId[0];
+            return matches[0];
         }
 
-        var byName = profiles
-            .Where(profile => string.Equals(resolveName(profile), token, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        if (byName.Length == 1)
-        {
-            return byName[0];
-        }
-
-        if (byName.Length > 1)
+        if (matches.Length > 1)
         {
             throw new InvalidOperationException($"Multiple {label}s share the name '{token}'. Use the profile id instead.");
         }
 
         throw new InvalidOperationException($"Could not resolve {label} '{token}'.");
+    }
+
+    private static VisualResolvedProfile? TryResolveVisualProfile(
+        IReadOnlyList<VisualResolvedProfile> profiles,
+        string token)
+    {
+        try
+        {
+            return ResolveVisualProfile(profiles, token);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static ControllerResolvedProfile? TryResolveControllerProfile(
+        IReadOnlyList<ControllerResolvedProfile> profiles,
+        string token)
+    {
+        try
+        {
+            return ResolveControllerProfile(profiles, token, allowBaselineTemplate: true);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateProfileReferenceAliases(string id, string name, string? filePath)
+    {
+        foreach (var value in new[]
+                 {
+                     id,
+                     ToPortableProfileReference(id),
+                     name,
+                     TryGetFileStem(filePath),
+                     TryGetFileStem(id)
+                 })
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                yield return value;
+            }
+        }
+    }
+
+    internal static string ToPortableProfileReference(string profileId)
+    {
+        const string marker = "::";
+        var markerIndex = profileId.LastIndexOf(marker, StringComparison.Ordinal);
+        return markerIndex >= 0
+            ? profileId[(markerIndex + marker.Length)..]
+            : profileId;
+    }
+
+    private static string? TryGetFileStem(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Path.GetFileNameWithoutExtension(value.Trim());
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string FormatControlValue(string type, double value)

@@ -114,6 +114,8 @@ If you know exactly which file you want, use these direct links:
 - the bundled read-only Sussex visual profiles shipped in the release build
 - the bundled read-only Sussex controller-breathing profiles, including
   `Small Motion Mild` and the pinned startup `Small Motion Conservative`
+- the bundled Sussex condition library, including `Current` and
+  `Fixed Radius, No Orbit`
 - the bundled Windows x64 `lsl.dll` runtime used by the built-in TEST sender and live LSL monitor path
 - the pinned Quest device profile and study-specific monitoring surface
 - the install assets needed to put the Windows app on another machine
@@ -123,7 +125,8 @@ Sussex operators should not need a separate APK download if they are using the
 packaged install.
 
 The current Sussex release also includes the updated Home/orientation shell,
-the sequential guide flow, the breathing-profiles tab, participant
+the sequential guide flow, the breathing-profiles tab, the conditions tab,
+participant
 locked mode, Windows-plus-Quest session snapshots, the LSL/runtime hardening
 changes, the controller-tracking calibration guards, and the refactored Sussex
 visual-profile workflow:
@@ -147,6 +150,9 @@ visual-profile workflow:
   mutation
 - the simplified Sussex visual surface now includes tracer controls, sphere
   radius limits, and the particle-size-relative-to-radius toggle
+- the `Conditions` tab combines one visual profile, one breathing profile, and
+  an active flag; only active conditions appear in the Experiment Session
+  dropdown
 
 It also includes the dedicated Sussex breathing-driver controls with explicit
 controller-vs-automatic readback on the `During session` tab. The bundled

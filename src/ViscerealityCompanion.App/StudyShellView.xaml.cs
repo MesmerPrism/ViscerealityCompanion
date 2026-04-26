@@ -34,6 +34,20 @@ public partial class StudyShellView : UserControl
     private void OnControllerSaveStartupSnapshotClick(object sender, RoutedEventArgs e)
         => ExecuteControllerCommand(sender, ControllerProfilesTable, static viewModel => viewModel.SetStartupProfileCommand);
 
+    private void OnStudyPhaseTabsSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not TabControl tabControl ||
+            !ReferenceEquals(e.OriginalSource, tabControl) ||
+            !ReferenceEquals(tabControl.SelectedItem, ConditionsTab))
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(
+            new Action(() => RefreshConditionProfileOptions(ConditionsTab)),
+            DispatcherPriority.ContextIdle);
+    }
+
     private void OnProfileBooleanToggleClick(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox checkBox)
@@ -125,6 +139,15 @@ public partial class StudyShellView : UserControl
         if (command.CanExecute(null))
         {
             command.Execute(null);
+        }
+    }
+
+    private static void RefreshConditionProfileOptions(object sender)
+    {
+        var viewModel = (sender as FrameworkElement)?.DataContext as SussexConditionWorkspaceViewModel;
+        if (viewModel?.RefreshCommand.CanExecute(null) == true)
+        {
+            viewModel.RefreshCommand.Execute(null);
         }
     }
 

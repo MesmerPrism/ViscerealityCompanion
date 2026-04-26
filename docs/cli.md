@@ -170,6 +170,7 @@ The Sussex profile commands mirror the GUI profile tabs and are the preferred
 agentic path for repeatable tuning work:
 
 - `sussex visual ...`
+- `sussex condition ...`
 - `sussex controller ...`
 
 Common subcommands on both surfaces are:
@@ -237,6 +238,49 @@ separate:
 
 Both paths reset controller-breathing calibration in the runtime. Recalibrate
 on-headset afterward.
+
+### Sussex Conditions
+
+The Sussex condition commands mirror the GUI `Conditions` tab. A condition is
+the experiment-session choice that links one visual profile, one
+controller-breathing profile, and an active-selection flag:
+
+| Command | Description |
+|---------|-------------|
+| `sussex condition list` | List bundled conditions, local overrides, and local-only conditions |
+| `sussex condition list --active-only` | List exactly what the Experiment Session condition dropdown will show |
+| `sussex condition show <condition>` | Show one condition with resolved profile names |
+| `sussex condition create` | Create a local condition from one visual profile and one breathing profile |
+| `sussex condition update <condition>` | Edit a local condition, or save a bundled condition as a local override |
+| `sussex condition duplicate <condition>` | Copy a condition into a new local condition |
+| `sussex condition import <path>` | Import a shared condition JSON file |
+| `sussex condition export <condition> <path>` | Export one condition as shareable JSON |
+| `sussex condition delete <condition>` | Delete a local condition, or remove a local override |
+
+The CLI accepts the portable bundled profile ids used by the GUI, such as
+`condition-current-visual`, `condition-fixed-radius-no-orbit`,
+`condition-current-breathing`, and `condition-fixed-radius-breathing`.
+
+Example:
+
+```powershell
+viscereality sussex condition create `
+  --id small-motion-no-orbit `
+  --label "Small Motion, No Orbit" `
+  --visual condition-fixed-radius-no-orbit `
+  --breathing "Small Motion Conservative" `
+  --inactive `
+  --property visual.orbit=0..0 `
+  --json
+
+viscereality sussex condition update small-motion-no-orbit --active --json
+viscereality sussex condition list --active-only --json
+```
+
+The packaged app and packaged CLI share the same host-visible operator-data
+root, so conditions edited through the GUI are visible to the CLI and
+conditions imported through the CLI are visible in the GUI after refreshing or
+opening the `Conditions` tab.
 
 ### Utilities
 
@@ -366,6 +410,8 @@ viscereality study apply-profile sussex-university
 viscereality study launch sussex-university
 viscereality sussex visual fields --json
 viscereality sussex visual apply-live "<profile>" --json
+viscereality sussex condition list --active-only --json
+viscereality sussex condition show fixed-radius-no-orbit
 viscereality sussex controller fields --json
 viscereality sussex controller show "Small Motion Conservative" --json
 viscereality sussex controller set-startup "Small Motion Conservative" --json

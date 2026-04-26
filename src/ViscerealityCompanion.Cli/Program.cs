@@ -748,6 +748,7 @@ public static class Program
         }
 
         sussexCommand.AddCommand(BuildSussexVisualCommand(studyOption, rootOption, jsonOption, CreateRepeatedAssignmentOption));
+        sussexCommand.AddCommand(BuildSussexConditionCommand(studyOption, rootOption, jsonOption, CreateRepeatedAssignmentOption));
         sussexCommand.AddCommand(BuildSussexControllerCommand(studyOption, rootOption, jsonOption, CreateRepeatedAssignmentOption));
         return sussexCommand;
     }
@@ -1042,6 +1043,343 @@ public static class Program
         visual.AddCommand(clearStartup);
         visual.AddCommand(applyLive);
         return visual;
+    }
+
+    private static Command BuildSussexConditionCommand(
+        Option<string> studyOption,
+        Option<string?> rootOption,
+        Option<bool> jsonOption,
+        Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
+    {
+        var condition = new Command("condition", "Sussex condition commands that mirror the GUI Conditions tab. A condition combines one visual profile, one controller-breathing profile, and an active-selection flag.");
+
+        async Task<(
+            StudyShellDefinition Study,
+            IReadOnlyList<SussexCliSupport.ConditionResolvedItem> Conditions,
+            IReadOnlyList<SussexCliSupport.VisualResolvedProfile> VisualProfiles,
+            IReadOnlyList<SussexCliSupport.ControllerResolvedProfile> ControllerProfiles)> LoadContextAsync(string study, string? root)
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var conditions = await SussexCliSupport.LoadConditionsAsync(definition);
+            var visualProfiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
+            var controllerProfiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
+            return (definition, conditions, visualProfiles, controllerProfiles);
+        }
+
+        static bool ResolveActiveFlag(bool active, bool inactive, bool currentValue)
+        {
+            if (active && inactive)
+            {
+                throw new InvalidOperationException("Choose either --active or --inactive, not both.");
+            }
+
+            return active ? true : inactive ? false : currentValue;
+        }
+
+        var activeOnlyOption = new Option<bool>("--active-only", "Only list conditions that appear in the Experiment Session condition dropdown.");
+        var list = new Command("list", "List bundled and local Sussex conditions") { activeOnlyOption };
+        list.Handler = CommandHandler.Create(async (bool activeOnly, string study, string? root, bool json) =>
+        {
+            var context = await LoadContextAsync(study, root);
+            var conditions = activeOnly
+                ? context.Conditions.Where(item => item.Definition.IsActive).ToArray()
+                : context.Conditions;
+            if (json)
+            {
+                SussexCliSupport.WriteJson(conditions.Select(item => SussexCliSupport.BuildConditionView(
+                    item,
+                    context.VisualProfiles,
+                    context.ControllerProfiles)));
+            }
+            else
+            {
+                SussexCliSupport.PrintConditions(conditions, context.VisualProfiles, context.ControllerProfiles);
+            }
+        });
+
+        var conditionArg = new Argument<string>("condition", "Condition id or label.");
+        var show = new Command("show", "Show one Sussex condition, including resolved visual and controller-breathing profile names") { conditionArg };
+        show.Handler = CommandHandler.Create(async (string condition, string study, string? root) =>
+        {
+            var context = await LoadContextAsync(study, root);
+            var resolved = SussexCliSupport.ResolveCondition(context.Conditions, condition);
+            SussexCliSupport.WriteJson(SussexCliSupport.BuildConditionView(
+                resolved,
+                context.VisualProfiles,
+                context.ControllerProfiles));
+        });
+
+        var idOption = new Option<string>("--id", "Stable condition id.") { IsRequired = true };
+        var labelOption = new Option<string>("--label", "Operator-facing condition label.") { IsRequired = true };
+        var descriptionOption = new Option<string?>("--description", "Condition notes shown in the GUI.");
+        var visualOption = new Option<string>("--visual", "Visual profile id, portable bundled id, or profile name.") { IsRequired = true };
+        var breathingOption = new Option<string>(
+            ["--breathing", "--controller-breathing"],
+            "Controller-breathing profile id, portable bundled id, or profile name.")
+        { IsRequired = true };
+        var updateVisualOption = new Option<string?>("--visual", "Replace the visual profile id, portable bundled id, or profile name.");
+        var updateBreathingOption = new Option<string?>(
+            ["--breathing", "--controller-breathing"],
+            "Replace the controller-breathing profile id, portable bundled id, or profile name.");
+        var activeOption = new Option<bool>("--active", "Mark the condition as part of the Experiment Session active selection.");
+        var inactiveOption = new Option<bool>("--inactive", "Keep the condition out of the Experiment Session active selection.");
+        var propertyOption = createRepeatedAssignmentOption("--property", "Attach condition metadata as key=value. Repeat for multiple values.");
+
+        var create = new Command("create", "Create a local Sussex condition from one visual profile and one controller-breathing profile")
+        {
+            idOption,
+            labelOption,
+            descriptionOption,
+            visualOption,
+            breathingOption,
+            activeOption,
+            inactiveOption,
+            propertyOption
+        };
+        create.Handler = CommandHandler.Create(async (
+            string id,
+            string label,
+            string? description,
+            string visual,
+            string breathing,
+            bool active,
+            bool inactive,
+            string[] property,
+            string study,
+            string? root,
+            bool json) =>
+        {
+            var context = await LoadContextAsync(study, root);
+            if (context.Conditions.Any(item => string.Equals(item.Definition.Id, id, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException($"A Sussex condition with id '{id}' already exists. Use update to create a local override.");
+            }
+
+            var definition = SussexCliSupport.BuildConditionDefinition(
+                context.VisualProfiles,
+                context.ControllerProfiles,
+                id,
+                label,
+                description,
+                visual,
+                breathing,
+                ResolveActiveFlag(active, inactive, currentValue: false),
+                property);
+            var store = SussexCliSupport.CreateConditionStore(study);
+            var saved = await store.SaveAsync(existingPath: null, definition);
+            var savedItem = new SussexCliSupport.ConditionResolvedItem(saved.Definition, saved, IsBundled: false, IsLocalOverride: false);
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { created = SussexCliSupport.BuildConditionView(savedItem, context.VisualProfiles, context.ControllerProfiles) });
+            }
+            else
+            {
+                Console.WriteLine($"Created Sussex condition: {saved.Definition.Label} ({saved.Id})");
+                Console.WriteLine(saved.FilePath);
+            }
+        });
+
+        var updateIdOption = new Option<string?>("--id", "Rename the condition id and local JSON filename.");
+        var updateLabelOption = new Option<string?>("--label", "Replace the operator-facing condition label.");
+        var update = new Command("update", "Update a local Sussex condition or save a bundled condition as a local override")
+        {
+            conditionArg,
+            updateIdOption,
+            updateLabelOption,
+            descriptionOption,
+            updateVisualOption,
+            updateBreathingOption,
+            activeOption,
+            inactiveOption,
+            propertyOption,
+            new Option<bool>("--clear-properties", "Clear existing condition metadata before applying --property values.")
+        };
+        update.Handler = CommandHandler.Create(async (
+            string condition,
+            string? id,
+            string? label,
+            string? description,
+            string? visual,
+            string? breathing,
+            bool active,
+            bool inactive,
+            string[] property,
+            bool clearProperties,
+            string study,
+            string? root,
+            bool json) =>
+        {
+            var context = await LoadContextAsync(study, root);
+            var target = SussexCliSupport.ResolveCondition(context.Conditions, condition);
+            var nextDefinition = SussexCliSupport.UpdateConditionDefinition(
+                target.Definition,
+                context.VisualProfiles,
+                context.ControllerProfiles,
+                id,
+                label,
+                description,
+                visual,
+                breathing,
+                ResolveActiveFlag(active, inactive, target.Definition.IsActive),
+                property,
+                clearProperties);
+
+            if (context.Conditions.Any(item =>
+                    !ReferenceEquals(item, target) &&
+                    string.Equals(item.Definition.Id, nextDefinition.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException($"Another Sussex condition already uses id '{nextDefinition.Id}'.");
+            }
+
+            var store = SussexCliSupport.CreateConditionStore(study);
+            var saved = await SussexCliSupport.SaveConditionExistingAsync(store, target, nextDefinition);
+            var savedOverridesBundledCondition = context.Study.Conditions.Any(condition =>
+                string.Equals(condition.Id, saved.Id, StringComparison.OrdinalIgnoreCase));
+            var savedItem = new SussexCliSupport.ConditionResolvedItem(
+                saved.Definition,
+                saved,
+                savedOverridesBundledCondition,
+                savedOverridesBundledCondition);
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { updated = SussexCliSupport.BuildConditionView(savedItem, context.VisualProfiles, context.ControllerProfiles) });
+            }
+            else
+            {
+                Console.WriteLine($"Updated Sussex condition: {saved.Definition.Label} ({saved.Id})");
+                Console.WriteLine(saved.FilePath);
+            }
+        });
+
+        var duplicateIdOption = new Option<string>("--id", "New condition id.") { IsRequired = true };
+        var duplicateLabelOption = new Option<string?>("--label", "New condition label. Defaults to '<source> Copy'.");
+        var duplicate = new Command("duplicate", "Duplicate a Sussex condition into a new local condition")
+        {
+            conditionArg,
+            duplicateIdOption,
+            duplicateLabelOption,
+            activeOption,
+            inactiveOption
+        };
+        duplicate.Handler = CommandHandler.Create(async (
+            string condition,
+            string id,
+            string? label,
+            bool active,
+            bool inactive,
+            string study,
+            string? root,
+            bool json) =>
+        {
+            var context = await LoadContextAsync(study, root);
+            if (context.Conditions.Any(item => string.Equals(item.Definition.Id, id, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException($"A Sussex condition with id '{id}' already exists.");
+            }
+
+            var source = SussexCliSupport.ResolveCondition(context.Conditions, condition);
+            var next = source.Definition with
+            {
+                Id = id.Trim(),
+                Label = string.IsNullOrWhiteSpace(label) ? $"{source.Definition.Label} Copy" : label.Trim(),
+                IsActive = ResolveActiveFlag(active, inactive, currentValue: false)
+            };
+            var store = SussexCliSupport.CreateConditionStore(study);
+            var saved = await store.SaveAsync(existingPath: null, next);
+            var savedItem = new SussexCliSupport.ConditionResolvedItem(saved.Definition, saved, IsBundled: false, IsLocalOverride: false);
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { duplicated = SussexCliSupport.BuildConditionView(savedItem, context.VisualProfiles, context.ControllerProfiles) });
+            }
+            else
+            {
+                Console.WriteLine($"Duplicated Sussex condition: {saved.Definition.Label} ({saved.Id})");
+                Console.WriteLine(saved.FilePath);
+            }
+        });
+
+        var delete = new Command("delete", "Delete a local Sussex condition file, or remove the local override for a bundled condition") { conditionArg };
+        delete.Handler = CommandHandler.Create(async (string condition, string study, string? root, bool json) =>
+        {
+            var context = await LoadContextAsync(study, root);
+            var target = SussexCliSupport.ResolveCondition(context.Conditions, condition);
+            if (!target.HasLocalFile)
+            {
+                throw new InvalidOperationException("Bundled Sussex conditions are read-only. Update one first to create a local override, or duplicate it into a local condition.");
+            }
+
+            var store = SussexCliSupport.CreateConditionStore(study);
+            await store.DeleteAsync(target.LocalRecord!.FilePath);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new
+                {
+                    deleted = target.Definition.Id,
+                    removed_local_override = target.IsBundled
+                });
+            }
+            else
+            {
+                Console.WriteLine(target.IsBundled
+                    ? $"Removed local override for bundled Sussex condition: {target.Definition.Id}"
+                    : $"Deleted Sussex condition: {target.Definition.Id}");
+            }
+        });
+
+        var importArg = new Argument<string>("path", "Path to a Sussex condition JSON file.");
+        var import = new Command("import", "Import a Sussex condition JSON file") { importArg };
+        import.Handler = CommandHandler.Create(async (string path, string study, string? root, bool json) =>
+        {
+            var context = await LoadContextAsync(study, root);
+            var store = SussexCliSupport.CreateConditionStore(study);
+            var imported = await store.ImportAsync(path);
+            var importedItem = new SussexCliSupport.ConditionResolvedItem(
+                imported.Definition,
+                imported,
+                IsBundled: context.Study.Conditions.Any(condition => string.Equals(condition.Id, imported.Id, StringComparison.OrdinalIgnoreCase)),
+                IsLocalOverride: context.Study.Conditions.Any(condition => string.Equals(condition.Id, imported.Id, StringComparison.OrdinalIgnoreCase)));
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { imported = SussexCliSupport.BuildConditionView(importedItem, context.VisualProfiles, context.ControllerProfiles) });
+            }
+            else
+            {
+                Console.WriteLine($"Imported Sussex condition: {imported.Definition.Label} ({imported.Id})");
+                Console.WriteLine(imported.FilePath);
+            }
+        });
+
+        var exportArg = new Argument<string>("path", "Destination JSON path.");
+        var export = new Command("export", "Export one Sussex condition as JSON") { conditionArg, exportArg };
+        export.Handler = CommandHandler.Create(async (string condition, string path, string study, string? root, bool json) =>
+        {
+            var context = await LoadContextAsync(study, root);
+            var target = SussexCliSupport.ResolveCondition(context.Conditions, condition);
+            var store = SussexCliSupport.CreateConditionStore(study);
+            await store.ExportAsync(target.Definition, path);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(new { exported = target.Definition.Id, path = Path.GetFullPath(path) });
+            }
+            else
+            {
+                Console.WriteLine($"Exported Sussex condition {target.Definition.Id} -> {Path.GetFullPath(path)}");
+            }
+        });
+
+        condition.AddCommand(list);
+        condition.AddCommand(show);
+        condition.AddCommand(create);
+        condition.AddCommand(update);
+        condition.AddCommand(duplicate);
+        condition.AddCommand(delete);
+        condition.AddCommand(import);
+        condition.AddCommand(export);
+        return condition;
     }
 
     private static Command BuildSussexControllerCommand(

@@ -90,8 +90,8 @@ headset wake/sleep buttons; manual headset wake/sleep is the only supported
 operator path for now.
 
 For local agents and scripted operators, the CLI now mirrors the Sussex
-`Visual Profiles` and `Controller Breathing` tabs. The agent-readable field
-catalogs are:
+`Visual Profiles`, `Breathing Profiles`, and `Conditions` tabs. The
+agent-readable profile field catalogs are:
 
 ```powershell
 dotnet run --project src/ViscerealityCompanion.Cli -- sussex visual fields --json
@@ -100,7 +100,17 @@ dotnet run --project src/ViscerealityCompanion.Cli -- sussex controller fields -
 
 Those commands expose the bundled tooltip/effect/tradeoff metadata and the
 stable control ids needed to create, update, inspect, apply, import/export,
-and set next-launch/default Sussex profiles entirely through the CLI.
+and set next-launch/default Sussex profiles entirely through the CLI. The
+condition library is scriptable as well:
+
+```powershell
+dotnet run --project src/ViscerealityCompanion.Cli -- sussex condition list --json
+dotnet run --project src/ViscerealityCompanion.Cli -- sussex condition update fixed-radius-no-orbit --active --json
+```
+
+Conditions combine one visual profile, one breathing profile, and an active
+selection flag. Only active conditions appear in the Experiment Session
+dropdown.
 
 For LSL/twin troubleshooting, the Sussex Windows environment page now has a
 single `Generate Diagnostics Report` action. The matching CLI command is:

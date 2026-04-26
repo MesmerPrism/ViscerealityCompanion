@@ -59,6 +59,7 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-home-proof.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-tab.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-controller-breathing-applied.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-conditions-tab.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-calibration-workspace.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-experiment-session-calibration.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-automatic.png"));
@@ -130,6 +131,7 @@ public static class HarnessScenarioRunner
     private static async Task ExecuteScenarioAsync(Window window, string repoRoot, string outputRoot, FloatLslTestOutlet outlet)
     {
         var useValidationCapture = ReadBoolEnvironmentVariable("VC_USE_VALIDATION_CAPTURE");
+        var conditionLibraryOnly = ReadBoolEnvironmentVariable("VC_CONDITION_LIBRARY_ONLY");
         var calibrationOnly = ReadBoolEnvironmentVariable("VC_CALIBRATION_ONLY");
 
         if (window.DataContext is not MainWindowViewModel mainViewModel)
@@ -156,6 +158,21 @@ public static class HarnessScenarioRunner
         // Continuous ADB snapshot polling causes visible headset hitches on this
         // HorizonOS build and can destabilize the live validation path.
         studyViewModel.RegularAdbSnapshotEnabled = false;
+        var conditionLibraryResult = await RunConditionLibraryPhaseAsync(
+            studyViewModel,
+            window,
+            outputRoot);
+
+        if (conditionLibraryOnly)
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(outputRoot, "sussex-study-mode-report.txt"),
+                BuildConditionLibraryOnlyReport(
+                    mainViewModel,
+                    studyViewModel,
+                    conditionLibraryResult));
+            return;
+        }
 
         await ExecuteCommandAsync(
             studyViewModel.ProbeUsbCommand,
@@ -203,6 +220,7 @@ public static class HarnessScenarioRunner
                 BuildCalibrationOnlyReport(
                     mainViewModel,
                     studyViewModel,
+                    conditionLibraryResult,
                     controllerProfileApplyResult,
                     calibrationCommandResult));
             return;
@@ -317,6 +335,7 @@ public static class HarnessScenarioRunner
                     studyViewModel,
                     validationCaptureResult,
                     latencyResults,
+                    conditionLibraryResult,
                     controllerBreathingProfileResult,
                     automaticBreathingResult,
                     senderRestartResult,
@@ -333,6 +352,7 @@ public static class HarnessScenarioRunner
                     studyViewModel,
                     participantRunResult ?? throw new InvalidOperationException("Participant run result was not captured."),
                     latencyResults,
+                    conditionLibraryResult,
                     controllerBreathingProfileResult,
                     automaticBreathingResult,
                     senderRestartResult,
@@ -1265,6 +1285,7 @@ public static class HarnessScenarioRunner
         StudyShellViewModel studyViewModel,
         ParticipantRunResult participantRunResult,
         IReadOnlyList<LatencyResult> latencyResults,
+        ObservationResult conditionLibraryResult,
         ObservationResult controllerBreathingProfileResult,
         ObservationResult automaticBreathingResult,
         ObservationResult senderRestartResult,
@@ -1311,6 +1332,7 @@ public static class HarnessScenarioRunner
         AppendQuestScreenshotWarnings(builder);
         builder.AppendLine();
         builder.AppendLine("Command observations:");
+        builder.AppendLine($"- {conditionLibraryResult.Label}: {conditionLibraryResult.Detail}");
         builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
         builder.AppendLine($"- {automaticBreathingResult.Label}: {automaticBreathingResult.Detail}");
         builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
@@ -1405,6 +1427,7 @@ public static class HarnessScenarioRunner
     private static string BuildCalibrationOnlyReport(
         MainWindowViewModel mainViewModel,
         StudyShellViewModel studyViewModel,
+        ObservationResult conditionLibraryResult,
         ObservationResult controllerBreathingProfileResult,
         ObservationResult calibrationCommandResult)
     {
@@ -1425,6 +1448,7 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"Last action detail: {studyViewModel.LastActionDetail}");
         builder.AppendLine();
         builder.AppendLine("Calibration observations:");
+        builder.AppendLine($"- {conditionLibraryResult.Label}: {conditionLibraryResult.Detail}");
         builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
         builder.AppendLine($"- {calibrationCommandResult.Label}: {calibrationCommandResult.Detail}");
         builder.AppendLine();
@@ -1444,11 +1468,49 @@ public static class HarnessScenarioRunner
         return builder.ToString();
     }
 
+    private static string BuildConditionLibraryOnlyReport(
+        MainWindowViewModel mainViewModel,
+        StudyShellViewModel studyViewModel,
+        ObservationResult conditionLibraryResult)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"Timestamp: {DateTimeOffset.Now:O}");
+        builder.AppendLine("Mode: Condition-library harness");
+        builder.AppendLine($"Main mode: {mainViewModel.CurrentModeLabel}");
+        builder.AppendLine($"Main mode detail: {mainViewModel.CurrentModeDetail}");
+        builder.AppendLine();
+        builder.AppendLine("Condition observations:");
+        builder.AppendLine($"- {conditionLibraryResult.Label}: {conditionLibraryResult.Detail}");
+        builder.AppendLine();
+        builder.AppendLine("Active session conditions:");
+        foreach (var condition in studyViewModel.Conditions)
+        {
+            builder.AppendLine($"- {condition.Label} ({condition.Id}): visual {condition.VisualProfileId}; breathing {condition.ControllerBreathingProfileId}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Condition library rows:");
+        foreach (var condition in studyViewModel.ConditionProfiles.ConditionItems)
+        {
+            builder.AppendLine($"- {condition.Label} ({condition.Id}): {condition.SecondaryLabel}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("Operator log:");
+        foreach (var entry in studyViewModel.Logs.Take(12))
+        {
+            builder.AppendLine($"- {entry.Timestamp:O} {entry.Level}: {entry.Message} :: {entry.Detail}");
+        }
+
+        return builder.ToString();
+    }
+
     private static string BuildValidationCaptureReport(
         MainWindowViewModel mainViewModel,
         StudyShellViewModel studyViewModel,
         ValidationCaptureHarnessResult validationCaptureResult,
         IReadOnlyList<LatencyResult> latencyResults,
+        ObservationResult conditionLibraryResult,
         ObservationResult controllerBreathingProfileResult,
         ObservationResult automaticBreathingResult,
         ObservationResult senderRestartResult,
@@ -1491,6 +1553,7 @@ public static class HarnessScenarioRunner
         AppendQuestScreenshotWarnings(builder);
         builder.AppendLine();
         builder.AppendLine("Command observations:");
+        builder.AppendLine($"- {conditionLibraryResult.Label}: {conditionLibraryResult.Detail}");
         builder.AppendLine($"- {controllerBreathingProfileResult.Label}: {controllerBreathingProfileResult.Detail}");
         builder.AppendLine($"- {automaticBreathingResult.Label}: {automaticBreathingResult.Detail}");
         builder.AppendLine($"- {senderRestartResult.Label}: {senderRestartResult.Detail}");
@@ -1670,6 +1733,53 @@ public static class HarnessScenarioRunner
             () => command.CanExecute(null),
             timeout ?? TimeSpan.FromSeconds(20),
             $"GUI command '{label}' did not complete.");
+    }
+
+    private static async Task<ObservationResult> RunConditionLibraryPhaseAsync(
+        StudyShellViewModel studyViewModel,
+        Window window,
+        string outputRoot)
+    {
+        var workspace = studyViewModel.ConditionProfiles;
+        await workspace.InitializeAsync();
+
+        await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.SelectedPhaseTabIndex = 5);
+        await Task.Delay(TimeSpan.FromMilliseconds(450));
+        CaptureWindow(window, Path.Combine(outputRoot, "sussex-main-window-conditions-tab.png"));
+
+        var conditionItems = workspace.ConditionItems.ToArray();
+        var activeConditions = studyViewModel.Conditions.ToArray();
+        var visualOptions = workspace.VisualProfileOptions.ToArray();
+        var controllerOptions = workspace.ControllerBreathingProfileOptions.ToArray();
+        var hasCurrentCondition = conditionItems.Any(condition =>
+            string.Equals(condition.Id, "current", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(condition.VisualProfileId, "condition-current-visual", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(condition.ControllerBreathingProfileId, "condition-current-breathing", StringComparison.OrdinalIgnoreCase));
+        var hasFixedRadiusCondition = conditionItems.Any(condition =>
+            string.Equals(condition.Id, "fixed-radius-no-orbit", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(condition.VisualProfileId, "condition-fixed-radius-no-orbit", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(condition.ControllerBreathingProfileId, "condition-fixed-radius-breathing", StringComparison.OrdinalIgnoreCase));
+        var activeIds = activeConditions.Select(condition => condition.Id).ToArray();
+        var hasActiveCurrent = activeIds.Contains("current", StringComparer.OrdinalIgnoreCase);
+        var hasActiveFixedRadius = activeIds.Contains("fixed-radius-no-orbit", StringComparer.OrdinalIgnoreCase);
+        var hasVisualOptions =
+            visualOptions.Any(option => string.Equals(option.ReferenceId, "condition-current-visual", StringComparison.OrdinalIgnoreCase)) &&
+            visualOptions.Any(option => string.Equals(option.ReferenceId, "condition-fixed-radius-no-orbit", StringComparison.OrdinalIgnoreCase));
+        var hasControllerOptions =
+            controllerOptions.Any(option => string.Equals(option.ReferenceId, "condition-current-breathing", StringComparison.OrdinalIgnoreCase)) &&
+            controllerOptions.Any(option => string.Equals(option.ReferenceId, "condition-fixed-radius-breathing", StringComparison.OrdinalIgnoreCase));
+        var success = hasCurrentCondition &&
+                      hasFixedRadiusCondition &&
+                      hasActiveCurrent &&
+                      hasActiveFixedRadius &&
+                      hasVisualOptions &&
+                      hasControllerOptions;
+        var activeSummary = activeIds.Length == 0 ? "none" : string.Join(", ", activeIds);
+
+        return new ObservationResult(
+            "Sussex condition library",
+            success,
+            $"Captured Conditions tab screenshot, found {conditionItems.Length} configured condition(s), active session selection [{activeSummary}], visual options {visualOptions.Length}, breathing options {controllerOptions.Length}. Current condition present: {hasCurrentCondition}; fixed-radius/no-orbit condition present: {hasFixedRadiusCondition}; profile dropdown references present: {hasVisualOptions && hasControllerOptions}.");
     }
 
     private static async Task<ObservationResult> RunControllerBreathingProfilePhaseAsync(

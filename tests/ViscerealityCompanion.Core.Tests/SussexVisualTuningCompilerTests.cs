@@ -175,6 +175,25 @@ public sealed class SussexVisualTuningCompilerTests
     }
 
     [Fact]
+    public void Compile_accepts_fixed_radius_no_orbit_condition_profile()
+    {
+        var compiler = new SussexVisualTuningCompiler(LoadTemplateJson());
+        var document = compiler.Parse(LoadBundledVisualProfileJson("condition-fixed-radius-no-orbit.json"));
+
+        Assert.Equal(2d, document.ControlValues["sphere_radius_min"]);
+        Assert.Equal(2d, document.ControlValues["sphere_radius_max"]);
+        Assert.Equal(0d, document.ControlValues["orbit_distance_min"]);
+        Assert.Equal(0d, document.ControlValues["orbit_distance_max"]);
+
+        var compiled = compiler.Compile(document);
+        var runtimeConfig = JsonNode.Parse(compiled.CompactRuntimeConfigJson)!.AsObject();
+        Assert.Equal(2d, runtimeConfig["SharedRadiusLimits"]!["x"]!.GetValue<double>());
+        Assert.Equal(2d, runtimeConfig["SharedRadiusLimits"]!["y"]!.GetValue<double>());
+        Assert.Equal(0d, runtimeConfig["OrbitRadiusMultiplierLimits"]!["x"]!.GetValue<double>());
+        Assert.Equal(0d, runtimeConfig["OrbitRadiusMultiplierLimits"]!["y"]!.GetValue<double>());
+    }
+
+    [Fact]
     public void Serialize_emits_boolean_value_for_deformation_toggle()
     {
         var compiler = new SussexVisualTuningCompiler(LoadTemplateJson());
@@ -419,6 +438,23 @@ public sealed class SussexVisualTuningCompilerTests
             "oscillator-config",
             "llm-tuning",
             "sussex-visual-tuning-v1.template.json"));
+        return File.ReadAllText(path);
+    }
+
+    private static string LoadBundledVisualProfileJson(string fileName)
+    {
+        var path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "samples",
+            "study-shells",
+            "sussex-university",
+            "visual-profiles",
+            fileName));
         return File.ReadAllText(path);
     }
 }

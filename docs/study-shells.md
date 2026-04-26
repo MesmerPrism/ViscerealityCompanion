@@ -73,8 +73,21 @@ It currently pins:
 - device profile: `CPU 5 / GPU 5 / static foveation level 1`
 - expected LSL input target: `HRV_Biofeedback / HRV`
 - expected routing: `Controller Volume / LSL Heartbeat / LSL Direct`
-- profile workspaces: `Visual Profiles` and `Breathing Profiles`
+- profile workspaces: `Visual Profiles`, `Breathing Profiles`, and `Conditions`
 - runtime launch mode: best-effort task pinning on launch
+
+The shell also ships two active experiment-session conditions:
+
+- `Current`, which uses the current visual and controller-breathing condition
+  profiles.
+- `Fixed Radius, No Orbit`, which sets the visual orbit-distance envelope to
+  `0..0` and locks the sphere-radius envelope to `2..2` through its visual
+  profile.
+
+The `Conditions` tab lets an operator inspect, edit, import, export, duplicate,
+and activate conditions without touching the Unity APK. The Experiment Session
+window only lists conditions whose `Active` flag is set. See
+[Sussex Conditions](sussex-conditions.md) for the GUI and CLI workflow.
 
 For the committed Sussex shell, the runtime toggle is intentionally a
 task-pinned launch/stop button rather than a plain launch/stop button:
