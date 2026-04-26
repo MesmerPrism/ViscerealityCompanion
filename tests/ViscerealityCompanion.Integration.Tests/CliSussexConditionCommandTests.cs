@@ -1,10 +1,14 @@
 using System.Text.Json;
 using ViscerealityCompanion.Cli;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Integration.Tests;
 
-public sealed class CliSussexConditionCommandTests
+[Collection("CliConsole")]
+public sealed class CliSussexConditionCommandTests : IDisposable
 {
+    private readonly string _operatorDataRoot = CreateTempOperatorDataRoot();
+
     [Fact]
     public async Task Sussex_condition_list_resolves_bundled_profile_references()
     {
@@ -151,6 +155,13 @@ public sealed class CliSussexConditionCommandTests
         return root;
     }
 
+    private static string CreateTempOperatorDataRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"vc-condition-operator-data-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
     private static void DeleteDirectoryIfExists(string path)
     {
         if (Directory.Exists(path))
@@ -159,15 +170,20 @@ public sealed class CliSussexConditionCommandTests
         }
     }
 
-    private static async Task<string> InvokeCliAsync(params string[] args)
+    public void Dispose()
+        => DeleteDirectoryIfExists(_operatorDataRoot);
+
+    private async Task<string> InvokeCliAsync(params string[] args)
     {
         await CliConsoleTestGate.Instance.WaitAsync();
         var originalOut = Console.Out;
         var originalError = Console.Error;
+        var originalOperatorDataRoot = Environment.GetEnvironmentVariable(CompanionOperatorDataLayout.RootOverrideEnvironmentVariable);
         using var writer = new StringWriter();
 
         try
         {
+            Environment.SetEnvironmentVariable(CompanionOperatorDataLayout.RootOverrideEnvironmentVariable, _operatorDataRoot);
             Console.SetOut(writer);
             Console.SetError(writer);
             var exitCode = await Program.Main(args);
@@ -178,6 +194,7 @@ public sealed class CliSussexConditionCommandTests
         {
             Console.SetOut(originalOut);
             Console.SetError(originalError);
+            Environment.SetEnvironmentVariable(CompanionOperatorDataLayout.RootOverrideEnvironmentVariable, originalOperatorDataRoot);
             CliConsoleTestGate.Instance.Release();
         }
     }

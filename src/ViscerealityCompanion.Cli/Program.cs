@@ -1861,16 +1861,20 @@ public static class Program
         var streamOption = new Option<string>("--expected-stream", () => HrvBiofeedbackStreamContract.StreamName, "Expected upstream LSL stream name to probe.");
         var typeOption = new Option<string>("--expected-type", () => HrvBiofeedbackStreamContract.StreamType, "Expected upstream LSL stream type to probe.");
         var skipStreamProbeOption = new Option<bool>("--skip-stream-probe", "Skip probing the expected upstream LSL stream.");
+        var localOnlyOption = new Option<bool>("--local-only", "Skip persisted headset selectors and ADB-backed Quest Wi-Fi transport checks.");
+        var checkTimeoutOption = new Option<int>("--check-timeout-seconds", () => 8, "Maximum seconds to spend on each bounded diagnostic check.");
 
         var analyzeCommand = new Command("analyze", "Mirror the GUI Analyze Windows Environment check for Windows tooling, install-footprint leftovers, liblsl runtimes, the twin bridge, and expected upstream stream visibility")
         {
             jsonOption,
             streamOption,
             typeOption,
-            skipStreamProbeOption
+            skipStreamProbeOption,
+            localOnlyOption,
+            checkTimeoutOption
         };
 
-        analyzeCommand.Handler = CommandHandler.Create(async (bool json, string expectedStream, string expectedType, bool skipStreamProbe, string? device) =>
+        analyzeCommand.Handler = CommandHandler.Create(async (bool json, string expectedStream, string expectedType, bool skipStreamProbe, bool localOnly, int checkTimeoutSeconds, string? device) =>
         {
             using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
             using var testSender = TestLslSignalServiceFactory.CreateDefault();
@@ -1885,26 +1889,29 @@ public static class Program
                     testSender,
                     bridge);
                 QuestWifiTransportDiagnosticsContext? wifiContext = null;
-                var state = CliSessionState.Load();
-                var selector = !string.IsNullOrWhiteSpace(device)
-                    ? device
-                    : state.ActiveEndpoint ?? state.LastUsbSerial;
-                if (!string.IsNullOrWhiteSpace(selector))
+                if (!localOnly)
                 {
-                    var questService = CreateQuestService(device);
-                    var initialHeadset = await questService
-                        .QueryHeadsetStatusAsync(target: null, remoteOnlyControlEnabled: false)
-                        .ConfigureAwait(false);
-                    var wifiPreparation = await new QuestWifiAdbDiagnosticPreparationService(questService)
-                        .PrepareAsync(
-                            target: null,
-                            selector,
-                            initialHeadset)
-                        .ConfigureAwait(false);
-                    var headset = wifiPreparation.EffectiveHeadset;
-                    if (headset.IsConnected)
+                    var state = CliSessionState.Load();
+                    var selector = !string.IsNullOrWhiteSpace(device)
+                        ? device
+                        : state.ActiveEndpoint ?? state.LastUsbSerial;
+                    if (!string.IsNullOrWhiteSpace(selector))
                     {
-                        wifiContext = new QuestWifiTransportDiagnosticsContext(headset, selector, wifiPreparation);
+                        var questService = CreateQuestService(device);
+                        var initialHeadset = await questService
+                            .QueryHeadsetStatusAsync(target: null, remoteOnlyControlEnabled: false)
+                            .ConfigureAwait(false);
+                        var wifiPreparation = await new QuestWifiAdbDiagnosticPreparationService(questService)
+                            .PrepareAsync(
+                                target: null,
+                                selector,
+                                initialHeadset)
+                            .ConfigureAwait(false);
+                        var headset = wifiPreparation.EffectiveHeadset;
+                        if (headset.IsConnected)
+                        {
+                            wifiContext = new QuestWifiTransportDiagnosticsContext(headset, selector, wifiPreparation);
+                        }
                     }
                 }
 
@@ -1913,7 +1920,9 @@ public static class Program
                             expectedStream,
                             expectedType,
                             ProbeExpectedLslStream: !skipStreamProbe,
-                            QuestWifiTransport: wifiContext))
+                            QuestWifiTransport: wifiContext,
+                            LocalOnly: localOnly,
+                            CheckTimeout: TimeSpan.FromSeconds(Math.Max(1, checkTimeoutSeconds))))
                     .ConfigureAwait(false);
 
                 if (json)

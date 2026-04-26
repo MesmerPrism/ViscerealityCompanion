@@ -585,7 +585,16 @@ internal sealed class WindowsCompanionExecutionDiagnosticsService
 
             var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
             var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                TryKillProcessTree(process);
+                throw;
+            }
+
             var standardOutput = await standardOutputTask.ConfigureAwait(false);
             var standardError = await standardErrorTask.ConfigureAwait(false);
             return new ProcessProbeResult(process.ExitCode, standardOutput, standardError);
@@ -593,6 +602,21 @@ internal sealed class WindowsCompanionExecutionDiagnosticsService
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return new ProcessProbeResult(-1, string.Empty, string.Empty, exception);
+        }
+    }
+
+    private static void TryKillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+            // Best effort only. The caller reports the timeout/cancellation separately.
         }
     }
 }

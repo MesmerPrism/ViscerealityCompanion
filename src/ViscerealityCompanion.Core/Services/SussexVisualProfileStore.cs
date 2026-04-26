@@ -29,9 +29,12 @@ public sealed class SussexVisualProfileStore
             {
                 records.Add(await LoadRecordAsync(path, cancellationToken).ConfigureAwait(false));
             }
-            catch (InvalidDataException)
+            catch (Exception exception) when (
+                exception is InvalidDataException ||
+                exception is IOException ||
+                exception is UnauthorizedAccessException)
             {
-                // Skip invalid files already on disk; import validates before writing.
+                // Skip invalid or transiently unavailable files already on disk; import validates before writing.
             }
         }
 

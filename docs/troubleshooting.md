@@ -129,6 +129,22 @@ Use these instead:
 .\viscereality.ps1 study probe-connection sussex-university
 ```
 
+When the headset is unavailable or should not be touched, keep the check
+Windows-only:
+
+```powershell
+.\viscereality.ps1 windows-env analyze --local-only --skip-stream-probe --check-timeout-seconds 5
+```
+
+Maintainers can also run the installed-package smoke check from the repo. It
+checks the public MSIX install, the exported packaged CLI, the bundled Sussex
+conditions, and an isolated condition create/update/export/import round trip
+without launching or stopping anything on the headset:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\app\Test-ConsumerInstall.ps1
+```
+
 If LSL still stays unavailable, confirm `lsl.dll` is reachable through one of
 the expected locations:
 

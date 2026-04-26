@@ -14,6 +14,8 @@ public sealed class CliDiagnosticsCommandTests
         Assert.Contains("--expected-stream", help, StringComparison.Ordinal);
         Assert.Contains("--expected-type", help, StringComparison.Ordinal);
         Assert.Contains("--skip-stream-probe", help, StringComparison.Ordinal);
+        Assert.Contains("--local-only", help, StringComparison.Ordinal);
+        Assert.Contains("--check-timeout-seconds", help, StringComparison.Ordinal);
     }
 
     [Fact]

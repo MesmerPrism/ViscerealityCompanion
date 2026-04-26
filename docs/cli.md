@@ -321,6 +321,16 @@ decide whether liblsl is available in the current process layout.
 |---------|-------------|
 | `windows-env analyze` | Mirror the GUI `Analyze Windows Environment` check for `adb`, `hzdb`, liblsl, Windows network-adapter hazards, the local twin bridge, the exported agent workspace, liblsl discovery health, a temporary local LSL outlet rediscovery check, and the expected upstream LSL stream. When a live headset selector is available, it also adds a Quest Wi-Fi transport-path check that probes raw reachability to the headset's current Wi-Fi ADB endpoint. |
 
+Useful safety flags:
+
+- `--local-only` skips persisted headset selectors and all ADB-backed Quest
+  Wi-Fi transport probes. Use this when the headset is being used for something
+  else and you only want the Windows/package/liblsl side.
+- `--skip-stream-probe` skips the expected upstream HRV LSL stream lookup.
+- `--check-timeout-seconds <n>` bounds each heavyweight diagnostic check. A
+  timed-out check returns a warning and the analyzer still prints the remaining
+  partial diagnostics.
+
 `windows-env analyze` separates four related LSL questions:
 
 - whether this Windows process can load the liblsl runtime

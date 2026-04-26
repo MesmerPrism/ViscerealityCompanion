@@ -15,7 +15,9 @@ public sealed record WindowsEnvironmentAnalysisRequest(
     string ExpectedLslStreamName,
     string ExpectedLslStreamType,
     bool ProbeExpectedLslStream = true,
-    QuestWifiTransportDiagnosticsContext? QuestWifiTransport = null);
+    QuestWifiTransportDiagnosticsContext? QuestWifiTransport = null,
+    bool LocalOnly = false,
+    TimeSpan? CheckTimeout = null);
 
 public sealed record QuestWifiTransportDiagnosticsContext(
     HeadsetAppStatus Headset,
@@ -67,6 +69,7 @@ public sealed class WindowsEnvironmentAnalysisService
     private const string LslLoopbackProbeNamePrefix = "viscereality_lsl_loopback_self_check_";
     private const string LslLoopbackProbeType = "viscereality.loopback";
     private const int LslLoopbackProbeAttempts = 3;
+    private static readonly TimeSpan DefaultCheckTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan LslLoopbackProbeRetryDelay = TimeSpan.FromMilliseconds(250);
     private readonly ILslMonitorService _monitorService;
     private readonly ILslStreamDiscoveryService _streamDiscoveryService;
@@ -135,13 +138,24 @@ public sealed class WindowsEnvironmentAnalysisService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        var checkTimeout = ResolveCheckTimeout(request.CheckTimeout);
         var installFootprint = _installFootprintProvider();
         var checks = new List<WindowsEnvironmentCheckResult>
         {
             BuildWindowsPlatformCheck(),
             BuildInstallFootprintCheck(installFootprint),
-            await _exportedCliCheckProvider(installFootprint, cancellationToken).ConfigureAwait(false),
-            await _repoTestAssemblyLoadCheckProvider(cancellationToken).ConfigureAwait(false),
+            await RunCheckWithTimeoutAsync(
+                "packaged-cli-export",
+                "Exported packaged CLI workspace",
+                token => _exportedCliCheckProvider(installFootprint, token),
+                checkTimeout,
+                cancellationToken).ConfigureAwait(false),
+            await RunCheckWithTimeoutAsync(
+                "repo-test-assembly-load",
+                "Repo test assembly load path",
+                _repoTestAssemblyLoadCheckProvider,
+                checkTimeout,
+                cancellationToken).ConfigureAwait(false),
             BuildNetworkAdapterHazardCheck(_networkAdapterSnapshotProvider()),
             BuildManagedToolCacheCheck(_toolingStatusProvider()),
             BuildAdbCheck(),
@@ -169,17 +183,41 @@ public sealed class WindowsEnvironmentAnalysisService
             BuildTwinBridgeCheck()
         };
 
-        if (request.QuestWifiTransport is not null)
+        if (request.LocalOnly)
         {
-            checks.Add(await BuildQuestWifiTransportCheckAsync(request.QuestWifiTransport, cancellationToken).ConfigureAwait(false));
+            checks.Add(BuildQuestWifiTransportSkippedCheck());
+        }
+        else if (request.QuestWifiTransport is not null)
+        {
+            checks.Add(await RunCheckWithTimeoutAsync(
+                "quest-wifi-transport",
+                "Quest Wi-Fi transport path",
+                token => BuildQuestWifiTransportCheckAsync(request.QuestWifiTransport, token),
+                checkTimeout,
+                cancellationToken).ConfigureAwait(false));
         }
 
-        checks.Add(await ProbeLslDiscoveryHealthAsync(cancellationToken).ConfigureAwait(false));
-        checks.Add(await ProbeLslLoopbackAdvertisementAsync(cancellationToken).ConfigureAwait(false));
+        checks.Add(await RunCheckWithTimeoutAsync(
+            "lsl-discovery-health",
+            "Windows liblsl discovery self-check",
+            ProbeLslDiscoveryHealthAsync,
+            checkTimeout,
+            cancellationToken).ConfigureAwait(false));
+        checks.Add(await RunCheckWithTimeoutAsync(
+            "lsl-loopback-outlet",
+            "Windows LSL loopback outlet self-check",
+            ProbeLslLoopbackAdvertisementAsync,
+            checkTimeout,
+            cancellationToken).ConfigureAwait(false));
 
         if (request.ProbeExpectedLslStream)
         {
-            checks.Add(await ProbeExpectedStreamAsync(request, cancellationToken).ConfigureAwait(false));
+            checks.Add(await RunCheckWithTimeoutAsync(
+                "expected-stream",
+                "Expected Sussex LSL stream",
+                token => ProbeExpectedStreamAsync(request, token),
+                checkTimeout,
+                cancellationToken).ConfigureAwait(false));
         }
 
         var failureCount = checks.Count(check => check.Level == OperationOutcomeKind.Failure);
@@ -202,6 +240,86 @@ public sealed class WindowsEnvironmentAnalysisService
         var detail = $"Checks ok/warn/fail: {successCount}/{warningCount}/{failureCount}.";
         return new WindowsEnvironmentAnalysisResult(level, summary, detail, checks, _utcNow());
     }
+
+    private static TimeSpan ResolveCheckTimeout(TimeSpan? requestedTimeout)
+        => requestedTimeout.HasValue && requestedTimeout.Value > TimeSpan.Zero
+            ? requestedTimeout.Value
+            : DefaultCheckTimeout;
+
+    private static async Task<WindowsEnvironmentCheckResult> RunCheckWithTimeoutAsync(
+        string id,
+        string label,
+        Func<CancellationToken, Task<WindowsEnvironmentCheckResult>> checkFactory,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task<WindowsEnvironmentCheckResult> checkTask;
+        try
+        {
+            checkTask = checkFactory(timeoutSource.Token);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return BuildFailedCheck(id, label, exception);
+        }
+
+        var delayTask = Task.Delay(timeout, cancellationToken);
+        var completed = await Task.WhenAny(checkTask, delayTask).ConfigureAwait(false);
+        if (completed == delayTask)
+        {
+            try
+            {
+                timeoutSource.Cancel();
+            }
+            catch
+            {
+                // Best effort: the check has already timed out from the caller's perspective.
+            }
+
+            return new WindowsEnvironmentCheckResult(
+                id,
+                label,
+                OperationOutcomeKind.Warning,
+                $"{label} timed out.",
+                $"The check did not finish within {timeout.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} seconds. The analyzer returned partial diagnostics instead of blocking the whole command.");
+        }
+
+        try
+        {
+            return await checkTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return new WindowsEnvironmentCheckResult(
+                id,
+                label,
+                OperationOutcomeKind.Warning,
+                $"{label} was canceled after its timeout.",
+                $"The check did not finish within {timeout.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} seconds. The analyzer returned partial diagnostics instead of blocking the whole command.");
+        }
+        catch (Exception exception)
+        {
+            return BuildFailedCheck(id, label, exception);
+        }
+    }
+
+    private static WindowsEnvironmentCheckResult BuildFailedCheck(
+        string id,
+        string label,
+        Exception exception)
+        => new(
+            id,
+            label,
+            OperationOutcomeKind.Failure,
+            $"{label} failed.",
+            exception.Message);
 
     private static WindowsEnvironmentCheckResult BuildWindowsPlatformCheck()
     {
@@ -856,6 +974,14 @@ public sealed class WindowsEnvironmentAnalysisService
             status.Summary,
             status.Detail);
     }
+
+    private static WindowsEnvironmentCheckResult BuildQuestWifiTransportSkippedCheck()
+        => new(
+            "quest-wifi-transport",
+            "Quest Wi-Fi transport path",
+            OperationOutcomeKind.Preview,
+            "Quest Wi-Fi transport check skipped.",
+            "`windows-env analyze --local-only` does not read persisted headset selectors and does not run ADB-backed headset probes.");
 
     private async Task<WindowsEnvironmentCheckResult> BuildQuestWifiTransportCheckAsync(
         QuestWifiTransportDiagnosticsContext context,
