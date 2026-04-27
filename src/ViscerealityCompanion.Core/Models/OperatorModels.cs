@@ -207,6 +207,17 @@ public sealed record TwinStateEvent(
     string Payload,
     string Detail);
 
+public sealed record TwinTimingMarkerEvent(
+    DateTimeOffset ReceivedAtUtc,
+    DateTimeOffset RecordedAtUtc,
+    string MarkerName,
+    string MarkerDetail,
+    int? SampleSequence,
+    double? SourceLslTimestampSeconds,
+    double? QuestLocalClockSeconds,
+    double? Value01,
+    double? AuxValue);
+
 public sealed record OperatorLogEntry(
     DateTimeOffset Timestamp,
     OperatorLogLevel Level,

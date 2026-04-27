@@ -132,6 +132,45 @@ public sealed class SussexPdfRendererTests
     }
 
     [Fact]
+    public void ValidationRenderer_PrefersWindowsTimingMarkers_WhenPresent()
+    {
+        var root = CreateTempRoot();
+        try
+        {
+            var sessionFolder = Path.Combine(root, "session-20260421T170000Z");
+            Directory.CreateDirectory(sessionFolder);
+            WriteValidationSessionFixture(sessionFolder);
+            WriteLines(
+                Path.Combine(sessionFolder, "timing_markers.csv"),
+                "participant_id,session_id,dataset_id,recorded_at_utc,marker_name,marker_detail,sample_sequence,source_lsl_timestamp_seconds,quest_local_clock_seconds,value01,aux_value,windows_received_at_utc",
+                "participant-0001,session-20260420T100000Z,dataset,2026-04-20T10:00:01Z,heartbeat_packet_receive,Quest heartbeat consumer received an upstream LSL packet.,1,1001.000,1001.001,0.49,,2026-04-20T10:00:01.002Z",
+                "participant-0001,session-20260420T100000Z,dataset,2026-04-20T10:00:01Z,coherence_value_publish,Quest coherence module published the latest coherence value into the signal registry.,1,1001.000,1001.003,0.40,,2026-04-20T10:00:01.004Z",
+                "participant-0001,session-20260420T100000Z,dataset,2026-04-20T10:00:01Z,orbit_radius_peak,Representative orbit-distance multiplier reached its near-maximum visual region.,1,1001.000,1001.150,0.92,,2026-04-20T10:00:01.151Z");
+
+            var rendererType = typeof(SussexValidationPdfRenderer);
+            var dataType = rendererType.GetNestedType("ValidationSessionData", System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(dataType);
+
+            var loadMethod = dataType!.GetMethod("Load", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            Assert.NotNull(loadMethod);
+
+            var validationData = loadMethod!.Invoke(null, [sessionFolder]);
+            Assert.NotNull(validationData);
+
+            var packetTiming = dataType.GetProperty("PacketTiming")!.GetValue(validationData);
+            Assert.NotNull(packetTiming);
+
+            var matches = packetTiming!.GetType().GetProperty("Matches")!.GetValue(packetTiming) as System.Collections.IEnumerable;
+            Assert.NotNull(matches);
+            Assert.Single(matches!.Cast<object>());
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
     public void ValidationRenderer_ParsesUnquotedJsonEventDetail_IntoTuningActivitySummary()
     {
         var root = CreateTempRoot();

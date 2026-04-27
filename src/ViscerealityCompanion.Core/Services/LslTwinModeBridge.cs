@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.Core.Services;
@@ -22,6 +24,7 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     private readonly Dictionary<string, string> _reportedSettings = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _pendingStructuredSnapshot = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<TwinStateEvent> _stateEvents = [];
+    private readonly List<TwinTimingMarkerEvent> _timingMarkerEvents = [];
     private readonly Lock _settingsSync = new();
     private readonly Lock _commandOutletSync = new();
     private readonly Lock _configOutletSync = new();
@@ -48,6 +51,7 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     private int _lastPublishedCommandSequence;
 
     public event EventHandler? StateChanged;
+    public event EventHandler<TwinTimingMarkerEvent>? TimingMarkerReceived;
 
     public LslTwinModeBridge(
         ILslOutletService commandOutlet,
@@ -234,6 +238,17 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             lock (_settingsSync)
             {
                 return _lastCommittedSnapshotReceivedAt;
+            }
+        }
+    }
+
+    public IReadOnlyList<TwinTimingMarkerEvent> TimingMarkerEvents
+    {
+        get
+        {
+            lock (_settingsSync)
+            {
+                return _timingMarkerEvents.ToArray();
             }
         }
     }
@@ -713,7 +728,18 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
 
     private void ParseStateReading(LslMonitorReading reading)
     {
-        var structuredResult = TryParseStructuredFrame(reading);
+        var structuredResult = TryParseStructuredFrame(reading, out var timingMarker);
+        if (structuredResult == StructuredFrameResult.ParsedTimingMarker)
+        {
+            if (timingMarker is not null)
+            {
+                TimingMarkerReceived?.Invoke(this, timingMarker);
+            }
+
+            StateChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
         if (structuredResult == StructuredFrameResult.ParsedStateChanged)
         {
             StateChanged?.Invoke(this, EventArgs.Empty);
@@ -755,8 +781,12 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private StructuredFrameResult TryParseStructuredFrame(LslMonitorReading reading)
+    private StructuredFrameResult TryParseStructuredFrame(
+        LslMonitorReading reading,
+        out TwinTimingMarkerEvent? timingMarker)
     {
+        timingMarker = null;
+
         if (reading.SampleValues is not { Count: >= 4 } values)
         {
             return StructuredFrameResult.NotStructured;
@@ -850,6 +880,27 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
                     _pendingStructuredHash = null;
                     return StructuredFrameResult.ParsedStateChanged;
 
+                case "event":
+                    if (IsTimingMarkerEventFrame(revision, key) &&
+                        TryParseTimingMarkerEvent(value, reading.Timestamp, out var parsedTimingMarker))
+                    {
+                        timingMarker = parsedTimingMarker;
+                        AddTimingMarkerEventLocked(parsedTimingMarker);
+                        AddStateEventLocked(new TwinStateEvent(
+                            reading.Timestamp,
+                            "timing_marker",
+                            value,
+                            $"{parsedTimingMarker.MarkerName} seq={FormatNullableInt(parsedTimingMarker.SampleSequence)} source_lsl={FormatNullableDouble(parsedTimingMarker.SourceLslTimestampSeconds)}"));
+                        return StructuredFrameResult.ParsedTimingMarker;
+                    }
+
+                    AddStateEventLocked(new TwinStateEvent(
+                        reading.Timestamp,
+                        "event",
+                        string.Join(" | ", values),
+                        string.IsNullOrWhiteSpace(key) ? revision : key));
+                    return StructuredFrameResult.ParsedNoChange;
+
                 default:
                     return StructuredFrameResult.NotStructured;
             }
@@ -860,7 +911,8 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
     {
         NotStructured,
         ParsedNoChange,
-        ParsedStateChanged
+        ParsedStateChanged,
+        ParsedTimingMarker
     }
 
     private void ParsePayloadLocked(string payload, DateTimeOffset timestamp)
@@ -914,6 +966,162 @@ public sealed class LslTwinModeBridge : ITwinModeBridge, IDisposable
             _stateEvents.RemoveAt(0);
         }
     }
+
+    private void AddTimingMarkerEventLocked(TwinTimingMarkerEvent timingMarker)
+    {
+        _timingMarkerEvents.Add(timingMarker);
+        while (_timingMarkerEvents.Count > 500)
+        {
+            _timingMarkerEvents.RemoveAt(0);
+        }
+    }
+
+    private static bool IsTimingMarkerEventFrame(string revision, string key)
+        => string.Equals(revision, "timing_marker", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "timing_marker", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryParseTimingMarkerEvent(
+        string payload,
+        DateTimeOffset receivedAtUtc,
+        out TwinTimingMarkerEvent timingMarker)
+    {
+        timingMarker = new TwinTimingMarkerEvent(
+            receivedAtUtc,
+            receivedAtUtc,
+            string.Empty,
+            string.Empty,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var markerName = GetJsonString(root, "marker_name", "markerName", "name");
+            if (string.IsNullOrWhiteSpace(markerName))
+            {
+                return false;
+            }
+
+            var recordedAtUtc = GetJsonDateTimeOffset(root, "recorded_at_utc", "recordedAtUtc") ?? receivedAtUtc;
+            timingMarker = new TwinTimingMarkerEvent(
+                receivedAtUtc,
+                recordedAtUtc,
+                markerName.Trim(),
+                GetJsonString(root, "marker_detail", "markerDetail", "detail"),
+                GetJsonInt(root, "sample_sequence", "sampleSequence"),
+                GetJsonDouble(root, "source_lsl_timestamp_seconds", "sourceLslTimestampSeconds"),
+                GetJsonDouble(root, "quest_local_clock_seconds", "questLocalClockSeconds"),
+                GetJsonDouble(root, "value01"),
+                GetJsonDouble(root, "aux_value", "auxValue"));
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string GetJsonString(JsonElement root, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (root.TryGetProperty(propertyName, out var value))
+            {
+                return value.ValueKind switch
+                {
+                    JsonValueKind.String => value.GetString() ?? string.Empty,
+                    JsonValueKind.Number => value.GetRawText(),
+                    JsonValueKind.True => "true",
+                    JsonValueKind.False => "false",
+                    _ => string.Empty
+                };
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static DateTimeOffset? GetJsonDateTimeOffset(JsonElement root, params string[] propertyNames)
+    {
+        var value = GetJsonString(root, propertyNames);
+        return DateTimeOffset.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static int? GetJsonInt(JsonElement root, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (!root.TryGetProperty(propertyName, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var parsedInt))
+            {
+                return parsedInt;
+            }
+
+            if (value.ValueKind == JsonValueKind.String &&
+                int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedInt))
+            {
+                return parsedInt;
+            }
+        }
+
+        return null;
+    }
+
+    private static double? GetJsonDouble(JsonElement root, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (!root.TryGetProperty(propertyName, out var value))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var parsedDouble))
+            {
+                return double.IsFinite(parsedDouble) ? parsedDouble : null;
+            }
+
+            if (value.ValueKind == JsonValueKind.String &&
+                double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsedDouble))
+            {
+                return double.IsFinite(parsedDouble) ? parsedDouble : null;
+            }
+        }
+
+        return null;
+    }
+
+    private static string FormatNullableInt(int? value)
+        => value?.ToString(CultureInfo.InvariantCulture) ?? "n/a";
+
+    private static string FormatNullableDouble(double? value)
+        => value.HasValue
+            ? value.Value.ToString("0.########", CultureInfo.InvariantCulture)
+            : "n/a";
 
     private static bool TryParseKeyValue(string payload, out string key, out string value)
     {

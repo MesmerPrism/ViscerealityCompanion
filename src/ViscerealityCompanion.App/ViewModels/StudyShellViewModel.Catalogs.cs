@@ -46,6 +46,7 @@ public sealed partial class StudyShellViewModel
         "signals_long.csv",
         "breathing_trace.csv",
         "clock_alignment_roundtrip.csv",
-        "upstream_lsl_monitor.csv"
+        "upstream_lsl_monitor.csv",
+        "timing_markers.csv"
     ];
 }

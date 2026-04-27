@@ -123,7 +123,8 @@ Validate the full Sussex experiment flow on a live headset with the headset worn
 - `clock_alignment_roundtrip.csv` is present on Windows.
 - `clock_alignment_samples.csv` is present in the pulled Quest data.
 - `upstream_lsl_monitor.csv` is present on Windows.
-- `timing_markers.csv` is present in the pulled Quest data.
+- `timing_markers.csv` is present on Windows from live `quest_twin_state` timing-marker events.
+- The pulled Quest `timing_markers.csv` is present as a backup copy.
 - Shared traces between Windows and Quest look aligned enough for comparison.
 - Windows recording scope and Quest recording scope are reviewed for expected start and stop differences.
 - Timing markers include at least:

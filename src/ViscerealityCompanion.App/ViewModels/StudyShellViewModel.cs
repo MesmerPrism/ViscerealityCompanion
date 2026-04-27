@@ -491,6 +491,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         {
             lslBridge.ConfigureExpectedQuestStateSource(_study.App.PackageId);
             lslBridge.StateChanged += OnTwinBridgeStateChanged;
+            lslBridge.TimingMarkerReceived += OnTwinTimingMarkerReceived;
         }
 
         _testLslSignalService.StateChanged += OnTestLslSignalServiceStateChanged;
@@ -2525,6 +2526,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
             lslBridge.StateChanged -= OnTwinBridgeStateChanged;
+            lslBridge.TimingMarkerReceived -= OnTwinTimingMarkerReceived;
         }
 
         _testLslSignalService.StateChanged -= OnTestLslSignalServiceStateChanged;
@@ -9544,6 +9546,23 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void TryRecordLiveTimingMarker(TwinTimingMarkerEvent marker)
+    {
+        if (_activeRecordingSession is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _activeRecordingSession.RecordTimingMarker(marker);
+        }
+        catch (Exception exception)
+        {
+            SetRecorderFault("Write live Sussex timing marker", exception);
+        }
+    }
+
     private void TryRecordActiveSessionCommandObservations(DateTimeOffset observedAtUtc)
     {
         if (_activeRecordingSession is null || _reportedTwinState.Count == 0)
@@ -9903,8 +9922,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 ? $"Recording participant {_activeRecordingSession.ParticipantId} and aligning clocks."
                 : $"Recording participant {_activeRecordingSession.ParticipantId}.";
             RecordingDetail = ClockAlignmentRunning
-                ? $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. {ClockAlignmentDetail}"
-                : $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. Quest backup files will be pulled into device-session-pull when recording stops.";
+                ? $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, Quest timing markers, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. {ClockAlignmentDetail}"
+                : $"Writing session events, long-form signals, breathing trace, passive upstream LSL observations, Quest timing markers, clock alignment samples, settings snapshot, and screenshots to {_activeRecordingSession.SessionFolderPath}. Quest backup files will be pulled into device-session-pull when recording stops.";
             RecordingSessionLabel = $"Active session: {_activeRecordingSession.SessionId}";
             RecordingFolderPath = _activeRecordingSession.SessionFolderPath;
             RecordingDevicePullFolderPath = string.Empty;
@@ -13748,6 +13767,11 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 _twinRefreshTimer.Start();
             }
         });
+    }
+
+    private void OnTwinTimingMarkerReceived(object? sender, TwinTimingMarkerEvent marker)
+    {
+        _ = _dispatcher.InvokeAsync(() => TryRecordLiveTimingMarker(marker));
     }
 
     private void OnTwinRefreshTimerTick(object? sender, EventArgs e)

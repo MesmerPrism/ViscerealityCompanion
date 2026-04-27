@@ -334,8 +334,10 @@ public sealed class StudyDataRecordingSession : IDisposable
     private readonly StreamWriter _breathingWriter;
     private readonly StreamWriter _clockAlignmentWriter;
     private readonly StreamWriter _upstreamLslMonitorWriter;
+    private readonly StreamWriter _timingMarkersWriter;
     private string _sessionConditionsJson;
     private const int UpstreamLslMonitorSettingsPersistInterval = 25;
+    private const int TimingMarkerSettingsPersistInterval = 25;
 
     private bool _disposed;
     private StudyDataRecordingSettingsDocument _settings;
@@ -356,6 +358,7 @@ public sealed class StudyDataRecordingSession : IDisposable
         BreathingCsvPath = Path.Combine(SessionFolderPath, "breathing_trace.csv");
         ClockAlignmentCsvPath = Path.Combine(SessionFolderPath, "clock_alignment_roundtrip.csv");
         UpstreamLslMonitorCsvPath = Path.Combine(SessionFolderPath, "upstream_lsl_monitor.csv");
+        TimingMarkersCsvPath = Path.Combine(SessionFolderPath, "timing_markers.csv");
         SettingsJsonPath = Path.Combine(SessionFolderPath, "session_settings.json");
         SessionSnapshotJsonPath = Path.Combine(SessionFolderPath, "session_snapshot.json");
         _sessionConditionsJson = request.SessionConditionsJson ?? string.Empty;
@@ -367,12 +370,14 @@ public sealed class StudyDataRecordingSession : IDisposable
         _breathingWriter = CreateWriter(BreathingCsvPath, encoding);
         _clockAlignmentWriter = CreateWriter(ClockAlignmentCsvPath, encoding);
         _upstreamLslMonitorWriter = CreateWriter(UpstreamLslMonitorCsvPath, encoding);
+        _timingMarkersWriter = CreateWriter(TimingMarkersCsvPath, encoding);
 
         QueueWriteLine(_eventsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,event_name,event_detail,command_action_id,result");
         QueueWriteLine(_signalsWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,lsl_timestamp_seconds,source,signal_group,signal_name,value_numeric,value_text,unit,sequence,quest_selector");
         QueueWriteLine(_breathingWriter, "participant_id,session_id,dataset_id,recorded_at_utc,source_timestamp_utc,breath_volume01,sphere_radius_progress01,sphere_radius_raw,controller_calibrated");
         QueueWriteLine(_clockAlignmentWriter, "participant_id,session_id,dataset_id,window_kind,probe_sequence,probe_sent_at_utc,probe_sent_lsl_seconds,echo_received_at_utc,echo_received_lsl_seconds,echo_sample_lsl_seconds,quest_received_at_utc,quest_received_lsl_seconds,quest_echo_lsl_seconds,quest_minus_windows_clock_seconds,roundtrip_seconds");
         QueueWriteLine(_upstreamLslMonitorWriter, "participant_id,session_id,dataset_id,recorded_at_utc,observed_local_clock_seconds,stream_sample_timestamp_seconds,stream_name,stream_type,channel_index,channel_format,value_numeric,value_text,sequence,status,detail,source_id");
+        QueueWriteLine(_timingMarkersWriter, "participant_id,session_id,dataset_id,recorded_at_utc,marker_name,marker_detail,sample_sequence,source_lsl_timestamp_seconds,quest_local_clock_seconds,value01,aux_value,windows_received_at_utc");
 
         _settings = new StudyDataRecordingSettingsDocument(
             request.StudyId,
@@ -425,6 +430,8 @@ public sealed class StudyDataRecordingSession : IDisposable
             0,
             0,
             UpstreamLslMonitorCsvPath,
+            0,
+            TimingMarkersCsvPath,
             0);
 
         WriteSettingsDocument();
@@ -455,6 +462,8 @@ public sealed class StudyDataRecordingSession : IDisposable
     public string ClockAlignmentCsvPath { get; }
 
     public string UpstreamLslMonitorCsvPath { get; }
+
+    public string TimingMarkersCsvPath { get; }
 
     public string SettingsJsonPath { get; }
 
@@ -676,6 +685,39 @@ public sealed class StudyDataRecordingSession : IDisposable
         }
     }
 
+    public void RecordTimingMarker(TwinTimingMarkerEvent marker)
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposed();
+            QueueWriteLine(
+                _timingMarkersWriter,
+                string.Join(
+                    ",",
+                    Csv(ParticipantId),
+                    Csv(SessionId),
+                    Csv(DatasetId),
+                    Csv(marker.RecordedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
+                    Csv(marker.MarkerName),
+                    Csv(marker.MarkerDetail),
+                    Csv(marker.SampleSequence?.ToString(CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(marker.SourceLslTimestampSeconds?.ToString("0.########", CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(marker.QuestLocalClockSeconds?.ToString("0.########", CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(marker.Value01?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(marker.AuxValue?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty),
+                    Csv(marker.ReceivedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture))));
+
+            _settings = _settings with
+            {
+                TimingMarkerCount = _settings.TimingMarkerCount + 1
+            };
+            if (_settings.TimingMarkerCount % TimingMarkerSettingsPersistInterval == 0)
+            {
+                WriteSettingsDocument();
+            }
+        }
+    }
+
     public void UpdateSessionContext(
         JsonNode? latestSessionParameterState,
         string? sessionConditionsJson,
@@ -795,6 +837,7 @@ public sealed class StudyDataRecordingSession : IDisposable
             _breathingWriter.Dispose();
             _clockAlignmentWriter.Dispose();
             _upstreamLslMonitorWriter.Dispose();
+            _timingMarkersWriter.Dispose();
         }
     }
 
@@ -918,7 +961,9 @@ public sealed class StudyDataRecordingSession : IDisposable
         int ClockAlignmentEndSampleCount,
         int ClockAlignmentBackgroundSampleCount,
         string UpstreamLslMonitorFile,
-        int UpstreamLslMonitorSampleCount);
+        int UpstreamLslMonitorSampleCount,
+        string TimingMarkersFile,
+        int TimingMarkerCount);
 
     private sealed class AsyncFileQueue : IDisposable
     {

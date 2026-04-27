@@ -234,6 +234,44 @@ public class LslTwinModeBridgeTests
     }
 
     [Fact]
+    public async Task Timing_marker_event_frame_is_parsed_and_raised()
+    {
+        using var bridge = CreateBridge(out _, out _, out var stateMonitor, out _);
+        var timestamp = new DateTimeOffset(2026, 04, 24, 10, 15, 1, TimeSpan.Zero);
+        TwinTimingMarkerEvent? receivedMarker = null;
+        bridge.TimingMarkerReceived += (_, marker) => receivedMarker = marker;
+
+        stateMonitor.EnqueueReading(new LslMonitorReading(
+            "Streaming",
+            string.Empty,
+            null,
+            20f,
+            timestamp.AddMilliseconds(2),
+            SampleValues:
+            [
+                "event",
+                "timing_marker",
+                "timing_marker",
+                """
+                {"recorded_at_utc":"2026-04-24T10:15:01.0000000Z","marker_name":"orbit_radius_peak","marker_detail":"Representative orbit-distance multiplier reached its near-maximum visual region.","sample_sequence":17,"source_lsl_timestamp_seconds":1234.5678,"quest_local_clock_seconds":45.6789,"value01":0.98,"aux_value":0.72}
+                """
+            ]));
+
+        bridge.Open();
+        await Task.Delay(200);
+
+        Assert.NotNull(receivedMarker);
+        Assert.Equal("orbit_radius_peak", receivedMarker!.MarkerName);
+        Assert.Equal(17, receivedMarker.SampleSequence);
+        Assert.Equal(1234.5678, receivedMarker.SourceLslTimestampSeconds);
+        Assert.Equal(45.6789, receivedMarker.QuestLocalClockSeconds);
+        Assert.Equal(0.98, receivedMarker.Value01);
+        Assert.Equal(timestamp.AddMilliseconds(2), receivedMarker.ReceivedAtUtc);
+        Assert.Single(bridge.TimingMarkerEvents);
+        Assert.Contains(bridge.StateEvents, stateEvent => stateEvent.Category == "timing_marker");
+    }
+
+    [Fact]
     public async Task ConfigureExpectedQuestStateSource_applies_package_bound_source_filter()
     {
         using var bridge = CreateBridge(out _, out _, out var stateMonitor, out _);

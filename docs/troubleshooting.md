@@ -262,6 +262,12 @@ resolved LSL `source_id` for the passive Windows-side inlet. Use that column to
 confirm which publisher Windows latched onto when duplicate
 `HRV_Biofeedback / HRV` sources were visible.
 
+Current participant recordings also write `timing_markers.csv` on Windows from
+live Quest timing-marker events on `quest_twin_state`. The PDF timing pages use
+that Windows copy first and only fall back to the pulled Quest
+`device-session-pull\timing_markers.csv` when the Windows file has no valid
+marker rows.
+
 Current builds also split `Analyze Windows Environment` into more precise LSL
 hazard checks:
 
@@ -324,6 +330,7 @@ Check for:
 - `breathing_trace.csv`
 - `clock_alignment_roundtrip.csv`
 - `upstream_lsl_monitor.csv`
+- `timing_markers.csv`
 - `device-session-pull\`
 
 If the Windows files are present but `device-session-pull` is absent, empty, or

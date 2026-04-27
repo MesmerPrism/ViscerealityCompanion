@@ -8,7 +8,7 @@
                 "packageId":  "com.Viscereality.SussexExperiment",
                 "apkPath":  "../quest-session-kit/APKs/SussexExperiment.apk",
                 "launchComponent":  "com.Viscereality.SussexExperiment/com.unity3d.player.UnityPlayerGameActivity",
-                "sha256":  "0DB9E76C6D8BF058D38C743666C35E25846C2C8270A530E7EC9125442D6BFAC7",
+                "sha256":  "B73AABFBC114E2B7CDB86D3D7817055572CFC3A73401D4F28AD283FF23425582",
                 "versionName":  "0.1.2",
                 "notes":  "The Sussex shell ships with a bundled Sussex Experiment APK. The operator shell keeps checking the bundled APK hash and the installed headset hash against the approved Sussex study build.",
                 "allowManualSelection":  false,
@@ -143,10 +143,10 @@
     "conditions":  [
                        {
                            "id":  "current",
-                            "label":  "Current",
-                            "description":  "Current Sussex visual and controller-breathing settings.",
-                            "isActive":  true,
-                            "visualProfileId":  "condition-current-visual",
+                           "label":  "Current",
+                           "description":  "Current Sussex visual and controller-breathing settings.",
+                           "isActive":  true,
+                           "visualProfileId":  "condition-current-visual",
                            "controllerBreathingProfileId":  "condition-current-breathing",
                            "properties":  {
                                               "visual.orbit":  "current",
@@ -155,10 +155,10 @@
                        },
                        {
                            "id":  "fixed-radius-no-orbit",
-                            "label":  "Fixed Radius, No Orbit",
-                            "description":  "Orbit distance is locked to 0 and the sphere radius envelope is locked to 2 world units.",
-                            "isActive":  true,
-                            "visualProfileId":  "condition-fixed-radius-no-orbit",
+                           "label":  "Fixed Radius, No Orbit",
+                           "description":  "Orbit distance is locked to 0 and the sphere radius envelope is locked to 2 world units.",
+                           "isActive":  true,
+                           "visualProfileId":  "condition-fixed-radius-no-orbit",
                            "controllerBreathingProfileId":  "condition-fixed-radius-breathing",
                            "properties":  {
                                               "visual.orbit":  "0..0",

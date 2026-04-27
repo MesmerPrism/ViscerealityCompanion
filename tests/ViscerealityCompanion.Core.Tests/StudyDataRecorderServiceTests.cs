@@ -129,10 +129,21 @@ public sealed class StudyDataRecorderServiceTests
                 12,
                 "Streaming LSL sample.",
                 "Numeric sample from `HRV_Biofeedback` / `HRV`."));
+            session.RecordTimingMarker(new TwinTimingMarkerEvent(
+                startedAtUtc.AddSeconds(1.7),
+                startedAtUtc.AddSeconds(1.6),
+                "orbit_radius_peak",
+                "Representative orbit-distance multiplier reached its near-maximum visual region.",
+                42,
+                1234.56,
+                101.25,
+                0.98,
+                0.72));
 
             using (var preCompleteSettingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath)))
             {
                 Assert.Equal(0, preCompleteSettingsDocument.RootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
+                Assert.Equal(0, preCompleteSettingsDocument.RootElement.GetProperty("TimingMarkerCount").GetInt32());
             }
 
             session.Complete(startedAtUtc.AddMinutes(8));
@@ -179,6 +190,13 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Contains("HRV_Biofeedback", upstreamLines[1], StringComparison.Ordinal);
             Assert.Contains("0.63", upstreamLines[1], StringComparison.Ordinal);
 
+            var timingMarkerLines = File.ReadAllLines(session.TimingMarkersCsvPath);
+            Assert.Equal(2, timingMarkerLines.Length);
+            Assert.Contains("windows_received_at_utc", timingMarkerLines[0], StringComparison.Ordinal);
+            Assert.Contains("orbit_radius_peak", timingMarkerLines[1], StringComparison.Ordinal);
+            Assert.Contains("1234.56", timingMarkerLines[1], StringComparison.Ordinal);
+            Assert.Contains("101.25", timingMarkerLines[1], StringComparison.Ordinal);
+
             using var settingsDocument = JsonDocument.Parse(File.ReadAllText(session.SettingsJsonPath));
             var rootElement = settingsDocument.RootElement;
             Assert.Equal("P007", rootElement.GetProperty("ParticipantId").GetString());
@@ -204,6 +222,8 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Equal(0, rootElement.GetProperty("ClockAlignmentBackgroundSampleCount").GetInt32());
             Assert.Equal(session.UpstreamLslMonitorCsvPath, rootElement.GetProperty("UpstreamLslMonitorFile").GetString());
             Assert.Equal(1, rootElement.GetProperty("UpstreamLslMonitorSampleCount").GetInt32());
+            Assert.Equal(session.TimingMarkersCsvPath, rootElement.GetProperty("TimingMarkersFile").GetString());
+            Assert.Equal(1, rootElement.GetProperty("TimingMarkerCount").GetInt32());
             Assert.Equal("2026-03-29T12:42:56+00:00", rootElement.GetProperty("SessionEndedAtUtc").GetString());
 
             using var sessionSnapshotDocument = JsonDocument.Parse(File.ReadAllText(session.SessionSnapshotJsonPath));

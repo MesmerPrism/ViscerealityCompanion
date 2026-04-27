@@ -25,6 +25,7 @@ public static class SussexValidationPdfRenderer
         "breathing_trace.csv",
         "clock_alignment_roundtrip.csv",
         "upstream_lsl_monitor.csv",
+        "timing_markers.csv",
         "session_settings.json"
     ];
 
@@ -1444,7 +1445,7 @@ public static class SussexValidationPdfRenderer
         AddParagraph(section, "Packet Delivery To Orbit Peak", SectionStyleName);
         AddParagraph(
             section,
-            "These timings use Windows upstream LSL packet timestamps plus Quest timing markers, not the held mirror values in signals_long.csv.",
+            "These timings use Windows upstream LSL packet timestamps plus Windows-captured Quest timing markers when present, with pulled Quest timing markers as the backup. They do not use the held mirror values in signals_long.csv.",
             SmallStyleName);
 
         var analysis = data.PacketTiming;
@@ -2402,8 +2403,12 @@ public static class SussexValidationPdfRenderer
             var questEvents = ReadEvents(Path.Combine(devicePullFolderPath, "session_events.csv"));
             var clockAlignment = ReadClockAlignment(Path.Combine(sessionFolderPath, "clock_alignment_roundtrip.csv"));
             var windowsUpstream = ReadUpstreamLslSamples(Path.Combine(sessionFolderPath, "upstream_lsl_monitor.csv"));
+            var windowsTimingMarkers = ReadTimingMarkers(Path.Combine(sessionFolderPath, "timing_markers.csv"));
             var questTimingMarkers = ReadTimingMarkers(Path.Combine(devicePullFolderPath, "timing_markers.csv"));
-            var questPackets = GroupQuestPacketTimings(questTimingMarkers);
+            var selectedTimingMarkers = windowsTimingMarkers.Count > 0
+                ? windowsTimingMarkers
+                : questTimingMarkers;
+            var questPackets = GroupQuestPacketTimings(selectedTimingMarkers);
 
             return new ValidationSessionData
             {
