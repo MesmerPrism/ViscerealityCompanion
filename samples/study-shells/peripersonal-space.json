@@ -25,14 +25,19 @@
       "debug.oculus.foveation.level": "1",
       "viscereality.panel.package": "io.github.mesmerprism.questquestionnaire.panel",
       "viscereality.panel.launchComponent": "io.github.mesmerprism.questquestionnaire.panel/.QuestionnaireActivity",
-      "viscereality.minimum_headset_battery_percent": "50"
+      "viscereality.minimum_headset_battery_percent": "50",
+      "viscereality.recordingLifecycle": "one_global_recording_after_block_1",
+      "viscereality.sessionFolderNaming": "participantRef_sessionId_yyyyMMdd-HHmmss",
+      "viscereality.breathTrackingControllerRule": "right-handed=>left-controller; left-handed=>right-controller",
+      "viscereality.runtimeStateLslStreamPattern": "peripersonal_runtime_state_{participantRef}",
+      "viscereality.particleTriggerLslStreamPattern": "peripersonal_particle_triggers_{participantRef}"
     }
   },
   "monitoring": {
     "expectedBreathingLabel": "",
     "expectedHeartbeatLabel": "",
     "expectedCoherenceLabel": "",
-    "expectedLslStreamName": "peripersonal_runtime_state",
+    "expectedLslStreamName": "peripersonal_runtime_state_{participantRef}",
     "expectedLslStreamType": "peripersonal.runtime.state",
     "recenterDistanceThresholdUnits": 0.2,
     "lslConnectivityKeys": [
@@ -42,15 +47,19 @@
     ],
     "lslStreamNameKeys": [
       "peripersonal_runtime_state",
+      "peripersonal_particle_triggers",
       "quest_twin_state"
     ],
     "lslStreamTypeKeys": [
       "peripersonal.runtime.state",
+      "peripersonal.particle.trigger",
       "quest.twin.state"
     ],
     "lslValueKeys": [
       "study.recording.device.active",
-      "study.session.dataset_id"
+      "study.recording.device.session_folder_name",
+      "study.session.dataset_id",
+      "study.session.breath_tracking_controller_side"
     ],
     "controllerValueKeys": [
       "controller.position.x",
@@ -97,7 +106,7 @@
     "startBreathingCalibrationActionId": "prepare_session",
     "resetBreathingCalibrationActionId": "close_panel",
     "startExperimentActionId": "start_recording",
-    "endExperimentActionId": "stop_recording",
+    "endExperimentActionId": "stop_recording_and_close_apps",
     "setBreathingModeControllerVolumeActionId": "set_condition:left",
     "setBreathingModeAutomaticCycleActionId": "set_condition:right",
     "startAutomaticBreathingActionId": "open_questionnaire_block",
@@ -154,4 +163,3 @@
     }
   ]
 }
-
