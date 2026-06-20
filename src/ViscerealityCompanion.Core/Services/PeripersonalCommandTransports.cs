@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using ViscerealityCompanion.Core.Models;
 
 namespace ViscerealityCompanion.Core.Services;
@@ -121,10 +120,6 @@ public sealed class PeripersonalLslCommandTransport : IPeripersonalCommandTransp
 
 public sealed class PeripersonalAndroidBroadcastCommandTransport : IPeripersonalCommandTransport
 {
-    private static readonly Regex ResultDataRegex = new(
-        @"data=""(?<data>(?:\\""|[^""])*)""",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.Singleline);
-
     private readonly string _adbPath;
     private readonly string _selector;
     private readonly string _broadcastAction;
@@ -162,8 +157,13 @@ public sealed class PeripersonalAndroidBroadcastCommandTransport : IPeripersonal
         var commandJson = JsonSerializer.Serialize(
             command,
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        var shellCommand = BuildBroadcastShellCommand(
+            _broadcastAction,
+            _receiverComponent,
+            _commandJsonExtra,
+            commandJson);
         var result = await RunAdbAsync(
-                ["-s", _selector, "shell", "am", "broadcast", "-a", _broadcastAction, "-n", _receiverComponent, "--es", _commandJsonExtra, commandJson],
+                ["-s", _selector, "shell", shellCommand],
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -183,13 +183,58 @@ public sealed class PeripersonalAndroidBroadcastCommandTransport : IPeripersonal
 
     internal static string ExtractResultData(string output)
     {
-        var match = ResultDataRegex.Match(output ?? string.Empty);
-        if (!match.Success)
+        const string Marker = "data=\"";
+        var source = output ?? string.Empty;
+        var start = source.IndexOf(Marker, StringComparison.Ordinal);
+        if (start < 0)
         {
             return string.Empty;
         }
 
-        return match.Groups["data"].Value.Replace("\\\"", "\"", StringComparison.Ordinal);
+        start += Marker.Length;
+        var end = source.IndexOf("\", extras:", start, StringComparison.Ordinal);
+        if (end < 0)
+        {
+            end = source.LastIndexOf('"');
+        }
+
+        if (end <= start)
+        {
+            return string.Empty;
+        }
+
+        return source[start..end]
+            .Replace("\\\"", "\"", StringComparison.Ordinal)
+            .Replace("\\/", "/", StringComparison.Ordinal);
+    }
+
+    internal static string BuildBroadcastShellCommand(
+        string broadcastAction,
+        string receiverComponent,
+        string commandJsonExtra,
+        string commandJson)
+        => string.Join(
+            " ",
+            [
+                "am",
+                "broadcast",
+                "-a",
+                ShellQuote(broadcastAction),
+                "-n",
+                ShellQuote(receiverComponent),
+                "--es",
+                ShellQuote(commandJsonExtra),
+                ShellQuote(commandJson)
+            ]);
+
+    internal static string ShellQuote(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return "''";
+        }
+
+        return $"'{value.Replace("'", "'\\''", StringComparison.Ordinal)}'";
     }
 
     private async Task<AdbCommandResult> RunAdbAsync(

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using ViscerealityCompanion.Core.Models;
@@ -70,6 +71,101 @@ public sealed class PeripersonalCommandTransportTests
         var receiptJson = PeripersonalAndroidBroadcastCommandTransport.ExtractResultData(output);
 
         Assert.Contains("\"command_id\":\"command-001\"", receiptJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AndroidBroadcastTransport_ExtractsPrettyReceiptFromQuestBroadcastOutput()
+    {
+        const string output =
+            "Broadcast completed: result=-1, data=\"{\n" +
+            "  \"protocol_version\": \"viscereality.peripersonal.command_receipt.v1\",\n" +
+            "  \"command_id\": \"command-001\",\n" +
+            "  \"observed_state\": {\n" +
+            "    \"session_dir\": \"\\/data\\/user\\/0\\/io.github.mesmerprism.questquestionnaire.panel\\/files\\/peripersonal_sessions\\/P001_session-1_20260620-120000\"\n" +
+            "  }\n" +
+            "}\", extras: Bundle[mParcelledData.dataSize=2048]";
+
+        var receiptJson = PeripersonalAndroidBroadcastCommandTransport.ExtractResultData(output);
+        var receipt = PeripersonalCommandReceiptEnvelope.ParseJson(
+            receiptJson.Replace(
+                "\"observed_state\": {",
+                "\"sequence\":1,\"session_id\":\"session-1\",\"target_app\":\"panel\",\"action\":\"prepare_session\",\"transport_received\":\"android_ordered_broadcast\",\"accepted\":true,\"executed\":true,\"completed\":true,\"issue_code\":\"\",\"message\":\"ok\",\"state_revision\":1,\"observed_state\": {",
+                StringComparison.Ordinal));
+
+        Assert.Equal("command-001", receipt.CommandId);
+        Assert.Contains("/data/user/0/io.github.mesmerprism.questquestionnaire.panel", receiptJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AndroidBroadcastTransport_BuildsShellQuotedBroadcastCommand()
+    {
+        const string commandJson = "{\"commandId\":\"command-001\",\"payload\":{\"participantRef\":\"O'Brien\"}}";
+
+        var shellCommand = PeripersonalAndroidBroadcastCommandTransport.BuildBroadcastShellCommand(
+            "io.github.mesmerprism.questquestionnaire.panel.action.PERIPERSONAL_COMMAND",
+            "io.github.mesmerprism.questquestionnaire.panel/.PeripersonalPanelCommandReceiver",
+            "io.github.mesmerprism.questquestionnaire.panel.extra.COMMAND_JSON",
+            commandJson);
+
+        Assert.StartsWith("am broadcast -a 'io.github.mesmerprism.questquestionnaire.panel.action.PERIPERSONAL_COMMAND'", shellCommand, StringComparison.Ordinal);
+        Assert.Contains("--es 'io.github.mesmerprism.questquestionnaire.panel.extra.COMMAND_JSON'", shellCommand, StringComparison.Ordinal);
+        Assert.Contains("'\\''", shellCommand, StringComparison.Ordinal);
+        Assert.Contains("\"participantRef\":\"O'\\''Brien\"", shellCommand, StringComparison.Ordinal);
+        Assert.EndsWith("'", shellCommand, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AndroidBroadcastTransport_LiveQuestPanelPrepareReceipt_WhenEnvironmentIsSet()
+    {
+        var adbPath = Environment.GetEnvironmentVariable("PERIPERSONAL_PANEL_TRANSPORT_ADB");
+        var selector = Environment.GetEnvironmentVariable("PERIPERSONAL_PANEL_TRANSPORT_SERIAL");
+        if (string.IsNullOrWhiteSpace(adbPath) || string.IsNullOrWhiteSpace(selector))
+        {
+            return;
+        }
+
+        var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        var sessionFolderName = $"PANELTRANSPORT_session-001_{timestamp}";
+        var command = PeripersonalCommandEnvelope.Create(
+            sequence: 42,
+            sessionId: "session-001",
+            participantRef: "PANELTRANSPORT",
+            targetApp: "panel",
+            targetRuntimeKind: "quest_questionnaire_panel_apk",
+            targetPackage: "io.github.mesmerprism.questquestionnaire.panel",
+            action: "prepare_session",
+            transport: "adb_ordered_broadcast",
+            requiresObservedState: true,
+            payload: new JsonObject
+            {
+                ["study_id"] = "peripersonal-space",
+                ["session_id"] = "session-001",
+                ["participant_ref"] = "PANELTRANSPORT",
+                ["handedness"] = "right-handed",
+                ["breath_tracking_controller_side"] = "left",
+                ["session_folder_name"] = sessionFolderName,
+                ["session_folder_convention"] = PeripersonalOperatorWorkflowService.SessionFolderConvention,
+                ["recording_lifecycle"] = PeripersonalOperatorWorkflowService.RecordingLifecycle,
+                ["runtime_state_lsl_stream_name"] = "peripersonal_runtime_state_PANELTRANSPORT",
+                ["particle_trigger_lsl_stream_name"] = "peripersonal_particle_triggers_PANELTRANSPORT"
+            },
+            commandId: $"panel-transport-{timestamp}",
+            sentAtUtc: DateTimeOffset.UtcNow);
+
+        var transport = new PeripersonalAndroidBroadcastCommandTransport(
+            adbPath,
+            selector,
+            timeout: TimeSpan.FromSeconds(20));
+        var receipt = await transport.SendAsync(command);
+
+        Assert.True(receipt.Accepted);
+        Assert.True(receipt.Executed);
+        Assert.True(receipt.Completed);
+        Assert.Equal(command.CommandId, receipt.CommandId);
+        Assert.Equal("prepare_session", receipt.Action);
+        Assert.True(receipt.ObservedState?["session_ready"]?.GetValue<bool>());
+        Assert.Equal(sessionFolderName, receipt.ObservedState?["session_folder_name"]?.GetValue<string>());
+        Assert.Equal("left", receipt.ObservedState?["breath_tracking_controller_side"]?.GetValue<string>());
     }
 
     private static PeripersonalCommandEnvelope CreateCommand(
