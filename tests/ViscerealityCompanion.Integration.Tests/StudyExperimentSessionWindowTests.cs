@@ -130,6 +130,8 @@ public sealed class StudyExperimentSessionWindowTests
                 conditionCombo.Items.Cast<StudyConditionDefinition>(),
                 condition => condition.Id == "inactive");
             Assert.Equal("Apply Condition", applyConditionButton.Content);
+            var peripersonalPanel = Assert.IsType<StackPanel>(window.FindName("PeripersonalSessionPanel"));
+            Assert.Equal(Visibility.Collapsed, peripersonalPanel.Visibility);
 
             Assert.IsType<Expander>(window.FindName("SessionControlDetailExpander"));
             Assert.IsType<Expander>(window.FindName("ClockNetworkDetailExpander"));
@@ -140,6 +142,50 @@ public sealed class StudyExperimentSessionWindowTests
             Assert.IsType<Expander>(window.FindName("RecenterDetailExpander"));
             Assert.IsType<Expander>(window.FindName("QuestScreenshotDetailExpander"));
             Assert.IsType<Expander>(window.FindName("ClockProbeDetailExpander"));
+
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public async Task ExperimentSessionWindow_PeripersonalShell_ExposesContinuousRecordingWorkflowControls()
+    {
+        await fixture.InvokeAsync(async () =>
+        {
+            var app = fixture.Application;
+            if (app.Dispatcher.CheckAccess())
+            {
+                app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            }
+
+            using var viewModel = new StudyShellViewModel(CreateStudy("peripersonal-space"));
+            var window = new StudyExperimentSessionWindow(viewModel)
+            {
+                Width = 1600,
+                Height = 1000,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen
+            };
+
+            window.Show();
+            await WaitForConditionAsync(() => window.IsLoaded && window.IsVisible, TimeSpan.FromSeconds(5));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            window.UpdateLayout();
+
+            var peripersonalPanel = Assert.IsType<StackPanel>(window.FindName("PeripersonalSessionPanel"));
+            Assert.Equal(Visibility.Visible, peripersonalPanel.Visibility);
+            Assert.IsType<TextBox>(window.FindName("PeripersonalSessionIdTextBox"));
+            var handednessCombo = Assert.IsType<ComboBox>(window.FindName("PeripersonalHandednessComboBox"));
+            Assert.Equal("right-handed", handednessCombo.SelectedValue);
+            Assert.Equal("Breath controller: left controller.", viewModel.PeripersonalBreathControllerSideLabel);
+            Assert.Equal("session-001", viewModel.PeripersonalSessionIdDraft);
+            Assert.IsType<Button>(window.FindName("PreparePeripersonalSessionButton"));
+            Assert.IsType<Button>(window.FindName("OpenPeripersonalQuestionnaireBlock1Button"));
+            Assert.IsType<Button>(window.FindName("MarkPeripersonalBlock1SubmittedButton"));
+            Assert.IsType<Button>(window.FindName("OpenPeripersonalQuestionnaireBlock2Button"));
+            Assert.IsType<Button>(window.FindName("OpenPeripersonalQuestionnaireBlock3Button"));
+            Assert.IsType<TextBox>(window.FindName("PeripersonalXrBlockIdTextBox"));
+            Assert.IsType<Button>(window.FindName("MarkPeripersonalXrBlockEndButton"));
 
             window.Close();
         });

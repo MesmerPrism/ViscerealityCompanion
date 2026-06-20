@@ -139,6 +139,90 @@
                                        Margin="0,6,0,0"
                                        Visibility="{Binding ParticipantHasExistingSessions, Converter={StaticResource BoolToVisibility}}" />
 
+                            <StackPanel x:Name="PeripersonalSessionPanel"
+                                        Margin="0,14,0,0"
+                                        Visibility="{Binding IsPeripersonalWorkflow, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="Peripersonal Setup"
+                                           Style="{StaticResource SessionMicroLabelStyle}" />
+                                <TextBlock Text="Session Id"
+                                           Style="{StaticResource SessionMicroLabelStyle}"
+                                           Margin="0,8,0,0" />
+                                <TextBox x:Name="PeripersonalSessionIdTextBox"
+                                         Text="{Binding PeripersonalSessionIdDraft, UpdateSourceTrigger=PropertyChanged}"
+                                         FontSize="16"
+                                         Margin="0,4,0,0" />
+                                <TextBlock Text="Handedness"
+                                           Style="{StaticResource SessionMicroLabelStyle}"
+                                           Margin="0,8,0,0" />
+                                <ComboBox x:Name="PeripersonalHandednessComboBox"
+                                          SelectedValue="{Binding PeripersonalHandednessDraft, Mode=TwoWay}"
+                                          SelectedValuePath="Content"
+                                          MinHeight="34"
+                                          Margin="0,4,0,0">
+                                    <ComboBoxItem Content="right-handed" />
+                                    <ComboBoxItem Content="left-handed" />
+                                </ComboBox>
+                                <TextBlock Text="{Binding PeripersonalBreathControllerSideLabel}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,6,0,0" />
+                                <Button x:Name="PreparePeripersonalSessionButton"
+                                        Content="Prepare Session"
+                                        Command="{Binding PreparePeripersonalSessionCommand}"
+                                        IsEnabled="{Binding CanPreparePeripersonalSession}"
+                                        Margin="0,10,0,0" />
+                                <TextBlock Text="{Binding PeripersonalWorkflowSummary}"
+                                           FontSize="17"
+                                           FontWeight="Bold"
+                                           Foreground="{Binding PeripersonalWorkflowLevel, Converter={StaticResource OutcomeKindToBrush}}"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding PeripersonalWorkflowDetail, Converter={StaticResource StatusDetailFormatter}}"
+                                           Style="{StaticResource SessionBodyStyle}"
+                                           Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding PeripersonalSessionFolderLabel}"
+                                           Style="{StaticResource SessionCodeStyle}"
+                                           Margin="0,6,0,0" />
+                                <TextBlock Text="{Binding PeripersonalLedgerPath}"
+                                           Style="{StaticResource SessionCodeStyle}"
+                                           Margin="0,4,0,0" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button x:Name="OpenPeripersonalQuestionnaireBlock1Button"
+                                            Content="Open Block 1"
+                                            Command="{Binding OpenPeripersonalQuestionnaireBlock1Command}"
+                                            IsEnabled="{Binding CanOpenPeripersonalQuestionnaireBlock1}" />
+                                    <Button x:Name="MarkPeripersonalBlock1SubmittedButton"
+                                            Content="Block 1 Submitted"
+                                            Command="{Binding MarkPeripersonalBlock1SubmittedCommand}"
+                                            IsEnabled="{Binding CanMarkPeripersonalBlock1Submitted}"
+                                            Margin="8,0,0,0" />
+                                </WrapPanel>
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Button x:Name="OpenPeripersonalQuestionnaireBlock2Button"
+                                            Content="Open Block 2"
+                                            Command="{Binding OpenPeripersonalQuestionnaireBlock2Command}"
+                                            IsEnabled="{Binding CanOpenPeripersonalQuestionnaireBlock2}" />
+                                    <Button x:Name="OpenPeripersonalQuestionnaireBlock3Button"
+                                            Content="Open Block 3"
+                                            Command="{Binding OpenPeripersonalQuestionnaireBlock3Command}"
+                                            IsEnabled="{Binding CanOpenPeripersonalQuestionnaireBlock3}"
+                                            Margin="8,0,0,0" />
+                                </WrapPanel>
+                                <TextBlock Text="XR block marker"
+                                           Style="{StaticResource SessionMicroLabelStyle}"
+                                           Margin="0,10,0,0" />
+                                <WrapPanel Margin="0,4,0,0">
+                                    <TextBox x:Name="PeripersonalXrBlockIdTextBox"
+                                             Text="{Binding PeripersonalXrBlockIdDraft, UpdateSourceTrigger=PropertyChanged}"
+                                             Width="150"
+                                             MinHeight="32" />
+                                    <Button x:Name="MarkPeripersonalXrBlockEndButton"
+                                            Content="Mark XR Block End"
+                                            Command="{Binding MarkPeripersonalXrBlockEndCommand}"
+                                            IsEnabled="{Binding CanMarkPeripersonalXrBlockEnd}"
+                                            Margin="8,0,0,0" />
+                                </WrapPanel>
+                            </StackPanel>
+
                             <StackPanel Margin="0,14,0,0"
                                         Visibility="{Binding HasConditions, Converter={StaticResource BoolToVisibility}}">
                                 <TextBlock Text="Condition"

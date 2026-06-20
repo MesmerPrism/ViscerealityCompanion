@@ -8,9 +8,9 @@
     "packageId": "com.Viscereality.ViscerealityPeriPersonal",
     "apkPath": "../quest-session-kit/APKs/PeripersonalRuntime.apk",
     "launchComponent": "com.Viscereality.ViscerealityPeriPersonal/com.unity3d.player.UnityPlayerGameActivity",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-    "versionName": "pending-single-apk-build",
-    "notes": "Pending fresh single-APK build from S:/Work/repos/active/peripersonal-space-experiment-2025-12-10/Viscereality. Do not treat this placeholder hash as verified.",
+    "sha256": "1b1641ed8f5de677fe78c44c04210a04b3f247f37381ba4247b156e2e29112e9",
+    "versionName": "2026.06.20-single-runtime",
+    "notes": "Fresh single runtime APK built from S:/Work/repos/active/peripersonal-space-experiment-2025-12-10 on 2026-06-20. Unity package com.Viscereality.ViscerealityPeriPersonal; default particles invisible; runtime condition selection enabled.",
     "allowManualSelection": true,
     "launchInKioskMode": false
   },

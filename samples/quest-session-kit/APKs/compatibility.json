@@ -22,6 +22,29 @@
                                           "verifiedAtUtc":  "2026-04-14T11:09:43.3335879+00:00",
                                           "verifiedBy":  "tools/ViscerealityCompanion.VerificationHarness"
                                       }
+                 },
+                 {
+                     "sha256":  "1B1641ED8F5DE677FE78C44C04210A04B3F247F37381BA4247B156E2E29112E9",
+                     "status":  "compatible",
+                     "label":  "Peripersonal single runtime build",
+                     "notes":  "Single Unity runtime APK built and validated on 2026-06-20. Device smoke installed and launched com.Viscereality.ViscerealityPeriPersonal on Quest 3S Android 14; Unity default particles are invisible and runtime condition selection is enabled.",
+                     "tags":  [
+                                  "viscereality",
+                                  "peripersonal",
+                                  "runtime",
+                                  "single-apk",
+                                  "lsl"
+                              ],
+                     "verification":  {
+                                          "apkSha256":  "1B1641ED8F5DE677FE78C44C04210A04B3F247F37381BA4247B156E2E29112E9",
+                                          "softwareVersion":  "14",
+                                          "buildId":  "3451870041600610",
+                                          "displayId":  "UP1A.231005.007.A1",
+                                          "deviceProfileId":  "peripersonal-study-profile",
+                                          "environmentHash":  "",
+                                          "verifiedAtUtc":  "2026-06-20T14:24:53.8902599+00:00",
+                                          "verifiedBy":  "Viscereality/Tools/Test-PeripersonalExperimentApkDeviceSmoke.ps1"
+                                      }
                  }
              ]
 }

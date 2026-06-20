@@ -14,6 +14,22 @@
         "lsl",
         "twin"
       ]
+    },
+    {
+      "id": "peripersonal-runtime",
+      "label": "Peripersonal Unity Runtime APK",
+      "packageId": "com.Viscereality.ViscerealityPeriPersonal",
+      "apkFile": "PeripersonalRuntime.apk",
+      "launchComponent": "com.Viscereality.ViscerealityPeriPersonal/com.unity3d.player.UnityPlayerGameActivity",
+      "browserPackageId": "",
+      "description": "Bundled peripersonal-space single Unity runtime APK. It launches with particles invisible, accepts runtime condition and visibility commands, publishes participant-scoped LSL state, and participates in the continuous global recording workflow.",
+      "tags": [
+        "viscereality",
+        "peripersonal",
+        "runtime",
+        "lsl",
+        "single-apk"
+      ]
     }
   ],
   "bundles": []
