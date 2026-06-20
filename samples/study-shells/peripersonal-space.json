@@ -1,0 +1,157 @@
+{
+  "id": "peripersonal-space",
+  "label": "Peripersonal Space",
+  "partner": "Peripersonal study team",
+  "description": "Dedicated WPF operator shell for the peripersonal-space Unity runtime and Quest questionnaire panel. Windows owns session metadata, command ledger, readiness gates, mirrored LSL data, and review artifacts.",
+  "app": {
+    "label": "Peripersonal Unity Runtime APK",
+    "packageId": "com.Viscereality.ViscerealityPeriPersonal",
+    "apkPath": "../quest-session-kit/APKs/PeripersonalRuntime.apk",
+    "launchComponent": "com.Viscereality.ViscerealityPeriPersonal/com.unity3d.player.UnityPlayerGameActivity",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "versionName": "pending-single-apk-build",
+    "notes": "Pending fresh single-APK build from S:/Work/repos/active/peripersonal-space-experiment-2025-12-10/Viscereality. Do not treat this placeholder hash as verified.",
+    "allowManualSelection": true,
+    "launchInKioskMode": false
+  },
+  "deviceProfile": {
+    "id": "peripersonal-study-profile",
+    "label": "Peripersonal Study Device Profile",
+    "description": "Initial Quest device settings and private companion constants for the peripersonal workflow.",
+    "properties": {
+      "debug.oculus.cpuLevel": "5",
+      "debug.oculus.gpuLevel": "5",
+      "debug.oculus.foveation.dynamic": "false",
+      "debug.oculus.foveation.level": "1",
+      "viscereality.panel.package": "io.github.mesmerprism.questquestionnaire.panel",
+      "viscereality.panel.launchComponent": "io.github.mesmerprism.questquestionnaire.panel/.QuestionnaireActivity",
+      "viscereality.minimum_headset_battery_percent": "50"
+    }
+  },
+  "monitoring": {
+    "expectedBreathingLabel": "",
+    "expectedHeartbeatLabel": "",
+    "expectedCoherenceLabel": "",
+    "expectedLslStreamName": "peripersonal_runtime_state",
+    "expectedLslStreamType": "peripersonal.runtime.state",
+    "recenterDistanceThresholdUnits": 0.2,
+    "lslConnectivityKeys": [
+      "study.recording.device.active",
+      "study.session.id",
+      "runtime.app.identifier"
+    ],
+    "lslStreamNameKeys": [
+      "peripersonal_runtime_state",
+      "quest_twin_state"
+    ],
+    "lslStreamTypeKeys": [
+      "peripersonal.runtime.state",
+      "quest.twin.state"
+    ],
+    "lslValueKeys": [
+      "study.recording.device.active",
+      "study.session.dataset_id"
+    ],
+    "controllerValueKeys": [
+      "controller.position.x",
+      "controller.position.y",
+      "controller.position.z"
+    ],
+    "controllerStateKeys": [
+      "controller.tracking_state",
+      "left_controller.tracking_state",
+      "right_controller.tracking_state"
+    ],
+    "controllerTrackingKeys": [
+      "controller.available",
+      "left_controller.available",
+      "right_controller.available"
+    ],
+    "automaticBreathingValueKeys": [],
+    "heartbeatValueKeys": [],
+    "heartbeatStateKeys": [],
+    "coherenceValueKeys": [],
+    "coherenceStateKeys": [],
+    "performanceFpsKeys": [
+      "performance.fps"
+    ],
+    "performanceFrameTimeKeys": [
+      "performance.frame_ms"
+    ],
+    "performanceTargetFpsKeys": [
+      "performance.target_fps"
+    ],
+    "performanceRefreshRateKeys": [
+      "performance.refresh_hz"
+    ],
+    "recenterDistanceKeys": [],
+    "particleVisibilityKeys": [
+      "study.particles.visible",
+      "particles.visible"
+    ]
+  },
+  "controls": {
+    "recenterCommandActionId": "mark_timing_event",
+    "particleVisibleOnActionId": "set_particles_visible",
+    "particleVisibleOffActionId": "set_particles_hidden",
+    "startBreathingCalibrationActionId": "prepare_session",
+    "resetBreathingCalibrationActionId": "close_panel",
+    "startExperimentActionId": "start_recording",
+    "endExperimentActionId": "stop_recording",
+    "setBreathingModeControllerVolumeActionId": "set_condition:left",
+    "setBreathingModeAutomaticCycleActionId": "set_condition:right",
+    "startAutomaticBreathingActionId": "open_questionnaire_block",
+    "pauseAutomaticBreathingActionId": "pull_backup"
+  },
+  "conditions": [
+    {
+      "id": "left-visible",
+      "label": "Left Visible",
+      "description": "Left-hand peripersonal XR block with particles visible.",
+      "visualProfileId": "peripersonal-left-visible",
+      "controllerBreathingProfileId": "peripersonal-runtime-default",
+      "properties": {
+        "activeHand": "left",
+        "particlesVisible": "true",
+        "visibilityMode": "particles_visible"
+      }
+    },
+    {
+      "id": "left-anchor-only",
+      "label": "Left Anchor Only",
+      "description": "Left-hand peripersonal XR block with default particles hidden and anchor indicator retained.",
+      "visualProfileId": "peripersonal-left-anchor-only",
+      "controllerBreathingProfileId": "peripersonal-runtime-default",
+      "properties": {
+        "activeHand": "left",
+        "particlesVisible": "false",
+        "visibilityMode": "anchor_only"
+      }
+    },
+    {
+      "id": "right-visible",
+      "label": "Right Visible",
+      "description": "Right-hand peripersonal XR block with particles visible.",
+      "visualProfileId": "peripersonal-right-visible",
+      "controllerBreathingProfileId": "peripersonal-runtime-default",
+      "properties": {
+        "activeHand": "right",
+        "particlesVisible": "true",
+        "visibilityMode": "particles_visible"
+      }
+    },
+    {
+      "id": "right-anchor-only",
+      "label": "Right Anchor Only",
+      "description": "Right-hand peripersonal XR block with default particles hidden and anchor indicator retained.",
+      "visualProfileId": "peripersonal-right-anchor-only",
+      "controllerBreathingProfileId": "peripersonal-runtime-default",
+      "properties": {
+        "activeHand": "right",
+        "particlesVisible": "false",
+        "visibilityMode": "anchor_only"
+      }
+    }
+  ]
+}
+

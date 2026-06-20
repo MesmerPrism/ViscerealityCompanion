@@ -1,8 +1,11 @@
 {
-  "label": "Public study shells",
-  "startupStudyId": "sussex-university",
+  "label": "Peripersonal study shells",
+  "startupStudyId": "peripersonal-space",
   "lockToStartupStudy": true,
   "studies": [
+    {
+      "file": "peripersonal-space.json"
+    },
     {
       "file": "sussex-university.json"
     }
