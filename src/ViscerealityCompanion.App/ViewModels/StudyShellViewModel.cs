@@ -311,6 +311,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private string _participantIdDraft = string.Empty;
     private string _peripersonalSessionIdDraft = PeripersonalDefaultSessionId;
     private string _peripersonalHandednessDraft = "right-handed";
+    private string _peripersonalLanguageCodeDraft = "en";
     private string _peripersonalXrBlockIdDraft = "xr-block-1";
     private OperationOutcomeKind _peripersonalWorkflowLevel = OperationOutcomeKind.Preview;
     private string _peripersonalWorkflowSummary = "Prepare the peripersonal session before opening Questionnaire Block 1.";
@@ -549,6 +550,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         OpenPeripersonalQuestionnaireBlock3Command = new AsyncRelayCommand(() => OpenPeripersonalQuestionnaireBlockAsync("block-3", 3), () => CanOpenPeripersonalQuestionnaireBlock3);
         MarkPeripersonalBlock1SubmittedCommand = new AsyncRelayCommand(MarkPeripersonalBlock1SubmittedAsync, () => CanMarkPeripersonalBlock1Submitted);
         MarkPeripersonalXrBlockEndCommand = new AsyncRelayCommand(MarkPeripersonalXrBlockEndAsync, () => CanMarkPeripersonalXrBlockEnd);
+        RunPeripersonalClockProbeCommand = new AsyncRelayCommand(RunPeripersonalClockProbeAsync, () => CanRunPeripersonalClockProbe);
         StartExperimentCommand = new AsyncRelayCommand(StartExperimentAsync);
         EndExperimentCommand = new AsyncRelayCommand(EndExperimentAsync);
         ToggleRecordingCommand = new AsyncRelayCommand(ToggleRecordingAsync);
@@ -669,6 +671,15 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 ToggleParticlesCommand,
                 ParticlesOnCommand,
                 ParticlesOffCommand,
+                PreparePeripersonalSessionCommand,
+                OpenPeripersonalQuestionnaireBlock1Command,
+                OpenPeripersonalQuestionnaireBlock2Command,
+                OpenPeripersonalQuestionnaireBlock3Command,
+                MarkPeripersonalBlock1SubmittedCommand,
+                MarkPeripersonalXrBlockEndCommand,
+                RunPeripersonalClockProbeCommand,
+                StartExperimentCommand,
+                EndExperimentCommand,
                 StartBreathingCalibrationCommand,
                 RunWorkflowValidationCaptureCommand,
                 ResetBreathingCalibrationCommand
@@ -1226,6 +1237,19 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    public string PeripersonalLanguageCodeDraft
+    {
+        get => _peripersonalLanguageCodeDraft;
+        set
+        {
+            if (SetProperty(ref _peripersonalLanguageCodeDraft, value))
+            {
+                RefreshPeripersonalWorkflowProperties();
+                UpdateParticipantSessionState();
+            }
+        }
+    }
+
     public string PeripersonalXrBlockIdDraft
     {
         get => _peripersonalXrBlockIdDraft;
@@ -1541,19 +1565,46 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
     public bool WorkflowGuideIsFinalStep => WorkflowGuideStepIndex == WorkflowGuideCatalog.Length - 1;
 
-    public bool WorkflowGuideShowsParticipantEntry => WorkflowGuideStepIndex == 11;
+    public bool WorkflowGuideShowsParticipantEntry =>
+        _isPeripersonalWorkflow ? WorkflowGuideStepIndex == 5 : WorkflowGuideStepIndex == 11;
 
-    public bool WorkflowGuideShowsRecordingState => WorkflowGuideStepIndex == 11;
+    public bool WorkflowGuideShowsRecordingState =>
+        _isPeripersonalWorkflow ? WorkflowGuideStepIndex is 7 or 12 : WorkflowGuideStepIndex == 11;
 
-    public bool WorkflowGuideShowsDeviceProfileRows => WorkflowGuideStepIndex == 5;
+    public bool WorkflowGuideShowsDeviceProfileRows =>
+        !_isPeripersonalWorkflow && WorkflowGuideStepIndex == 5;
 
-    public bool WorkflowGuideShowsCalibrationTelemetry => WorkflowGuideStepIndex == 10;
+    public bool WorkflowGuideShowsCalibrationTelemetry =>
+        !_isPeripersonalWorkflow && WorkflowGuideStepIndex == 10;
 
-    public bool WorkflowGuideShowsWindowsEnvironmentAnalysis => WorkflowGuideStepIndex == 8;
+    public bool WorkflowGuideShowsWindowsEnvironmentAnalysis =>
+        !_isPeripersonalWorkflow && WorkflowGuideStepIndex == 8;
 
-    public bool WorkflowGuideShowsQuestScreenshotVerification => WorkflowGuideStepIndex == 9;
+    public bool WorkflowGuideShowsQuestScreenshotVerification =>
+        _isPeripersonalWorkflow ? WorkflowGuideStepIndex == 8 : WorkflowGuideStepIndex == 9;
 
-    public bool WorkflowGuideShowsValidationCaptureState => WorkflowGuideStepIndex == 11;
+    public bool WorkflowGuideShowsValidationCaptureState =>
+        !_isPeripersonalWorkflow && WorkflowGuideStepIndex == 11;
+
+    public string WorkflowGuideParticipantEntryTitle =>
+        _isPeripersonalWorkflow ? "Peripersonal Session Setup" : "Validation Capture Setup";
+
+    public string WorkflowGuideParticipantEntryDescription =>
+        _isPeripersonalWorkflow
+            ? "Enter the participant metadata for this run, then prepare the session before opening Questionnaire Block 1."
+            : "Enter a temporary validation id first, then start the 20 second test run from this card. Duplicate ids warn but do not block.";
+
+    public string WorkflowGuideParticipantEntryInputLabel =>
+        _isPeripersonalWorkflow ? "Participant Id" : "Temporary Subject Id";
+
+    public string WorkflowGuideParticipantEntryActionLabel =>
+        _isPeripersonalWorkflow ? "Prepare Session" : "Run 20 Second Validation Capture";
+
+    public AsyncRelayCommand WorkflowGuideParticipantEntryCommand =>
+        _isPeripersonalWorkflow ? PreparePeripersonalSessionCommand : RunWorkflowValidationCaptureCommand;
+
+    public bool CanRunWorkflowGuideParticipantEntryAction =>
+        _isPeripersonalWorkflow ? CanPreparePeripersonalSession : CanRunWorkflowValidationCapture;
 
     public string ValidationCaptureActionSummary
         => BuildValidationCaptureActionSummary();
@@ -2365,6 +2416,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             && !string.IsNullOrWhiteSpace(ParticipantIdDraft)
             && !string.IsNullOrWhiteSpace(PeripersonalSessionIdDraft)
             && !string.IsNullOrWhiteSpace(PeripersonalOperatorWorkflowService.BreathTrackingControllerFromHandedness(PeripersonalHandednessDraft))
+            && !string.IsNullOrWhiteSpace(PeripersonalLanguageCodeDraft)
             && !string.IsNullOrWhiteSpace(ResolveHeadsetActionSelector())
             && IsStudyRuntimeForeground();
 
@@ -2391,6 +2443,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         => _isPeripersonalWorkflow
             && _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Recording
             && !string.IsNullOrWhiteSpace(PeripersonalXrBlockIdDraft);
+
+    public bool CanRunPeripersonalClockProbe
+        => _isPeripersonalWorkflow
+            && _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Recording
+            && !ClockAlignmentRunning
+            && !_participantRunStopping;
 
     public string AutomaticBreathingSummary
     {
@@ -2474,6 +2532,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
               && PeripersonalQuestionnaireBlockOneSubmitted
               && _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Prepared
               && !_participantRunStopping
+              && !ClockAlignmentRunning
             : CanStartExperiment
               && IsStudyRuntimeForeground()
               && !string.IsNullOrWhiteSpace(ParticipantIdDraft)
@@ -2486,6 +2545,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             ? CanEndExperiment
               && _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Recording
               && !_participantRunStopping
+              && !ClockAlignmentRunning
             : CanEndExperiment
               && IsStudyRuntimeForeground()
               && !_participantRunStopping;
@@ -2640,6 +2700,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     public AsyncRelayCommand OpenPeripersonalQuestionnaireBlock3Command { get; }
     public AsyncRelayCommand MarkPeripersonalBlock1SubmittedCommand { get; }
     public AsyncRelayCommand MarkPeripersonalXrBlockEndCommand { get; }
+    public AsyncRelayCommand RunPeripersonalClockProbeCommand { get; }
     public AsyncRelayCommand StartExperimentCommand { get; }
     public AsyncRelayCommand EndExperimentCommand { get; }
     public AsyncRelayCommand ToggleRecordingCommand { get; }
@@ -5268,6 +5329,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 SessionId: PeripersonalSessionIdDraft.Trim(),
                 Handedness: PeripersonalHandednessDraft.Trim(),
                 StudyId: _study.Id,
+                LanguageCode: PeripersonalLanguageCodeDraft.Trim(),
                 InitialConditionId: SelectedCondition?.Id ?? string.Empty))
             .ConfigureAwait(false);
         var result = await workflow.PrepareSessionAsync(request).ConfigureAwait(false);
@@ -5346,6 +5408,66 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         await ApplyPeripersonalWorkflowResultAsync(ActionLabel, result).ConfigureAwait(false);
     }
 
+    private async Task RunPeripersonalClockProbeAsync()
+    {
+        const string ActionLabel = "Run Clock Probe";
+        if (!_isPeripersonalWorkflow || _peripersonalWorkflow is null)
+        {
+            await ApplyOutcomeAsync(
+                ActionLabel,
+                new OperationOutcome(
+                    OperationOutcomeKind.Warning,
+                    "Clock probe is blocked.",
+                    "Prepare the peripersonal session and start the global recording before running a clock probe.")).ConfigureAwait(false);
+            return;
+        }
+
+        var duration = TimeSpan.FromSeconds(SussexClockAlignmentStreamContract.DefaultDurationSeconds);
+        var progress = new Progress<StudyClockAlignmentProgress>(update =>
+        {
+            _ = DispatchAsync(() =>
+            {
+                ApplyClockAlignmentProgress(StudyClockAlignmentWindowKind.BackgroundSparse, update);
+                UpdateParticipantSessionState();
+                RefreshBenchToolsStatus();
+            });
+        });
+
+        await DispatchAsync(() =>
+        {
+            ResetClockAlignmentStateForRun(StudyClockAlignmentWindowKind.BackgroundSparse, duration);
+            UpdateParticipantSessionState();
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+
+        var result = await _peripersonalWorkflow.RunClockProbeAsync(
+                _clockAlignmentService,
+                progress,
+                duration)
+            .ConfigureAwait(false);
+
+        await DispatchAsync(() =>
+        {
+            ApplyClockAlignmentOutcome(StudyClockAlignmentWindowKind.BackgroundSparse, result.ClockAlignment);
+            UpdateClockAlignmentConsistencyTelemetry(StudyClockAlignmentWindowKind.BackgroundSparse, result.ClockAlignment);
+            UpdateParticipantSessionState();
+            RefreshBenchToolsStatus();
+        }).ConfigureAwait(false);
+
+        var detail = string.Join(
+            " ",
+            new[]
+            {
+                result.Outcome.Detail,
+                string.IsNullOrWhiteSpace(result.WindowsRoundTripCsvPath)
+                    ? string.Empty
+                    : $"Windows clock round-trip CSV: {result.WindowsRoundTripCsvPath}"
+            }.Where(static item => !string.IsNullOrWhiteSpace(item)));
+        await ApplyOutcomeAsync(
+            ActionLabel,
+            result.Outcome with { Detail = detail }).ConfigureAwait(false);
+    }
+
     private async Task StopPeripersonalRecordingAsync()
     {
         const string ActionLabel = "Stop Recording";
@@ -5365,9 +5487,10 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         await DispatchAsync(() =>
         {
             _participantRunStopping = false;
-            if (result.Succeeded && result.Session is not null)
+            if (result.Session is not null && _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Stopped)
             {
                 _lastCompletedRecordingFolderPath = result.Session.WindowsSessionDirectory;
+                _lastCompletedRecordingDevicePullFolderPath = result.Outcome.SafeItems.FirstOrDefault() ?? string.Empty;
             }
         }).ConfigureAwait(false);
         await ApplyPeripersonalWorkflowResultAsync(ActionLabel, result).ConfigureAwait(false);
@@ -6780,7 +6903,9 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         var panelTransport = new PeripersonalAndroidBroadcastCommandTransport(adbPath, selector);
         _peripersonalWorkflow = new PeripersonalOperatorWorkflowService(
             _study,
-            new PeripersonalCompositeCommandTransport(_peripersonalLslCommandTransport, panelTransport));
+            new PeripersonalCompositeCommandTransport(_peripersonalLslCommandTransport, panelTransport),
+            questAppCloser: new PeripersonalAdbQuestAppCloser(adbPath, selector),
+            questBackupPuller: new PeripersonalAdbQuestBackupPuller(adbPath, selector));
         return _peripersonalWorkflow;
     }
 
@@ -6829,12 +6954,14 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         }
 
         OnPropertyChanged(nameof(PeripersonalBreathControllerSideLabel));
+        OnPropertyChanged(nameof(PeripersonalLanguageCodeDraft));
         OnPropertyChanged(nameof(CanPreparePeripersonalSession));
         OnPropertyChanged(nameof(CanOpenPeripersonalQuestionnaireBlock1));
         OnPropertyChanged(nameof(CanOpenPeripersonalQuestionnaireBlock2));
         OnPropertyChanged(nameof(CanOpenPeripersonalQuestionnaireBlock3));
         OnPropertyChanged(nameof(CanMarkPeripersonalBlock1Submitted));
         OnPropertyChanged(nameof(CanMarkPeripersonalXrBlockEnd));
+        OnPropertyChanged(nameof(CanRunPeripersonalClockProbe));
         OnPropertyChanged(nameof(CanStartParticipantExperiment));
         OnPropertyChanged(nameof(CanEndParticipantExperiment));
         OnPropertyChanged(nameof(IsRecordingToggleState));
@@ -6843,6 +6970,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanToggleParticles));
         OnPropertyChanged(nameof(IsParticlesToggleState));
         OnPropertyChanged(nameof(ParticlesToggleActionLabel));
+        OnPropertyChanged(nameof(CanRunWorkflowGuideParticipantEntryAction));
+        OnPropertyChanged(nameof(WorkflowGuideParticipantEntryCommand));
 
         PreparePeripersonalSessionCommand?.RaiseCanExecuteChanged();
         OpenPeripersonalQuestionnaireBlock1Command?.RaiseCanExecuteChanged();
@@ -6850,6 +6979,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         OpenPeripersonalQuestionnaireBlock3Command?.RaiseCanExecuteChanged();
         MarkPeripersonalBlock1SubmittedCommand?.RaiseCanExecuteChanged();
         MarkPeripersonalXrBlockEndCommand?.RaiseCanExecuteChanged();
+        RunPeripersonalClockProbeCommand?.RaiseCanExecuteChanged();
         StartExperimentCommand?.RaiseCanExecuteChanged();
         EndExperimentCommand?.RaiseCanExecuteChanged();
         ToggleRecordingCommand?.RaiseCanExecuteChanged();
@@ -10522,7 +10652,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         else
         {
             ParticipantEntrySummary = $"Participant {normalizedParticipantId} metadata is ready.";
-            ParticipantEntryDetail = $"{PeripersonalBreathControllerSideLabel} Session id: {PeripersonalSessionIdDraft}.";
+            ParticipantEntryDetail = $"{PeripersonalBreathControllerSideLabel} Session id: {PeripersonalSessionIdDraft}. MAIA language: {PeripersonalLanguageCodeDraft}.";
         }
 
         var session = _peripersonalWorkflow?.CurrentSession;
@@ -10544,7 +10674,6 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         if (session is not null)
         {
             RecordingFolderPath = session.WindowsSessionDirectory;
-            RecordingDevicePullFolderPath = string.Empty;
             RecordingPdfPath = string.Empty;
             RecordingSessionLabel = $"Prepared session folder: {session.SessionFolderName}";
             PeripersonalSessionFolderLabel = $"Session folder: {session.SessionFolderName}";
@@ -10552,6 +10681,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
             if (_peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Recording)
             {
+                RecordingDevicePullFolderPath = string.Empty;
                 RecorderStateLabel = "Recording";
                 RecordingLevel = OperationOutcomeKind.Success;
                 RecordingSummary = $"Peripersonal global recording is active for participant {session.ParticipantRef}.";
@@ -10561,14 +10691,18 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
             if (_peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Stopped)
             {
+                RecordingDevicePullFolderPath = _lastCompletedRecordingDevicePullFolderPath;
                 RecorderStateLabel = "Stopped";
                 RecordingLevel = OperationOutcomeKind.Success;
                 RecordingSummary = "Peripersonal recording stopped.";
-                RecordingDetail = "The final Stop Recording command completed. Prepare a fresh session for the next participant.";
+                RecordingDetail = string.IsNullOrWhiteSpace(_lastCompletedRecordingDevicePullFolderPath)
+                    ? "The final Stop Recording command completed. Prepare a fresh session for the next participant."
+                    : $"The final Stop Recording command completed and the Quest backup was pulled into {_lastCompletedRecordingDevicePullFolderPath}.";
                 _lastCompletedRecordingFolderPath = session.WindowsSessionDirectory;
                 return;
             }
 
+            RecordingDevicePullFolderPath = string.Empty;
             RecorderStateLabel = PeripersonalQuestionnaireBlockOneSubmitted ? "Ready" : "Prepared";
             RecordingLevel = PeripersonalQuestionnaireBlockOneSubmitted ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview;
             RecordingSummary = PeripersonalQuestionnaireBlockOneSubmitted
@@ -10605,7 +10739,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         if (stepChanged)
         {
             _workflowGuideLastRenderedStepIndex = stepIndex;
-            if (stepIndex == 9)
+            if (stepIndex == WorkflowGuideParticleScreenshotStepIndex)
             {
                 _workflowGuideParticleStepStartedAtUtc = DateTimeOffset.UtcNow;
             }
@@ -10620,18 +10754,23 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         WorkflowGuideStepLevel = gate.Level;
         WorkflowGuideStepSummary = gate.Summary;
         WorkflowGuideStepDetail = gate.Detail;
+        var isManualBoundaryStep = !_isPeripersonalWorkflow && stepIndex == 6;
         WorkflowGuideGateSummary = WorkflowGuideIsFinalStep
-            ? "Finish the cleanup below, then open Experiment Session or return to the main window."
+            ? _isPeripersonalWorkflow
+                ? "Finish the final stop below, then return to the main window."
+                : "Finish the cleanup below, then open Experiment Session or return to the main window."
             : gate.Ready
                 ? "This step is ready. You can continue."
-                : stepIndex == 6
+                : isManualBoundaryStep
                     ? "This is a manual step. Continue once the operator has finished the boundary."
                     : "Finish this step before continuing.";
         WorkflowGuideGateDetail = WorkflowGuideIsFinalStep
-            ? "Reset calibration, make sure particles are off, then open Experiment Session for the real participant or use Return To Main Window."
+            ? _isPeripersonalWorkflow
+                ? "Stop Recording should end the global recording, pull the Quest backup, and close the Quest apps. Use Return To Main Window when the receipt is complete."
+                : "Reset calibration, make sure particles are off, then open Experiment Session for the real participant or use Return To Main Window."
             : gate.Ready
                 ? "Use Next to move to the next operator step."
-                : stepIndex == 6
+                : isManualBoundaryStep
                     ? "The app does not verify the Guardian boundary automatically. The experimenter must confirm it manually."
                     : "Next stays disabled until the required live check or manual action is satisfied.";
 
@@ -10654,6 +10793,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(WorkflowGuideShowsWindowsEnvironmentAnalysis));
         OnPropertyChanged(nameof(WorkflowGuideShowsQuestScreenshotVerification));
         OnPropertyChanged(nameof(WorkflowGuideShowsValidationCaptureState));
+        OnPropertyChanged(nameof(WorkflowGuideParticipantEntryTitle));
+        OnPropertyChanged(nameof(WorkflowGuideParticipantEntryDescription));
+        OnPropertyChanged(nameof(WorkflowGuideParticipantEntryInputLabel));
+        OnPropertyChanged(nameof(WorkflowGuideParticipantEntryActionLabel));
+        OnPropertyChanged(nameof(WorkflowGuideParticipantEntryCommand));
+        OnPropertyChanged(nameof(CanRunWorkflowGuideParticipantEntryAction));
         OnPropertyChanged(nameof(ValidationCaptureActionSummary));
         OnPropertyChanged(nameof(CanOpenWorkflowGuideQuestScreenshot));
         OnPropertyChanged(nameof(CanRunWorkflowValidationCapture));
@@ -10686,6 +10831,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             WorkflowGuideActionLevel = OperationOutcomeKind.Warning;
             WorkflowGuideActionSummary = "The command finished, but visual confirmation is still pending.";
             WorkflowGuideActionDetail = $"{_questVisualConfirmationPendingReason} Use Capture Quest Screenshot or the headset view to confirm what is actually visible.";
+            return;
+        }
+
+        if (_isPeripersonalWorkflow)
+        {
+            UpdatePeripersonalWorkflowGuideActionFeedback(visibleActions);
             return;
         }
 
@@ -10770,6 +10921,27 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             : "The guide will show immediately when a click was accepted and whether it is still waiting for headset confirmation.";
     }
 
+    private void UpdatePeripersonalWorkflowGuideActionFeedback(IReadOnlyList<WorkflowGuideActionItem> visibleActions)
+    {
+        if (!string.IsNullOrWhiteSpace(LastActionLabel))
+        {
+            WorkflowGuideActionLevel = LastActionLevel;
+            WorkflowGuideActionSummary = BuildWorkflowGuideLastActionSummary(LastActionLabel, LastActionLevel);
+            WorkflowGuideActionDetail = string.IsNullOrWhiteSpace(LastActionDetail)
+                ? "The last Peripersonal workflow action completed without additional detail."
+                : LastActionDetail;
+            return;
+        }
+
+        WorkflowGuideActionLevel = OperationOutcomeKind.Preview;
+        WorkflowGuideActionSummary = visibleActions.Count == 0
+            ? "No app button is needed for this step."
+            : "Use the step button below once.";
+        WorkflowGuideActionDetail = visibleActions.Count == 0
+            ? "Finish the visible metadata or participant-side step, then continue when the goal state is satisfied."
+            : "These buttons call the same commands exposed in the Peripersonal Experiment Session window.";
+    }
+
     private void UpdateWorkflowGuideNextActionState(int stepIndex, IReadOnlyList<WorkflowGuideActionItem> visibleActions)
     {
         var runningAction = visibleActions.FirstOrDefault(action => action.IsRunning);
@@ -10784,6 +10956,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         {
             WorkflowGuideNextActionSummary = "No app action is needed for this step.";
             WorkflowGuideNextActionDetail = "Finish the manual operator step on the headset, then use Next once the goal state above is satisfied.";
+            return;
+        }
+
+        if (_isPeripersonalWorkflow)
+        {
+            UpdatePeripersonalWorkflowGuideNextActionState(stepIndex);
             return;
         }
 
@@ -10831,9 +11009,55 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         };
     }
 
+    private void UpdatePeripersonalWorkflowGuideNextActionState(int stepIndex)
+    {
+        (WorkflowGuideNextActionSummary, WorkflowGuideNextActionDetail) = stepIndex switch
+        {
+            0 => (
+                "Probe USB, then refresh if the live link still looks stale.",
+                "The guide needs one confirmed USB ADB path before Wi-Fi ADB can be enabled."),
+            1 => (
+                "Enable Wi-Fi ADB.",
+                "If the switch does not complete cleanly, use Connect Quest on the saved endpoint before continuing."),
+            2 => (
+                "Refresh the snapshot and confirm the route.",
+                "The Quest endpoint must be reachable from Windows before the operator workflow starts."),
+            3 => (
+                "Install the Peripersonal APK if needed, then refresh.",
+                "This verifies the Unity runtime identity. The questionnaire panel app remains a separate Quest app."),
+            4 => (
+                "Launch the Peripersonal XR runtime.",
+                "The current implementation uses Unity as the Quest-side caller for the separate questionnaire panel, so the XR runtime must be foregrounded before session setup."),
+            5 => (
+                "Enter metadata and prepare the session.",
+                "The handedness rule fixes the breath-tracking controller side at setup. Prepare Session also creates the timestamped parent session folder."),
+            6 => (
+                "Open Block 1, then mark it submitted.",
+                "The participant submits inside the panel. Marking Block 1 submitted is the current Windows-side gate that enables Start Recording."),
+            7 => (
+                "Start Recording, then run the clock probe.",
+                "This is the single global recording start for the whole experiment. Do not stop between XR and questionnaire blocks."),
+            8 => (
+                "Set the required particle state and mark XR Block 1 end.",
+                "Particles On/Off must produce distinct trigger events. XR block end is a marker, not a recorder stop."),
+            9 => (
+                "Open Questionnaire Block 2.",
+                "The panel should come forward for the participant and return the XR runtime to foreground on submit while recording continues."),
+            10 => (
+                "Set the required particle state and mark XR Block 2 end.",
+                "Keep recording active; this step only marks the condition transition."),
+            11 => (
+                "Open Questionnaire Block 3.",
+                "This is the final questionnaire block inside the same continuous recording."),
+            _ => (
+                "Run the final Stop Recording.",
+                "This is the only central stop. It should end recording, pull the Quest backup, and close both Quest apps.")
+        };
+    }
+
     private void UpdateWorkflowGuideQuestScreenshotState(int stepIndex)
     {
-        if (stepIndex != 9)
+        if (stepIndex != WorkflowGuideParticleScreenshotStepIndex)
         {
             WorkflowGuideQuestScreenshotLevel = QuestScreenshotLevel;
             WorkflowGuideQuestScreenshotSummary = QuestScreenshotSummary;
@@ -10888,11 +11112,18 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             && _lastQuestScreenshotCapturedAtUtc.Value >= _workflowGuideParticleStepStartedAtUtc.Value
             && !string.IsNullOrWhiteSpace(QuestScreenshotPath);
 
+    private int WorkflowGuideParticleScreenshotStepIndex => _isPeripersonalWorkflow ? 8 : 9;
+
     private bool IsWorkflowGuideStepReady(int stepIndex)
         => BuildWorkflowGuideGateState(stepIndex).Ready;
 
     private WorkflowGuideGateState BuildWorkflowGuideGateState(int stepIndex)
     {
+        if (_isPeripersonalWorkflow)
+        {
+            return BuildPeripersonalWorkflowGuideGateState(stepIndex);
+        }
+
         var deviceProfileState = EvaluateDeviceProfileGateState();
         var headsetBatteryState = EvaluateHeadsetBatteryGateState();
         var rightControllerBatteryState = EvaluateRightControllerBatteryGateState();
@@ -10922,6 +11153,128 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 true))
         };
     }
+
+    private WorkflowGuideGateState BuildPeripersonalWorkflowGuideGateState(int stepIndex)
+    {
+        return stepIndex switch
+        {
+            0 => BuildUsbWorkflowGuideGateState(),
+            1 => BuildWifiAdbWorkflowGuideGateState(),
+            2 => BuildWifiMatchWorkflowGuideGateState(),
+            3 => RequireWifiAdbForWorkflowStep(BuildPeripersonalInstalledApkWorkflowGuideGateState()),
+            4 => RequireWifiAdbForWorkflowStep(BuildPeripersonalRuntimeForegroundWorkflowGuideGateState()),
+            5 => RequireWifiAdbForWorkflowStep(BuildPeripersonalPrepareSessionWorkflowGuideGateState()),
+            6 => RequireWifiAdbForWorkflowStep(BuildPeripersonalQuestionnaireBlockOneWorkflowGuideGateState()),
+            7 => RequireWifiAdbForWorkflowStep(BuildPeripersonalGlobalRecordingWorkflowGuideGateState()),
+            8 => RequireWifiAdbForWorkflowStep(BuildPeripersonalXrBlockMarkerWorkflowGuideGateState()),
+            9 => RequireWifiAdbForWorkflowStep(BuildPeripersonalQuestionnaireBlockWorkflowGuideGateState(2)),
+            10 => RequireWifiAdbForWorkflowStep(BuildPeripersonalXrBlockMarkerWorkflowGuideGateState()),
+            11 => RequireWifiAdbForWorkflowStep(BuildPeripersonalQuestionnaireBlockWorkflowGuideGateState(3)),
+            _ => RequireWifiAdbForWorkflowStep(BuildPeripersonalFinalStopWorkflowGuideGateState())
+        };
+    }
+
+    private WorkflowGuideGateState BuildPeripersonalInstalledApkWorkflowGuideGateState()
+    {
+        var ready = InstalledApkLevel == OperationOutcomeKind.Success;
+        var level = ready ? OperationOutcomeKind.Success : InstalledApkLevel == OperationOutcomeKind.Failure ? OperationOutcomeKind.Failure : OperationOutcomeKind.Warning;
+        return new WorkflowGuideGateState(
+            level,
+            ready ? "Correct Peripersonal APK installed." : "Correct Peripersonal APK not confirmed yet.",
+            $"{InstalledApkSummary} {InstalledApkDetail}".Trim(),
+            ready);
+    }
+
+    private WorkflowGuideGateState BuildPeripersonalRuntimeForegroundWorkflowGuideGateState()
+    {
+        var ready = IsStudyRuntimeForeground();
+        return new WorkflowGuideGateState(
+            ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
+            ready ? "Peripersonal XR runtime is foregrounded." : "Peripersonal XR runtime is not foregrounded yet.",
+            ready
+                ? HeadsetForegroundLabel
+                : $"{HeadsetForegroundLabel} Launch the study runtime and refresh the snapshot until the Peripersonal package is foregrounded.",
+            ready);
+    }
+
+    private WorkflowGuideGateState BuildPeripersonalPrepareSessionWorkflowGuideGateState()
+    {
+        var prepared = _peripersonalWorkflow?.CurrentSession is not null
+            && _peripersonalWorkflow.State != PeripersonalOperatorWorkflowState.Idle;
+        var level = prepared
+            ? OperationOutcomeKind.Success
+            : CanPreparePeripersonalSession ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning;
+        return new WorkflowGuideGateState(
+            level,
+            prepared ? "Peripersonal session is prepared." : "Peripersonal session metadata is not prepared yet.",
+            prepared
+                ? PeripersonalWorkflowDetail
+                : "Enter participant id, session id, handedness, and MAIA language in this card. Prepare Session must create the timestamped session folder and send setup metadata before Questionnaire Block 1 opens.",
+            prepared);
+    }
+
+    private WorkflowGuideGateState BuildPeripersonalQuestionnaireBlockOneWorkflowGuideGateState()
+    {
+        var ready = PeripersonalQuestionnaireBlockOneSubmitted;
+        var opened = LastActionSucceeded("Open Questionnaire 1");
+        return new WorkflowGuideGateState(
+            ready ? OperationOutcomeKind.Success : opened ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview,
+            ready ? "Questionnaire Block 1 is marked submitted." : opened ? "Block 1 was opened; mark it submitted after participant submit." : "Questionnaire Block 1 has not been opened yet.",
+            ready
+                ? "Block 1 is complete from the operator workflow point of view, so the single global recording can start."
+                : "Open Block 1 for the MAIA spatial questionnaire. After the participant submits the panel, use Block 1 Submitted so the Windows workflow unlocks Start Recording.",
+            ready);
+    }
+
+    private WorkflowGuideGateState BuildPeripersonalGlobalRecordingWorkflowGuideGateState()
+    {
+        var recording = _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Recording;
+        var clockReady = ClockAlignmentLevel == OperationOutcomeKind.Success;
+        return new WorkflowGuideGateState(
+            recording && clockReady ? OperationOutcomeKind.Success : recording ? OperationOutcomeKind.Warning : OperationOutcomeKind.Preview,
+            recording && clockReady ? "Global recording and clock probe are ready." : recording ? "Global recording is active; run the clock probe." : "Global recording has not started yet.",
+            recording
+                ? $"{RecordingDetail} {ClockAlignmentDetail}".Trim()
+                : "Start Recording once Block 1 has been submitted. This is the only recording start for the whole Peripersonal experiment.",
+            recording && clockReady);
+    }
+
+    private WorkflowGuideGateState BuildPeripersonalXrBlockMarkerWorkflowGuideGateState()
+    {
+        var markerSent = LastActionSucceeded("Mark XR Block End");
+        return new WorkflowGuideGateState(
+            markerSent ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview,
+            markerSent ? "XR block marker was sent." : "XR block end has not been marked yet.",
+            "Use the particle visibility controls required by the schedule, then mark the XR block end. These actions stay inside the one continuous recording.",
+            markerSent);
+    }
+
+    private WorkflowGuideGateState BuildPeripersonalQuestionnaireBlockWorkflowGuideGateState(int blockNumber)
+    {
+        var label = $"Open Questionnaire {blockNumber.ToString(CultureInfo.InvariantCulture)}";
+        var opened = LastActionSucceeded(label);
+        return new WorkflowGuideGateState(
+            opened ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview,
+            opened ? $"Questionnaire Block {blockNumber.ToString(CultureInfo.InvariantCulture)} was opened." : $"Questionnaire Block {blockNumber.ToString(CultureInfo.InvariantCulture)} has not been opened yet.",
+            $"Open Block {blockNumber.ToString(CultureInfo.InvariantCulture)} while the global recording continues. Participant submit should close/background the panel and return the XR runtime to foreground.",
+            opened);
+    }
+
+    private WorkflowGuideGateState BuildPeripersonalFinalStopWorkflowGuideGateState()
+    {
+        var stopped = _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Stopped;
+        return new WorkflowGuideGateState(
+            stopped ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview,
+            stopped ? "Final Stop Recording completed." : "Final Stop Recording has not run yet.",
+            stopped
+                ? RecordingDetail
+                : "Use the central Stop Recording command only at the end of the whole experiment. It ends recording, pulls the Quest session backup, and asks both Quest apps to close.",
+            stopped);
+    }
+
+    private bool LastActionSucceeded(string actionLabel)
+        => string.Equals(LastActionLabel, actionLabel, StringComparison.Ordinal)
+           && LastActionLevel == OperationOutcomeKind.Success;
 
     private WorkflowGuideGateState BuildUsbWorkflowGuideGateState()
     {
@@ -11760,6 +12113,11 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
     private IReadOnlyList<WorkflowGuideCheckItem> BuildWorkflowGuideCheckItems(int stepIndex)
     {
+        if (_isPeripersonalWorkflow)
+        {
+            return BuildPeripersonalWorkflowGuideCheckItems(stepIndex);
+        }
+
         var usbState = BuildUsbWorkflowGuideGateState();
         var deviceProfileState = EvaluateDeviceProfileGateState();
         var headsetBatteryState = EvaluateHeadsetBatteryGateState();
@@ -11893,8 +12251,89 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         };
     }
 
+    private IReadOnlyList<WorkflowGuideCheckItem> BuildPeripersonalWorkflowGuideCheckItems(int stepIndex)
+    {
+        var usbState = BuildUsbWorkflowGuideGateState();
+        var session = _peripersonalWorkflow?.CurrentSession;
+        var recording = _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Recording;
+        var markerReady = LastActionSucceeded("Mark XR Block End");
+
+        return stepIndex switch
+        {
+            0 =>
+            [
+                new WorkflowGuideCheckItem("USB probe", usbState.Summary, usbState.Detail, usbState.Level),
+                new WorkflowGuideCheckItem("Current Quest link", ConnectionSummary, QuestStatusDetail, _headsetStatus?.IsConnected == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)
+            ],
+            1 =>
+            [
+                new WorkflowGuideCheckItem("Wi-Fi ADB path", BuildWifiAdbGuideSummary(), BuildWifiAdbGuideDetail(), _headsetStatus?.IsWifiAdbTransport == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
+                BuildReconnectTargetWorkflowGuideCheckItem()
+            ],
+            2 =>
+            [
+                new WorkflowGuideCheckItem("Headset Wi-Fi", HeadsetWifiSummary, $"Headset IP {_headsetStatus?.HeadsetWifiIpAddress ?? "n/a"}.", _headsetStatus?.WifiSsidMatchesHost == true || _questWifiTransportDiagnostics?.RoutedTopologyAccepted == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("PC network", HostWifiSummary, "The PC must be able to reach the active Quest ADB endpoint before the operator workflow starts.", _questWifiTransportDiagnostics?.RoutedTopologyAccepted == true ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview),
+                BuildWifiTransportWorkflowGuideCheckItem()
+            ],
+            3 =>
+            [
+                new WorkflowGuideCheckItem("Installed Peripersonal build", InstalledApkSummary, InstalledApkDetail, InstalledApkLevel),
+                new WorkflowGuideCheckItem("Selected study build", LocalApkSummary, LocalApkDetail, LocalApkLevel)
+            ],
+            4 =>
+            [
+                BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
+                new WorkflowGuideCheckItem("Foreground runtime", IsStudyRuntimeForeground() ? "Peripersonal XR runtime is in the foreground." : "Peripersonal XR runtime is not foregrounded yet.", HeadsetForegroundLabel, IsStudyRuntimeForeground() ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)
+            ],
+            5 =>
+            [
+                new WorkflowGuideCheckItem("Participant metadata", ParticipantEntrySummary, ParticipantEntryDetail, ParticipantEntryLevel),
+                new WorkflowGuideCheckItem("Breath controller side", PeripersonalBreathControllerSideLabel, "This is fixed from handedness at setup and is not a runtime toggle.", string.IsNullOrWhiteSpace(PeripersonalOperatorWorkflowService.BreathTrackingControllerFromHandedness(PeripersonalHandednessDraft)) ? OperationOutcomeKind.Warning : OperationOutcomeKind.Success),
+                new WorkflowGuideCheckItem("Session folder rule", session is null ? "No session folder yet." : session.SessionFolderName, "The prepared session folder must use participant id, session id, and timestamp suffix.", session is null ? OperationOutcomeKind.Preview : OperationOutcomeKind.Success)
+            ],
+            6 =>
+            [
+                new WorkflowGuideCheckItem("Block 1 panel", LastActionSucceeded("Open Questionnaire 1") ? "Block 1 launch command completed." : "Block 1 has not been opened from this guide yet.", "Open the MAIA spatial questionnaire Block 1 from the operator command path.", LastActionSucceeded("Open Questionnaire 1") ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview),
+                new WorkflowGuideCheckItem("Block 1 submit gate", PeripersonalQuestionnaireBlockOneSubmitted ? "Block 1 is marked submitted." : "Block 1 is not marked submitted yet.", "After participant submit, mark Block 1 submitted so global recording can start.", PeripersonalQuestionnaireBlockOneSubmitted ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)
+            ],
+            7 =>
+            [
+                new WorkflowGuideCheckItem("Recording state", RecordingSummary, RecordingDetail, recording ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning),
+                new WorkflowGuideCheckItem("Clock alignment", ClockAlignmentSummary, ClockAlignmentDetail, ClockAlignmentLevel)
+            ],
+            8 or 10 =>
+            [
+                BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
+                new WorkflowGuideCheckItem("Particle visibility", ParticlesSummary, "Every visible/hidden toggle must emit a distinct Particles-ON or Particles-OFF trigger event.", ToAdvisoryLevel(ParticlesLevel)),
+                new WorkflowGuideCheckItem("XR block marker", markerReady ? "XR block marker was sent." : "XR block marker still needs to be sent.", $"Current marker id: {PeripersonalXrBlockIdDraft}.", markerReady ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview)
+            ],
+            9 =>
+            [
+                new WorkflowGuideCheckItem("Block 2 panel", LastActionSucceeded("Open Questionnaire 2") ? "Block 2 launch command completed." : "Block 2 has not been opened yet.", "Open Block 2 while the global recording remains active.", LastActionSucceeded("Open Questionnaire 2") ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview),
+                new WorkflowGuideCheckItem("Recording continuity", RecordingSummary, "Do not stop recording for questionnaire blocks.", recording ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)
+            ],
+            11 =>
+            [
+                new WorkflowGuideCheckItem("Block 3 panel", LastActionSucceeded("Open Questionnaire 3") ? "Block 3 launch command completed." : "Block 3 has not been opened yet.", "Open Block 3 while the global recording remains active.", LastActionSucceeded("Open Questionnaire 3") ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview),
+                new WorkflowGuideCheckItem("Recording continuity", RecordingSummary, "The final Stop Recording happens only after this block and all XR work are done.", recording ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)
+            ],
+            _ =>
+            [
+                new WorkflowGuideCheckItem("Final recording state", RecordingSummary, RecordingDetail, _peripersonalWorkflow?.State == PeripersonalOperatorWorkflowState.Stopped ? OperationOutcomeKind.Success : OperationOutcomeKind.Preview),
+                new WorkflowGuideCheckItem("Quest backup pull", string.IsNullOrWhiteSpace(RecordingDevicePullFolderPath) ? "No Quest backup pull folder yet." : RecordingDevicePullFolderPath, "The final stop should pull the app-private Quest session bundle into the Windows session folder.", string.IsNullOrWhiteSpace(RecordingDevicePullFolderPath) ? OperationOutcomeKind.Preview : OperationOutcomeKind.Success)
+            ]
+        };
+    }
+
     private IReadOnlyList<WorkflowGuideActionItem> BuildWorkflowGuideActionItems(int stepIndex)
-        => stepIndex switch
+    {
+        if (_isPeripersonalWorkflow)
+        {
+            return BuildPeripersonalWorkflowGuideActionItems(stepIndex);
+        }
+
+        return stepIndex switch
         {
             0 =>
             [
@@ -11965,6 +12404,66 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             [
                 BuildWorkflowGuideActionItem("Reset Calibration", ResetBreathingCalibrationCommand, CanResetBreathingCalibration, "Resetting Calibration..."),
                 BuildWorkflowGuideActionItem("Particles Off", ParticlesOffCommand, CanToggleParticles, "Sending Particles Off...")
+            ]
+        };
+    }
+
+    private IReadOnlyList<WorkflowGuideActionItem> BuildPeripersonalWorkflowGuideActionItems(int stepIndex)
+        => stepIndex switch
+        {
+            0 =>
+            [
+                BuildWorkflowGuideActionItem("Probe USB", ProbeUsbCommand, true, "Probing USB..."),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            1 =>
+            [
+                BuildWorkflowGuideActionItem("Enable Wi-Fi ADB", EnableWifiCommand, true, "Enabling Wi-Fi ADB..."),
+                BuildWorkflowGuideActionItem("Connect Quest", ConnectQuestCommand, !string.IsNullOrWhiteSpace(EndpointDraft), "Connecting Quest...")
+            ],
+            2 =>
+            [
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            3 =>
+            [
+                BuildWorkflowGuideActionItem(StudyApkInstallButtonLabel, InstallStudyAppCommand, HasValidPinnedLocalApk, "Installing Study APK..."),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            4 =>
+            [
+                BuildWorkflowGuideActionItem(WorkflowGuideLaunchActionLabel, LaunchStudyAppCommand, CanLaunchStudyRuntime, "Launching Study Runtime..."),
+                BuildWorkflowGuideActionItem("Refresh Snapshot", RefreshDeviceSnapshotCommand, true, "Refreshing Snapshot...")
+            ],
+            5 =>
+            [],
+            6 =>
+            [
+                BuildWorkflowGuideActionItem("Open Block 1", OpenPeripersonalQuestionnaireBlock1Command, CanOpenPeripersonalQuestionnaireBlock1, "Opening Block 1..."),
+                BuildWorkflowGuideActionItem("Block 1 Submitted", MarkPeripersonalBlock1SubmittedCommand, CanMarkPeripersonalBlock1Submitted, "Marking Block 1...")
+            ],
+            7 =>
+            [
+                BuildWorkflowGuideActionItem("Start Recording", StartExperimentCommand, CanStartParticipantExperiment, "Starting Recording..."),
+                BuildWorkflowGuideActionItem("Run Clock Probe", RunPeripersonalClockProbeCommand, CanRunPeripersonalClockProbe, "Running Clock Probe...")
+            ],
+            8 or 10 =>
+            [
+                BuildWorkflowGuideActionItem("Particles On", ParticlesOnCommand, CanToggleParticles, "Sending Particles On..."),
+                BuildWorkflowGuideActionItem("Particles Off", ParticlesOffCommand, CanToggleParticles, "Sending Particles Off..."),
+                BuildWorkflowGuideActionItem("Mark XR Block End", MarkPeripersonalXrBlockEndCommand, CanMarkPeripersonalXrBlockEnd, "Marking XR Block End...")
+            ],
+            9 =>
+            [
+                BuildWorkflowGuideActionItem("Open Block 2", OpenPeripersonalQuestionnaireBlock2Command, CanOpenPeripersonalQuestionnaireBlock2, "Opening Block 2...")
+            ],
+            11 =>
+            [
+                BuildWorkflowGuideActionItem("Open Block 3", OpenPeripersonalQuestionnaireBlock3Command, CanOpenPeripersonalQuestionnaireBlock3, "Opening Block 3...")
+            ],
+            _ =>
+            [
+                BuildWorkflowGuideActionItem("Stop Recording", EndExperimentCommand, CanEndParticipantExperiment, "Stopping Recording...")
             ]
         };
 
@@ -12480,6 +12979,14 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         var participantStartReady = false;
         var participantScreenshotReady = _lastQuestScreenshotCapturedAtUtc.HasValue;
 
+        if (_isPeripersonalWorkflow)
+        {
+            UpdatePeripersonalWorkflowStatus(
+                setupReady: headsetConnected && wifiReady && buildReady,
+                runtimeForeground);
+            return;
+        }
+
         WorkflowSetupLevel = setupReady
             ? profileReady
                 ? OperationOutcomeKind.Success
@@ -12672,6 +13179,68 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         WorkflowCurrentStepLevel = WorkflowParticipantStartLevel;
         WorkflowCurrentStepSummary = "5. Participant start in Experiment Session is the next operator step.";
         WorkflowCurrentStepDetail = WorkflowParticipantStartDetail;
+        UpdateWorkflowGuideState();
+    }
+
+    private void UpdatePeripersonalWorkflowStatus(bool setupReady, bool runtimeForeground)
+    {
+        if (!setupReady)
+        {
+            WorkflowCurrentStepLevel = OperationOutcomeKind.Warning;
+            WorkflowCurrentStepSummary = "1. Finish headset setup before starting the Peripersonal protocol.";
+            WorkflowCurrentStepDetail = $"{ConnectionTransportSummary} {WifiNetworkMatchSummary} {PinnedBuildSummary}";
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (!runtimeForeground)
+        {
+            WorkflowCurrentStepLevel = OperationOutcomeKind.Warning;
+            WorkflowCurrentStepSummary = "2. Launch the Peripersonal XR runtime.";
+            WorkflowCurrentStepDetail = "The current questionnaire route uses Unity as the Quest-side caller, so the XR runtime must be foregrounded before Prepare Session.";
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (_peripersonalWorkflow?.CurrentSession is null)
+        {
+            WorkflowCurrentStepLevel = CanPreparePeripersonalSession ? OperationOutcomeKind.Preview : OperationOutcomeKind.Warning;
+            WorkflowCurrentStepSummary = "3. Prepare the Peripersonal session.";
+            WorkflowCurrentStepDetail = "Enter participant id, session id, handedness, and MAIA language, then create the timestamped session folder.";
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (!PeripersonalQuestionnaireBlockOneSubmitted)
+        {
+            WorkflowCurrentStepLevel = OperationOutcomeKind.Warning;
+            WorkflowCurrentStepSummary = "4. Run Questionnaire Block 1 before recording.";
+            WorkflowCurrentStepDetail = "Open Block 1, let the participant submit in the panel app, then mark Block 1 submitted in the operator workflow.";
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (_peripersonalWorkflow.State == PeripersonalOperatorWorkflowState.Prepared)
+        {
+            WorkflowCurrentStepLevel = OperationOutcomeKind.Warning;
+            WorkflowCurrentStepSummary = "5. Start the one global recording.";
+            WorkflowCurrentStepDetail = "Start Recording happens once after Block 1, then the remaining questionnaire and XR blocks run inside that same recording.";
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        if (_peripersonalWorkflow.State == PeripersonalOperatorWorkflowState.Recording)
+        {
+            WorkflowCurrentStepLevel = OperationOutcomeKind.Success;
+            WorkflowCurrentStepSummary = "6. Continue the Peripersonal block sequence.";
+            WorkflowCurrentStepDetail = "Use block markers, particle toggles, Questionnaire Blocks 2 and 3, then the final central Stop Recording.";
+            UpdateWorkflowGuideState();
+            return;
+        }
+
+        WorkflowCurrentStepLevel = OperationOutcomeKind.Success;
+        WorkflowCurrentStepSummary = "Peripersonal session is stopped.";
+        WorkflowCurrentStepDetail = RecordingDetail;
         UpdateWorkflowGuideState();
     }
 

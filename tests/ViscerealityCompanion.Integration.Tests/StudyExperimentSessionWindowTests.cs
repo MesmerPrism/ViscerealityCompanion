@@ -179,6 +179,8 @@ public sealed class StudyExperimentSessionWindowTests
             Assert.Equal("right-handed", handednessCombo.SelectedValue);
             Assert.Equal("Breath controller: left controller.", viewModel.PeripersonalBreathControllerSideLabel);
             Assert.Equal("session-001", viewModel.PeripersonalSessionIdDraft);
+            var languageCombo = Assert.IsType<ComboBox>(window.FindName("PeripersonalLanguageComboBox"));
+            Assert.Equal("en", languageCombo.SelectedValue);
             Assert.IsType<Button>(window.FindName("PreparePeripersonalSessionButton"));
             Assert.IsType<Button>(window.FindName("OpenPeripersonalQuestionnaireBlock1Button"));
             Assert.IsType<Button>(window.FindName("MarkPeripersonalBlock1SubmittedButton"));
@@ -186,6 +188,9 @@ public sealed class StudyExperimentSessionWindowTests
             Assert.IsType<Button>(window.FindName("OpenPeripersonalQuestionnaireBlock3Button"));
             Assert.IsType<TextBox>(window.FindName("PeripersonalXrBlockIdTextBox"));
             Assert.IsType<Button>(window.FindName("MarkPeripersonalXrBlockEndButton"));
+            Assert.IsType<Button>(window.FindName("RecordingToggleButton"));
+            Assert.IsType<Button>(window.FindName("ParticlesToggleButton"));
+            Assert.IsType<Button>(window.FindName("RunClockProbeButton"));
 
             window.Close();
         });

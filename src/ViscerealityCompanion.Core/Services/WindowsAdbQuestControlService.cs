@@ -15,6 +15,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     private const string ProfileMediaVolumeKey = "viscereality.media_volume_music";
     private const string ProfileHeadsetBatteryMinimumKey = "viscereality.minimum_headset_battery_percent";
     private const string ProfileRightControllerBatteryMinimumKey = "viscereality.minimum_right_controller_battery_percent";
+    private const string CompanionDeviceProfileMetadataPrefix = "viscereality.";
     private const string QuestSensorLockPackage = "com.oculus.os.vrlockscreen";
     private const string QuestSensorLockActivity = "SensorLockActivity";
     private const string QuestClearActivityPackage = "com.oculus.os.clearactivity";
@@ -1385,6 +1386,13 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 "No device write was sent; the current headset/controller state will be checked against the minimum threshold.");
         }
 
+        if (IsCompanionDeviceProfileMetadataKey(key))
+        {
+            return Success(
+                $"{FormatDeviceProfilePropertyLabel(key)} is Companion metadata.",
+                "No device write was sent; this value is consumed by the Windows operator workflow or Unity command payloads.");
+        }
+
         var setprop = await RunShellAsync(
             selector,
             $"setprop {AdbShellSupport.Quote(key)} {AdbShellSupport.Quote(expectedValue)}",
@@ -1480,6 +1488,16 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
                 BlocksActivation: false);
         }
 
+        if (IsCompanionDeviceProfileMetadataKey(key))
+        {
+            return new DevicePropertyStatus(
+                key,
+                expectedValue,
+                "Companion metadata",
+                Matches: true,
+                BlocksActivation: false);
+        }
+
         var reportedValue = await TryReadShellValueAsync(
             selector,
             $"getprop {AdbShellSupport.Quote(key)}",
@@ -1563,6 +1581,9 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     private static bool IsDeviceProfileThresholdKey(string key)
         => string.Equals(key, ProfileHeadsetBatteryMinimumKey, StringComparison.OrdinalIgnoreCase)
            || string.Equals(key, ProfileRightControllerBatteryMinimumKey, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCompanionDeviceProfileMetadataKey(string key)
+        => key.StartsWith(CompanionDeviceProfileMetadataPrefix, StringComparison.OrdinalIgnoreCase);
 
     private static string FormatDeviceProfilePropertyLabel(string key)
         => key.ToLowerInvariant() switch

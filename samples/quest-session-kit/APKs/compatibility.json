@@ -24,10 +24,10 @@
                                       }
                  },
                  {
-                     "sha256":  "1B1641ED8F5DE677FE78C44C04210A04B3F247F37381BA4247B156E2E29112E9",
+                     "sha256":  "577319A4AB0F92A82392D9A2835FC1401C6A76C588ED8640745556E275A6B7D7",
                      "status":  "compatible",
                      "label":  "Peripersonal single runtime build",
-                     "notes":  "Single Unity runtime APK built and validated on 2026-06-20. Device smoke installed and launched com.Viscereality.ViscerealityPeriPersonal on Quest 3S Android 14; Unity default particles are invisible and runtime condition selection is enabled.",
+                     "notes":  "Single Unity runtime APK rebuilt and validated on 2026-06-20 with operator-provided session folder naming, idempotent Unity LSL command receipts, MAIA questionnaire participant-command evidence forwarding, AKD-derived continuous LSL resolving, source-id filtering, and Android Wi-Fi multicast support enabled. Device smoke installed and launched com.Viscereality.ViscerealityPeriPersonal on Quest 3S Android 14; Unity default particles are invisible and runtime condition selection is enabled.",
                      "tags":  [
                                   "viscereality",
                                   "peripersonal",
@@ -36,13 +36,13 @@
                                   "lsl"
                               ],
                      "verification":  {
-                                          "apkSha256":  "1B1641ED8F5DE677FE78C44C04210A04B3F247F37381BA4247B156E2E29112E9",
+                                          "apkSha256":  "577319A4AB0F92A82392D9A2835FC1401C6A76C588ED8640745556E275A6B7D7",
                                           "softwareVersion":  "14",
                                           "buildId":  "3451870041600610",
                                           "displayId":  "UP1A.231005.007.A1",
                                           "deviceProfileId":  "peripersonal-study-profile",
                                           "environmentHash":  "",
-                                          "verifiedAtUtc":  "2026-06-20T14:24:53.8902599+00:00",
+                                          "verifiedAtUtc":  "2026-06-20T19:56:14Z",
                                           "verifiedBy":  "Viscereality/Tools/Test-PeripersonalExperimentApkDeviceSmoke.ps1"
                                       }
                  }

@@ -13,7 +13,10 @@ public sealed partial class StudyShellViewModel
         new("all", "All Pinned Keys", "Every live key this study shell is currently watching.")
     ];
 
-    private static readonly WorkflowGuideStepDefinition[] WorkflowGuideCatalog =
+    private WorkflowGuideStepDefinition[] WorkflowGuideCatalog =>
+        _isPeripersonalWorkflow ? PeripersonalWorkflowGuideCatalog : SussexWorkflowGuideCatalog;
+
+    private static readonly WorkflowGuideStepDefinition[] SussexWorkflowGuideCatalog =
     [
         new(1, "Verify USB visibility", "Start with a real USB connection. The headset must be visible over USB ADB before the guide can bootstrap remote control."),
         new(2, "Enable Wi-Fi ADB", "Turn on Wi-Fi ADB so the headset can stay reachable on its current Wi-Fi network. This exposes ADB over the headset's active Wi-Fi connection."),
@@ -28,6 +31,23 @@ public sealed partial class StudyShellViewModel
         new(11, "Try controller calibration", "Controller-volume breathing calibration is available here, but the current Sussex APK path is still unstable. Try it if useful, but it is not required before continuing."),
         new(12, "Run an optional 20 second validation capture", "Enter a temporary subject id, record a short validation run, let the start and end clock-alignment bursts plus sparse background probes run automatically, then pull the Quest-side backup files so both Windows and headset data are available for inspection."),
         new(13, "Reset for the real participant", "Reset calibration, make sure particles are off, then hand off into the dedicated experiment-session window for the real participant.")
+    ];
+
+    private static readonly WorkflowGuideStepDefinition[] PeripersonalWorkflowGuideCatalog =
+    [
+        new(1, "Verify USB visibility", "Start with a real USB connection. The headset must be visible over USB ADB before the guide can bootstrap remote control."),
+        new(2, "Enable Wi-Fi ADB", "Turn on Wi-Fi ADB so the headset can stay reachable on its current Wi-Fi network while the participant is in the headset."),
+        new(3, "Confirm the router path", "Confirm the headset is on a network path that Windows can reach reliably. Matching Wi-Fi names are fine, but a routed Ethernet path is also valid if the diagnostics accept it."),
+        new(4, "Verify the Peripersonal APK", "Check whether the approved Peripersonal Unity runtime is installed. If not, install the bundled or selected study APK before continuing."),
+        new(5, "Launch the XR runtime", "Launch the Peripersonal Unity runtime and confirm it is foregrounded before session setup. The questionnaire panel is launched later from this runtime under the current implementation."),
+        new(6, "Prepare the session", "Enter participant metadata, session id, handedness, and MAIA language. Prepare Session creates the Windows folder, sends setup metadata, and fixes the breath-tracking controller side for this session."),
+        new(7, "Run Questionnaire Block 1", "Open the first MAIA spatial questionnaire block. After the participant submits it, mark Block 1 submitted so the single global recording can start."),
+        new(8, "Start global recording", "Start the one continuous recording session after Block 1 and run a clock probe. Questionnaire blocks 2 and 3 happen while this recording remains active."),
+        new(9, "XR Block 1 marker", "Use particle visibility controls and then mark the XR block end. These are markers and condition transitions inside the continuous recording, not recorder stop/start boundaries."),
+        new(10, "Run Questionnaire Block 2", "Open the second MAIA spatial questionnaire block while recording continues. Participant submit should return the XR runtime to foreground."),
+        new(11, "XR Block 2 marker", "Use the required runtime controls for the second XR block and mark the block end while recording continues."),
+        new(12, "Run Questionnaire Block 3", "Open the final MAIA spatial questionnaire block while the same recording is still active."),
+        new(13, "Stop and close", "Use the final central Stop Recording command. It ends the recording session, pulls the Quest backup, and asks the Quest apps to close.")
     ];
 
     private static readonly string[] WorkflowGuideExpectedDeviceRecordingFiles =

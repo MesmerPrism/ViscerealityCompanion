@@ -33,6 +33,8 @@ public sealed class PeripersonalLslCommandTransport : IPeripersonalCommandTransp
     public const string CommandStreamType = "peripersonal.operator.command";
     public const string AckStreamName = "peripersonal_operator_command_ack";
     public const string AckStreamType = "peripersonal.operator.command.ack";
+    private static readonly TimeSpan AckPrearmTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan CommandRepublishInterval = TimeSpan.FromMilliseconds(500);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -69,26 +71,30 @@ public sealed class PeripersonalLslCommandTransport : IPeripersonalCommandTransp
             }
         }
 
-        var commandJson = JsonSerializer.Serialize(command, JsonOptions);
-        _commandOutlet.PushSample([commandJson]);
-
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_receiptTimeout);
-        await foreach (var reading in _ackMonitor.MonitorAsync(
-                           new LslMonitorSubscription(AckStreamName, AckStreamType, ChannelIndex: 0),
-                           timeout.Token).ConfigureAwait(false))
-        {
-            var receiptJson = FirstStringSample(reading);
-            if (string.IsNullOrWhiteSpace(receiptJson))
-            {
-                continue;
-            }
+        var ackMonitorReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var receiptTask = WaitForMatchingReceiptAsync(command, ackMonitorReady, timeout.Token);
 
-            var receipt = PeripersonalCommandReceiptEnvelope.ParseJson(receiptJson);
-            if (string.Equals(receipt.CommandId, command.CommandId, StringComparison.Ordinal))
+        try
+        {
+            await WaitForAckMonitorPrearmAsync(ackMonitorReady.Task, timeout.Token).ConfigureAwait(false);
+            var commandJson = JsonSerializer.Serialize(command, JsonOptions);
+
+            while (true)
             {
-                return receipt;
+                _commandOutlet.PushSample([commandJson]);
+                var delayTask = Task.Delay(CommandRepublishInterval, timeout.Token);
+                var completed = await Task.WhenAny(receiptTask, delayTask).ConfigureAwait(false);
+                if (completed == receiptTask)
+                {
+                    return await receiptTask.ConfigureAwait(false);
+                }
             }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"No matching LSL command receipt arrived for `{command.CommandId}` within {_receiptTimeout.TotalSeconds:0.#}s.");
         }
 
         throw new TimeoutException($"No matching LSL command receipt arrived for `{command.CommandId}`.");
@@ -115,6 +121,65 @@ public sealed class PeripersonalLslCommandTransport : IPeripersonalCommandTransp
         }
 
         return reading.SampleValues?.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+    }
+
+    private async Task<PeripersonalCommandReceiptEnvelope> WaitForMatchingReceiptAsync(
+        PeripersonalCommandEnvelope command,
+        TaskCompletionSource ackMonitorReady,
+        CancellationToken cancellationToken)
+    {
+        await foreach (var reading in _ackMonitor.MonitorAsync(
+                           new LslMonitorSubscription(AckStreamName, AckStreamType, ChannelIndex: 0),
+                           cancellationToken).ConfigureAwait(false))
+        {
+            if (IsAckMonitorReady(reading))
+            {
+                ackMonitorReady.TrySetResult();
+            }
+
+            var receiptJson = FirstStringSample(reading);
+            if (string.IsNullOrWhiteSpace(receiptJson))
+            {
+                continue;
+            }
+
+            var receipt = PeripersonalCommandReceiptEnvelope.ParseJson(receiptJson);
+            if (string.Equals(receipt.CommandId, command.CommandId, StringComparison.Ordinal))
+            {
+                ackMonitorReady.TrySetResult();
+                return receipt;
+            }
+        }
+
+        throw new TimeoutException($"No matching LSL command receipt arrived for `{command.CommandId}`.");
+    }
+
+    private static async Task WaitForAckMonitorPrearmAsync(
+        Task ackMonitorReady,
+        CancellationToken cancellationToken)
+    {
+        using var prearmTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        prearmTimeout.CancelAfter(AckPrearmTimeout);
+        try
+        {
+            await ackMonitorReady.WaitAsync(prearmTimeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The command outlet stays open and the receipt monitor keeps resolving. Publish anyway
+            // so a late-resolving Unity inlet can still receive repeated command samples.
+        }
+    }
+
+    private static bool IsAckMonitorReady(LslMonitorReading reading)
+    {
+        if (!string.IsNullOrWhiteSpace(FirstStringSample(reading)))
+        {
+            return true;
+        }
+
+        return reading.Status.Contains("connected", StringComparison.OrdinalIgnoreCase) ||
+            reading.Status.Contains("streaming", StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -271,6 +336,125 @@ public sealed class PeripersonalAndroidBroadcastCommandTransport : IPeripersonal
     }
 
     private sealed record AdbCommandResult(int ExitCode, string StdOut, string StdErr)
+    {
+        public string CombinedOutput => string.Join(Environment.NewLine, new[] { StdOut, StdErr }.Where(static value => !string.IsNullOrWhiteSpace(value)));
+    }
+}
+
+public interface IPeripersonalQuestAppCloser
+{
+    Task<PeripersonalQuestAppCloseResult> CloseQuestAppsAsync(
+        string unityPackage,
+        string panelPackage,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record PeripersonalQuestAppCloseResult(bool Succeeded, string Detail);
+
+public sealed class NoOpPeripersonalQuestAppCloser : IPeripersonalQuestAppCloser
+{
+    public static NoOpPeripersonalQuestAppCloser Instance { get; } = new();
+
+    private NoOpPeripersonalQuestAppCloser()
+    {
+    }
+
+    public Task<PeripersonalQuestAppCloseResult> CloseQuestAppsAsync(
+        string unityPackage,
+        string panelPackage,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(new PeripersonalQuestAppCloseResult(
+            true,
+            "No Quest app closer is configured; the Unity receipt recorded the close request."));
+}
+
+public sealed class PeripersonalAdbQuestAppCloser : IPeripersonalQuestAppCloser
+{
+    private readonly string _adbPath;
+    private readonly string _selector;
+    private readonly TimeSpan _timeout;
+
+    public PeripersonalAdbQuestAppCloser(
+        string adbPath,
+        string selector,
+        TimeSpan? timeout = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(adbPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(selector);
+        _adbPath = adbPath;
+        _selector = selector;
+        _timeout = timeout ?? TimeSpan.FromSeconds(10);
+    }
+
+    public async Task<PeripersonalQuestAppCloseResult> CloseQuestAppsAsync(
+        string unityPackage,
+        string panelPackage,
+        CancellationToken cancellationToken = default)
+    {
+        var packages = new[] { panelPackage, unityPackage }
+            .Where(static package => !string.IsNullOrWhiteSpace(package))
+            .Select(static package => package.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (packages.Length == 0)
+        {
+            return new PeripersonalQuestAppCloseResult(false, "No Quest packages were supplied for final app close.");
+        }
+
+        var details = new List<string>(packages.Length);
+        var succeeded = true;
+        foreach (var package in packages)
+        {
+            var result = await RunAdbAsync(
+                    ["-s", _selector, "shell", "am", "force-stop", package],
+                    cancellationToken)
+                .ConfigureAwait(false);
+            succeeded &= result.ExitCode == 0;
+            var detail = string.IsNullOrWhiteSpace(result.CombinedOutput)
+                ? $"{package}: exit {result.ExitCode}"
+                : $"{package}: exit {result.ExitCode}; {result.CombinedOutput}";
+            details.Add(detail);
+        }
+
+        return new PeripersonalQuestAppCloseResult(
+            succeeded,
+            string.Join(" | ", details));
+    }
+
+    private async Task<AdbCloseResult> RunAdbAsync(
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_timeout);
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = _adbPath,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+        };
+
+        foreach (var argument in arguments)
+        {
+            process.StartInfo.ArgumentList.Add(argument);
+        }
+
+        process.Start();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        var stderrTask = process.StandardError.ReadToEndAsync(timeout.Token);
+        await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        return new AdbCloseResult(
+            process.ExitCode,
+            await stdoutTask.ConfigureAwait(false),
+            await stderrTask.ConfigureAwait(false));
+    }
+
+    private sealed record AdbCloseResult(int ExitCode, string StdOut, string StdErr)
     {
         public string CombinedOutput => string.Join(Environment.NewLine, new[] { StdOut, StdErr }.Where(static value => !string.IsNullOrWhiteSpace(value)));
     }

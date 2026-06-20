@@ -988,12 +988,12 @@
                             BorderBrush="{Binding ActiveStudyShell.WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}">
                         <StackPanel>
                             <TextBlock Text="Operator workflow" Style="{StaticResource EyebrowStyle}" />
-                            <TextBlock Text="Run Sussex in two GUI stages: Sequential Guide, then Experiment Session."
+                            <TextBlock Text="Run this study in two GUI stages: Sequential Guide, then Experiment Session."
                                        FontSize="14"
                                        FontWeight="Bold"
                                        Foreground="{Binding ActiveStudyShell.WorkflowCurrentStepLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                        TextWrapping="Wrap" />
-                            <TextBlock Text="Use the guide for setup, Wi-Fi handoff, runtime launch, and validation. Use Experiment Session for the actual participant recording run."
+                            <TextBlock Text="Use the guide for setup, Wi-Fi handoff, runtime launch, and validation. Use Experiment Session for the live participant workflow."
                                        Style="{StaticResource MicroCaptionStyle}"
                                        Margin="0,6,0,0"
                                        TextWrapping="Wrap" />

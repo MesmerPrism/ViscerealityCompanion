@@ -165,6 +165,17 @@
                                 <TextBlock Text="{Binding PeripersonalBreathControllerSideLabel}"
                                            Style="{StaticResource SessionBodyStyle}"
                                            Margin="0,6,0,0" />
+                                <TextBlock Text="MAIA Language"
+                                           Style="{StaticResource SessionMicroLabelStyle}"
+                                           Margin="0,8,0,0" />
+                                <ComboBox x:Name="PeripersonalLanguageComboBox"
+                                          SelectedValue="{Binding PeripersonalLanguageCodeDraft, Mode=TwoWay}"
+                                          SelectedValuePath="Content"
+                                          MinHeight="34"
+                                          Margin="0,4,0,0">
+                                    <ComboBoxItem Content="en" />
+                                    <ComboBoxItem Content="de" />
+                                </ComboBox>
                                 <Button x:Name="PreparePeripersonalSessionButton"
                                         Content="Prepare Session"
                                         Command="{Binding PreparePeripersonalSessionCommand}"
@@ -262,7 +273,8 @@
                             <TextBlock Text="Recording"
                                        Style="{StaticResource SessionMicroLabelStyle}"
                                        Margin="0,14,0,0" />
-                            <Button Content="{Binding RecordingToggleActionLabel}"
+                            <Button x:Name="RecordingToggleButton"
+                                    Content="{Binding RecordingToggleActionLabel}"
                                     Command="{Binding ToggleRecordingCommand}"
                                     IsEnabled="{Binding CanToggleRecording}"
                                     Style="{StaticResource StateActionButtonStyle}"
@@ -598,7 +610,8 @@
                                            Foreground="{Binding ParticlesLevel, Converter={StaticResource OutcomeKindToBrush}}"
                                            Margin="0,8,0,0"
                                            TextWrapping="Wrap" />
-                                <Button Content="{Binding ParticlesToggleActionLabel}"
+                                <Button x:Name="ParticlesToggleButton"
+                                        Content="{Binding ParticlesToggleActionLabel}"
                                         Command="{Binding ToggleParticlesCommand}"
                                         IsEnabled="{Binding CanToggleParticles}"
                                         Style="{StaticResource StateActionButtonStyle}"
@@ -733,6 +746,12 @@
                                 <TextBlock Text="{Binding ClockAlignmentRoundTripStatsLabel}"
                                            Style="{StaticResource SessionBodyStyle}"
                                            Margin="0,6,0,0" />
+                                <Button x:Name="RunClockProbeButton"
+                                        Content="Run Clock Probe"
+                                        Style="{StaticResource StateActionButtonStyle}"
+                                        Command="{Binding RunPeripersonalClockProbeCommand}"
+                                        IsEnabled="{Binding CanRunPeripersonalClockProbe}"
+                                        Margin="0,12,0,0" />
                                 <Expander x:Name="ClockProbeDetailExpander"
                                           Margin="0,12,0,0">
                                     <Expander.Header>

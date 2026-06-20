@@ -6,7 +6,7 @@ using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Cli;
 
-public static class Program
+public static partial class Program
 {
     private static readonly Option<string?> DeviceOption = new(
         ["--device", "-d"],
@@ -30,6 +30,7 @@ public static class Program
         rootCommand.AddCommand(BuildTwinCommand());
         rootCommand.AddCommand(BuildCatalogCommand());
         rootCommand.AddCommand(BuildStudyCommand());
+        rootCommand.AddCommand(BuildPeripersonalCommand());
         rootCommand.AddCommand(BuildSussexCommand());
         rootCommand.AddCommand(BuildHzdbCommand());
         rootCommand.AddCommand(BuildToolingCommand());

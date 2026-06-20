@@ -8,9 +8,9 @@
     "packageId": "com.Viscereality.ViscerealityPeriPersonal",
     "apkPath": "../quest-session-kit/APKs/PeripersonalRuntime.apk",
     "launchComponent": "com.Viscereality.ViscerealityPeriPersonal/com.unity3d.player.UnityPlayerGameActivity",
-    "sha256": "1b1641ed8f5de677fe78c44c04210a04b3f247f37381ba4247b156e2e29112e9",
-    "versionName": "2026.06.20-single-runtime",
-    "notes": "Fresh single runtime APK built from S:/Work/repos/active/peripersonal-space-experiment-2025-12-10 on 2026-06-20. Unity package com.Viscereality.ViscerealityPeriPersonal; default particles invisible; runtime condition selection enabled.",
+    "sha256": "577319a4ab0f92a82392d9a2835fc1401c6a76c588ed8640745556e275a6b7d7",
+    "versionName": "2026.06.20-questionnaire-submit-proof",
+    "notes": "Fresh single runtime APK built from S:/Work/repos/active/peripersonal-space-experiment-2025-12-10 on 2026-06-20. Unity package com.Viscereality.ViscerealityPeriPersonal; default particles invisible; runtime condition selection enabled; operator-provided session folder names are honored; Unity publishes idempotent LSL command receipts, forwards MAIA questionnaire participant-command evidence scripts to the panel, and uses AKD-derived continuous LSL resolving with Android Wi-Fi multicast support.",
     "allowManualSelection": true,
     "launchInKioskMode": false
   },
