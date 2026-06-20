@@ -1,0 +1,159 @@
+using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
+using ViscerealityCompanion.Core.Models;
+using ViscerealityCompanion.Core.Services;
+
+namespace ViscerealityCompanion.Core.Tests;
+
+public sealed class PeripersonalCommandTransportTests
+{
+    [Fact]
+    public async Task LslTransport_PublishesCommandJsonAndReturnsMatchingReceipt()
+    {
+        var outlet = new CapturingOutlet();
+        var monitor = new QueuedMonitor();
+        var command = CreateCommand("unity", "unity_quest_apk", "com.Viscereality.ViscerealityPeriPersonal", "prepare_session");
+        monitor.EnqueueReceipt(PeripersonalCommandReceiptEnvelope.Create(
+            command,
+            accepted: true,
+            executed: true,
+            completed: true,
+            transportReceived: "lsl",
+            observedState: new JsonObject { ["session_ready"] = true }));
+
+        var transport = new PeripersonalLslCommandTransport(outlet, monitor, TimeSpan.FromSeconds(1));
+        var receipt = await transport.SendAsync(command);
+
+        Assert.True(outlet.IsOpen);
+        Assert.Single(outlet.Samples);
+        Assert.Contains("\"commandId\":\"command-001\"", outlet.Samples[0][0], StringComparison.Ordinal);
+        Assert.Equal(command.CommandId, receipt.CommandId);
+        Assert.True(receipt.Accepted);
+    }
+
+    [Fact]
+    public void ReceiptParser_AcceptsUnitySnakeCaseReceiptEnvelope()
+    {
+        var receipt = PeripersonalCommandReceiptEnvelope.ParseJson(
+            "{" +
+            "\"protocol_version\":\"viscereality.peripersonal.command_receipt.v1\"," +
+            "\"command_id\":\"command-001\"," +
+            "\"sequence\":12," +
+            "\"session_id\":\"session-1\"," +
+            "\"target_app\":\"unity\"," +
+            "\"action\":\"start_recording\"," +
+            "\"transport_received\":\"lsl\"," +
+            "\"received_lsl_timestamp\":123.5," +
+            "\"received_at_utc\":\"2026-06-20T12:00:00Z\"," +
+            "\"accepted\":true," +
+            "\"executed\":true," +
+            "\"completed\":true," +
+            "\"issue_code\":\"\"," +
+            "\"message\":\"ok\"," +
+            "\"state_revision\":7," +
+            "\"observed_state\":{\"recording_active\":true}" +
+            "}");
+
+        Assert.Equal("command-001", receipt.CommandId);
+        Assert.Equal(12, receipt.Sequence);
+        Assert.Equal("unity", receipt.TargetApp);
+        Assert.True(receipt.ObservedState?["recording_active"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public void AndroidBroadcastTransport_ExtractsReceiptFromAmBroadcastResultData()
+    {
+        const string output =
+            "Broadcasting: Intent { act=io.github.mesmerprism.questquestionnaire.panel.action.PERIPERSONAL_COMMAND }\n" +
+            "Broadcast completed: result=-1, data=\"{\\\"protocol_version\\\":\\\"viscereality.peripersonal.command_receipt.v1\\\",\\\"command_id\\\":\\\"command-001\\\"}\"";
+
+        var receiptJson = PeripersonalAndroidBroadcastCommandTransport.ExtractResultData(output);
+
+        Assert.Contains("\"command_id\":\"command-001\"", receiptJson, StringComparison.Ordinal);
+    }
+
+    private static PeripersonalCommandEnvelope CreateCommand(
+        string targetApp,
+        string targetRuntimeKind,
+        string targetPackage,
+        string action)
+        => PeripersonalCommandEnvelope.Create(
+            sequence: 1,
+            sessionId: "session-1",
+            participantRef: "P001",
+            targetApp,
+            targetRuntimeKind,
+            targetPackage,
+            action,
+            transport: "lsl",
+            requiresObservedState: true,
+            payload: new JsonObject
+            {
+                ["session_folder_name"] = "P001_session-1_20260620-120000"
+            },
+            commandId: "command-001",
+            sentAtUtc: new DateTimeOffset(2026, 06, 20, 12, 0, 0, TimeSpan.Zero));
+
+    private sealed class CapturingOutlet : ILslOutletService
+    {
+        public LslRuntimeState RuntimeState { get; } = new(true, "fake");
+        public bool IsOpen { get; private set; }
+        public List<string[]> Samples { get; } = [];
+
+        public OperationOutcome Open(string streamName, string streamType, int channelCount)
+        {
+            IsOpen = true;
+            return new OperationOutcome(OperationOutcomeKind.Success, "opened", $"{streamName}/{streamType}/{channelCount}");
+        }
+
+        public void Close() => IsOpen = false;
+        public void PushSample(string[] values) => Samples.Add(values);
+        public OperationOutcome PublishConfigSnapshot(IReadOnlyList<RuntimeConfigEntry> entries) => throw new NotSupportedException();
+        public OperationOutcome PublishCommand(TwinModeCommand command, int sequence) => throw new NotSupportedException();
+        public void Dispose() => Close();
+    }
+
+    private sealed class QueuedMonitor : ILslMonitorService
+    {
+        private readonly Queue<string> _receipts = new();
+        public LslRuntimeState RuntimeState { get; } = new(true, "fake");
+
+        public void EnqueueReceipt(PeripersonalCommandReceiptEnvelope receipt)
+            => _receipts.Enqueue("{" +
+                $"\"protocol_version\":\"{receipt.ProtocolVersion}\"," +
+                $"\"command_id\":\"{receipt.CommandId}\"," +
+                $"\"sequence\":{receipt.Sequence}," +
+                $"\"session_id\":\"{receipt.SessionId}\"," +
+                $"\"target_app\":\"{receipt.TargetApp}\"," +
+                $"\"action\":\"{receipt.Action}\"," +
+                $"\"transport_received\":\"{receipt.TransportReceived}\"," +
+                "\"accepted\":true," +
+                "\"executed\":true," +
+                "\"completed\":true," +
+                "\"issue_code\":\"\"," +
+                $"\"message\":\"{receipt.Message}\"," +
+                "\"state_revision\":1," +
+                "\"observed_state\":{\"session_ready\":true}" +
+                "}");
+
+        public async IAsyncEnumerable<LslMonitorReading> MonitorAsync(
+            LslMonitorSubscription subscription,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            while (_receipts.TryDequeue(out var receipt))
+            {
+                yield return new LslMonitorReading(
+                    "Streaming LSL sample.",
+                    "fake",
+                    null,
+                    0,
+                    DateTimeOffset.UtcNow,
+                    TextValue: receipt,
+                    SampleValues: [receipt],
+                    ChannelFormat: LslChannelFormat.String);
+            }
+
+            await Task.CompletedTask;
+        }
+    }
+}

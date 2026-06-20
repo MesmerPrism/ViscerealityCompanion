@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace ViscerealityCompanion.Core.Models;
@@ -99,6 +101,155 @@ public sealed record PeripersonalCommandReceiptEnvelope(
             message?.Trim() ?? string.Empty,
             stateRevision,
             observedState);
+
+    public static PeripersonalCommandReceiptEnvelope ParseJson(string receiptJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(receiptJson);
+
+        var node = JsonNode.Parse(receiptJson) as JsonObject
+            ?? throw new InvalidDataException("Peripersonal receipt JSON must be an object.");
+
+        var protocolVersion = ReadString(node, "protocol_version", "protocolVersion");
+        var commandId = ReadString(node, "command_id", "commandId");
+        var sequence = ReadLong(node, "sequence");
+        var sessionId = ReadString(node, "session_id", "sessionId");
+        var targetApp = ReadString(node, "target_app", "targetApp");
+        var action = ReadString(node, "action");
+        var transportReceived = ReadString(node, "transport_received", "transportReceived");
+        var receivedLslTimestamp = ReadNullableDouble(node, "received_lsl_timestamp", "receivedLslTimestamp");
+        var receivedAtUtc = ReadNullableDateTimeOffset(node, "received_at_utc", "receivedAtUtc");
+        var accepted = ReadBool(node, "accepted");
+        var executed = ReadBool(node, "executed");
+        var completed = ReadBool(node, "completed");
+        var issueCode = ReadString(node, "issue_code", "issueCode");
+        var message = ReadString(node, "message");
+        var stateRevision = ReadNullableLong(node, "state_revision", "stateRevision");
+        var observedState = ReadObject(node, "observed_state", "observedState");
+
+        if (protocolVersion != PeripersonalCommandProtocol.ReceiptProtocolVersion)
+        {
+            throw new InvalidDataException($"Unsupported peripersonal receipt protocol `{protocolVersion}`.");
+        }
+
+        return new PeripersonalCommandReceiptEnvelope(
+            protocolVersion,
+            commandId,
+            sequence,
+            sessionId,
+            targetApp,
+            action,
+            transportReceived,
+            receivedLslTimestamp,
+            receivedAtUtc,
+            accepted,
+            executed,
+            completed,
+            issueCode,
+            message,
+            stateRevision,
+            observedState);
+    }
+
+    private static string ReadString(JsonObject obj, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (obj.TryGetPropertyValue(name, out var node) && node is not null)
+            {
+                return node.GetValueKind() == JsonValueKind.String
+                    ? node.GetValue<string>()
+                    : node.ToJsonString();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool ReadBool(JsonObject obj, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!obj.TryGetPropertyValue(name, out var node) || node is null)
+            {
+                continue;
+            }
+
+            return node.GetValueKind() switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.String => bool.TryParse(node.GetValue<string>(), out var value) && value,
+                JsonValueKind.Number => node.GetValue<int>() != 0,
+                _ => false
+            };
+        }
+
+        return false;
+    }
+
+    private static long ReadLong(JsonObject obj, params string[] names)
+        => ReadNullableLong(obj, names) ?? 0L;
+
+    private static long? ReadNullableLong(JsonObject obj, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!obj.TryGetPropertyValue(name, out var node) || node is null)
+            {
+                continue;
+            }
+
+            return node.GetValueKind() switch
+            {
+                JsonValueKind.Number => node.GetValue<long>(),
+                JsonValueKind.String when long.TryParse(node.GetValue<string>(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) => value,
+                _ => null
+            };
+        }
+
+        return null;
+    }
+
+    private static double? ReadNullableDouble(JsonObject obj, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!obj.TryGetPropertyValue(name, out var node) || node is null)
+            {
+                continue;
+            }
+
+            return node.GetValueKind() switch
+            {
+                JsonValueKind.Number => node.GetValue<double>(),
+                JsonValueKind.String when double.TryParse(node.GetValue<string>(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) => value,
+                _ => null
+            };
+        }
+
+        return null;
+    }
+
+    private static DateTimeOffset? ReadNullableDateTimeOffset(JsonObject obj, params string[] names)
+    {
+        var raw = ReadString(obj, names);
+        return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var value)
+            ? value
+            : null;
+    }
+
+    private static JsonObject? ReadObject(JsonObject obj, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (obj.TryGetPropertyValue(name, out var node) && node is JsonObject jsonObject)
+            {
+                return JsonNode.Parse(jsonObject.ToJsonString()) as JsonObject;
+            }
+        }
+
+        return null;
+    }
 }
 
 public enum PeripersonalCommandLifecycleState
@@ -131,4 +282,3 @@ public sealed record PeripersonalCommandLedgerSnapshot(
         Status == PeripersonalCommandLifecycleState.Observed ||
         (Status == PeripersonalCommandLifecycleState.Executed && !RequiresObservedState);
 }
-
