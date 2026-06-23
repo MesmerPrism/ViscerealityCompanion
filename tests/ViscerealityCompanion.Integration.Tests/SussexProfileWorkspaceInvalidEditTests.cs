@@ -42,7 +42,7 @@ public sealed class SussexProfileWorkspaceInvalidEditTests
             using var workspace = new SussexVisualProfilesWorkspaceViewModel(CreateStudy(studyId), new ConnectedQuestControlService());
             await workspace.InitializeAsync();
 
-            Assert.Equal("Bundled Sussex Baseline", workspace.Profiles[0].DisplayLabel);
+            Assert.Equal("Bundled Study Visual Baseline", workspace.Profiles[0].DisplayLabel);
             var bundledProfile = workspace.Profiles.FirstOrDefault(profile => profile.IsBundledProfile);
             Assert.NotNull(bundledProfile);
             Assert.Equal(bundledName, bundledProfile!.DisplayLabel);

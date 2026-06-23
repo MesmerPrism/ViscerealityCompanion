@@ -339,7 +339,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private string _lastCompletedRecordingDevicePullFolderPath = string.Empty;
     private string _lastCompletedRecordingPdfPath = string.Empty;
     private StudyConditionDefinition? _selectedCondition;
-    private string _conditionSummary = "No Sussex condition selected.";
+    private string _conditionSummary = "No study condition selected.";
     private string _conditionDetail = "Choose a condition before starting a participant run.";
     private OperationOutcomeKind _conditionLevel = OperationOutcomeKind.Preview;
     private string _selectedConditionVisualProfileLabel = "Visual profile: n/a";
@@ -5023,7 +5023,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 new OperationOutcome(
                     OperationOutcomeKind.Warning,
                     "Calibration mode controls are unavailable.",
-                    "The Sussex controller-breathing profile workspace is not ready yet, so the session window cannot switch between dynamic-axis and fixed-axis calibration on this machine.")).ConfigureAwait(false);
+                    "The study controller-breathing profile workspace is not ready yet, so the session window cannot switch between dynamic-axis and fixed-axis calibration on this machine.")).ConfigureAwait(false);
             return;
         }
 
@@ -5503,7 +5503,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         {
             await DispatchAsync(() => SetConditionStatus(
                 OperationOutcomeKind.Warning,
-                "No Sussex condition selected.",
+                "No study condition selected.",
                 "Choose a condition before applying session profiles.")).ConfigureAwait(false);
             return;
         }
@@ -5520,7 +5520,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         await DispatchAsync(() => SetConditionStatus(
             OperationOutcomeKind.Preview,
             $"Applying {condition.Label}.",
-            "Loading the linked Sussex visual and controller-breathing profiles.")).ConfigureAwait(false);
+            "Loading the linked study visual and controller-breathing profiles.")).ConfigureAwait(false);
 
         await _visualProfiles.InitializeAsync().ConfigureAwait(false);
         await _controllerBreathingProfiles.InitializeAsync().ConfigureAwait(false);
@@ -5535,7 +5535,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() => SetConditionStatus(
                 OperationOutcomeKind.Failure,
                 $"Condition {condition.Label} could not select its visual profile.",
-                visualSelection.Error ?? "The configured Sussex visual profile reference did not resolve.")).ConfigureAwait(false);
+                visualSelection.Error ?? "The configured study visual profile reference did not resolve.")).ConfigureAwait(false);
             return;
         }
 
@@ -5549,7 +5549,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             await DispatchAsync(() => SetConditionStatus(
                 OperationOutcomeKind.Failure,
                 $"Condition {condition.Label} could not select its breathing profile.",
-                controllerSelection.Error ?? "The configured Sussex controller-breathing profile reference did not resolve.")).ConfigureAwait(false);
+                controllerSelection.Error ?? "The configured study controller-breathing profile reference did not resolve.")).ConfigureAwait(false);
             return;
         }
 
@@ -5586,8 +5586,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             ? OperationOutcomeKind.Warning
             : OperationOutcomeKind.Success;
         var runtimeAction = runtimeForeground
-            ? "The profiles were also hotloaded into the foreground Sussex runtime."
-            : "The profiles were pinned for the next Sussex launch; no live hotload was attempted because Sussex is not foregrounded.";
+            ? "The profiles were also hotloaded into the foreground study runtime."
+            : "The profiles were pinned for the next study launch; no live hotload was attempted because the study runtime is not foregrounded.";
         var detail =
             $"Visual: {visualSelection.Label}. Breathing: {controllerSelection.Label}. {runtimeAction}";
 
@@ -10438,7 +10438,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         if (!HasConditions)
         {
             ConditionLevel = OperationOutcomeKind.Preview;
-            ConditionSummary = "No Sussex conditions configured.";
+            ConditionSummary = "No study conditions configured.";
             ConditionDetail = "This study shell can run without a named condition selector.";
             SelectedConditionVisualProfileLabel = "Visual profile: n/a";
             SelectedConditionControllerBreathingProfileLabel = "Breathing profile: n/a";

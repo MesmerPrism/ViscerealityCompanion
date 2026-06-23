@@ -10,9 +10,9 @@ namespace ViscerealityCompanion.Cli;
 internal static class SussexCliSupport
 {
     internal const string DefaultStudyId = "sussex-university";
-    internal const string VisualBundledBaselineId = "__bundled_sussex_visual_baseline__";
-    internal const string VisualBundledProfileIdPrefix = "__bundled_sussex_visual_profile__::";
-    internal const string ControllerBundledProfileIdPrefix = "__bundled_sussex_controller_breathing_profile__::";
+    internal const string VisualBundledBaselineId = "__bundled_study_visual_baseline__";
+    internal const string VisualBundledProfileIdPrefix = "__bundled_study_visual_profile__::";
+    internal const string ControllerBundledProfileIdPrefix = "__bundled_study_controller_breathing_profile__::";
 
     internal static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -76,14 +76,14 @@ internal static class SussexCliSupport
 
     internal static async Task<IReadOnlyList<VisualResolvedProfile>> LoadVisualProfilesAsync(string studyId, string? studyRoot = null)
     {
-        var compiler = CreateVisualCompiler();
+        var compiler = CreateVisualCompiler(studyId, studyRoot);
         var localStore = new SussexVisualProfileStore(compiler);
         var profiles = new List<VisualResolvedProfile>
         {
             new(CreateVisualBaselineRecord(compiler), IsBundledBaseline: true, IsBundledProfile: false)
         };
 
-        profiles.AddRange((await LoadBundledVisualProfilesAsync(compiler, studyRoot).ConfigureAwait(false))
+        profiles.AddRange((await LoadBundledVisualProfilesAsync(compiler, studyId, studyRoot).ConfigureAwait(false))
             .Select(record => new VisualResolvedProfile(record, IsBundledBaseline: false, IsBundledProfile: true)));
         profiles.AddRange((await localStore.LoadAllAsync().ConfigureAwait(false))
             .Select(record => new VisualResolvedProfile(record, IsBundledBaseline: false, IsBundledProfile: false)));
@@ -93,10 +93,13 @@ internal static class SussexCliSupport
 
     internal static async Task<IReadOnlyList<ControllerResolvedProfile>> LoadControllerProfilesAsync(string studyId, string? studyRoot = null)
     {
-        var compiler = CreateControllerCompiler();
+        var compiler = CreateControllerCompiler(studyId, studyRoot);
         var store = new SussexControllerBreathingProfileStore(compiler);
-        var profiles = new List<ControllerResolvedProfile>();
-        profiles.AddRange((await LoadBundledControllerProfilesAsync(compiler, studyRoot).ConfigureAwait(false))
+        var profiles = new List<ControllerResolvedProfile>
+        {
+            new(CreateControllerBaselineRecord(compiler), IsBaselineTemplate: true)
+        };
+        profiles.AddRange((await LoadBundledControllerProfilesAsync(compiler, studyId, studyRoot).ConfigureAwait(false))
             .Select(record => new ControllerResolvedProfile(record, IsBaselineTemplate: false, IsBundledProfile: true)));
         profiles.AddRange((await store.LoadAllAsync().ConfigureAwait(false))
             .Select(record => new ControllerResolvedProfile(record, IsBaselineTemplate: false, IsBundledProfile: false)));
@@ -132,15 +135,15 @@ internal static class SussexCliSupport
         return items;
     }
 
-    internal static SussexVisualTuningCompiler CreateVisualCompiler()
+    internal static SussexVisualTuningCompiler CreateVisualCompiler(string? studyId = null, string? studyRoot = null)
     {
-        var path = ResolveSussexVisualTuningTemplatePath();
+        var path = ResolveStudyVisualTuningTemplatePath(studyId, studyRoot);
         return new SussexVisualTuningCompiler(File.ReadAllText(path));
     }
 
-    internal static SussexControllerBreathingTuningCompiler CreateControllerCompiler()
+    internal static SussexControllerBreathingTuningCompiler CreateControllerCompiler(string? studyId = null, string? studyRoot = null)
     {
-        var path = ResolveSussexControllerBreathingTuningTemplatePath();
+        var path = ResolveStudyControllerBreathingTuningTemplatePath(studyId, studyRoot);
         return new SussexControllerBreathingTuningCompiler(File.ReadAllText(path));
     }
 
@@ -168,7 +171,7 @@ internal static class SussexCliSupport
             var baseline = profiles.FirstOrDefault(profile => profile.IsBundledBaseline);
             if (baseline is null)
             {
-                throw new InvalidOperationException("The bundled Sussex visual baseline could not be resolved.");
+                throw new InvalidOperationException("The bundled study visual baseline could not be resolved.");
             }
 
             return baseline;
@@ -198,8 +201,7 @@ internal static class SussexCliSupport
             (string.Equals(normalized, "bundled-baseline", StringComparison.OrdinalIgnoreCase) ||
              string.Equals(normalized, "baseline", StringComparison.OrdinalIgnoreCase)))
         {
-            var compiler = CreateControllerCompiler();
-            return new ControllerResolvedProfile(CreateControllerBaselineRecord(compiler), IsBaselineTemplate: true);
+            return profiles.First(profile => profile.IsBaselineTemplate);
         }
 
         return ResolveUniqueProfile(
@@ -217,7 +219,7 @@ internal static class SussexCliSupport
     {
         if (string.IsNullOrWhiteSpace(token))
         {
-            throw new InvalidOperationException("A Sussex condition id or label is required.");
+            throw new InvalidOperationException("A study condition id or label is required.");
         }
 
         var normalized = token.Trim();
@@ -231,14 +233,14 @@ internal static class SussexCliSupport
         return matches.Length switch
         {
             1 => matches[0],
-            > 1 => throw new InvalidOperationException($"Multiple Sussex conditions match '{token}'. Use the condition id instead."),
-            _ => throw new InvalidOperationException($"Could not resolve Sussex condition '{token}'.")
+            > 1 => throw new InvalidOperationException($"Multiple study conditions match '{token}'. Use the condition id instead."),
+            _ => throw new InvalidOperationException($"Could not resolve study condition '{token}'.")
         };
     }
 
-    internal static IReadOnlyList<SurfaceFieldSpec> BuildVisualFieldSpecs()
+    internal static IReadOnlyList<SurfaceFieldSpec> BuildVisualFieldSpecs(string? studyId = null, string? studyRoot = null)
     {
-        var compiler = CreateVisualCompiler();
+        var compiler = CreateVisualCompiler(studyId, studyRoot);
         return compiler.TemplateDocument.Controls
             .Select(control =>
             {
@@ -265,9 +267,9 @@ internal static class SussexCliSupport
             .ToArray();
     }
 
-    internal static IReadOnlyList<SurfaceFieldSpec> BuildControllerFieldSpecs()
+    internal static IReadOnlyList<SurfaceFieldSpec> BuildControllerFieldSpecs(string? studyId = null, string? studyRoot = null)
     {
-        var compiler = CreateControllerCompiler();
+        var compiler = CreateControllerCompiler(studyId, studyRoot);
         return compiler.TemplateDocument.Controls
             .Select(control =>
             {
@@ -403,7 +405,7 @@ internal static class SussexCliSupport
     {
         if (!existing.IsWritableLocalProfile)
         {
-            throw new InvalidOperationException("Bundled Sussex visual profiles are read-only. Create a new local profile instead.");
+            throw new InvalidOperationException("Bundled study visual profiles are read-only. Create a new local profile instead.");
         }
 
         return await store.SaveAsync(
@@ -580,8 +582,8 @@ internal static class SussexCliSupport
         string? studyRoot,
         bool forceWhenStudyNotForeground)
     {
-        var visualCompiler = CreateVisualCompiler();
-        var controllerCompiler = CreateControllerCompiler();
+        var visualCompiler = CreateVisualCompiler(studyId, studyRoot);
+        var controllerCompiler = CreateControllerCompiler(studyId, studyRoot);
         var target = StudyShellOperatorBindings.CreateQuestTarget(study);
         var headset = await questService.QueryHeadsetStatusAsync(target, remoteOnlyControlEnabled: false).ConfigureAwait(false);
 
@@ -596,8 +598,8 @@ internal static class SussexCliSupport
             return new StartupSyncResult(
                 AppliedToDevice: false,
                 DeferredWhileStudyRunning: true,
-                Summary: "Pinned Sussex startup profiles saved locally.",
-                Detail: $"The Sussex runtime is active in the foreground, so the device-side launch override will wait until the next study stop or launch. Package: {target.PackageId}.",
+                Summary: "Pinned study startup profiles saved locally.",
+                Detail: $"The study runtime is active in the foreground, so the device-side launch override will wait until the next study stop or launch. Package: {target.PackageId}.",
                 CsvPath: null,
                 VisualApplyRecord: null,
                 ControllerApplyRecord: null);
@@ -608,8 +610,8 @@ internal static class SussexCliSupport
             return new StartupSyncResult(
                 AppliedToDevice: false,
                 DeferredWhileStudyRunning: false,
-                Summary: "Pinned Sussex startup profiles saved locally.",
-                Detail: $"{headset.Detail} The next successful Sussex stop/launch or a later sync command will restage the device-side launch override.",
+                Summary: "Pinned study startup profiles saved locally.",
+                Detail: $"{headset.Detail} The next successful study stop/launch or a later sync command will restage the device-side launch override.",
                 CsvPath: null,
                 VisualApplyRecord: null,
                 ControllerApplyRecord: null);
@@ -623,7 +625,7 @@ internal static class SussexCliSupport
                 DeferredWhileStudyRunning: false,
                 Summary: clearOutcome.Summary,
                 Detail: string.IsNullOrWhiteSpace(clearOutcome.Detail)
-                    ? "Cleared the Sussex device-side startup override; the next launch will use the bundled baseline."
+                    ? "Cleared the study device-side startup override; the next launch will use the bundled baseline."
                     : clearOutcome.Detail,
                 CsvPath: null,
                 VisualApplyRecord: null,
@@ -636,13 +638,13 @@ internal static class SussexCliSupport
             visualCompiled?.Entries,
             controllerCompiled?.Entries);
         var runtimeProfile = new RuntimeConfigProfile(
-            $"sussex_pinned_startup_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
-            "Sussex Pinned Startup Profile",
+            $"study_pinned_startup_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
+            "Study Pinned Startup Profile",
             string.Empty,
             DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
             "study",
             false,
-            "Pinned Sussex launch profile payload staged for the next runtime start.",
+            "Pinned study launch profile payload staged for the next runtime start.",
             [target.PackageId],
             mergedEntries);
         var writer = new RuntimeConfigWriter();
@@ -708,17 +710,17 @@ internal static class SussexCliSupport
         string studyId,
         SussexVisualProfileRecord record)
     {
-        var compiler = CreateVisualCompiler();
+        var compiler = CreateVisualCompiler(studyId);
         var compiled = compiler.Compile(record.Document);
         var target = StudyShellOperatorBindings.CreateQuestTarget(study);
         var runtimeProfile = new RuntimeConfigProfile(
-            $"sussex_visual_tuning_v1_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
-            $"Sussex Visual Profile - {record.Document.Profile.Name}",
+            $"study_visual_tuning_v1_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
+            $"Study Visual Profile - {record.Document.Profile.Name}",
             string.Empty,
             DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
             "study",
             false,
-            $"Compiled from {record.Document.Profile.Name}. Only the Sussex-approved visual envelope fields plus the simplified tracer wrapper were changed.",
+            $"Compiled from {record.Document.Profile.Name}. Only the study-approved visual envelope fields plus the simplified tracer wrapper were changed.",
             [record.Document.PackageId],
             compiled.Entries);
         var writer = new RuntimeConfigWriter();
@@ -729,7 +731,7 @@ internal static class SussexCliSupport
         {
             return (new OperationOutcome(
                 OperationOutcomeKind.Failure,
-                "Live Sussex visual apply blocked.",
+                "Live study visual apply blocked.",
                 $"{headset.Detail} The runtime payload was compiled locally at {csvPath}, but it was not published."), csvPath);
         }
 
@@ -740,7 +742,7 @@ internal static class SussexCliSupport
             {
                 return (new OperationOutcome(
                     OperationOutcomeKind.Failure,
-                    "Live Sussex visual apply blocked by wake failure.",
+                    "Live study visual apply blocked by wake failure.",
                     $"{wake.Detail} Compiled CSV: {csvPath}"), csvPath);
             }
 
@@ -751,7 +753,7 @@ internal static class SussexCliSupport
         {
             return (new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Live Sussex visual apply requires an active Sussex session.",
+                "Live study visual apply requires an active study session.",
                 $"Bring {target.Label} to the foreground, then apply the profile again. Compiled CSV: {csvPath}"), csvPath);
         }
 
@@ -759,7 +761,7 @@ internal static class SussexCliSupport
         {
             return (new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Live Sussex visual apply requires the twin bridge.",
+                "Live study visual apply requires the twin bridge.",
                 $"The CLI mirrors the GUI and publishes current-session visual applies over the live quest_hotload_config channel. Compiled CSV: {csvPath}"), csvPath);
         }
 
@@ -791,17 +793,17 @@ internal static class SussexCliSupport
         string studyId,
         SussexControllerBreathingProfileRecord record)
     {
-        var compiler = CreateControllerCompiler();
+        var compiler = CreateControllerCompiler(studyId);
         var compiled = compiler.Compile(record.Document);
         var target = StudyShellOperatorBindings.CreateQuestTarget(study);
         var runtimeProfile = new RuntimeConfigProfile(
-            $"sussex_controller_breathing_tuning_v1_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
-            $"Sussex Controller Breathing Profile - {record.Document.Profile.Name}",
+            $"study_controller_breathing_tuning_v1_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
+            $"Study Controller Breathing Profile - {record.Document.Profile.Name}",
             string.Empty,
             DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
             "study",
             false,
-            $"Compiled from {record.Document.Profile.Name}. Only the Sussex-approved controller-breathing and vibration fields were changed.",
+            $"Compiled from {record.Document.Profile.Name}. Only the study-approved controller-breathing and vibration fields were changed.",
             [record.Document.PackageId],
             compiled.Entries);
         var writer = new RuntimeConfigWriter();
@@ -812,7 +814,7 @@ internal static class SussexCliSupport
         {
             return (new OperationOutcome(
                 OperationOutcomeKind.Failure,
-                "Live Sussex controller-breathing apply blocked.",
+                "Live study controller-breathing apply blocked.",
                 $"{headset.Detail} The runtime payload was compiled locally at {csvPath}, but it was not published."), csvPath);
         }
 
@@ -823,7 +825,7 @@ internal static class SussexCliSupport
             {
                 return (new OperationOutcome(
                     OperationOutcomeKind.Failure,
-                    "Live Sussex controller-breathing apply blocked by wake failure.",
+                    "Live study controller-breathing apply blocked by wake failure.",
                     $"{wake.Detail} Compiled CSV: {csvPath}"), csvPath);
             }
 
@@ -834,7 +836,7 @@ internal static class SussexCliSupport
         {
             return (new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Live Sussex controller-breathing apply requires an active Sussex session.",
+                "Live study controller-breathing apply requires an active study session.",
                 $"Bring {target.Label} to the foreground, then apply the profile again. Compiled CSV: {csvPath}"), csvPath);
         }
 
@@ -842,7 +844,7 @@ internal static class SussexCliSupport
         {
             return (new OperationOutcome(
                 OperationOutcomeKind.Warning,
-                "Live Sussex controller-breathing apply requires the twin bridge.",
+                "Live study controller-breathing apply requires the twin bridge.",
                 $"The CLI mirrors the GUI and publishes current-session controller-breathing applies over the live quest_hotload_config channel. Compiled CSV: {csvPath}"), csvPath);
         }
 
@@ -988,7 +990,7 @@ internal static class SussexCliSupport
     internal static void PrintVisualProfiles(IReadOnlyList<VisualResolvedProfile> profiles, string studyId)
     {
         var startup = new SussexVisualProfileStartupStateStore(studyId).Load();
-        Console.WriteLine("Sussex Visual Profiles:");
+        Console.WriteLine("Study Visual Profiles:");
         foreach (var profile in profiles)
         {
             var kind = profile.IsBundledBaseline ? "bundled-baseline" : profile.IsBundledProfile ? "bundled" : "local";
@@ -1000,8 +1002,7 @@ internal static class SussexCliSupport
     internal static void PrintControllerProfiles(IReadOnlyList<ControllerResolvedProfile> profiles, string studyId)
     {
         var startup = new SussexControllerBreathingProfileStartupStateStore(studyId).Load();
-        Console.WriteLine("Sussex Controller-Breathing Profiles:");
-        Console.WriteLine("  bundled-baseline                               baseline         Bundled Sussex controller-breathing baseline");
+        Console.WriteLine("Study Controller-Breathing Profiles:");
         if (startup is null)
         {
             Console.WriteLine("    current startup: bundled baseline");
@@ -1010,7 +1011,7 @@ internal static class SussexCliSupport
         foreach (var profile in profiles)
         {
             var startupMark = string.Equals(startup?.ProfileId, profile.Record.Id, StringComparison.OrdinalIgnoreCase) ? " [startup]" : string.Empty;
-            var kind = profile.IsBundledProfile ? "bundled" : "local";
+            var kind = profile.IsBaselineTemplate ? "baseline" : profile.IsBundledProfile ? "bundled" : "local";
             Console.WriteLine($"  {profile.Record.Id,-44} {kind,-16} {profile.DisplayLabel}{startupMark}");
         }
     }
@@ -1020,7 +1021,7 @@ internal static class SussexCliSupport
         IReadOnlyList<VisualResolvedProfile> visualProfiles,
         IReadOnlyList<ControllerResolvedProfile> controllerProfiles)
     {
-        Console.WriteLine("Sussex Conditions:");
+        Console.WriteLine("Study Conditions:");
         foreach (var condition in conditions)
         {
             var kind = condition.IsLocalOverride
@@ -1063,9 +1064,10 @@ internal static class SussexCliSupport
 
     private static async Task<IReadOnlyList<SussexVisualProfileRecord>> LoadBundledVisualProfilesAsync(
         SussexVisualTuningCompiler compiler,
+        string? studyId,
         string? studyRoot)
     {
-        var bundledRoot = TryResolveBundledSussexVisualProfilesRoot(studyRoot);
+        var bundledRoot = TryResolveBundledStudyVisualProfilesRoot(studyId, studyRoot);
         if (string.IsNullOrWhiteSpace(bundledRoot) || !Directory.Exists(bundledRoot))
         {
             return Array.Empty<SussexVisualProfileRecord>();
@@ -1099,9 +1101,10 @@ internal static class SussexCliSupport
 
     private static async Task<IReadOnlyList<SussexControllerBreathingProfileRecord>> LoadBundledControllerProfilesAsync(
         SussexControllerBreathingTuningCompiler compiler,
+        string? studyId,
         string? studyRoot)
     {
-        var bundledRoot = TryResolveBundledSussexControllerBreathingProfilesRoot(studyRoot);
+        var bundledRoot = TryResolveBundledStudyControllerBreathingProfilesRoot(studyId, studyRoot);
         if (string.IsNullOrWhiteSpace(bundledRoot) || !Directory.Exists(bundledRoot))
         {
             return Array.Empty<SussexControllerBreathingProfileRecord>();
@@ -1400,26 +1403,38 @@ internal static class SussexCliSupport
         return parsed;
     }
 
-    private static string ResolveSussexVisualTuningTemplatePath()
+    private static string ResolveStudyVisualTuningTemplatePath(string? studyId, string? studyRoot)
         => ResolveExistingFile(
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_VISUAL_TUNING_TEMPLATE"),
+            Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "templates", "visual-tuning-v1.template.json"),
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_TUNING_TEMPLATE"),
             Path.Combine(CliAssetLocator.TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-visual-tuning-v1.template.json"));
 
-    private static string ResolveSussexControllerBreathingTuningTemplatePath()
+    private static string ResolveStudyControllerBreathingTuningTemplatePath(string? studyId, string? studyRoot)
         => ResolveExistingFile(
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_CONTROLLER_BREATHING_TUNING_TEMPLATE"),
+            Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "templates", "controller-breathing-tuning-v1.template.json"),
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_TUNING_TEMPLATE"),
             Path.Combine(CliAssetLocator.ResolveQuestSessionKitRoot(), "LlmTuningProfiles", "sussex-controller-breathing-tuning-v1.template.json"));
 
-    private static string? TryResolveBundledSussexVisualProfilesRoot(string? studyRoot)
+    private static string? TryResolveBundledStudyVisualProfilesRoot(string? studyId, string? studyRoot)
         => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_VISUAL_PROFILE_BUNDLE_ROOT"),
+            Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "visual-profiles"),
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT"),
             Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "visual-profiles"));
 
-    private static string? TryResolveBundledSussexControllerBreathingProfilesRoot(string? studyRoot)
+    private static string? TryResolveBundledStudyControllerBreathingProfilesRoot(string? studyId, string? studyRoot)
         => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT"),
+            Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "controller-breathing-profiles"),
+            Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "sussex-controller-breathing-profiles"),
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT"),
             Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "sussex-controller-breathing-profiles"),
             Path.Combine(studyRoot ?? CliAssetLocator.TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "controller-breathing-profiles"));
+
+    private static string NormalizeStudyId(string? studyId)
+        => string.IsNullOrWhiteSpace(studyId) ? DefaultStudyId : studyId.Trim();
 
     private static string ResolveExistingDirectory(params string?[] candidates)
         => TryResolveExistingDirectory(candidates)

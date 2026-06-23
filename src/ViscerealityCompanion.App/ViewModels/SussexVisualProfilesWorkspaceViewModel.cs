@@ -14,8 +14,8 @@ namespace ViscerealityCompanion.App.ViewModels;
 
 public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, IDisposable
 {
-    private const string BundledBaselineProfileId = "__bundled_sussex_visual_baseline__";
-    private const string BundledProfileIdPrefix = "__bundled_sussex_visual_profile__::";
+    private const string BundledBaselineProfileId = "__bundled_study_visual_baseline__";
+    private const string BundledProfileIdPrefix = "__bundled_study_visual_profile__::";
     private static readonly HashSet<string> TracerControlIds = new(StringComparer.OrdinalIgnoreCase)
     {
         "tracers_enabled",
@@ -43,15 +43,15 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     private string _selectedProfileNotes = string.Empty;
     private SussexVisualTuningDocument? _draftSourceDocument;
     private string _draftSourceProfileId = string.Empty;
-    private string _draftSourceLabel = "Bundled Sussex Baseline";
-    private string _librarySummary = "Loading Sussex visual profiles...";
-    private string _libraryDetail = "The Sussex shell stores one self-describing json file per visual profile.";
+    private string _draftSourceLabel = "Bundled Study Visual Baseline";
+    private string _librarySummary = "Loading study visual profiles...";
+    private string _libraryDetail = "The study shell stores one self-describing json file per visual profile.";
     private OperationOutcomeKind _libraryLevel = OperationOutcomeKind.Preview;
-    private string _applySummary = "No Sussex visual profile has been applied yet.";
-    private string _applyDetail = "Select or create a profile, then upload it through the normal Sussex hotload path.";
+    private string _applySummary = "No study visual profile has been applied yet.";
+    private string _applyDetail = "Select or create a profile, then upload it through the normal study hotload path.";
     private OperationOutcomeKind _applyLevel = OperationOutcomeKind.Preview;
-    private string _lastCompiledCsvPath = "No Sussex visual hotload CSV written yet.";
-    private string _templatePathLabel = "Bundled Sussex visual tuning template not found.";
+    private string _lastCompiledCsvPath = "No study visual hotload CSV written yet.";
+    private string _templatePathLabel = "Bundled study visual tuning template not found.";
     private string _libraryRootLabel = string.Empty;
     private SussexVisualProfileStartupState? _startupState;
     private Dictionary<string, double> _lastSessionTrackedControlValues = new(StringComparer.OrdinalIgnoreCase);
@@ -67,7 +67,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
         try
         {
-            string? templatePath = AppAssetLocator.TryResolveSussexVisualTuningTemplatePath();
+            string? templatePath = AppAssetLocator.TryResolveStudyVisualTuningTemplatePath(_study.Id);
             if (!string.IsNullOrWhiteSpace(templatePath))
             {
                 var templateJson = File.ReadAllText(templatePath);
@@ -80,20 +80,20 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 _templatePathLabel = templatePath;
                 _libraryRootLabel = _profileStore.RootPath;
                 BuildEditorGroups();
-                _librarySummary = "Sussex visual profile library ready.";
-                _libraryDetail = "The bundled Sussex baseline is always available. Table edits stay in the working draft until you explicitly save them to the library or pin a saved profile for launch.";
+                _librarySummary = "Study visual profile library ready.";
+                _libraryDetail = "The bundled study baseline is always available. Table edits stay in the working draft until you explicitly save them to the library or pin a saved profile for launch.";
                 _libraryLevel = OperationOutcomeKind.Success;
             }
             else
             {
-                _librarySummary = "Sussex visual profile template missing.";
-                _libraryDetail = "The shell could not resolve the bundled sussex-visual-tuning-v1.template.json asset.";
+                _librarySummary = "Study visual profile template missing.";
+                _libraryDetail = "The shell could not resolve a bundled visual-tuning template asset.";
                 _libraryLevel = OperationOutcomeKind.Warning;
             }
         }
         catch (Exception ex)
         {
-            _librarySummary = "Sussex visual profile library unavailable.";
+            _librarySummary = "Study visual profile library unavailable.";
             _libraryDetail = ex.Message;
             _libraryLevel = OperationOutcomeKind.Failure;
         }
@@ -249,7 +249,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
     public string DraftSourceDetail
         => _draftSourceDocument is null
-            ? "Select the bundled Sussex baseline or a saved profile to create a runtime working draft."
+            ? "Select the bundled study baseline or a saved profile to create a runtime working draft."
             : "Selecting a saved profile copies it into the runtime working draft. Editing the table changes only that draft until you explicitly save it into the library.";
 
     public string DraftSummary
@@ -289,7 +289,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
     public string StartupProfileSummary
         => _startupState is null
-            ? "Next-launch override: bundled Sussex baseline."
+            ? "Next-launch override: bundled study baseline."
             : $"Next-launch override: {_startupState.ProfileName}.";
 
     public string StartupProfileDetail
@@ -335,14 +335,14 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         error = null;
         if (string.IsNullOrWhiteSpace(profileReference))
         {
-            error = "No Sussex visual profile was configured for the selected condition.";
+            error = "No study visual profile was configured for the selected condition.";
             return false;
         }
 
         var profile = ResolveProfileReference(profileReference);
         if (profile is null)
         {
-            error = $"Sussex visual profile '{profileReference}' was not found.";
+            error = $"Study visual profile '{profileReference}' was not found.";
             return false;
         }
 
@@ -467,7 +467,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     {
         if (_compiler is null)
         {
-            throw new InvalidOperationException("Sussex visual tuning compiler is not available.");
+            throw new InvalidOperationException("Study visual tuning compiler is not available.");
         }
 
         var bundledDocument = _compiler.TemplateDocument;
@@ -480,7 +480,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 DateTimeOffset.MinValue,
                 bundledDocument),
             isBundledBaseline: true,
-            displayLabelOverride: "Bundled Sussex Baseline",
+            displayLabelOverride: "Bundled Study Visual Baseline",
             modifiedLabelOverride: "Bundled with the APK");
     }
 
@@ -586,8 +586,8 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                     }
 
                     SelectedProfile = Profiles[0];
-                    LibrarySummary = "No bundled or local Sussex visual profiles yet.";
-                    LibraryDetail = "The bundled Sussex baseline is still available below. Use Save Draft As New Profile to create the first editable copy in the local library, then sync chosen profiles into the repo bundle when you want to ship them.";
+                    LibrarySummary = "No bundled or local study visual profiles yet.";
+                    LibraryDetail = "The bundled study baseline is still available below. Use Save Draft As New Profile to create the first editable copy in the local library, then sync chosen profiles into the repo bundle when you want to ship them.";
                     LibraryLevel = OperationOutcomeKind.Preview;
                     NotifyStartupStateChanged();
                     return;
@@ -606,7 +606,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                     _startupStateStore?.Save(null);
                 }
 
-                LibrarySummary = $"Loaded {bundledProfiles.Count.ToString(CultureInfo.InvariantCulture)} bundled Sussex visual profile(s), {savedProfiles.Count.ToString(CultureInfo.InvariantCulture)} local saved profile(s), plus the bundled baseline.";
+                LibrarySummary = $"Loaded {bundledProfiles.Count.ToString(CultureInfo.InvariantCulture)} bundled study visual profile(s), {savedProfiles.Count.ToString(CultureInfo.InvariantCulture)} local saved profile(s), plus the bundled baseline.";
                 LibraryDetail = $"Bundled release profiles are read-only and ship from the app payload. Local saved profiles live in {LibraryRootLabel}. Selecting any profile loads it into the working draft; nothing in the local library changes until you explicitly save.";
                 LibraryLevel = OperationOutcomeKind.Success;
                 NotifyStartupStateChanged();
@@ -624,7 +624,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         {
             _draftSourceDocument = null;
             _draftSourceProfileId = string.Empty;
-            _draftSourceLabel = "Bundled Sussex Baseline";
+            _draftSourceLabel = "Bundled Study Visual Baseline";
             foreach (var field in Groups.SelectMany(group => group.Fields))
             {
                 field.ResetToBaseline(notify: false);
@@ -895,7 +895,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         {
             await DispatchAsync(() =>
             {
-                LibrarySummary = "Saving Sussex visual profile failed.";
+                LibrarySummary = "Saving study visual profile failed.";
                 LibraryDetail = ex.Message;
                 LibraryLevel = OperationOutcomeKind.Failure;
             });
@@ -933,11 +933,11 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         var saved = await SaveSnapshotAsync(
             snapshot with { ProfileName = profileName },
             existingPath: null,
-            "Saved Sussex visual draft as a new profile.");
+            "Saved study visual draft as a new profile.");
         if (saved is not null)
         {
             await ReloadProfilesAsync(saved.Id);
-            LibrarySummary = "Saved Sussex visual draft as a new profile.";
+            LibrarySummary = "Saved study visual draft as a new profile.";
             LibraryDetail = saved.FilePath;
             LibraryLevel = OperationOutcomeKind.Success;
         }
@@ -960,7 +960,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         var saved = await SaveSnapshotAsync(
             snapshot,
             existingPath: SelectedProfile.FilePath,
-            "Saved changes to the selected Sussex visual profile.");
+            "Saved changes to the selected study visual profile.");
         if (saved is null)
         {
             return;
@@ -994,7 +994,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         }
 
         await ReloadProfilesAsync(saved.Id);
-        LibrarySummary = "Saved changes to the selected Sussex visual profile.";
+        LibrarySummary = "Saved changes to the selected study visual profile.";
         LibraryDetail = saved.FilePath;
         LibraryLevel = OperationOutcomeKind.Success;
     }
@@ -1026,7 +1026,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         }
         catch (Exception ex)
         {
-            LibrarySummary = "Sussex visual profile import failed.";
+            LibrarySummary = "Study visual profile import failed.";
             LibraryDetail = ex.Message;
             LibraryLevel = OperationOutcomeKind.Failure;
         }
@@ -1054,7 +1054,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         }
 
         await _profileStore.ExportAsync(saved.Document, dialog.FileName);
-        LibrarySummary = "Sussex visual profile exported.";
+        LibrarySummary = "Study visual profile exported.";
         LibraryDetail = dialog.FileName;
         LibraryLevel = OperationOutcomeKind.Success;
     }
@@ -1176,7 +1176,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         {
             await DispatchAsync(() =>
             {
-                ApplySummary = "APK launch is using the bundled Sussex baseline visual state.";
+                ApplySummary = "APK launch is using the bundled study baseline visual state.";
                 ApplyDetail = "No saved startup profile is pinned, so Sussex keeps the bundled baseline until you apply another profile.";
                 ApplyLevel = OperationOutcomeKind.Preview;
                 RefreshComparisonState();
@@ -1197,7 +1197,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         }
 
         if (MessageBox.Show(
-                $"Delete '{SelectedProfile.Document.Profile.Name}' from the Sussex visual profile library?",
+                $"Delete '{SelectedProfile.Document.Profile.Name}' from the study visual profile library?",
                 "Viscereality Companion",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning) != MessageBoxResult.Yes)
@@ -1457,7 +1457,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                 if (!currentDocumentIsValid)
                 {
                     ApplySummary = "Current visual values are invalid.";
-                    ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
+                    ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next study launch.";
                     ApplyLevel = OperationOutcomeKind.Warning;
                 }
                 else if (changedSinceApplyCount > 0)
@@ -1483,7 +1483,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
                     else
                     {
                         ApplyDetail = confirmation.WaitingCount > 0
-                            ? $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}. Upload succeeded; waiting for a fresh quest_twin_state report to mirror the requested Sussex visual and tracer values."
+                            ? $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}. Upload succeeded; waiting for a fresh quest_twin_state report to mirror the requested study visual and tracer values."
                             : $"Applied {_lastApplyRecord!.ProfileName} at {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}.";
                     }
 
@@ -1497,7 +1497,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             else if (!currentDocumentIsValid)
             {
                 ApplySummary = "Current visual values are invalid.";
-                ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
+                ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next study launch.";
                 ApplyLevel = OperationOutcomeKind.Warning;
             }
             else if (_lastApplyRecord is not null)
@@ -1508,7 +1508,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             }
             else
             {
-                ApplySummary = "No Sussex visual profile has been applied yet.";
+                ApplySummary = "No study visual profile has been applied yet.";
                 ApplyDetail = "Apply the current profile to start headset confirmation tracking.";
                 ApplyLevel = OperationOutcomeKind.Preview;
             }
@@ -1551,7 +1551,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         catch (Exception ex) when (ex is InvalidDataException or FormatException or InvalidOperationException)
         {
             ApplySummary = "Current visual values could not be compared safely.";
-            ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next Sussex launch.";
+            ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next study launch.";
             ApplyLevel = OperationOutcomeKind.Warning;
         }
     }
@@ -1696,7 +1696,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             return Array.Empty<SussexVisualProfileRecord>();
         }
 
-        var bundledRoot = AppAssetLocator.TryResolveBundledSussexVisualProfilesRoot();
+        var bundledRoot = AppAssetLocator.TryResolveBundledStudyVisualProfilesRoot(_study.Id);
         if (string.IsNullOrWhiteSpace(bundledRoot) || !Directory.Exists(bundledRoot))
         {
             return Array.Empty<SussexVisualProfileRecord>();
@@ -1783,7 +1783,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
     {
         if (_compiler is null)
         {
-            throw new InvalidOperationException("Sussex visual tuning compiler is not available.");
+            throw new InvalidOperationException("Study visual tuning compiler is not available.");
         }
 
         return SussexVisualStartupSnapshotResolver.ResolveDocument(
@@ -1906,7 +1906,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
-            detailParts.Add("Twin-state confirmation will track the approved Sussex visual and tracer values after the headset reports them.");
+            detailParts.Add("Twin-state confirmation will track the approved study visual and tracer values after the headset reports them.");
         }
 
         return string.Join(" ", detailParts);
@@ -1930,7 +1930,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
         detailParts.Add($"Compiled CSV: {csvPath}.");
         detailParts.Add(
-            "The Sussex runtime must be awake and visible enough to poll runtime_hotload/runtime_overrides.csv before a visual apply can take effect. Wake the headset or use the bench-tools proximity hold, then apply again.");
+            "The study runtime must be awake and visible enough to poll runtime_hotload/runtime_overrides.csv before a visual apply can take effect. Wake the headset or use the bench-tools proximity hold, then apply again.");
         return string.Join(" ", detailParts);
     }
 
@@ -1943,7 +1943,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         }
 
         detailParts.Add($"Compiled CSV: {csvPath}.");
-        detailParts.Add("The profile was not uploaded because the Sussex runtime could not be brought to an awake state first.");
+        detailParts.Add("The profile was not uploaded because the study runtime could not be brought to an awake state first.");
         return string.Join(" ", detailParts);
     }
 
@@ -1952,7 +1952,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         if (exception is InvalidOperationException &&
             exception.Message.Contains("USB ADB device", StringComparison.OrdinalIgnoreCase))
         {
-            return "No active Quest transport was available. Run Probe USB or Connect Quest in the Sussex shell first, then apply the profile again.";
+            return "No active Quest transport was available. Run Probe USB or Connect Quest in the study shell first, then apply the profile again.";
         }
 
         return exception.Message;

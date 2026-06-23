@@ -1833,7 +1833,7 @@
                                                     <TextBlock Text="Current session"
                                                                Style="{StaticResource InfoLabelStyle}" />
                                                     <TextBlock Margin="0,4,0,8"
-                                                               Text="Upload the edited breathing-tuning values to the headset now. This does not change the next Sussex launch."
+                                                               Text="Upload the edited breathing-tuning values to the headset now. This does not change the next study launch."
                                                                Style="{StaticResource SectionCaptionStyle}" />
                                                     <Button x:Name="ControllerApplyCurrentSessionButton"
                                                             Content="Apply To Current Session"

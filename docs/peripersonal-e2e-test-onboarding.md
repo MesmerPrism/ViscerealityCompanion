@@ -15,15 +15,20 @@ Windows operator workflow.
   - `quest-session-kit/APKs/PeripersonalRuntime.apk`
   - `apks/QuestQuestionnairePanel-labUpdater-debug.apk`
   - `study-shells/peripersonal-space.json`
+  - `study-shells/peripersonal-space/templates/*.json`
+  - `study-shells/peripersonal-space/visual-profiles/*.json`
+  - `study-shells/peripersonal-space/controller-breathing-profiles/*.json`
   - `quest-session-kit/APKs/compatibility.json`
   - `docs/PERIPERSONAL_E2E_ONBOARDING.md`
-  - `docs/peripersonal-operator-onboarding.pdf`
+  - optional supplemental visual guide:
+    `docs/peripersonal-operator-onboarding.pdf`
   - `tools/Check-PeripersonalE2EPrereqs.ps1`
 
 The two APKs required for the run are the Peripersonal Unity runtime and the
 MAIA Spatial questionnaire panel. The study-shell JSON in the bundle is laid
-out so `--root <bundle>\study-shells` resolves the runtime APK without copying
-files into the Companion repo.
+out so `--root <bundle>\study-shells` resolves the runtime APK and the bundled
+Peripersonal visual/controller profiles without copying files into the
+Companion repo.
 
 ## Dependency Preflight
 
@@ -67,12 +72,35 @@ tool cache used by Companion. `windows-env analyze` mirrors the WPF environment
 check and reports missing liblsl/tooling/install-footprint issues before the
 run.
 
-4. Optional script check from the bundle:
+4. Set the bundle root for the remaining checks:
 
 ```powershell
-$Bundle = "C:\path\to\peripersonal-e2e-kit-20260620"
+$Bundle = "C:\path\to\peripersonal-e2e-kit-YYYYMMDD-HHMMSS"
+$StudyRoot = Join-Path $Bundle "study-shells"
+```
+
+5. Optional script check from the bundle:
+
+```powershell
 & "$Bundle\tools\Check-PeripersonalE2EPrereqs.ps1" -CompanionRepoRoot (Get-Location).Path -BundleRoot $Bundle
 ```
+
+6. Confirm the bundled Peripersonal profiles resolve through the same CLI
+surface used by the WPF profile tabs:
+
+```powershell
+& $Cli study-profile visual list --study peripersonal-space --root $StudyRoot
+& $Cli study-profile controller list --study peripersonal-space --root $StudyRoot
+& $Cli study-profile condition list --study peripersonal-space --root $StudyRoot --active-only
+```
+
+Expected:
+
+- all four active conditions resolve to `Peripersonal ...` visual profiles;
+- every condition resolves `Peripersonal Runtime Default` as its
+  controller-breathing profile;
+- no output says a Sussex visual profile was selected for the Peripersonal
+  shell.
 
 ## Headset Preparation
 
@@ -108,12 +136,20 @@ $Device = "192.168.2.56:5555"
 & $Cli status -d $Device
 ```
 
+Run the bundle checker again with the selected device. This device-scoped pass
+must report a Quest Wi-Fi IPv4 address, because the Peripersonal runtime command
+receipts use LSL over the headset network, not USB ADB:
+
+```powershell
+& "$Bundle\tools\Check-PeripersonalE2EPrereqs.ps1" -CompanionRepoRoot (Get-Location).Path -BundleRoot $Bundle -Device $Device
+```
+
 ## Install The Quest Apps
 
 Set the bundle and state paths:
 
 ```powershell
-$Bundle = "C:\path\to\peripersonal-e2e-kit-20260620"
+$Bundle = "C:\path\to\peripersonal-e2e-kit-YYYYMMDD-HHMMSS"
 $StudyRoot = Join-Path $Bundle "study-shells"
 $StateRoot = Join-Path $PWD "artifacts\peripersonal-e2e-run"
 New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
@@ -348,7 +384,9 @@ Capture foreground state when proving panel submit return:
 adb -s $Device shell dumpsys activity activities
 ```
 
-The clean reference run's visual guide is included in the bundle as:
+When present, the previous visual evidence guide is included in the bundle as a
+supplement. Treat this Markdown file as the authoritative runbook for the
+current bundle:
 
 ```text
 docs\peripersonal-operator-onboarding.pdf

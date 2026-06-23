@@ -102,25 +102,49 @@ internal static class AppAssetLocator
             Path.Combine(TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-particle-size-v1.template.json"));
 
     public static string? TryResolveSussexVisualTuningTemplatePath()
+        => TryResolveStudyVisualTuningTemplatePath("sussex-university");
+
+    public static string? TryResolveStudyVisualTuningTemplatePath(string? studyId)
         => TryResolveExistingFile(
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_VISUAL_TUNING_TEMPLATE"),
+            Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "templates", "visual-tuning-v1.template.json"),
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_TUNING_TEMPLATE"),
             Path.Combine(TryResolveOscillatorConfigRoot() ?? string.Empty, "llm-tuning", "sussex-visual-tuning-v1.template.json"));
 
     public static string? TryResolveBundledSussexVisualProfilesRoot()
+        => TryResolveBundledStudyVisualProfilesRoot("sussex-university");
+
+    public static string? TryResolveBundledStudyVisualProfilesRoot(string? studyId)
         => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_VISUAL_PROFILE_BUNDLE_ROOT"),
+            Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "visual-profiles"),
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_VISUAL_PROFILE_BUNDLE_ROOT"),
             Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "visual-profiles"));
 
     public static string? TryResolveBundledSussexControllerBreathingProfilesRoot()
+        => TryResolveBundledStudyControllerBreathingProfilesRoot("sussex-university");
+
+    public static string? TryResolveBundledStudyControllerBreathingProfilesRoot(string? studyId)
         => TryResolveExistingDirectory(
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT"),
+            Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "controller-breathing-profiles"),
+            Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "sussex-controller-breathing-profiles"),
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_PROFILE_BUNDLE_ROOT"),
             Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "sussex-controller-breathing-profiles"),
             Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, "sussex-university", "controller-breathing-profiles"));
 
     public static string? TryResolveSussexControllerBreathingTuningTemplatePath()
+        => TryResolveStudyControllerBreathingTuningTemplatePath("sussex-university");
+
+    public static string? TryResolveStudyControllerBreathingTuningTemplatePath(string? studyId)
         => TryResolveExistingFile(
+            Environment.GetEnvironmentVariable("VISCEREALITY_STUDY_CONTROLLER_BREATHING_TUNING_TEMPLATE"),
+            Path.Combine(TryResolveStudyShellRoot() ?? string.Empty, NormalizeStudyId(studyId), "templates", "controller-breathing-tuning-v1.template.json"),
             Environment.GetEnvironmentVariable("VISCEREALITY_SUSSEX_CONTROLLER_BREATHING_TUNING_TEMPLATE"),
             Path.Combine(ResolveQuestSessionKitRoot(), "LlmTuningProfiles", "sussex-controller-breathing-tuning-v1.template.json"));
+
+    private static string NormalizeStudyId(string? studyId)
+        => string.IsNullOrWhiteSpace(studyId) ? "sussex-university" : studyId.Trim();
 
     private static string? TryResolveExistingDirectory(params string?[] candidates)
         => candidates

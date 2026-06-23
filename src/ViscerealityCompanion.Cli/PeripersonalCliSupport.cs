@@ -648,6 +648,11 @@ public static partial class Program
     private static void PrintWorkflowResult(PeripersonalWorkflowOperationResult result)
     {
         PrintOutcome(result.Outcome);
+        if (!result.Succeeded)
+        {
+            Environment.ExitCode = 1;
+        }
+
         if (result.Session is not null)
         {
             Console.WriteLine($"       Session folder: {result.Session.SessionFolderName}");
@@ -664,6 +669,11 @@ public static partial class Program
     private static void PrintClockProbeResult(PeripersonalClockProbeOperationResult result)
     {
         PrintOutcome(result.Outcome);
+        if (!result.Succeeded)
+        {
+            Environment.ExitCode = 1;
+        }
+
         Console.WriteLine($"       Clock probes sent: {result.ClockAlignment.Summary.ProbesSent}");
         Console.WriteLine($"       Clock echoes received: {result.ClockAlignment.Summary.EchoesReceived}");
         Console.WriteLine($"       Clock samples persisted: {result.ClockAlignment.Samples.Count}");

@@ -662,7 +662,7 @@ public sealed class SussexDiagnosticsReportService
         }
         else if (!inletReady && !returnPathReady)
         {
-            detailParts.Add("Windows-side transport can be healthy while this still fails; this state usually means the headset runtime has not published Sussex LSL or twin-state telemetry yet.");
+            detailParts.Add("Windows-side transport can be healthy while this still fails; this state usually means the headset runtime has not published study LSL or twin-state telemetry yet.");
         }
 
         if (!returnPathReady)

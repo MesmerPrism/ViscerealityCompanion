@@ -23,7 +23,7 @@ public sealed class CliDiagnosticsCommandTests
     {
         var help = await InvokeCliAsync("study", "probe-connection", "--help");
 
-        Assert.Contains("Step 9", help, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("guided workflow connection check", help, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--wait-seconds", help, StringComparison.Ordinal);
         Assert.Contains("--json", help, StringComparison.Ordinal);
     }
@@ -33,7 +33,7 @@ public sealed class CliDiagnosticsCommandTests
     {
         var help = await InvokeCliAsync("study", "diagnostics-report", "--help");
 
-        Assert.Contains("shareable Sussex LSL/twin diagnostics report", help, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("shareable study LSL/twin diagnostics report", help, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--output-dir", help, StringComparison.Ordinal);
         Assert.Contains("--skip-command-check", help, StringComparison.Ordinal);
         Assert.Contains("--no-pdf", help, StringComparison.Ordinal);

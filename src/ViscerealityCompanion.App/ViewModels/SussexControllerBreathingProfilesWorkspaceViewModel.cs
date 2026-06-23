@@ -14,7 +14,7 @@ namespace ViscerealityCompanion.App.ViewModels;
 
 public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : ObservableObject, IDisposable
 {
-    private const string BundledProfileIdPrefix = "__bundled_sussex_controller_breathing_profile__::";
+    private const string BundledProfileIdPrefix = "__bundled_study_controller_breathing_profile__::";
     private const string UsePrincipalAxisCalibrationFieldId = "use_principal_axis_calibration";
     private const string MinAcceptedDeltaFieldId = "min_accepted_delta";
     private const string MinAcceptableTravelFieldId = "min_acceptable_travel";
@@ -37,14 +37,14 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
     private SussexControllerBreathingProfileListItemViewModel? _selectedProfile;
     private string _selectedProfileName = string.Empty;
     private string _selectedProfileNotes = string.Empty;
-    private string _librarySummary = "Loading Sussex controller-breathing profiles...";
-    private string _libraryDetail = "The Sussex shell stores one self-describing json file per controller-breathing profile.";
+    private string _librarySummary = "Loading study controller-breathing profiles...";
+    private string _libraryDetail = "The study shell stores one self-describing json file per controller-breathing profile.";
     private OperationOutcomeKind _libraryLevel = OperationOutcomeKind.Preview;
-    private string _applySummary = "No Sussex controller-breathing profile has been applied yet.";
-    private string _applyDetail = "Select or create a profile, then upload it through the normal Sussex hotload path.";
+    private string _applySummary = "No study controller-breathing profile has been applied yet.";
+    private string _applyDetail = "Select or create a profile, then upload it through the normal study hotload path.";
     private OperationOutcomeKind _applyLevel = OperationOutcomeKind.Preview;
-    private string _lastCompiledCsvPath = "No Sussex controller-breathing hotload CSV written yet.";
-    private string _templatePathLabel = "Bundled Sussex controller-breathing tuning template not found.";
+    private string _lastCompiledCsvPath = "No study controller-breathing hotload CSV written yet.";
+    private string _templatePathLabel = "Bundled study controller-breathing tuning template not found.";
     private string _libraryRootLabel = string.Empty;
     private SussexControllerBreathingProfileStartupState? _startupState;
     private Dictionary<string, double> _lastSessionTrackedControlValues = new(StringComparer.OrdinalIgnoreCase);
@@ -60,7 +60,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
         try
         {
-            string? templatePath = AppAssetLocator.TryResolveSussexControllerBreathingTuningTemplatePath();
+            string? templatePath = AppAssetLocator.TryResolveStudyControllerBreathingTuningTemplatePath(_study.Id);
             if (!string.IsNullOrWhiteSpace(templatePath))
             {
                 var templateJson = File.ReadAllText(templatePath);
@@ -73,20 +73,20 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 _templatePathLabel = templatePath;
                 _libraryRootLabel = _profileStore.RootPath;
                 BuildEditorGroups();
-                _librarySummary = "Sussex controller-breathing profile library ready.";
+                _librarySummary = "Study controller-breathing profile library ready.";
                 _libraryDetail = "Create or import named controller-breathing profiles, or start from the read-only examples bundled with this release.";
                 _libraryLevel = OperationOutcomeKind.Success;
             }
             else
             {
-                _librarySummary = "Sussex controller-breathing profile template missing.";
-                _libraryDetail = "The shell could not resolve the bundled sussex-controller-breathing-tuning-v1.template.json asset.";
+                _librarySummary = "Study controller-breathing profile template missing.";
+                _libraryDetail = "The shell could not resolve a bundled controller-breathing tuning template asset.";
                 _libraryLevel = OperationOutcomeKind.Warning;
             }
         }
         catch (Exception ex)
         {
-            _librarySummary = "Sussex controller-breathing profile library unavailable.";
+            _librarySummary = "Study controller-breathing profile library unavailable.";
             _libraryDetail = ex.Message;
             _libraryLevel = OperationOutcomeKind.Failure;
         }
@@ -239,7 +239,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
     public string StartupProfileSummary
         => _startupState is null
-            ? "Next-launch override: bundled Sussex controller-breathing baseline."
+            ? "Next-launch override: bundled study controller-breathing baseline."
             : $"Next-launch override: {_startupState.ProfileName}.";
 
     public string StartupProfileDetail
@@ -354,14 +354,14 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         error = null;
         if (string.IsNullOrWhiteSpace(profileReference))
         {
-            error = "No Sussex controller-breathing profile was configured for the selected condition.";
+            error = "No study controller-breathing profile was configured for the selected condition.";
             return false;
         }
 
         var profile = ResolveProfileReference(profileReference);
         if (profile is null)
         {
-            error = $"Sussex controller-breathing profile '{profileReference}' was not found.";
+            error = $"Study controller-breathing profile '{profileReference}' was not found.";
             return false;
         }
 
@@ -498,7 +498,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 SelectedProfile = null;
                 _startupState = null;
                 _startupStateStore?.Save(null);
-                LibrarySummary = "No Sussex controller-breathing profiles saved yet.";
+                LibrarySummary = "No study controller-breathing profiles saved yet.";
                 LibraryDetail = $"Use New From Baseline to create the first profile in {LibraryRootLabel}.";
                 LibraryLevel = OperationOutcomeKind.Preview;
                 NotifyStartupStateChanged();
@@ -517,8 +517,8 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 _startupStateStore?.Save(null);
             }
 
-            LibrarySummary = $"Loaded {Profiles.Count.ToString(CultureInfo.InvariantCulture)} Sussex controller-breathing profile(s).";
-            LibraryDetail = $"Bundled examples are read-only release assets. Local profiles live in {LibraryRootLabel}; applying a profile changes only the current Sussex session, while the next-launch override is shown on the right.";
+            LibrarySummary = $"Loaded {Profiles.Count.ToString(CultureInfo.InvariantCulture)} study controller-breathing profile(s).";
+            LibraryDetail = $"Bundled examples are read-only release assets. Local profiles live in {LibraryRootLabel}; applying a profile changes only the current study session, while the next-launch override is shown on the right.";
             LibraryLevel = OperationOutcomeKind.Success;
             NotifyStartupStateChanged();
             NotifyCalibrationSetupStateChanged();
@@ -851,7 +851,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         {
             await DispatchAsync(() =>
             {
-                LibrarySummary = "Saving Sussex controller-breathing profile failed.";
+                LibrarySummary = "Saving study controller-breathing profile failed.";
                 LibraryDetail = ex.Message;
                 LibraryLevel = OperationOutcomeKind.Failure;
             }).ConfigureAwait(false);
@@ -866,7 +866,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return;
         }
 
-        var created = await _profileStore.CreateFromTemplateAsync(BuildUniqueProfileName("Sussex Controller Breathing Profile")).ConfigureAwait(false);
+        var created = await _profileStore.CreateFromTemplateAsync(BuildUniqueProfileName("Study Controller Breathing Profile")).ConfigureAwait(false);
         await ReloadProfilesAsync(created.Id).ConfigureAwait(false);
     }
 
@@ -907,7 +907,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
         var dialog = new OpenFileDialog
         {
-            Title = "Import Sussex Controller Breathing Profile",
+            Title = "Import Study Controller Breathing Profile",
             Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
             InitialDirectory = !string.IsNullOrWhiteSpace(LibraryRootLabel) && Directory.Exists(LibraryRootLabel)
                 ? LibraryRootLabel
@@ -925,7 +925,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
         catch (Exception ex)
         {
-            LibrarySummary = "Sussex controller-breathing profile import failed.";
+            LibrarySummary = "Study controller-breathing profile import failed.";
             LibraryDetail = ex.Message;
             LibraryLevel = OperationOutcomeKind.Failure;
         }
@@ -948,7 +948,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
         var dialog = new SaveFileDialog
         {
-            Title = "Export Sussex Controller Breathing Profile",
+            Title = "Export Study Controller Breathing Profile",
             Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
             FileName = saved.Id + ".json",
             InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
@@ -959,7 +959,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
 
         await _profileStore.ExportAsync(saved.Document, dialog.FileName).ConfigureAwait(false);
-        LibrarySummary = "Sussex controller-breathing profile exported.";
+        LibrarySummary = "Study controller-breathing profile exported.";
         LibraryDetail = dialog.FileName;
         LibraryLevel = OperationOutcomeKind.Success;
     }
@@ -1077,7 +1077,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         {
             await DispatchAsync(() =>
             {
-                ApplySummary = "APK launch is using the bundled Sussex controller-breathing baseline.";
+                ApplySummary = "APK launch is using the bundled study controller-breathing baseline.";
                 ApplyDetail = "No saved startup profile is pinned, so Sussex keeps the bundled controller-breathing baseline until you apply another profile.";
                 ApplyLevel = OperationOutcomeKind.Preview;
                 RefreshComparisonState();
@@ -1098,7 +1098,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
 
         if (MessageBox.Show(
-                $"Delete '{SelectedProfile.Document.Profile.Name}' from the Sussex controller-breathing profile library?",
+                $"Delete '{SelectedProfile.Document.Profile.Name}' from the study controller-breathing profile library?",
                 "Viscereality Companion",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning) != MessageBoxResult.Yes)
@@ -1161,7 +1161,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             var previousReportedValues = _compiler.ExtractReportedValues(_reportedTwinState);
             var runtimeProfile = new RuntimeConfigProfile(
                 $"sussex_controller_breathing_tuning_v1_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss}",
-                $"Sussex Controller Breathing Profile - {saved.Document.Profile.Name}",
+                $"Study Controller Breathing Profile - {saved.Document.Profile.Name}",
                 string.Empty,
                 DateTimeOffset.UtcNow.ToString("yyyy.MM.dd.HHmmss", CultureInfo.InvariantCulture),
                 "study",
@@ -1352,7 +1352,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
                 if (!currentDocumentIsValid)
                 {
                     ApplySummary = "Current controller-breathing values are invalid.";
-                    ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
+                    ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next study launch.";
                     ApplyLevel = OperationOutcomeKind.Warning;
                 }
                 else if (changedSinceApplyCount > 0)
@@ -1381,7 +1381,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             else if (!currentDocumentIsValid)
             {
                 ApplySummary = "Current controller-breathing values are invalid.";
-                ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next Sussex launch.";
+                ApplyDetail = $"{editorErrorDetail} Adjust the edited rows or use Reset before applying or saving them for the next study launch.";
                 ApplyLevel = OperationOutcomeKind.Warning;
             }
             else if (_lastApplyRecord is not null)
@@ -1392,7 +1392,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             }
             else
             {
-                ApplySummary = "No Sussex controller-breathing profile has been applied yet.";
+                ApplySummary = "No study controller-breathing profile has been applied yet.";
                 ApplyDetail = "Apply the current profile to start headset confirmation tracking.";
                 ApplyLevel = OperationOutcomeKind.Preview;
             }
@@ -1436,7 +1436,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         catch (Exception ex) when (ex is InvalidDataException or FormatException or InvalidOperationException)
         {
             ApplySummary = "Current controller-breathing values could not be compared safely.";
-            ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next Sussex launch.";
+            ApplyDetail = $"{ex.Message} Adjust the edited rows or refresh the live runtime state before applying or saving them for the next study launch.";
             ApplyLevel = OperationOutcomeKind.Warning;
             NotifyCalibrationSetupStateChanged();
         }
@@ -1451,7 +1451,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
 
     private string BuildUniqueProfileName(string baseName)
     {
-        var seed = string.IsNullOrWhiteSpace(baseName) ? "Sussex Controller Breathing Profile" : baseName.Trim();
+        var seed = string.IsNullOrWhiteSpace(baseName) ? "Study Controller Breathing Profile" : baseName.Trim();
         if (Profiles.All(profile => !string.Equals(profile.Document.Profile.Name, seed, StringComparison.OrdinalIgnoreCase)))
         {
             return seed;
@@ -1490,7 +1490,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
             return Array.Empty<SussexControllerBreathingProfileRecord>();
         }
 
-        var bundledRoot = AppAssetLocator.TryResolveBundledSussexControllerBreathingProfilesRoot();
+        var bundledRoot = AppAssetLocator.TryResolveBundledStudyControllerBreathingProfilesRoot(_study.Id);
         if (string.IsNullOrWhiteSpace(bundledRoot) || !Directory.Exists(bundledRoot))
         {
             return Array.Empty<SussexControllerBreathingProfileRecord>();
@@ -1597,7 +1597,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
 
         var created = await _profileStore
-            .CreateFromTemplateAsync(BuildUniqueProfileName("Sussex Controller Breathing Profile"))
+            .CreateFromTemplateAsync(BuildUniqueProfileName("Study Controller Breathing Profile"))
             .ConfigureAwait(false);
         await ReloadProfilesAsync(created.Id).ConfigureAwait(false);
         return SelectedProfile is not null;
@@ -1608,7 +1608,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         if (!await EnsureSelectedProfileAsync().ConfigureAwait(false))
         {
             ApplySummary = "Calibration setup is unavailable.";
-            ApplyDetail = "The Sussex controller-breathing profile library is not ready yet.";
+            ApplyDetail = "The study controller-breathing profile library is not ready yet.";
             ApplyLevel = OperationOutcomeKind.Failure;
             NotifyCalibrationSetupStateChanged();
             return;
@@ -1661,7 +1661,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
     {
         if (_compiler is null)
         {
-            throw new InvalidOperationException("Sussex controller-breathing tuning compiler is not available.");
+            throw new InvalidOperationException("Study controller-breathing tuning compiler is not available.");
         }
 
         return SussexControllerBreathingStartupSnapshotResolver.ResolveDocument(
@@ -1806,7 +1806,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
 
         detailParts.Add($"Compiled CSV: {csvPath}.");
-        detailParts.Add("The Sussex runtime must be awake and visible enough to poll runtime_hotload/runtime_overrides.csv before a controller-breathing apply can take effect. Wake the headset or use the bench-tools proximity hold, then apply again.");
+        detailParts.Add("The study runtime must be awake and visible enough to poll runtime_hotload/runtime_overrides.csv before a controller-breathing apply can take effect. Wake the headset or use the bench-tools proximity hold, then apply again.");
         return string.Join(" ", detailParts);
     }
 
@@ -1819,7 +1819,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         }
 
         detailParts.Add($"Compiled CSV: {csvPath}.");
-        detailParts.Add("The profile was not uploaded because the Sussex runtime could not be brought to an awake state first.");
+        detailParts.Add("The profile was not uploaded because the study runtime could not be brought to an awake state first.");
         return string.Join(" ", detailParts);
     }
 
@@ -1828,7 +1828,7 @@ public sealed class SussexControllerBreathingProfilesWorkspaceViewModel : Observ
         if (exception is InvalidOperationException &&
             exception.Message.Contains("USB ADB device", StringComparison.OrdinalIgnoreCase))
         {
-            return "No active Quest transport was available. Run Probe USB or Connect Quest in the Sussex shell first, then apply the profile again.";
+            return "No active Quest transport was available. Run Probe USB or Connect Quest in the study shell first, then apply the profile again.";
         }
 
         return exception.Message;

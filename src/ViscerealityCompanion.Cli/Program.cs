@@ -14,6 +14,7 @@ public static partial class Program
 
     public static async Task<int> Main(string[] args)
     {
+        Environment.ExitCode = 0;
         var rootCommand = new RootCommand("ViscerealityCompanion — Quest operator station CLI");
         rootCommand.AddGlobalOption(DeviceOption);
 
@@ -31,13 +32,15 @@ public static partial class Program
         rootCommand.AddCommand(BuildCatalogCommand());
         rootCommand.AddCommand(BuildStudyCommand());
         rootCommand.AddCommand(BuildPeripersonalCommand());
+        rootCommand.AddCommand(BuildStudyProfileCommand());
         rootCommand.AddCommand(BuildSussexCommand());
         rootCommand.AddCommand(BuildHzdbCommand());
         rootCommand.AddCommand(BuildToolingCommand());
         rootCommand.AddCommand(BuildWindowsEnvironmentCommand());
         rootCommand.AddCommand(BuildUtilityCommand());
 
-        return await rootCommand.InvokeAsync(args);
+        var exitCode = await rootCommand.InvokeAsync(args);
+        return exitCode != 0 ? exitCode : Environment.ExitCode;
     }
 
     private static IQuestControlService CreateQuestService(string? device = null)
@@ -615,7 +618,7 @@ public static partial class Program
 
         var probeJsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
         var probeWaitOption = new Option<int>("--wait-seconds", () => 4, "How long to wait for fresh quest_twin_state after opening the local bridge.");
-        var probeConnectionCommand = new Command("probe-connection", "Probe the Sussex LSL inlet and quest_twin_state return path, mirroring the Step 9 guide check") { studyArg, rootOption, probeJsonOption, probeWaitOption };
+        var probeConnectionCommand = new Command("probe-connection", "Probe the study LSL inlet and quest_twin_state return path, mirroring the guided workflow connection check") { studyArg, rootOption, probeJsonOption, probeWaitOption };
         probeConnectionCommand.Handler = CommandHandler.Create(async (string study, string? root, bool json, int waitSeconds, string? device) =>
         {
             var definition = await ResolveStudyShellAsync(study, root);
@@ -637,7 +640,7 @@ public static partial class Program
         var reportOutputOption = new Option<string?>("--output-dir", "Directory for the generated JSON, LaTeX source, and PDF report. Defaults to the operator diagnostics folder.");
         var reportSkipCommandOption = new Option<bool>("--skip-command-check", "Skip the safe particle-off twin command acknowledgement probe.");
         var reportNoPdfOption = new Option<bool>("--no-pdf", "Write JSON and LaTeX only; skip PDF generation.");
-        var diagnosticsReportCommand = new Command("diagnostics-report", "Generate a shareable Sussex LSL/twin diagnostics report as JSON, LaTeX source, and PDF")
+        var diagnosticsReportCommand = new Command("diagnostics-report", "Generate a shareable study LSL/twin diagnostics report as JSON, LaTeX source, and PDF")
         {
             studyArg,
             rootOption,
@@ -728,9 +731,18 @@ public static partial class Program
         return studyCommand;
     }
 
+    private static Command BuildStudyProfileCommand()
+        => BuildStudyProfileCommandCore("study-profile", "Study visual/controller/condition profile automation commands that mirror the GUI profile tabs", isHidden: false);
+
     private static Command BuildSussexCommand()
+        => BuildStudyProfileCommandCore("sussex", "Legacy alias for study-profile commands", isHidden: true);
+
+    private static Command BuildStudyProfileCommandCore(string name, string description, bool isHidden)
     {
-        var sussexCommand = new Command("sussex", "Sussex profile automation commands that mirror the GUI profile tabs");
+        var sussexCommand = new Command(name, description)
+        {
+            IsHidden = isHidden
+        };
         var studyOption = new Option<string>("--study", () => SussexCliSupport.DefaultStudyId, "Study shell ID used for local startup/apply state.");
         var rootOption = new Option<string?>("--root", "Study shell catalog root directory path");
         var jsonOption = new Option<bool>("--json", "Emit JSON output.");
@@ -760,9 +772,9 @@ public static partial class Program
         Option<bool> jsonOption,
         Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
     {
-        var visual = new Command("visual", "Sussex visual-profile commands");
+        var visual = new Command("visual", "Study visual-profile commands");
 
-        var list = new Command("list", "List bundled and local Sussex visual profiles");
+        var list = new Command("list", "List bundled and local study visual profiles");
         list.Handler = CommandHandler.Create(async (string study, string? root, bool json) =>
         {
             var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
@@ -782,22 +794,22 @@ public static partial class Program
             }
         });
 
-        var fields = new Command("fields", "List all Sussex visual field ids, ranges, and tooltip metadata");
-        fields.Handler = CommandHandler.Create((bool json) =>
+        var fields = new Command("fields", "List all study visual field ids, ranges, and tooltip metadata");
+        fields.Handler = CommandHandler.Create((string study, string? root, bool json) =>
         {
-            var specs = SussexCliSupport.BuildVisualFieldSpecs();
+            var specs = SussexCliSupport.BuildVisualFieldSpecs(study, root);
             if (json)
             {
                 SussexCliSupport.WriteJson(specs);
             }
             else
             {
-                SussexCliSupport.PrintFieldSpecs("Sussex Visual Fields:", specs);
+                SussexCliSupport.PrintFieldSpecs("Study Visual Fields:", specs);
             }
         });
 
         var profileArg = new Argument<string>("profile", "Visual profile id or name.");
-        var show = new Command("show", "Show one Sussex visual profile, including its field metadata") { profileArg };
+        var show = new Command("show", "Show one study visual profile, including its field metadata") { profileArg };
         show.Handler = CommandHandler.Create(async (string profile, string study, string? root) =>
         {
             var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
@@ -812,7 +824,7 @@ public static partial class Program
         var scaleOption = createRepeatedAssignmentOption("--scale", "Scale one or more numeric fields as id=factor.");
         var setStartupOption = new Option<bool>("--set-startup", "Also save the resulting profile as the next-launch default.");
 
-        var create = new Command("create", "Create a new Sussex visual profile from baseline or another profile");
+        var create = new Command("create", "Create a new study visual profile from baseline or another profile");
         create.AddOption(fromOption);
         create.AddOption(nameOption);
         create.AddOption(notesOption);
@@ -821,7 +833,7 @@ public static partial class Program
         create.AddOption(setStartupOption);
         create.Handler = CommandHandler.Create(async (string from, string name, string? notes, string[] set, string[] scale, bool setStartup, string study, string? root, bool json, string? device) =>
         {
-            var compiler = SussexCliSupport.CreateVisualCompiler();
+            var compiler = SussexCliSupport.CreateVisualCompiler(study, root);
             var store = SussexCliSupport.CreateVisualStore(compiler);
             var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
             var source = SussexCliSupport.ResolveVisualProfile(profiles, from);
@@ -856,7 +868,7 @@ public static partial class Program
             }
         });
 
-        var update = new Command("update", "Update an existing local Sussex visual profile") { profileArg };
+        var update = new Command("update", "Update an existing local study visual profile") { profileArg };
         update.AddOption(nameOption);
         update.AddOption(notesOption);
         update.AddOption(setOption);
@@ -864,7 +876,7 @@ public static partial class Program
         update.AddOption(setStartupOption);
         update.Handler = CommandHandler.Create(async (string profile, string? name, string? notes, string[] set, string[] scale, bool setStartup, string study, string? root, bool json, string? device) =>
         {
-            var compiler = SussexCliSupport.CreateVisualCompiler();
+            var compiler = SussexCliSupport.CreateVisualCompiler(study, root);
             var store = SussexCliSupport.CreateVisualStore(compiler);
             var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveVisualProfile(profiles, profile);
@@ -901,16 +913,16 @@ public static partial class Program
             }
         });
 
-        var delete = new Command("delete", "Delete one local Sussex visual profile") { profileArg };
+        var delete = new Command("delete", "Delete one local study visual profile") { profileArg };
         delete.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
         {
-            var compiler = SussexCliSupport.CreateVisualCompiler();
+            var compiler = SussexCliSupport.CreateVisualCompiler(study, root);
             var store = SussexCliSupport.CreateVisualStore(compiler);
             var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveVisualProfile(profiles, profile);
             if (!target.IsWritableLocalProfile)
             {
-                throw new InvalidOperationException("Only local Sussex visual profiles can be deleted.");
+                throw new InvalidOperationException("Only local study visual profiles can be deleted.");
             }
 
             var startupBefore = new SussexVisualProfileStartupStateStore(study).Load();
@@ -940,11 +952,11 @@ public static partial class Program
             }
         });
 
-        var importArg = new Argument<string>("path", "Path to a Sussex visual profile JSON file.");
-        var import = new Command("import", "Import a Sussex visual profile JSON file") { importArg };
-        import.Handler = CommandHandler.Create(async (string path, string study, bool json) =>
+        var importArg = new Argument<string>("path", "Path to a study visual profile JSON file.");
+        var import = new Command("import", "Import a study visual profile JSON file") { importArg };
+        import.Handler = CommandHandler.Create(async (string path, string study, string? root, bool json) =>
         {
-            var store = SussexCliSupport.CreateVisualStore(SussexCliSupport.CreateVisualCompiler());
+            var store = SussexCliSupport.CreateVisualStore(SussexCliSupport.CreateVisualCompiler(study, root));
             var imported = await store.ImportAsync(path);
             if (json)
             {
@@ -958,10 +970,10 @@ public static partial class Program
         });
 
         var exportArg = new Argument<string>("path", "Destination JSON path.");
-        var export = new Command("export", "Export one Sussex visual profile as JSON") { profileArg, exportArg };
+        var export = new Command("export", "Export one study visual profile as JSON") { profileArg, exportArg };
         export.Handler = CommandHandler.Create(async (string profile, string path, string study, string? root, bool json) =>
         {
-            var store = SussexCliSupport.CreateVisualStore(SussexCliSupport.CreateVisualCompiler());
+            var store = SussexCliSupport.CreateVisualStore(SussexCliSupport.CreateVisualCompiler(study, root));
             var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveVisualProfile(profiles, profile);
             await store.ExportAsync(target.Record.Document, path);
@@ -975,7 +987,7 @@ public static partial class Program
             }
         });
 
-        var setStartup = new Command("set-startup", "Set the next-launch Sussex visual profile") { profileArg };
+        var setStartup = new Command("set-startup", "Set the next-launch study visual profile") { profileArg };
         setStartup.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
         {
             var profiles = await SussexCliSupport.LoadVisualProfilesAsync(study, root);
@@ -997,7 +1009,7 @@ public static partial class Program
             }
         });
 
-        var clearStartup = new Command("clear-startup", "Reset the next-launch Sussex visual profile to the bundled baseline");
+        var clearStartup = new Command("clear-startup", "Reset the next-launch study visual profile to the bundled baseline");
         clearStartup.Handler = CommandHandler.Create(async (string study, string? root, bool json, string? device) =>
         {
             SussexCliSupport.SaveVisualStartupState(study, null);
@@ -1015,7 +1027,7 @@ public static partial class Program
             }
         });
 
-        var applyLive = new Command("apply-live", "Apply one Sussex visual profile to the current running Sussex session") { profileArg };
+        var applyLive = new Command("apply-live", "Apply one study visual profile to the current running study session") { profileArg };
         applyLive.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
         {
             var definition = await ResolveStudyShellAsync(study, root);
@@ -1052,8 +1064,8 @@ public static partial class Program
         Option<bool> jsonOption,
         Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
     {
-        var condition = new Command("condition", "Sussex condition commands that mirror the GUI Conditions tab. A condition combines one visual profile, one controller-breathing profile, and an active-selection flag.");
-        var conditionRootOption = new Option<string?>("--condition-root", "Override the local Sussex condition library root.");
+        var condition = new Command("condition", "Study condition commands that mirror the GUI Conditions tab. A condition combines one visual profile, one controller-breathing profile, and an active-selection flag.");
+        var conditionRootOption = new Option<string?>("--condition-root", "Override the local study condition library root.");
         conditionRootOption.IsHidden = true;
         condition.AddGlobalOption(conditionRootOption);
 
@@ -1084,7 +1096,7 @@ public static partial class Program
         }
 
         var activeOnlyOption = new Option<bool>("--active-only", "Only list conditions that appear in the Experiment Session condition dropdown.");
-        var list = new Command("list", "List bundled and local Sussex conditions") { activeOnlyOption };
+        var list = new Command("list", "List bundled and local study conditions") { activeOnlyOption };
         list.Handler = CommandHandler.Create(async (bool activeOnly, string study, string? root, string? conditionRoot, bool json) =>
         {
             var context = await LoadContextAsync(study, root, conditionRoot);
@@ -1105,7 +1117,7 @@ public static partial class Program
         });
 
         var conditionArg = new Argument<string>("condition", "Condition id or label.");
-        var show = new Command("show", "Show one Sussex condition, including resolved visual and controller-breathing profile names") { conditionArg };
+        var show = new Command("show", "Show one study condition, including resolved visual and controller-breathing profile names") { conditionArg };
         show.Handler = CommandHandler.Create(async (string condition, string study, string? root, string? conditionRoot) =>
         {
             var context = await LoadContextAsync(study, root, conditionRoot);
@@ -1132,7 +1144,7 @@ public static partial class Program
         var inactiveOption = new Option<bool>("--inactive", "Keep the condition out of the Experiment Session active selection.");
         var propertyOption = createRepeatedAssignmentOption("--property", "Attach condition metadata as key=value. Repeat for multiple values.");
 
-        var create = new Command("create", "Create a local Sussex condition from one visual profile and one controller-breathing profile")
+        var create = new Command("create", "Create a local study condition from one visual profile and one controller-breathing profile")
         {
             idOption,
             labelOption,
@@ -1160,7 +1172,7 @@ public static partial class Program
             var context = await LoadContextAsync(study, root, conditionRoot);
             if (context.Conditions.Any(item => string.Equals(item.Definition.Id, id, StringComparison.OrdinalIgnoreCase)))
             {
-                throw new InvalidOperationException($"A Sussex condition with id '{id}' already exists. Use update to create a local override.");
+                throw new InvalidOperationException($"A study condition with id '{id}' already exists. Use update to create a local override.");
             }
 
             var definition = SussexCliSupport.BuildConditionDefinition(
@@ -1183,14 +1195,14 @@ public static partial class Program
             }
             else
             {
-                Console.WriteLine($"Created Sussex condition: {saved.Definition.Label} ({saved.Id})");
+                Console.WriteLine($"Created study condition: {saved.Definition.Label} ({saved.Id})");
                 Console.WriteLine(saved.FilePath);
             }
         });
 
         var updateIdOption = new Option<string?>("--id", "Rename the condition id and local JSON filename.");
         var updateLabelOption = new Option<string?>("--label", "Replace the operator-facing condition label.");
-        var update = new Command("update", "Update a local Sussex condition or save a bundled condition as a local override")
+        var update = new Command("update", "Update a local study condition or save a bundled condition as a local override")
         {
             conditionArg,
             updateIdOption,
@@ -1238,7 +1250,7 @@ public static partial class Program
                     !ReferenceEquals(item, target) &&
                     string.Equals(item.Definition.Id, nextDefinition.Id, StringComparison.OrdinalIgnoreCase)))
             {
-                throw new InvalidOperationException($"Another Sussex condition already uses id '{nextDefinition.Id}'.");
+                throw new InvalidOperationException($"Another study condition already uses id '{nextDefinition.Id}'.");
             }
 
             var store = SussexCliSupport.CreateConditionStore(study, conditionRoot);
@@ -1257,14 +1269,14 @@ public static partial class Program
             }
             else
             {
-                Console.WriteLine($"Updated Sussex condition: {saved.Definition.Label} ({saved.Id})");
+                Console.WriteLine($"Updated study condition: {saved.Definition.Label} ({saved.Id})");
                 Console.WriteLine(saved.FilePath);
             }
         });
 
         var duplicateIdOption = new Option<string>("--id", "New condition id.") { IsRequired = true };
         var duplicateLabelOption = new Option<string?>("--label", "New condition label. Defaults to '<source> Copy'.");
-        var duplicate = new Command("duplicate", "Duplicate a Sussex condition into a new local condition")
+        var duplicate = new Command("duplicate", "Duplicate a study condition into a new local condition")
         {
             conditionArg,
             duplicateIdOption,
@@ -1286,7 +1298,7 @@ public static partial class Program
             var context = await LoadContextAsync(study, root, conditionRoot);
             if (context.Conditions.Any(item => string.Equals(item.Definition.Id, id, StringComparison.OrdinalIgnoreCase)))
             {
-                throw new InvalidOperationException($"A Sussex condition with id '{id}' already exists.");
+                throw new InvalidOperationException($"A study condition with id '{id}' already exists.");
             }
 
             var source = SussexCliSupport.ResolveCondition(context.Conditions, condition);
@@ -1306,19 +1318,19 @@ public static partial class Program
             }
             else
             {
-                Console.WriteLine($"Duplicated Sussex condition: {saved.Definition.Label} ({saved.Id})");
+                Console.WriteLine($"Duplicated study condition: {saved.Definition.Label} ({saved.Id})");
                 Console.WriteLine(saved.FilePath);
             }
         });
 
-        var delete = new Command("delete", "Delete a local Sussex condition file, or remove the local override for a bundled condition") { conditionArg };
+        var delete = new Command("delete", "Delete a local study condition file, or remove the local override for a bundled condition") { conditionArg };
         delete.Handler = CommandHandler.Create(async (string condition, string study, string? root, string? conditionRoot, bool json) =>
         {
             var context = await LoadContextAsync(study, root, conditionRoot);
             var target = SussexCliSupport.ResolveCondition(context.Conditions, condition);
             if (!target.HasLocalFile)
             {
-                throw new InvalidOperationException("Bundled Sussex conditions are read-only. Update one first to create a local override, or duplicate it into a local condition.");
+                throw new InvalidOperationException("Bundled study conditions are read-only. Update one first to create a local override, or duplicate it into a local condition.");
             }
 
             var store = SussexCliSupport.CreateConditionStore(study, conditionRoot);
@@ -1334,13 +1346,13 @@ public static partial class Program
             else
             {
                 Console.WriteLine(target.IsBundled
-                    ? $"Removed local override for bundled Sussex condition: {target.Definition.Id}"
-                    : $"Deleted Sussex condition: {target.Definition.Id}");
+                    ? $"Removed local override for bundled study condition: {target.Definition.Id}"
+                    : $"Deleted study condition: {target.Definition.Id}");
             }
         });
 
-        var importArg = new Argument<string>("path", "Path to a Sussex condition JSON file.");
-        var import = new Command("import", "Import a Sussex condition JSON file") { importArg };
+        var importArg = new Argument<string>("path", "Path to a study condition JSON file.");
+        var import = new Command("import", "Import a study condition JSON file") { importArg };
         import.Handler = CommandHandler.Create(async (string path, string study, string? root, string? conditionRoot, bool json) =>
         {
             var context = await LoadContextAsync(study, root, conditionRoot);
@@ -1358,13 +1370,13 @@ public static partial class Program
             }
             else
             {
-                Console.WriteLine($"Imported Sussex condition: {imported.Definition.Label} ({imported.Id})");
+                Console.WriteLine($"Imported study condition: {imported.Definition.Label} ({imported.Id})");
                 Console.WriteLine(imported.FilePath);
             }
         });
 
         var exportArg = new Argument<string>("path", "Destination JSON path.");
-        var export = new Command("export", "Export one Sussex condition as JSON") { conditionArg, exportArg };
+        var export = new Command("export", "Export one study condition as JSON") { conditionArg, exportArg };
         export.Handler = CommandHandler.Create(async (string condition, string path, string study, string? root, string? conditionRoot, bool json) =>
         {
             var context = await LoadContextAsync(study, root, conditionRoot);
@@ -1377,7 +1389,7 @@ public static partial class Program
             }
             else
             {
-                Console.WriteLine($"Exported Sussex condition {target.Definition.Id} -> {Path.GetFullPath(path)}");
+                Console.WriteLine($"Exported study condition {target.Definition.Id} -> {Path.GetFullPath(path)}");
             }
         });
 
@@ -1398,26 +1410,21 @@ public static partial class Program
         Option<bool> jsonOption,
         Func<string, string, Option<string[]>> createRepeatedAssignmentOption)
     {
-        var controller = new Command("controller", "Sussex controller-breathing profile commands, including calibration mode, accepted-motion thresholds, and controller vibration.");
+        var controller = new Command("controller", "Study controller-breathing profile commands, including calibration mode, accepted-motion thresholds, and controller vibration.");
 
-        var list = new Command("list", "List bundled and local Sussex controller-breathing profiles");
+        var list = new Command("list", "List bundled and local study controller-breathing profiles");
         list.Handler = CommandHandler.Create(async (string study, string? root, bool json) =>
         {
             var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             if (json)
             {
-                SussexCliSupport.WriteJson(
-                    new[]
-                    {
-                        new { id = "bundled-baseline", name = "Bundled Sussex controller-breathing baseline", kind = "bundled-baseline", path = (string?)null }
-                    }
-                    .Concat(profiles.Select(profile => new
+                SussexCliSupport.WriteJson(profiles.Select(profile => new
                     {
                         id = profile.Record.Id,
                         name = profile.Record.Document.Profile.Name,
-                        kind = profile.IsBundledProfile ? "bundled-profile" : "local-profile",
+                        kind = profile.IsBaselineTemplate ? "bundled-baseline" : profile.IsBundledProfile ? "bundled-profile" : "local-profile",
                         path = (string?)profile.Record.FilePath
-                    })));
+                    }));
             }
             else
             {
@@ -1425,22 +1432,22 @@ public static partial class Program
             }
         });
 
-        var fields = new Command("fields", "List all Sussex controller-breathing field ids, including calibration mode, accepted-motion, and vibration controls.");
-        fields.Handler = CommandHandler.Create((bool json) =>
+        var fields = new Command("fields", "List all study controller-breathing field ids, including calibration mode, accepted-motion, and vibration controls.");
+        fields.Handler = CommandHandler.Create((string study, string? root, bool json) =>
         {
-            var specs = SussexCliSupport.BuildControllerFieldSpecs();
+            var specs = SussexCliSupport.BuildControllerFieldSpecs(study, root);
             if (json)
             {
                 SussexCliSupport.WriteJson(specs);
             }
             else
             {
-                SussexCliSupport.PrintFieldSpecs("Sussex Controller-Breathing Fields:", specs);
+                SussexCliSupport.PrintFieldSpecs("Study Controller-Breathing Fields:", specs);
             }
         });
 
         var profileArg = new Argument<string>("profile", "Controller-breathing profile id or name.");
-        var show = new Command("show", "Show one Sussex controller-breathing profile, including its field metadata") { profileArg };
+        var show = new Command("show", "Show one study controller-breathing profile, including its field metadata") { profileArg };
         show.Handler = CommandHandler.Create(async (string profile, string study, string? root) =>
         {
             var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
@@ -1455,7 +1462,7 @@ public static partial class Program
         var scaleOption = createRepeatedAssignmentOption("--scale", "Scale one or more numeric fields as id=factor. Use the fields command first for valid ids and safe ranges.");
         var setStartupOption = new Option<bool>("--set-startup", "Also save the resulting profile as the next-launch default.");
 
-        var create = new Command("create", "Create a new Sussex controller-breathing profile from baseline or another profile, including calibration mode, accepted-motion thresholds, and vibration.");
+        var create = new Command("create", "Create a new study controller-breathing profile from baseline or another profile, including calibration mode, accepted-motion thresholds, and vibration.");
         create.AddOption(fromOption);
         create.AddOption(nameOption);
         create.AddOption(notesOption);
@@ -1464,7 +1471,7 @@ public static partial class Program
         create.AddOption(setStartupOption);
         create.Handler = CommandHandler.Create(async (string from, string name, string? notes, string[] set, string[] scale, bool setStartup, string study, string? root, bool json, string? device) =>
         {
-            var compiler = SussexCliSupport.CreateControllerCompiler();
+            var compiler = SussexCliSupport.CreateControllerCompiler(study, root);
             var store = SussexCliSupport.CreateControllerStore(compiler);
             var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var source = SussexCliSupport.ResolveControllerProfile(profiles, from, allowBaselineTemplate: true);
@@ -1499,7 +1506,7 @@ public static partial class Program
             }
         });
 
-        var update = new Command("update", "Update an existing local Sussex controller-breathing profile, including calibration mode, accepted-motion thresholds, and vibration.") { profileArg };
+        var update = new Command("update", "Update an existing local study controller-breathing profile, including calibration mode, accepted-motion thresholds, and vibration.") { profileArg };
         update.AddOption(nameOption);
         update.AddOption(notesOption);
         update.AddOption(setOption);
@@ -1507,7 +1514,7 @@ public static partial class Program
         update.AddOption(setStartupOption);
         update.Handler = CommandHandler.Create(async (string profile, string? name, string? notes, string[] set, string[] scale, bool setStartup, string study, string? root, bool json, string? device) =>
         {
-            var compiler = SussexCliSupport.CreateControllerCompiler();
+            var compiler = SussexCliSupport.CreateControllerCompiler(study, root);
             var store = SussexCliSupport.CreateControllerStore(compiler);
             var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: false);
@@ -1544,10 +1551,10 @@ public static partial class Program
             }
         });
 
-        var delete = new Command("delete", "Delete one local Sussex controller-breathing profile") { profileArg };
+        var delete = new Command("delete", "Delete one local study controller-breathing profile") { profileArg };
         delete.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
         {
-            var compiler = SussexCliSupport.CreateControllerCompiler();
+            var compiler = SussexCliSupport.CreateControllerCompiler(study, root);
             var store = SussexCliSupport.CreateControllerStore(compiler);
             var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: false);
@@ -1578,11 +1585,11 @@ public static partial class Program
             }
         });
 
-        var importArg = new Argument<string>("path", "Path to a Sussex controller-breathing profile JSON file.");
-        var import = new Command("import", "Import a Sussex controller-breathing profile JSON file") { importArg };
-        import.Handler = CommandHandler.Create(async (string path, string study, bool json) =>
+        var importArg = new Argument<string>("path", "Path to a study controller-breathing profile JSON file.");
+        var import = new Command("import", "Import a study controller-breathing profile JSON file") { importArg };
+        import.Handler = CommandHandler.Create(async (string path, string study, string? root, bool json) =>
         {
-            var store = SussexCliSupport.CreateControllerStore(SussexCliSupport.CreateControllerCompiler());
+            var store = SussexCliSupport.CreateControllerStore(SussexCliSupport.CreateControllerCompiler(study, root));
             var imported = await store.ImportAsync(path);
             if (json)
             {
@@ -1596,10 +1603,10 @@ public static partial class Program
         });
 
         var exportArg = new Argument<string>("path", "Destination JSON path.");
-        var export = new Command("export", "Export one Sussex controller-breathing profile as JSON") { profileArg, exportArg };
+        var export = new Command("export", "Export one study controller-breathing profile as JSON") { profileArg, exportArg };
         export.Handler = CommandHandler.Create(async (string profile, string path, string study, string? root, bool json) =>
         {
-            var store = SussexCliSupport.CreateControllerStore(SussexCliSupport.CreateControllerCompiler());
+            var store = SussexCliSupport.CreateControllerStore(SussexCliSupport.CreateControllerCompiler(study, root));
             var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
             var target = SussexCliSupport.ResolveControllerProfile(profiles, profile, allowBaselineTemplate: true);
             await store.ExportAsync(target.Record.Document, path);
@@ -1613,7 +1620,7 @@ public static partial class Program
             }
         });
 
-        var setStartup = new Command("set-startup", "Set the next-launch Sussex controller-breathing profile") { profileArg };
+        var setStartup = new Command("set-startup", "Set the next-launch study controller-breathing profile") { profileArg };
         setStartup.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
         {
             var profiles = await SussexCliSupport.LoadControllerProfilesAsync(study, root);
@@ -1635,7 +1642,7 @@ public static partial class Program
             }
         });
 
-        var clearStartup = new Command("clear-startup", "Reset the next-launch Sussex controller-breathing profile to the bundled baseline");
+        var clearStartup = new Command("clear-startup", "Reset the next-launch study controller-breathing profile to the bundled baseline");
         clearStartup.Handler = CommandHandler.Create(async (string study, string? root, bool json, string? device) =>
         {
             SussexCliSupport.SaveControllerStartupState(study, null);
@@ -1653,7 +1660,7 @@ public static partial class Program
             }
         });
 
-        var applyLive = new Command("apply-live", "Apply one Sussex controller-breathing profile to the current running Sussex session") { profileArg };
+        var applyLive = new Command("apply-live", "Apply one study controller-breathing profile to the current running study session") { profileArg };
         applyLive.Handler = CommandHandler.Create(async (string profile, string study, string? root, bool json, string? device) =>
         {
             var definition = await ResolveStudyShellAsync(study, root);

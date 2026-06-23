@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using ViscerealityCompanion.App;
 using ViscerealityCompanion.App.ViewModels;
 using ViscerealityCompanion.Core.Models;
+using ViscerealityCompanion.Core.Services;
 
 namespace ViscerealityCompanion.Integration.Tests;
 
@@ -193,6 +194,42 @@ public sealed class StudyExperimentSessionWindowTests
             Assert.IsType<Button>(window.FindName("RunClockProbeButton"));
 
             window.Close();
+        });
+    }
+
+    [Fact]
+    public async Task PeripersonalShell_BundledConditionProfilesResolveFromRepoAssets()
+    {
+        await fixture.InvokeAsync(async () =>
+        {
+            var app = fixture.Application;
+            if (app.Dispatcher.CheckAccess())
+            {
+                app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            }
+
+            var studyShellRoot = AppAssetLocator.TryResolveStudyShellRoot();
+            Assert.False(string.IsNullOrWhiteSpace(studyShellRoot));
+
+            var catalog = await new StudyShellCatalogLoader().LoadAsync(studyShellRoot!);
+            var study = Assert.Single(catalog.Studies, item => item.Id == "peripersonal-space");
+
+            using var viewModel = new StudyShellViewModel(study);
+            await viewModel.VisualProfiles.InitializeAsync();
+            await viewModel.ControllerBreathingProfiles.InitializeAsync();
+
+            foreach (var condition in study.Conditions)
+            {
+                Assert.True(
+                    viewModel.VisualProfiles.TrySelectProfile(condition.VisualProfileId, out var visualLabel, out var visualError),
+                    visualError);
+                Assert.Contains("Peripersonal", visualLabel, StringComparison.OrdinalIgnoreCase);
+
+                Assert.True(
+                    viewModel.ControllerBreathingProfiles.TrySelectProfile(condition.ControllerBreathingProfileId, out var controllerLabel, out var controllerError),
+                    controllerError);
+                Assert.Contains("Peripersonal", controllerLabel, StringComparison.OrdinalIgnoreCase);
+            }
         });
     }
 
