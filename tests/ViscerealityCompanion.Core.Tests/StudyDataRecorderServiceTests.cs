@@ -212,7 +212,7 @@ public sealed class StudyDataRecorderServiceTests
             Assert.Equal(session.ClockAlignmentCsvPath, rootElement.GetProperty("ClockAlignmentFile").GetString());
             Assert.Equal(10, rootElement.GetProperty("ClockAlignmentDurationSeconds").GetInt32());
             Assert.Equal(250, rootElement.GetProperty("ClockAlignmentProbeIntervalMilliseconds").GetInt32());
-            Assert.Equal(SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds, rootElement.GetProperty("ClockAlignmentBackgroundProbeIntervalSeconds").GetInt32());
+            Assert.Equal(StudyClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds, rootElement.GetProperty("ClockAlignmentBackgroundProbeIntervalSeconds").GetInt32());
             Assert.Equal(0.42, rootElement.GetProperty("ClockAlignmentRecommendedQuestMinusWindowsClockSeconds").GetDouble(), 3);
             Assert.Equal(0.315, rootElement.GetProperty("ClockAlignmentMeanRoundTripSeconds").GetDouble(), 3);
             Assert.Equal(1, rootElement.GetProperty("ClockAlignmentSampleCount").GetInt32());
@@ -386,3 +386,4 @@ public sealed class StudyDataRecorderServiceTests
         return root;
     }
 }
+

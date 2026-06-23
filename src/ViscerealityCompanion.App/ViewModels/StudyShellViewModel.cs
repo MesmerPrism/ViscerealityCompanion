@@ -35,8 +35,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly string[] QuestScreenshotShellCaptureMethods = ["screencap", "metacam"];
     private static readonly string[] QuestScreenshotRuntimeCaptureMethods = ["screencap", "metacam"];
     private const int WorkflowGuideValidationCaptureDurationSeconds = 20;
-    private const int WorkflowClockAlignmentDurationSeconds = SussexClockAlignmentStreamContract.DefaultDurationSeconds;
-    private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds;
+    private const int WorkflowClockAlignmentDurationSeconds = StudyClockAlignmentStreamContract.DefaultDurationSeconds;
+    private const int WorkflowClockAlignmentBackgroundProbeIntervalSeconds = StudyClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds;
     private const int WorkflowClockAlignmentInitialBackgroundProbeDelaySeconds = 1;
     private const string LaunchSleepBlockButtonLabel = "Wake Headset To Enable Launching";
     private const string LaunchLockScreenBlockButtonLabel = "Clear Lock Screen Before Launching";
@@ -294,7 +294,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowKioskSummary = "Boundary setup and runtime launch have not started yet.";
     private string _workflowKioskDetail = "Keep the session on Wi-Fi ADB, wake the headset to enable launching, wake the controller, then launch the runtime.";
     private OperationOutcomeKind _workflowBenchLevel = OperationOutcomeKind.Preview;
-    private string _workflowBenchSummary = "Bench verification is waiting for the Sussex runtime.";
+    private string _workflowBenchSummary = "Bench verification is waiting for the study runtime.";
     private string _workflowBenchDetail = "Run particles, recenter, LSL, and controller calibration checks before participant handoff.";
     private OperationOutcomeKind _workflowHandoffLevel = OperationOutcomeKind.Warning;
     private string _workflowHandoffSummary = "Participant handoff should finish in Experiment Session.";
@@ -307,7 +307,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private string _workflowParticipantEndDetail = "Stop Recording in Experiment Session closes the Quest-side backup recorder and the Windows recorder before the shell runs cleanup.";
     private string _workflowRuntimePendingSummary = "Current Sussex APK exposes recenter, calibration start, and particle toggles.";
     private string _workflowRuntimePendingDetail =
-        "The current Sussex runtime contract includes reset calibration, participant start/end commands, shared session metadata handoff, and mirrored Windows/Quest study recording.";
+        "The current study runtime contract includes reset calibration, participant start/end commands, shared session metadata handoff, and mirrored Windows/Quest study recording.";
     private string _participantIdDraft = string.Empty;
     private string _peripersonalSessionIdDraft = PeripersonalDefaultSessionId;
     private string _peripersonalHandednessDraft = "right-handed";
@@ -3493,7 +3493,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 () => _lslStreamDiscoveryService.Discover(new LslStreamDiscoveryRequest(TwinConfigStreamName, TwinConfigStreamType)),
                 CancellationToken.None);
             var clockTask = Task.Run(
-                () => _lslStreamDiscoveryService.Discover(new LslStreamDiscoveryRequest(SussexClockAlignmentStreamContract.ProbeStreamName, SussexClockAlignmentStreamContract.ProbeStreamType)),
+                () => _lslStreamDiscoveryService.Discover(new LslStreamDiscoveryRequest(StudyClockAlignmentStreamContract.ProbeStreamName, StudyClockAlignmentStreamContract.ProbeStreamType)),
                 CancellationToken.None);
 
             await Task.WhenAll(expectedTask, commandTask, configTask, clockTask).ConfigureAwait(false);
@@ -3869,7 +3869,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         var stateDetail =
             $"Warm transport expected active: {(clockTransportExpectedActive ? "yes" : "no")}.{Environment.NewLine}" +
             $"Background sparse monitor active: {(backgroundClockMonitorRunning ? "yes" : "no")}.{Environment.NewLine}" +
-            $"Probe stream matches ({SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType}): {clockProbeStreams.Count}{Environment.NewLine}" +
+            $"Probe stream matches ({StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType}): {clockProbeStreams.Count}{Environment.NewLine}" +
             FormatVisibleStreamInventory(clockProbeStreams);
 
         if (clockTransportExpectedActive)
@@ -4021,10 +4021,16 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             .ConfigureAwait(false);
 
         await ApplyOutcomeAsync(
-            "Launch Sussex Runtime",
+            "Launch Study Runtime",
             outcome).ConfigureAwait(false);
         if (outcome.Kind != OperationOutcomeKind.Failure)
         {
+            var bridgeForwardOutcome = await EnsurePeripersonalUnityHttpBridgeForwardAsync().ConfigureAwait(false);
+            if (bridgeForwardOutcome is not null)
+            {
+                await ApplyOutcomeAsync("Forward Unity HTTP Bridge", bridgeForwardOutcome).ConfigureAwait(false);
+            }
+
             await DispatchAsync(() =>
             {
                 var selector = ResolveHeadsetActionSelector();
@@ -4118,7 +4124,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             .ConfigureAwait(false);
 
         await ApplyOutcomeAsync(
-            "Stop Sussex Runtime",
+            "Stop Study Runtime",
             outcome).ConfigureAwait(false);
 
         if (outcome.Kind != OperationOutcomeKind.Failure)
@@ -4935,7 +4941,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
         return new OperationOutcome(
             profileOutcome.Kind,
-            "Applied study device profile and locked Sussex runtime CPU/GPU policy.",
+            "Applied study device profile and locked study runtime CPU/GPU policy.",
             $"{profileOutcome.Detail} Published performance_hint_write_direct_levels=false so the running Sussex APK stops overwriting debug.oculus.cpuLevel/gpuLevel.");
     }
 
@@ -5087,7 +5093,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 $"{actionLabel} blocked until controller tracking is visible.",
-                "The shell has not received a live quest_twin_state frame yet, so it cannot verify that the active controller is connected and tracked. Probe the connection or wait for a fresh Sussex runtime frame, then try calibration again.");
+                "The shell has not received a live quest_twin_state frame yet, so it cannot verify that the active controller is connected and tracked. Probe the connection or wait for a fresh study runtime frame, then try calibration again.");
         }
 
         var connected = ParseBool(GetFirstValue(
@@ -5422,7 +5428,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var duration = TimeSpan.FromSeconds(SussexClockAlignmentStreamContract.DefaultDurationSeconds);
+        var duration = TimeSpan.FromSeconds(StudyClockAlignmentStreamContract.DefaultDurationSeconds);
         var progress = new Progress<StudyClockAlignmentProgress>(update =>
         {
             _ = DispatchAsync(() =>
@@ -6905,8 +6911,39 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             _study,
             new PeripersonalCompositeCommandTransport(_peripersonalLslCommandTransport, panelTransport),
             questAppCloser: new PeripersonalAdbQuestAppCloser(adbPath, selector),
-            questBackupPuller: new PeripersonalAdbQuestBackupPuller(adbPath, selector));
+            questBackupPuller: new PeripersonalAdbQuestBackupPuller(adbPath, selector),
+            questHttpForwarder: new PeripersonalAdbQuestHttpForwarder(adbPath, selector));
         return _peripersonalWorkflow;
+    }
+
+    private async Task<OperationOutcome?> EnsurePeripersonalUnityHttpBridgeForwardAsync()
+    {
+        if (!_isPeripersonalWorkflow)
+        {
+            return null;
+        }
+
+        var selector = await DispatchAsync(ResolveHeadsetActionSelector).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(selector))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Warning,
+                "Unity HTTP bridge forwarding skipped.",
+                "Connect USB ADB or Wi-Fi ADB before launching the Peripersonal runtime so the operator can reach http://127.0.0.1:8787/v1/status.");
+        }
+
+        var adbPath = ResolvePeripersonalAdbPath();
+        if (string.IsNullOrWhiteSpace(adbPath))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Failure,
+                "adb.exe is unavailable.",
+                $"Install official platform tools in the companion setup or set VISCEREALITY_ADB_EXE. Expected managed path: {OfficialQuestToolingLayout.AdbExecutablePath}");
+        }
+
+        return await new PeripersonalAdbQuestHttpForwarder(adbPath, selector)
+            .EnsureUnityHttpBridgeForwardAsync()
+            .ConfigureAwait(false);
     }
 
     private async Task ApplyPeripersonalWorkflowResultAsync(
@@ -7605,7 +7642,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             else if (!hasInstalledHash)
             {
                 PinnedBuildLevel = OperationOutcomeKind.Warning;
-                PinnedBuildSummary = "Sussex runtime is installed, but the headset APK hash could not be verified.";
+                PinnedBuildSummary = "study runtime is installed, but the headset APK hash could not be verified.";
             }
             else
             {
@@ -8942,7 +8979,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             return new OperationOutcome(
                 OperationOutcomeKind.Failure,
                 "Quest-side session metadata publish blocked.",
-                "The live Sussex runtime has not yet reported showcase_active_runtime_config_json on quest_twin_state, so the participant session metadata cannot be merged into the active runtime config.");
+                "The live study runtime has not yet reported showcase_active_runtime_config_json on quest_twin_state, so the participant session metadata cannot be merged into the active runtime config.");
         }
 
         string mergedRuntimeConfigJson;
@@ -9531,7 +9568,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception)
         {
-            await DispatchAsync(() => SetRecorderFault("Write live Sussex telemetry", exception)).ConfigureAwait(false);
+            await DispatchAsync(() => SetRecorderFault("Write live study telemetry", exception)).ConfigureAwait(false);
         }
     }
 
@@ -9560,7 +9597,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         CancellationToken cancellationToken = default)
     {
         var duration = durationOverride ?? TimeSpan.FromSeconds(WorkflowClockAlignmentDurationSeconds);
-        var probeInterval = TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds);
+        var probeInterval = TimeSpan.FromMilliseconds(StudyClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds);
         var firstProbeSequence = ReserveClockAlignmentProbeSequenceRange(duration, probeInterval);
         var expectedProbeCount = GetExpectedClockAlignmentProbeCount(duration, probeInterval);
         var request = new StudyClockAlignmentRunRequest(
@@ -9569,7 +9606,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             windowKind,
             duration,
             probeInterval,
-            TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultEchoGraceMilliseconds),
+            TimeSpan.FromMilliseconds(StudyClockAlignmentStreamContract.DefaultEchoGraceMilliseconds),
             firstProbeSequence);
         var windowToken = BuildClockAlignmentWindowToken(windowKind);
         var windowLabel = BuildClockAlignmentWindowLabel(windowKind);
@@ -9868,7 +9905,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         ClockAlignmentDetail = windowKind switch
         {
             StudyClockAlignmentWindowKind.StartBurst => "The companion is sending dedicated Sussex clock probes and waiting for the Quest echo stream so the clocks can be aligned before the main run continues.",
-            StudyClockAlignmentWindowKind.EndBurst => "The companion is capturing a matching end-of-run clock-alignment burst before it stops the Sussex runtime so clock drift over the session can be compared.",
+            StudyClockAlignmentWindowKind.EndBurst => "The companion is capturing a matching end-of-run clock-alignment burst before it stops the study runtime so clock drift over the session can be compared.",
             _ => "The companion is sending a sparse background clock probe to track Quest-minus-Windows clock drift during the run."
         };
         ClockAlignmentProgressPercent = 0d;
@@ -10215,7 +10252,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception)
         {
-            SetRecorderFault("Write live Sussex telemetry", exception);
+            SetRecorderFault("Write live study telemetry", exception);
         }
     }
 
@@ -10232,7 +10269,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         }
         catch (Exception exception)
         {
-            SetRecorderFault("Write live Sussex timing marker", exception);
+            SetRecorderFault("Write live study timing marker", exception);
         }
     }
 
@@ -11440,7 +11477,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         var detail = ready
             ? $"Sussex Experiment is active in the foreground. The launch path should already have armed the keep-awake proximity override. {KioskMenuButtonAdvisory} If the controller was asleep at launch, wake it and relaunch before moving on."
             : $"{(string.IsNullOrWhiteSpace(launchBlockInstruction) ? string.Empty : $"{launchBlockInstruction} ")}Disable proximity, wake the right controller, confirm the connection still shows the Wi-Fi endpoint, then launch the runtime. {KioskMenuButtonAdvisory}";
-        return new WorkflowGuideGateState(level, ready ? "Sussex runtime is active." : "Sussex runtime is not active yet.", detail, ready);
+        return new WorkflowGuideGateState(level, ready ? "study runtime is active." : "study runtime is not active yet.", detail, ready);
     }
 
     private OperationOutcome BuildLslConnectionProbeOutcome()
@@ -11457,7 +11494,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             return (
                 OperationOutcomeKind.Failure,
                 "Quest is not reachable over ADB.",
-                "Probe Connection needs a live headset selector before it can inspect Sussex runtime routing. Reconnect USB or Wi-Fi ADB, then run the probe again.",
+                "Probe Connection needs a live headset selector before it can inspect study runtime routing. Reconnect USB or Wi-Fi ADB, then run the probe again.",
                 false,
                 false);
         }
@@ -11786,7 +11823,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             AddHazard(
                 OperationOutcomeKind.Warning,
                 "Keep-awake proximity override is not active.",
-                "The live Sussex flow now expects the prox_close keep-awake override through launch and bench validation. On this Quest build the active override reads as virtual proximity state CLOSE, while restored normal wear-sensor behavior reads as DISABLED after automation_disable. Without the override the headset can drift into sleep or stale-twin-state conditions between guide steps even while Sussex stays foregrounded.");
+                "The live study flow now expects the prox_close keep-awake override through launch and bench validation. On this Quest build the active override reads as virtual proximity state CLOSE, while restored normal wear-sensor behavior reads as DISABLED after automation_disable. Without the override the headset can drift into sleep or stale-twin-state conditions between guide steps even while the runtime stays foregrounded.");
         }
 
         if (IsStudyRuntimeForeground() && inletReady && !returnPathReady)
@@ -12882,12 +12919,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         builder.AppendLine(runtimeHotloadProfileChannel ?? string.Empty);
         builder.AppendLine(sessionParameterStateHash ?? string.Empty);
         builder.AppendLine(environmentHash ?? string.Empty);
-        builder.AppendLine(SussexClockAlignmentStreamContract.ProbeStreamName);
-        builder.AppendLine(SussexClockAlignmentStreamContract.ProbeStreamType);
-        builder.AppendLine(SussexClockAlignmentStreamContract.EchoStreamName);
-        builder.AppendLine(SussexClockAlignmentStreamContract.EchoStreamType);
+        builder.AppendLine(StudyClockAlignmentStreamContract.ProbeStreamName);
+        builder.AppendLine(StudyClockAlignmentStreamContract.ProbeStreamType);
+        builder.AppendLine(StudyClockAlignmentStreamContract.EchoStreamName);
+        builder.AppendLine(StudyClockAlignmentStreamContract.EchoStreamType);
         builder.AppendLine(WorkflowClockAlignmentDurationSeconds.ToString(CultureInfo.InvariantCulture));
-        builder.AppendLine(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds.ToString(CultureInfo.InvariantCulture));
+        builder.AppendLine(StudyClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds.ToString(CultureInfo.InvariantCulture));
 
         foreach (var pair in deviceProfileProperties.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase))
         {
@@ -13003,9 +13040,9 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             : !headsetConnected
                 ? "Connect the headset before starting the Sussex protocol."
                 : !wifiReady
-                    ? "Enable or restore Wi-Fi ADB before starting the stable Sussex flow."
+                    ? "Enable or restore Wi-Fi ADB before starting the stable study flow."
                     : !wifiMatchReady
-                        ? "Match the headset Wi-Fi to this PC before starting the stable Sussex flow."
+                        ? "Match the headset Wi-Fi to this PC before starting the stable study flow."
                     : PinnedBuildLevel == OperationOutcomeKind.Failure
                         ? "Pinned Sussex build still needs attention."
                         : "Headset setup is still incomplete.";
@@ -13024,8 +13061,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             ? "Finish headset setup before boundary work and runtime launch."
             : runtimeForeground
                 ? QuestScreenshotLevel == OperationOutcomeKind.Warning
-                    ? "Sussex runtime is up, but visual confirmation is still pending."
-                    : "Sussex runtime is up and ready for bench verification."
+                    ? "study runtime is up, but visual confirmation is still pending."
+                    : "study runtime is up and ready for bench verification."
                 : "Boundary setup and runtime launch are still pending.";
         WorkflowKioskDetail =
             $"{HeadsetAwakeSummary} {ControllerSummary} {(string.IsNullOrWhiteSpace(BuildLaunchBlockInstruction()) ? string.Empty : $"{BuildLaunchBlockInstruction()} ")}Keep watching the connection card so the guided path stays on the Wi-Fi endpoint used during the study. {KioskMenuButtonAdvisory} " +
@@ -13039,7 +13076,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                     ? OperationOutcomeKind.Success
                     : OperationOutcomeKind.Warning;
         WorkflowBenchSummary = !runtimeForeground
-            ? "Bench verification is waiting for the Sussex runtime."
+            ? "Bench verification is waiting for the study runtime."
             : WorkflowBenchLevel == OperationOutcomeKind.Failure
                 ? "Bench verification failed the required LSL check."
                 : WorkflowBenchLevel == OperationOutcomeKind.Success
@@ -13050,7 +13087,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             + (WindowsEnvironmentAnalysisHasRun
                 ? $"{WindowsEnvironmentAnalysisSummary} {WindowsEnvironmentAnalysisTimestampLabel} "
                 : "Use Analyze Windows Environment when the LSL step looks blocked by the local Windows machine rather than the headset. ")
-            + "Recenter, particles, and controller calibration stay visible as bench warnings, but they no longer block the Sussex flow.";
+            + "Recenter, particles, and controller calibration stay visible as bench warnings, but they no longer block the study flow.";
 
         participantStartReady = runtimeForeground
             && WorkflowBenchLevel == OperationOutcomeKind.Success
@@ -13260,7 +13297,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 : "Waiting for quest_twin_state.";
             LiveRuntimeDetail = studyRuntimeForeground
                 ? $"The headset still reports the Sussex APK in front, but no fresh app-state frames are arriving yet. The Quest runtime may still be starting, paused, or off-face. {BuildTwinCommandTransportDetail()} {visualConfirmationHint}".Trim()
-                : $"Launch the Sussex runtime and wait for quest_twin_state to start publishing before relying on the live study monitor. {BuildTwinCommandTransportDetail()} {visualConfirmationHint}".Trim();
+                : $"Launch the study runtime and wait for quest_twin_state to start publishing before relying on the live study monitor. {BuildTwinCommandTransportDetail()} {visualConfirmationHint}".Trim();
             return;
         }
 
@@ -13979,7 +14016,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
         if (!IsStudyRuntimeForeground())
         {
-            return "Bring the Sussex runtime back to the foreground before starting the validation capture.";
+            return "Bring the study runtime back to the foreground before starting the validation capture.";
         }
 
         if (_participantRunStopping)
@@ -14162,7 +14199,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         {
             PerformanceLevel = OperationOutcomeKind.Warning;
             PerformanceSummary = "Performance telemetry not reported yet.";
-            PerformanceDetail = "The Sussex runtime is live, but it has not published fps or frame-time values yet.";
+            PerformanceDetail = "The study runtime is live, but it has not published fps or frame-time values yet.";
             return;
         }
 
@@ -14819,7 +14856,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             configuredKey,
             "Not echoed by current public build",
             string.Empty,
-            "The Sussex runtime confirms inlet connectivity here, but the current public twin-state frame only echoes the routed biofeedback value when signal mirroring is enabled.",
+            "The study runtime confirms inlet connectivity here, but the current public twin-state frame only echoes the routed biofeedback value when signal mirroring is enabled.",
             OperationOutcomeKind.Preview);
     }
 
@@ -15920,3 +15957,5 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         return _dispatcher.InvokeAsync(action).Task;
     }
 }
+
+

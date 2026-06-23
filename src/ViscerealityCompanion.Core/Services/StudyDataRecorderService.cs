@@ -416,9 +416,9 @@ public sealed class StudyDataRecordingSession : IDisposable
             request.SessionStartedAtUtc,
             0,
             ClockAlignmentCsvPath,
-            SussexClockAlignmentStreamContract.DefaultDurationSeconds,
-            SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds,
-            SussexClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds,
+            StudyClockAlignmentStreamContract.DefaultDurationSeconds,
+            StudyClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds,
+            StudyClockAlignmentStreamContract.DefaultBackgroundProbeIntervalSeconds,
             null,
             null,
             0,
@@ -1082,3 +1082,4 @@ public sealed record StudyUpstreamLslObservation(
     string Status,
     string Detail,
     string? SourceId = null);
+

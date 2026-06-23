@@ -27,7 +27,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
     private const int OutletMaxBufferedSeconds = 2;
     private static readonly TimeSpan MonitorShutdownTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan MonitorReadyTimeout = TimeSpan.FromSeconds(2.5);
-    private static readonly TimeSpan WarmPulseInterval = TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds);
+    private static readonly TimeSpan WarmPulseInterval = TimeSpan.FromMilliseconds(StudyClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds);
     private readonly ILslMonitorService _monitorService;
     private readonly EchoMonitorSession _echoMonitor;
     private readonly Lock _sync = new();
@@ -90,7 +90,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             { Connected: true } => new OperationOutcome(
                 OperationOutcomeKind.Success,
                 "Clock alignment warmup active.",
-                $"Reusing {SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType} and keeping the Quest echo path warm with unique keepalive probes every {WarmPulseInterval.TotalMilliseconds:0} ms during the participant session."),
+                $"Reusing {StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType} and keeping the Quest echo path warm with unique keepalive probes every {WarmPulseInterval.TotalMilliseconds:0} ms during the participant session."),
             { ReadyTimedOut: true } => new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "Clock alignment warmup is still waiting for the echo monitor.",
@@ -98,7 +98,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             _ => new OperationOutcome(
                 OperationOutcomeKind.Success,
                 "Clock alignment warmup active.",
-                $"The probe outlet is active and unique keepalive probes are running every {WarmPulseInterval.TotalMilliseconds:0} ms for {SussexClockAlignmentStreamContract.EchoStreamName} / {SussexClockAlignmentStreamContract.EchoStreamType}.")
+                $"The probe outlet is active and unique keepalive probes are running every {WarmPulseInterval.TotalMilliseconds:0} ms for {StudyClockAlignmentStreamContract.EchoStreamName} / {StudyClockAlignmentStreamContract.EchoStreamType}.")
         };
     }
 
@@ -142,7 +142,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 new OperationOutcome(
                     OperationOutcomeKind.Warning,
                     "Clock alignment skipped.",
-                    "Clock alignment requires the active Sussex session id and dataset hash before the probe can run."),
+                    "Clock alignment requires the active study session id and dataset hash before the probe can run."),
                 BuildSummary([], probesSent: 0),
                 []);
         }
@@ -222,7 +222,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             probesSent,
             echoesReceived,
             "Clock alignment is starting.",
-            $"Opening {SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType} and waiting for Quest echoes."));
+            $"Opening {StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType} and waiting for Quest echoes."));
 
         try
         {
@@ -249,8 +249,8 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 ? "Clock alignment echo monitor connected."
                 : "Clock alignment is still waiting for the echo monitor.",
             monitorConnected
-                ? $"Echo inlet for {SussexClockAlignmentStreamContract.EchoStreamName} is ready. Sending probes now."
-                : $"Echo inlet did not report ready within {MonitorReadyTimeout.TotalSeconds:0.#} seconds. Sending probes anyway so the Sussex flow can continue."));
+                ? $"Echo inlet for {StudyClockAlignmentStreamContract.EchoStreamName} is ready. Sending probes now."
+                : $"Echo inlet did not report ready within {MonitorReadyTimeout.TotalSeconds:0.#} seconds. Sending probes anyway so the study flow can continue."));
 
         var probeScheduleOffsets = BuildProbeScheduleOffsets(request.Duration, request.ProbeInterval);
         var probeScheduleStartUtc = DateTimeOffset.UtcNow;
@@ -369,7 +369,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "Clock alignment did not receive any Quest echoes.",
-                "The Sussex session started, but no round-trip probe completed during the alignment window. Cross-machine clock decomposition is unavailable for this run.");
+                "The study session started, but no round-trip probe completed during the alignment window. Cross-machine clock decomposition is unavailable for this run.");
         }
 
         if (summary.EchoesReceived < Math.Max(5, summary.ProbesSent / 4))
@@ -531,17 +531,17 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 outcome = new OperationOutcome(
                     OperationOutcomeKind.Success,
                     "Clock alignment probe stream active.",
-                    $"Reusing {SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType}.");
+                    $"Reusing {StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType}.");
                 return true;
             }
 
             _streamInfo = NativeMethods.CreateStreamInfo(
-                SussexClockAlignmentStreamContract.ProbeStreamName,
-                SussexClockAlignmentStreamContract.ProbeStreamType,
+                StudyClockAlignmentStreamContract.ProbeStreamName,
+                StudyClockAlignmentStreamContract.ProbeStreamType,
                 ProbeChannelCount,
                 0d,
                 NativeMethods.FloatChannelFormat,
-                "viscereality.companion.sussex.clockprobe");
+                "viscereality.companion.peripersonal.clockprobe");
             if (_streamInfo == nint.Zero)
             {
                 outcome = new OperationOutcome(
@@ -571,7 +571,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             outcome = new OperationOutcome(
                 OperationOutcomeKind.Success,
                 "Clock alignment probe stream active.",
-                $"Publishing {SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType}.");
+                $"Publishing {StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType}.");
             return true;
         }
     }
@@ -913,8 +913,8 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         private async Task MonitorAsync(CancellationToken cancellationToken)
         {
             var subscription = new LslMonitorSubscription(
-                SussexClockAlignmentStreamContract.EchoStreamName,
-                SussexClockAlignmentStreamContract.EchoStreamType,
+                StudyClockAlignmentStreamContract.EchoStreamName,
+                StudyClockAlignmentStreamContract.EchoStreamType,
                 0);
 
             try
@@ -1182,3 +1182,4 @@ public static class StudyClockAlignmentServiceFactory
             ? new WindowsStudyClockAlignmentService()
             : new PreviewStudyClockAlignmentService();
 }
+

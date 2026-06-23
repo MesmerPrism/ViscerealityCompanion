@@ -401,7 +401,7 @@ public sealed class SussexDiagnosticsReportService
             expectedStreams = await DiscoverSafeAsync(new LslStreamDiscoveryRequest(expectedStreamName, expectedStreamType), cancellationToken).ConfigureAwait(false);
             twinCommandStreams = await DiscoverSafeAsync(new LslStreamDiscoveryRequest(CommandStreamName, CommandStreamType), cancellationToken).ConfigureAwait(false);
             twinConfigStreams = await DiscoverSafeAsync(new LslStreamDiscoveryRequest(ConfigStreamName, ConfigStreamType), cancellationToken).ConfigureAwait(false);
-            clockProbeStreams = await DiscoverSafeAsync(new LslStreamDiscoveryRequest(SussexClockAlignmentStreamContract.ProbeStreamName, SussexClockAlignmentStreamContract.ProbeStreamType), cancellationToken).ConfigureAwait(false);
+            clockProbeStreams = await DiscoverSafeAsync(new LslStreamDiscoveryRequest(StudyClockAlignmentStreamContract.ProbeStreamName, StudyClockAlignmentStreamContract.ProbeStreamType), cancellationToken).ConfigureAwait(false);
         }
 
         var companionExpectedStreams = expectedStreams
@@ -1043,7 +1043,7 @@ public sealed class SussexDiagnosticsReportService
         IReadOnlyList<LslVisibleStreamInfo> clockProbeStreams)
     {
         var stateDetail =
-            $"Probe stream matches ({SussexClockAlignmentStreamContract.ProbeStreamName} / {SussexClockAlignmentStreamContract.ProbeStreamType}): {clockProbeStreams.Count}{Environment.NewLine}" +
+            $"Probe stream matches ({StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType}): {clockProbeStreams.Count}{Environment.NewLine}" +
             FormatVisibleStreamInventory(clockProbeStreams);
 
         return clockProbeStreams.Count switch
@@ -1441,3 +1441,4 @@ public sealed class SussexDiagnosticsReportService
         return options;
     }
 }
+

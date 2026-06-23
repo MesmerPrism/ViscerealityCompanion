@@ -92,12 +92,14 @@ public sealed class PeripersonalOperatorWorkflowService
     private readonly IPeripersonalCommandTransport _transport;
     private readonly IPeripersonalQuestAppCloser _questAppCloser;
     private readonly IPeripersonalQuestBackupPuller _questBackupPuller;
+    private readonly IPeripersonalQuestHttpForwarder _questHttpForwarder;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly string _windowsSessionRoot;
     private readonly List<PeripersonalCommandLedgerSnapshot> _snapshots = [];
     private PeripersonalPreparedSession? _session;
     private PeripersonalCommandLedgerService? _ledger;
     private bool _questionnaireBlockOneSubmitted;
+    private OperationOutcome? _unityHttpBridgeForwardOutcome;
 
     public PeripersonalOperatorWorkflowService(
         StudyShellDefinition study,
@@ -105,12 +107,14 @@ public sealed class PeripersonalOperatorWorkflowService
         string? windowsSessionRoot = null,
         Func<DateTimeOffset>? utcNow = null,
         IPeripersonalQuestAppCloser? questAppCloser = null,
-        IPeripersonalQuestBackupPuller? questBackupPuller = null)
+        IPeripersonalQuestBackupPuller? questBackupPuller = null,
+        IPeripersonalQuestHttpForwarder? questHttpForwarder = null)
     {
         _study = study ?? throw new ArgumentNullException(nameof(study));
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _questAppCloser = questAppCloser ?? NoOpPeripersonalQuestAppCloser.Instance;
         _questBackupPuller = questBackupPuller ?? NoOpPeripersonalQuestBackupPuller.Instance;
+        _questHttpForwarder = questHttpForwarder ?? NoOpPeripersonalQuestHttpForwarder.Instance;
         _windowsSessionRoot = string.IsNullOrWhiteSpace(windowsSessionRoot)
             ? Path.Combine(CompanionOperatorDataLayout.StudyDataRootPath, study.Id)
             : Path.GetFullPath(windowsSessionRoot);
@@ -149,6 +153,12 @@ public sealed class PeripersonalOperatorWorkflowService
         if (State != PeripersonalOperatorWorkflowState.Idle)
         {
             return Result(OperationOutcomeKind.Warning, "Session is already prepared.", "Start a new workflow service instance for a new participant session.");
+        }
+
+        var httpForward = await EnsureUnityHttpBridgeForwardAsync(cancellationToken).ConfigureAwait(false);
+        if (httpForward.Kind == OperationOutcomeKind.Failure)
+        {
+            return Result(httpForward.Kind, httpForward.Summary, httpForward.Detail, items: httpForward.SafeItems);
         }
 
         var participantRef = RequireValue(request.ParticipantRef, nameof(request.ParticipantRef));
@@ -217,7 +227,9 @@ public sealed class PeripersonalOperatorWorkflowService
         return Result(
             OperationOutcomeKind.Success,
             "Peripersonal session prepared.",
-            $"Windows, Unity, and panel session folders are prepared as {sessionFolderName}.",
+            JoinDetails(
+                $"Windows, Unity, and panel session folders are prepared as {sessionFolderName}.",
+                httpForward.Detail),
             _session);
     }
 
@@ -355,15 +367,15 @@ public sealed class PeripersonalOperatorWorkflowService
                 string.Empty);
         }
 
-        var effectiveDuration = duration ?? TimeSpan.FromSeconds(SussexClockAlignmentStreamContract.DefaultDurationSeconds);
-        var effectiveProbeInterval = probeInterval ?? TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds);
+        var effectiveDuration = duration ?? TimeSpan.FromSeconds(StudyClockAlignmentStreamContract.DefaultDurationSeconds);
+        var effectiveProbeInterval = probeInterval ?? TimeSpan.FromMilliseconds(StudyClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds);
         var request = new StudyClockAlignmentRunRequest(
             _session.SessionId,
             BuildDatasetId(_session.StudyId, _session.ParticipantRef, _session.SessionId),
             StudyClockAlignmentWindowKind.BackgroundSparse,
             effectiveDuration,
             effectiveProbeInterval,
-            TimeSpan.FromMilliseconds(SussexClockAlignmentStreamContract.DefaultEchoGraceMilliseconds));
+            TimeSpan.FromMilliseconds(StudyClockAlignmentStreamContract.DefaultEchoGraceMilliseconds));
         var result = await clockAlignmentService.RunAsync(request, progress, cancellationToken).ConfigureAwait(false);
         var windowsCsvPath = Path.Combine(_session.WindowsSessionDirectory, "clock_alignment_roundtrip.csv");
         WriteClockAlignmentRoundTripCsv(_session, result, windowsCsvPath);
@@ -685,6 +697,19 @@ public sealed class PeripersonalOperatorWorkflowService
         return Result(OperationOutcomeKind.Success, $"{action} command completed.", receipt.Message);
     }
 
+    private async Task<OperationOutcome> EnsureUnityHttpBridgeForwardAsync(CancellationToken cancellationToken)
+    {
+        if (_unityHttpBridgeForwardOutcome is not null)
+        {
+            return _unityHttpBridgeForwardOutcome;
+        }
+
+        _unityHttpBridgeForwardOutcome = await _questHttpForwarder
+            .EnsureUnityHttpBridgeForwardAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return _unityHttpBridgeForwardOutcome;
+    }
+
     private JsonObject BuildSessionPayload(
         PeripersonalPreparedSession session,
         PeripersonalSessionSetupRequest? request,
@@ -869,3 +894,4 @@ public sealed class PeripersonalOperatorWorkflowService
             session ?? _session,
             _snapshots.ToArray());
 }
+

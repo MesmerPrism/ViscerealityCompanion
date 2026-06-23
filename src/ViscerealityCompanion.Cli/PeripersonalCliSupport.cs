@@ -220,8 +220,8 @@ public static partial class Program
         Option<string?> statePathOption,
         Option<int> receiptTimeoutOption)
     {
-        var durationOption = new Option<double>("--duration-seconds", () => SussexClockAlignmentStreamContract.DefaultDurationSeconds, "Clock probe duration in seconds.");
-        var intervalOption = new Option<int>("--probe-interval-ms", () => SussexClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds, "Clock probe interval in milliseconds.");
+        var durationOption = new Option<double>("--duration-seconds", () => StudyClockAlignmentStreamContract.DefaultDurationSeconds, "Clock probe duration in seconds.");
+        var intervalOption = new Option<int>("--probe-interval-ms", () => StudyClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds, "Clock probe interval in milliseconds.");
         var cliCommand = new Command("clock-probe", "Run the operator clock-alignment probe while the global Peripersonal recording is active")
         {
             durationOption,
@@ -558,7 +558,8 @@ public static partial class Program
             definition,
             new PeripersonalCompositeCommandTransport(lslTransport, panelTransport),
             questAppCloser: new PeripersonalAdbQuestAppCloser(adbPath, selector),
-            questBackupPuller: new PeripersonalAdbQuestBackupPuller(adbPath, selector));
+            questBackupPuller: new PeripersonalAdbQuestBackupPuller(adbPath, selector),
+            questHttpForwarder: new PeripersonalAdbQuestHttpForwarder(adbPath, selector));
         return new PeripersonalWorkflowContext(workflow, lslTransport);
     }
 
@@ -813,3 +814,4 @@ internal sealed record PeripersonalCliSessionState(
             ? Path.Combine(CompanionOperatorDataLayout.SessionRootPath, "peripersonal-cli-state.json")
             : Path.GetFullPath(path);
 }
+

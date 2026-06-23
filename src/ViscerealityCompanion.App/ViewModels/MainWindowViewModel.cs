@@ -98,11 +98,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _lastActionDetail = "No operator action has run yet.";
     private string _latestManifestPath = "No manifest written yet.";
     private SussexParticleSizeTuningDocument? _sussexParticleSizeTuningDocument;
-    private string _sussexParticleTuningSummary = "Import a Sussex particle-size V1 JSON file to compile it onto the live Sussex runtime baseline.";
+    private string _sussexParticleTuningSummary = "Import a study particle-size V1 JSON file to compile it onto the live study runtime baseline.";
     private string _sussexParticleTuningDetail = "The companion validates the partial file, patches only ParticleSizeEnvelopeLimits.x and .y, stages the full compiled runtime JSON, and then uploads it through the existing hotload path.";
     private string _sussexParticleTuningSourcePath = "No Sussex particle-size tuning file imported yet.";
     private string _sussexParticleTuningValuesLabel = "No Sussex particle-size values imported yet.";
-    private string _sussexParticleTuningBaselineSummary = "Live Sussex runtime JSON baseline unavailable.";
+    private string _sussexParticleTuningBaselineSummary = "Live study runtime JSON baseline unavailable.";
     private string _sussexParticleTuningTemplatePath = "Bundled Sussex particle-size template not found.";
     private string _sussexParticleTuningCompiledPath = "No compiled Sussex particle-size hotload CSV written yet.";
     private OperationOutcomeKind _sussexParticleTuningLevel = OperationOutcomeKind.Preview;
@@ -1522,7 +1522,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             ? "No Sussex particle-size values imported yet."
             : $"Imported min {_sussexParticleSizeTuningDocument.ParticleSizeMinimum.Value:0.###} | max {_sussexParticleSizeTuningDocument.ParticleSizeMaximum.Value:0.###} ({_sussexParticleSizeTuningDocument.PackageId}).";
         SussexParticleTuningBaselineSummary = TryGetLiveSussexRuntimeConfigJson(out _, out var baselineDetail)
-            ? "Live Sussex runtime JSON baseline is available on quest_twin_state."
+            ? "Live study runtime JSON baseline is available on quest_twin_state."
             : baselineDetail;
     }
 
@@ -1558,7 +1558,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             !string.IsNullOrWhiteSpace(liveRuntimeConfigJson))
         {
             runtimeConfigJson = liveRuntimeConfigJson;
-            detail = "Live Sussex runtime JSON baseline is available on quest_twin_state.";
+            detail = "Live study runtime JSON baseline is available on quest_twin_state.";
             return true;
         }
 
@@ -1566,11 +1566,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             !string.IsNullOrWhiteSpace(liveRuntimeConfigJson))
         {
             runtimeConfigJson = liveRuntimeConfigJson;
-            detail = "Live Sussex runtime JSON baseline is available on quest_twin_state.";
+            detail = "Live study runtime JSON baseline is available on quest_twin_state.";
             return true;
         }
 
-        detail = "Connect the live Sussex runtime and let it publish showcase_active_runtime_config_json on quest_twin_state before applying a particle-size tuning file.";
+        detail = "Connect the live study runtime and let it publish showcase_active_runtime_config_json on quest_twin_state before applying a particle-size tuning file.";
         return false;
     }
 
@@ -2079,7 +2079,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 SussexParticleTuningCompiledPath = "No compiled Sussex particle-size hotload CSV written yet.";
                 SussexParticleTuningLevel = OperationOutcomeKind.Success;
                 SussexParticleTuningSummary = "Imported Sussex particle-size tuning V1 file.";
-                SussexParticleTuningDetail = $"Loaded {Path.GetFileName(selectedPath)}. The companion will compile it onto the live Sussex runtime JSON baseline and upload the full payload through the normal hotload CSV path.";
+                SussexParticleTuningDetail = $"Loaded {Path.GetFileName(selectedPath)}. The companion will compile it onto the live study runtime JSON baseline and upload the full payload through the normal hotload CSV path.";
                 RefreshSussexParticleTuningState();
                 AppendLog(
                     OperatorLogLevel.Info,
@@ -3286,3 +3286,4 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         string StatusLabel,
         OperationOutcomeKind StatusLevel);
 }
+

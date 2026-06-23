@@ -27,6 +27,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
     private const string QuestMainActivity = "MainActivity";
     private const string QuestFocusPlaceholderActivity = "FocusPlaceholderActivity";
     private const string SussexExperimentPackage = "com.Viscereality.SussexExperiment";
+    internal const string KeepAwakeProximityTag = "quest-keep-awake-proximity";
     private const string QuestSystemUxPackage = "com.oculus.systemux";
     private const string QuestVirtualObjectsActivity = "VirtualObjectsActivity";
     private const string QuestQuickSettingsPackage = "com.oculus.panelapp.settings";
@@ -526,7 +527,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
         }
 
         OperationOutcome? proximityOutcome = null;
-        if (string.Equals(target.PackageId, SussexExperimentPackage, StringComparison.OrdinalIgnoreCase))
+        if (RequiresKeepAwakeProximityOverride(target))
         {
             proximityOutcome = await RunUtilityShellAsync(
                 "Keep-awake proximity override enabled.",
@@ -3202,6 +3203,10 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             $"Launch blocked for {target.Label}.",
             $"{readiness.Detail} {BuildLaunchBlockedWakeInstruction(readiness)}",
             packageId: target.PackageId);
+
+    internal static bool RequiresKeepAwakeProximityOverride(QuestAppTarget target)
+        => string.Equals(target.PackageId, SussexExperimentPackage, StringComparison.OrdinalIgnoreCase) ||
+           target.Tags.Any(tag => string.Equals(tag, KeepAwakeProximityTag, StringComparison.OrdinalIgnoreCase));
 
     private static string DescribeWakeBlocker(string? component)
         => IsSensorLockComponent(component)

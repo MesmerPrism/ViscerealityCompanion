@@ -184,6 +184,10 @@ scripts drive the questionnaire as a participant would: first a blank submit is
 attempted for Blocks 2 and 3, then a valid answer is selected, then the real
 participant Submit button is triggered.
 
+Use long receipt windows on first-run or phone-hotspot networks. The 2026-06-23
+hotspot proof needed 60 seconds for session preparation and 180 seconds for the
+first questionnaire launch after the Windows firewall prompt was accepted.
+
 1. Launch XR:
 
 ```powershell
@@ -201,7 +205,7 @@ participant Submit button is triggered.
   --condition left-visible `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 40 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 ```
 
@@ -218,7 +222,7 @@ the left controller and `left-handed` maps it to the right controller.
   --participant-command-interval-ms 12000 `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 40 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 
 & $Cli peripersonal mark-block1-submitted --root $StudyRoot --state $State
@@ -232,7 +236,7 @@ Block 1 contains the language, demographics, and MAIA setup stages.
 & $Cli peripersonal start-recording `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 40 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 ```
 
@@ -244,15 +248,19 @@ Block 1 contains the language, demographics, and MAIA setup stages.
   --probe-interval-ms 250 `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 40 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 
-& $Cli peripersonal particles particles-on --root $StudyRoot --state $State --receipt-timeout-seconds 40 -d $Device
-& $Cli peripersonal particles particles-off --root $StudyRoot --state $State --receipt-timeout-seconds 40 -d $Device
+& $Cli peripersonal particles particles-on --root $StudyRoot --state $State --receipt-timeout-seconds 180 -d $Device
+& $Cli peripersonal particles particles-off --root $StudyRoot --state $State --receipt-timeout-seconds 180 -d $Device
 ```
 
 The event log should contain distinct `Particles-ON` and `Particles-OFF`
 markers.
+
+The 2026-06-23 hotspot validation tested this step and failed it: Windows sent
+40 probes and received zero Quest echoes. Treat zero clock samples as a failed
+clock-alignment validation, not as a successful run.
 
 6. Mark XR Block 1 end:
 
@@ -262,7 +270,7 @@ markers.
   --condition left-visible `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 40 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 ```
 
@@ -278,7 +286,7 @@ Recording must remain active.
   --participant-command-interval-ms 15000 `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 40 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 ```
 
@@ -293,7 +301,7 @@ participant submit returns the XR app to foreground.
   --condition left-visible `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 40 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 ```
 
@@ -307,7 +315,7 @@ participant submit returns the XR app to foreground.
   --participant-command-interval-ms 15000 `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 40 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 ```
 
@@ -320,7 +328,7 @@ participant submit returns the XR app to foreground.
 & $Cli peripersonal stop-recording `
   --root $StudyRoot `
   --state $State `
-  --receipt-timeout-seconds 45 `
+  --receipt-timeout-seconds 180 `
   -d $Device
 
 & $Cli peripersonal workflow-status --root $StudyRoot --state $State

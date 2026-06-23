@@ -13,7 +13,7 @@ public static class StudyShellOperatorBindings
             LaunchComponent: study.App.LaunchComponent,
             BrowserPackageId: "com.oculus.browser",
             Description: study.Description,
-            Tags: ["viscereality", "runtime", "lsl", "twin"],
+            Tags: ["viscereality", "runtime", "lsl", "twin", WindowsAdbQuestControlService.KeepAwakeProximityTag],
             ApkSha256: study.App.Sha256,
             CompatibilityStatus: ApkCompatibilityStatus.Compatible,
             CompatibilityProfile: study.Label,

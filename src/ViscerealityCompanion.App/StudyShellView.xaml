@@ -175,7 +175,7 @@
                                 <TextBlock Text="Sussex experiment operator shell"
                                            FontSize="22"
                                            FontWeight="Bold" />
-                                <TextBlock Text="Prepare, run, and monitor live Sussex VR study sessions from a single operator desktop."
+                                <TextBlock Text="Prepare, run, and monitor live VR study sessions from a single operator desktop."
                                            FontSize="14"
                                            Foreground="{StaticResource MutedBrush}"
                                            TextWrapping="Wrap"
@@ -1313,7 +1313,7 @@
                             <Border Style="{StaticResource StudyPanelStyle}">
                                 <StackPanel>
                                     <TextBlock Text="Runtime working draft" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="The selected saved profile is copied into this runtime draft. Applying changes touches only the live Sussex session; saving decides whether the library or launch profile changes."
+                                    <TextBlock Text="The selected saved profile is copied into this runtime draft. Applying changes touches only the live study session; saving decides whether the library or launch profile changes."
                                                Style="{StaticResource SectionCaptionStyle}" />
 
                                     <Border Style="{StaticResource StudyInsetPanelStyle}"
@@ -1440,7 +1440,7 @@
                                                     <TextBlock Text="Current session"
                                                                Style="{StaticResource InfoLabelStyle}" />
                                                     <TextBlock Margin="0,4,0,8"
-                                                               Text="Publish the runtime working draft to the active Sussex session now. This changes only the live session and leaves the saved launch profile untouched."
+                                                               Text="Publish the runtime working draft to the active study session now. This changes only the live session and leaves the saved launch profile untouched."
                                                                Style="{StaticResource SectionCaptionStyle}" />
                                                     <Button x:Name="VisualApplyCurrentSessionButton"
                                                             Content="Apply Runtime Draft To Current Session"
@@ -1711,7 +1711,7 @@
                             <Border Style="{StaticResource StudyPanelStyle}">
                                 <StackPanel>
                                     <TextBlock Text="Selected profile" Style="{StaticResource SectionTitleStyle}" />
-                                    <TextBlock Text="Edit values in the table below. Hover a parameter name for the metadata and tuning guidance bundled in the profile schema. Applying a profile resets controller-breathing calibration in the Sussex runtime."
+                                    <TextBlock Text="Edit values in the table below. Hover a parameter name for the metadata and tuning guidance bundled in the profile schema. Applying a profile resets controller-breathing calibration in the study runtime."
                                                Style="{StaticResource SectionCaptionStyle}" />
 
                                     <Border Style="{StaticResource StudyInsetPanelStyle}"
@@ -2741,3 +2741,4 @@
         </Grid>
     </ScrollViewer>
 </UserControl>
+

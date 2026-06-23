@@ -49,6 +49,54 @@ public sealed class WindowsAdbQuestControlServiceTests
     }
 
     [Fact]
+    public void RequiresKeepAwakeProximityOverride_accepts_tagged_study_runtime()
+    {
+        var target = new QuestAppTarget(
+            Id: "peripersonal-space",
+            Label: "Peripersonal Space",
+            PackageId: "com.Viscereality.ViscerealityPeriPersonal",
+            ApkFile: "",
+            LaunchComponent: "",
+            BrowserPackageId: "",
+            Description: "",
+            Tags: [WindowsAdbQuestControlService.KeepAwakeProximityTag]);
+
+        Assert.True(WindowsAdbQuestControlService.RequiresKeepAwakeProximityOverride(target));
+    }
+
+    [Fact]
+    public void RequiresKeepAwakeProximityOverride_preserves_legacy_sussex_package()
+    {
+        var target = new QuestAppTarget(
+            Id: "sussex",
+            Label: "Sussex",
+            PackageId: "com.Viscereality.SussexExperiment",
+            ApkFile: "",
+            LaunchComponent: "",
+            BrowserPackageId: "",
+            Description: "",
+            Tags: []);
+
+        Assert.True(WindowsAdbQuestControlService.RequiresKeepAwakeProximityOverride(target));
+    }
+
+    [Fact]
+    public void RequiresKeepAwakeProximityOverride_ignores_unmarked_targets()
+    {
+        var target = new QuestAppTarget(
+            Id: "browser",
+            Label: "Browser",
+            PackageId: "com.oculus.browser",
+            ApkFile: "",
+            LaunchComponent: "",
+            BrowserPackageId: "",
+            Description: "",
+            Tags: []);
+
+        Assert.False(WindowsAdbQuestControlService.RequiresKeepAwakeProximityOverride(target));
+    }
+
+    [Fact]
     public void ParseQuestWifiStatus_extracts_ssid_and_ip()
     {
         var output = """

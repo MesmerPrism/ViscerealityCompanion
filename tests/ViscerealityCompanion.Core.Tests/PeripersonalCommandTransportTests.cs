@@ -115,6 +115,48 @@ public sealed class PeripersonalCommandTransportTests
     }
 
     [Fact]
+    public async Task AdbQuestHttpForwarder_UsesDeviceScopedUnityHttpBridgeForward()
+    {
+        var runner = new FakeAdbProcessRunner(
+            new PeripersonalAdbProcessResult(0, string.Empty, string.Empty),
+            new PeripersonalAdbProcessResult(0, "3487 tcp:8787 tcp:8787", string.Empty));
+        var forwarder = new PeripersonalAdbQuestHttpForwarder(
+            "adb.exe",
+            "3487",
+            PeripersonalAdbQuestHttpForwarder.DefaultUnityHttpBridgePort,
+            PeripersonalAdbQuestHttpForwarder.DefaultUnityHttpBridgePort,
+            TimeSpan.FromSeconds(1),
+            runner);
+
+        var result = await forwarder.EnsureUnityHttpBridgeForwardAsync();
+
+        Assert.Equal(OperationOutcomeKind.Success, result.Kind);
+        Assert.Equal("127.0.0.1:8787", result.Endpoint);
+        Assert.Equal(["-s", "3487", "forward", "tcp:8787", "tcp:8787"], runner.Calls[0]);
+        Assert.Equal(["-s", "3487", "forward", "--list"], runner.Calls[1]);
+    }
+
+    [Fact]
+    public async Task AdbQuestHttpForwarder_FailsWhenForwardCommandFails()
+    {
+        var runner = new FakeAdbProcessRunner(
+            new PeripersonalAdbProcessResult(1, string.Empty, "device offline"));
+        var forwarder = new PeripersonalAdbQuestHttpForwarder(
+            "adb.exe",
+            "3487",
+            8787,
+            8787,
+            TimeSpan.FromSeconds(1),
+            runner);
+
+        var result = await forwarder.EnsureUnityHttpBridgeForwardAsync();
+
+        Assert.Equal(OperationOutcomeKind.Failure, result.Kind);
+        Assert.Contains("device offline", result.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(runner.Calls);
+    }
+
+    [Fact]
     public async Task AndroidBroadcastTransport_LiveQuestPanelPrepareReceipt_WhenEnvironmentIsSet()
     {
         var adbPath = Environment.GetEnvironmentVariable("PERIPERSONAL_PANEL_TRANSPORT_ADB");
@@ -251,5 +293,35 @@ public sealed class PeripersonalCommandTransportTests
 
             await Task.CompletedTask;
         }
+    }
+
+    private sealed class FakeAdbProcessRunner : IPeripersonalAdbProcessRunner
+    {
+        private readonly Queue<PeripersonalAdbProcessResult> _results;
+
+        public FakeAdbProcessRunner(params PeripersonalAdbProcessResult[] results)
+        {
+            _results = new Queue<PeripersonalAdbProcessResult>(results);
+        }
+
+        public List<IReadOnlyList<string>> Calls { get; } = [];
+
+        public Task<PeripersonalAdbProcessResult> RunTextAsync(
+            string adbPath,
+            IReadOnlyList<string> arguments,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add(arguments.ToArray());
+            return Task.FromResult(_results.Dequeue());
+        }
+
+        public Task<PeripersonalAdbProcessResult> RunStdoutToFileAsync(
+            string adbPath,
+            IReadOnlyList<string> arguments,
+            string outputPath,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+            => throw new NotSupportedException();
     }
 }

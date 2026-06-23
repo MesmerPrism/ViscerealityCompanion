@@ -1343,7 +1343,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
             {
                 if (headsetStatus.IsTargetForeground != true)
                 {
-                    ApplySummary = $"{actionLabel} requires an active Sussex session.";
+                    ApplySummary = $"{actionLabel} requires an active study session.";
                     ApplyDetail = $"Current-session visual applies are live-only and do not rewrite the saved launch profile. Bring {target.Label} to the foreground, then apply the runtime draft again.";
                     ApplyLevel = OperationOutcomeKind.Warning;
                     RefreshComparisonState();
@@ -1894,7 +1894,7 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
 
         if (usedTwinRuntimePublish)
         {
-            detailParts.Add("The live quest_hotload_config channel changed only the active Sussex session. The saved launch profile on device was left untouched.");
+            detailParts.Add("The live quest_hotload_config channel changed only the active study session. The saved launch profile on device was left untouched.");
         }
         else if (!headsetStatus.IsTargetForeground)
         {

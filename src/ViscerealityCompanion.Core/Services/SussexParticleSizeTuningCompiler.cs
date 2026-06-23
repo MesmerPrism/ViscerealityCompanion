@@ -93,7 +93,7 @@ public sealed class SussexParticleSizeTuningCompiler
         ArgumentNullException.ThrowIfNull(document);
         if (string.IsNullOrWhiteSpace(baselineRuntimeConfigJson))
         {
-            throw new InvalidDataException("The live Sussex runtime did not expose a baseline showcase_active_runtime_config_json payload to compile against.");
+            throw new InvalidDataException("The live study runtime did not expose a baseline showcase_active_runtime_config_json payload to compile against.");
         }
 
         JsonNode? baselineNode;
@@ -103,11 +103,11 @@ public sealed class SussexParticleSizeTuningCompiler
         }
         catch (JsonException exception)
         {
-            throw new InvalidDataException($"The live Sussex runtime config baseline is not valid JSON: {exception.Message}", exception);
+            throw new InvalidDataException($"The live study runtime config baseline is not valid JSON: {exception.Message}", exception);
         }
 
         var baselineObject = baselineNode as JsonObject
-            ?? throw new InvalidDataException("The live Sussex runtime config baseline must be a JSON object.");
+            ?? throw new InvalidDataException("The live study runtime config baseline must be a JSON object.");
 
         var limitsNode = baselineObject["ParticleSizeEnvelopeLimits"] as JsonObject ?? new JsonObject();
         limitsNode["x"] = document.ParticleSizeMinimum.Value;

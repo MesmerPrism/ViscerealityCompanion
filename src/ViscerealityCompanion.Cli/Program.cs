@@ -534,6 +534,18 @@ public static partial class Program
             var target = StudyShellOperatorBindings.CreateQuestTarget(definition);
             var result = await service.LaunchAppAsync(target, kioskMode: definition.App.LaunchInKioskMode);
             PrintOutcome(result);
+            if (result.Kind != OperationOutcomeKind.Failure)
+            {
+                var bridgeForward = await EnsurePeripersonalUnityHttpBridgeForwardAsync(definition, device).ConfigureAwait(false);
+                if (bridgeForward is not null)
+                {
+                    PrintOutcome(bridgeForward);
+                    if (bridgeForward.Kind == OperationOutcomeKind.Failure)
+                    {
+                        Environment.ExitCode = 1;
+                    }
+                }
+            }
         });
 
         var stopCommand = new Command("stop", "Stop the pinned study runtime and unwind any study task-pinning policy") { studyArg, rootOption };
@@ -1994,6 +2006,22 @@ public static partial class Program
         => !string.IsNullOrWhiteSpace(left)
             && !string.IsNullOrWhiteSpace(right)
             && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<OperationOutcome?> EnsurePeripersonalUnityHttpBridgeForwardAsync(
+        StudyShellDefinition definition,
+        string? device)
+    {
+        if (!string.Equals(definition.Id, "peripersonal-space", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var adbPath = ResolvePeripersonalAdbPath();
+        var selector = ResolveDeviceSerial(device);
+        return await new PeripersonalAdbQuestHttpForwarder(adbPath, selector)
+            .EnsureUnityHttpBridgeForwardAsync()
+            .ConfigureAwait(false);
+    }
 
     private static async Task<StudyShellCatalog> LoadStudyShellCatalogAsync(string? root)
     {

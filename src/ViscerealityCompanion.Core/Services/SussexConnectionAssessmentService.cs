@@ -228,9 +228,9 @@ public static class SussexConnectionAssessmentService
                                     : input.ExpectedUpstream.VisibleViaCompanionTestSender && !input.InletReady
                                         ? "Windows already sees the companion TEST sender, so focus next on the headset-side Sussex scene, inlet subscription, or Wi-Fi client-isolation."
                                         : !input.ExpectedTwinStatePublisherVisible
-                                            ? "Focus next on why the Sussex runtime is not publishing its quest_twin_state stream on Windows."
+                                            ? "Focus next on why the study runtime is not publishing its quest_twin_state stream on Windows."
                                             : input.ExpectedUpstream.VisibleOnWindows
-                                                ? "Windows already sees the expected upstream stream, so focus next on Sussex runtime state and twin telemetry."
+                                                ? "Windows already sees the expected upstream stream, so focus next on study runtime state and twin telemetry."
                                                 : "Re-run Windows Environment and the study probe together so the missing transport link is explicit.";
 
         return new SussexConnectionAssessmentResult(level, summary, missingLinks, focusNext);
@@ -256,3 +256,4 @@ public static class SussexConnectionAssessmentService
                 streams.Select(static stream =>
                     $"{stream.Name} / {stream.Type} | source_id `{(string.IsNullOrWhiteSpace(stream.SourceId) ? "n/a" : stream.SourceId)}` | channels {stream.ChannelCount.ToString(CultureInfo.InvariantCulture)} | nominal {stream.SampleRateHz.ToString("0.###", CultureInfo.InvariantCulture)} Hz"));
 }
+

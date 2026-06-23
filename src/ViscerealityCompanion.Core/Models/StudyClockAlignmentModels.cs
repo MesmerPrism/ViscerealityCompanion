@@ -1,11 +1,11 @@
 namespace ViscerealityCompanion.Core.Models;
 
-public static class SussexClockAlignmentStreamContract
+public static class StudyClockAlignmentStreamContract
 {
-    public const string ProbeStreamName = "SussexClockProbe";
-    public const string ProbeStreamType = "sussex.clock.probe";
-    public const string EchoStreamName = "SussexClockEcho";
-    public const string EchoStreamType = "sussex.clock.echo";
+    public const string ProbeStreamName = "PeripersonalClockProbe";
+    public const string ProbeStreamType = "peripersonal.clock.probe";
+    public const string EchoStreamName = "PeripersonalClockEcho";
+    public const string EchoStreamType = "peripersonal.clock.echo";
     public const string EchoChannelLabel = "clock_alignment_echo";
     public const int DefaultDurationSeconds = 10;
     public const int DefaultProbeIntervalMilliseconds = 250;
