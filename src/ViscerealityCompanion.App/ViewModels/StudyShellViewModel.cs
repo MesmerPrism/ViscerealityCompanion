@@ -8314,17 +8314,14 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
     private async Task<OperationOutcome> PublishParticipantSessionMetadataAsync(StudyDataRecordingSession recordingSession)
     {
-        var runtimeConfigJson = await DispatchAsync(() =>
-        {
-            TryGetReportedStudyRuntimeConfigJson(_reportedTwinState, out var reportedRuntimeConfigJson);
-            return reportedRuntimeConfigJson;
-        }).ConfigureAwait(false);
+        var runtimeConfigSelection = await DispatchAsync(ResolveParticipantSessionRuntimeConfigJson).ConfigureAwait(false);
+        var runtimeConfigJson = runtimeConfigSelection.RuntimeConfigJson;
         if (string.IsNullOrWhiteSpace(runtimeConfigJson))
         {
             return new OperationOutcome(
                 OperationOutcomeKind.Failure,
                 "Quest-side session metadata publish blocked.",
-                "The live Sussex runtime has not yet reported showcase_active_runtime_config_json on quest_twin_state, so the participant session metadata cannot be merged into the active runtime config.");
+                runtimeConfigSelection.Detail);
         }
 
         string mergedRuntimeConfigJson;
@@ -8367,7 +8364,42 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
                 new RuntimeConfigEntry("study_session_started_at_utc", recordingSession.SessionStartedAtUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture))
             ]);
 
-        return await _twinBridge.PublishRuntimeConfigAsync(profile, target).ConfigureAwait(false);
+        var publishOutcome = await _twinBridge.PublishRuntimeConfigAsync(profile, target).ConfigureAwait(false);
+        return publishOutcome with
+        {
+            Detail = string.IsNullOrWhiteSpace(runtimeConfigSelection.Detail)
+                ? publishOutcome.Detail
+                : $"{runtimeConfigSelection.Detail} {publishOutcome.Detail}".Trim()
+        };
+    }
+
+    private (string RuntimeConfigJson, string Detail) ResolveParticipantSessionRuntimeConfigJson()
+    {
+        if (TryGetReportedStudyRuntimeConfigJson(
+                _reportedTwinState,
+                out var reportedRuntimeConfigJson,
+                out var reportedDetail))
+        {
+            return (reportedRuntimeConfigJson, reportedDetail);
+        }
+
+        if (_visualProfiles.TryGetLastAppliedRuntimeConfigJson(out var lastAppliedRuntimeConfigJson, out var lastAppliedDetail))
+        {
+            if (TryValidateStudyRuntimeConfigJson(lastAppliedRuntimeConfigJson, out var validationDetail))
+            {
+                return (
+                    lastAppliedRuntimeConfigJson,
+                    $"{reportedDetail} Falling back to the locally compiled runtime config that this operator UI last applied; Start Experiment will still wait for Quest to mirror the participant session id/hash before continuing. {lastAppliedDetail}");
+            }
+
+            return (
+                string.Empty,
+                $"{reportedDetail} The locally compiled fallback runtime config was also invalid: {validationDetail} {lastAppliedDetail}");
+        }
+
+        return (
+            string.Empty,
+            $"{reportedDetail} {lastAppliedDetail} The participant session metadata cannot be merged until the UI has either a complete Quest-mirrored runtime config JSON or a last-applied local visual runtime config.");
     }
 
     private string BuildParticipantSessionRuntimeConfigJson(

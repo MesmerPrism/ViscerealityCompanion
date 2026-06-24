@@ -125,6 +125,41 @@ public sealed class StudyShellSnapshotPolicyTests
     }
 
     [Fact]
+    public void HasReportedStudyRuntimeConfigJson_RejectsTruncatedRuntimeConfigJson()
+    {
+        var reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["hotload.showcase_active_runtime_config_json"] =
+                "{\"UseSphereDeformation\":true,\"OblatenessByRadiusCurve\":{\"m_Curve\":[{\"time\":0.0,\"value"
+        };
+
+        Assert.False(StudyShellViewModel.HasReportedStudyRuntimeConfigJson(reportedTwinState));
+        Assert.False(StudyShellViewModel.TryGetReportedStudyRuntimeConfigJson(
+            reportedTwinState,
+            out var runtimeConfigJson,
+            out var detail));
+        Assert.Equal(string.Empty, runtimeConfigJson);
+        Assert.Contains("hotload.showcase_active_runtime_config_json", detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TryGetReportedStudyRuntimeConfigJson_SkipsInvalidDirectKeyWhenHotloadKeyIsValid()
+    {
+        var reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["showcase_active_runtime_config_json"] = "{\"UseSphereDeformation\":",
+            ["hotload.showcase_active_runtime_config_json"] = "{\"UseSphereDeformation\":true}"
+        };
+
+        Assert.True(StudyShellViewModel.TryGetReportedStudyRuntimeConfigJson(
+            reportedTwinState,
+            out var runtimeConfigJson,
+            out var detail));
+        Assert.Equal("{\"UseSphereDeformation\":true}", runtimeConfigJson);
+        Assert.Contains("hotload.showcase_active_runtime_config_json", detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HasFreshRuntimeConfigTwinBaseline_RequiresFreshSnapshotAndRuntimeConfigJson()
     {
         var commandIssuedAtUtc = DateTimeOffset.UtcNow;
@@ -181,6 +216,21 @@ public sealed class StudyShellSnapshotPolicyTests
             reportedTwinState,
             "session-123",
             "hash-other"));
+    }
+
+    [Fact]
+    public void HasReportedParticipantSessionRuntimeConfig_RejectsMalformedJsonEvenWhenItContainsExpectedStrings()
+    {
+        var reportedTwinState = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["showcase_active_runtime_config_json"] =
+                "{\"study_session_id\":\"session-123\",\"study_session_dataset_hash\":\"hash-abc\""
+        };
+
+        Assert.False(StudyShellViewModel.HasReportedParticipantSessionRuntimeConfig(
+            reportedTwinState,
+            "session-123",
+            "hash-abc"));
     }
 
     [Fact]

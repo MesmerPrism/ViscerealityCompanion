@@ -38,6 +38,7 @@ public static class HarnessScenarioRunner
 {
     private static readonly TimeSpan MockHeartbeatInterval = TimeSpan.FromMilliseconds(910);
     private static readonly TimeSpan QuestScreenshotProofTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan SetupRefreshCommandTimeout = TimeSpan.FromSeconds(90);
     private static readonly float[] ValidationCaptureLslSequence = [0.19f, 0.48f, 0.77f, 0.31f, 0.66f, 0.28f];
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
@@ -199,7 +200,11 @@ public static class HarnessScenarioRunner
             studyViewModel,
             "Connect Quest",
             TimeSpan.FromSeconds(30));
-        await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
+        await ExecuteCommandAsync(
+            studyViewModel.RefreshStatusCommand,
+            studyViewModel,
+            null,
+            SetupRefreshCommandTimeout);
         await EnsureHeadsetWakeReadyAsync(studyViewModel);
         await EnsureProximityHoldDisabledAsync(studyViewModel);
 
@@ -211,7 +216,11 @@ public static class HarnessScenarioRunner
             studyViewModel,
             allowOffFaceRecovery: true);
 
-        await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null);
+        await ExecuteCommandAsync(
+            studyViewModel.RefreshStatusCommand,
+            studyViewModel,
+            null,
+            SetupRefreshCommandTimeout);
 
         if (calibrationOnly)
         {
@@ -775,7 +784,7 @@ public static class HarnessScenarioRunner
                 studyViewModel.RefreshStatusCommand,
                 studyViewModel,
                 null,
-                TimeSpan.FromSeconds(15));
+                SetupRefreshCommandTimeout);
             await studyViewModel.LaunchStudyAppAsync();
             await WaitForFreshPostLaunchTwinStateAsync(
                 studyViewModel,
@@ -1205,7 +1214,11 @@ public static class HarnessScenarioRunner
 
     private static async Task EnsureStudyRuntimeReadyForParticipantAsync(StudyShellViewModel studyViewModel)
     {
-        await ExecuteCommandAsync(studyViewModel.RefreshStatusCommand, studyViewModel, null, TimeSpan.FromSeconds(15));
+        await ExecuteCommandAsync(
+            studyViewModel.RefreshStatusCommand,
+            studyViewModel,
+            null,
+            SetupRefreshCommandTimeout);
 
         var runtimeVisible = studyViewModel.LiveRuntimeLevel is OperationOutcomeKind.Success or OperationOutcomeKind.Warning;
         var appActive = !studyViewModel.InstalledApkSummary.Contains("not active", StringComparison.OrdinalIgnoreCase);
@@ -2592,7 +2605,7 @@ public static class HarnessScenarioRunner
                 studyViewModel.RefreshStatusCommand,
                 studyViewModel,
                 null,
-                TimeSpan.FromSeconds(15));
+                SetupRefreshCommandTimeout);
 
             if (studyViewModel.IsStudyRuntimeToggleState ||
                 (!studyViewModel.IsLaunchBlockedBySleepingHeadset && !studyViewModel.IsLaunchBlockedByHeadsetVisualBlocker))

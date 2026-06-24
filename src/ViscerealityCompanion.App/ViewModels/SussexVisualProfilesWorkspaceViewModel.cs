@@ -1164,6 +1164,48 @@ public sealed class SussexVisualProfilesWorkspaceViewModel : ObservableObject, I
         RefreshComparisonState();
     }
 
+    internal bool TryGetLastAppliedRuntimeConfigJson(out string runtimeConfigJson, out string detail)
+    {
+        runtimeConfigJson = string.Empty;
+        detail = string.Empty;
+        if (_compiler is null)
+        {
+            detail = "The Sussex visual tuning compiler is not available.";
+            return false;
+        }
+
+        if (_lastApplyRecord is null)
+        {
+            detail = "No Sussex visual profile has been applied or staged in this operator session.";
+            return false;
+        }
+
+        try
+        {
+            var document = _compiler.CreateDocument(
+                _lastApplyRecord.ProfileName,
+                null,
+                _lastApplyRecord.RequestedValues);
+            var compiled = _compiler.Compile(document);
+            var runtimeConfigEntry = compiled.Entries.FirstOrDefault(entry =>
+                string.Equals(entry.Key, compiled.HotloadTargetKey, StringComparison.OrdinalIgnoreCase));
+            if (runtimeConfigEntry is null || string.IsNullOrWhiteSpace(runtimeConfigEntry.Value))
+            {
+                detail = $"The last applied Sussex visual profile `{_lastApplyRecord.ProfileName}` did not compile a runtime config JSON entry.";
+                return false;
+            }
+
+            runtimeConfigJson = runtimeConfigEntry.Value.Trim();
+            detail = $"Using the last successfully applied Sussex visual runtime config `{_lastApplyRecord.ProfileName}` from {_lastApplyRecord.AppliedAtUtc.ToLocalTime():HH:mm:ss}.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            detail = $"The last applied Sussex visual profile `{_lastApplyRecord.ProfileName}` could not be recompiled for session metadata: {exception.Message}";
+            return false;
+        }
+    }
+
     public async Task ApplyStartupProfileOnLaunchAsync()
     {
         SussexVisualProfileRecord? startupRecord = null;

@@ -29,17 +29,7 @@ public sealed partial class StudyShellViewModel
     }
 
     internal static bool HasReportedStudyRuntimeConfigJson(IReadOnlyDictionary<string, string>? reportedTwinState)
-    {
-        if (reportedTwinState is null || reportedTwinState.Count == 0)
-        {
-            return false;
-        }
-
-        return reportedTwinState.TryGetValue("showcase_active_runtime_config_json", out var directRuntimeConfigJson) &&
-               !string.IsNullOrWhiteSpace(directRuntimeConfigJson) ||
-               reportedTwinState.TryGetValue("hotload.showcase_active_runtime_config_json", out var hotloadRuntimeConfigJson) &&
-               !string.IsNullOrWhiteSpace(hotloadRuntimeConfigJson);
-    }
+        => TryGetReportedStudyRuntimeConfigJson(reportedTwinState, out _, out _);
 
     internal static bool HasReportedParticipantSessionRuntimeConfig(
         IReadOnlyDictionary<string, string>? reportedTwinState,
@@ -197,21 +187,37 @@ public sealed partial class StudyShellViewModel
            string.Equals(sessionId, expectedSessionId, StringComparison.Ordinal) &&
            string.Equals(datasetHash, expectedDatasetHash, StringComparison.OrdinalIgnoreCase);
 
-    private static bool TryGetReportedStudyRuntimeConfigJson(
+    internal static bool TryGetReportedStudyRuntimeConfigJson(
         IReadOnlyDictionary<string, string>? reportedTwinState,
-        out string runtimeConfigJson)
+        out string runtimeConfigJson,
+        out string detail)
     {
-        foreach (var candidate in EnumerateReportedStudyRuntimeConfigJson(reportedTwinState))
+        var rejectedCandidates = new List<string>(2);
+        foreach (var candidate in EnumerateReportedStudyRuntimeConfigJsonCandidates(reportedTwinState))
         {
-            runtimeConfigJson = candidate;
-            return true;
+            var trimmed = candidate.Value.Trim();
+            if (TryValidateStudyRuntimeConfigJson(trimmed, out var validationDetail))
+            {
+                runtimeConfigJson = trimmed;
+                detail = $"Using validated runtime config JSON from `{candidate.Key}`.";
+                return true;
+            }
+
+            rejectedCandidates.Add($"{candidate.Key}: {validationDetail}");
         }
 
         runtimeConfigJson = string.Empty;
+        detail = rejectedCandidates.Count == 0
+            ? "No runtime config JSON was reported by the live Sussex runtime."
+            : "Reported runtime config JSON was not parseable as a complete JSON object: " +
+              string.Join("; ", rejectedCandidates) + ".";
         return false;
     }
 
     private static IEnumerable<string> EnumerateReportedStudyRuntimeConfigJson(IReadOnlyDictionary<string, string>? reportedTwinState)
+        => EnumerateReportedStudyRuntimeConfigJsonCandidates(reportedTwinState).Select(candidate => candidate.Value.Trim());
+
+    private static IEnumerable<(string Key, string Value)> EnumerateReportedStudyRuntimeConfigJsonCandidates(IReadOnlyDictionary<string, string>? reportedTwinState)
     {
         if (reportedTwinState is null || reportedTwinState.Count == 0)
         {
@@ -221,13 +227,40 @@ public sealed partial class StudyShellViewModel
         if (reportedTwinState.TryGetValue("showcase_active_runtime_config_json", out var directRuntimeConfigJson) &&
             !string.IsNullOrWhiteSpace(directRuntimeConfigJson))
         {
-            yield return directRuntimeConfigJson;
+            yield return ("showcase_active_runtime_config_json", directRuntimeConfigJson);
         }
 
         if (reportedTwinState.TryGetValue("hotload.showcase_active_runtime_config_json", out var hotloadRuntimeConfigJson) &&
             !string.IsNullOrWhiteSpace(hotloadRuntimeConfigJson))
         {
-            yield return hotloadRuntimeConfigJson;
+            yield return ("hotload.showcase_active_runtime_config_json", hotloadRuntimeConfigJson);
+        }
+    }
+
+    internal static bool TryValidateStudyRuntimeConfigJson(string? runtimeConfigJson, out string detail)
+    {
+        if (string.IsNullOrWhiteSpace(runtimeConfigJson))
+        {
+            detail = "the value is empty";
+            return false;
+        }
+
+        try
+        {
+            var root = JsonNode.Parse(runtimeConfigJson);
+            if (root is JsonObject)
+            {
+                detail = "runtime config JSON is a complete JSON object";
+                return true;
+            }
+
+            detail = "the value is valid JSON but not a JSON object";
+            return false;
+        }
+        catch (JsonException exception)
+        {
+            detail = exception.Message;
+            return false;
         }
     }
 
@@ -277,8 +310,7 @@ public sealed partial class StudyShellViewModel
         }
         catch (JsonException)
         {
-            return runtimeConfigJson.Contains(expectedSessionId, StringComparison.Ordinal) &&
-                   runtimeConfigJson.Contains(expectedDatasetHash, StringComparison.OrdinalIgnoreCase);
+            return false;
         }
     }
 

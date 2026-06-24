@@ -22,6 +22,8 @@ public interface IHzdbService
 public sealed class WindowsHzdbService : IHzdbService
 {
     private const string HzdbPerfCaptureFormatPanicMarker = "Mismatch between definition and access of `format`";
+    private const int AdbCommandTimeoutExitCode = -408;
+    private static readonly TimeSpan ProximityReadbackTimeout = TimeSpan.FromSeconds(4);
     private static readonly Regex VrPowerManagerVirtualStateRegex = new(@"Virtual proximity state:\s*(.+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex VrPowerManagerAutosleepDisabledRegex = new(@"isAutosleepDisabled:\s*(true|false)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex VrPowerManagerAutoSleepTimeRegex = new(@"AutoSleepTime:\s*(\d+)\s*ms", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -130,7 +132,8 @@ public sealed class WindowsHzdbService : IHzdbService
         var result = await RunAdbAsync(
             adbPath,
             ["-s", deviceSerial, "shell", "dumpsys", "vrpowermanager"],
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            ProximityReadbackTimeout).ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {
@@ -536,7 +539,11 @@ public sealed class WindowsHzdbService : IHzdbService
     private static bool LooksLikeHzdbPerfCaptureFormatPanic(string detail)
         => detail.Contains(HzdbPerfCaptureFormatPanicMarker, StringComparison.OrdinalIgnoreCase);
 
-    private static async Task<ProcessResult> RunAdbAsync(string adbPath, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    private static async Task<ProcessResult> RunAdbAsync(
+        string adbPath,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -553,11 +560,41 @@ public sealed class WindowsHzdbService : IHzdbService
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start adb process.");
 
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        var waitTask = process.WaitForExitAsync(cancellationToken);
+        if (timeout.HasValue)
+        {
+            var timeoutTask = Task.Delay(timeout.Value, cancellationToken);
+            var completedTask = await Task.WhenAny(waitTask, timeoutTask).ConfigureAwait(false);
+            if (completedTask == timeoutTask)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                TryKill(process);
+
+                try
+                {
+                    await waitTask.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                    await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Timed-out readback is optional status evidence; keep the UI responsive.
+                }
+
+                return new ProcessResult(
+                    AdbCommandTimeoutExitCode,
+                    string.Empty,
+                    $"ADB command timed out after {timeout.Value.TotalSeconds:0.#} seconds: {FormatAdbArguments(arguments)}");
+            }
+        }
+
         try
         {
-            var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-            var stderr = await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            await waitTask.ConfigureAwait(false);
+            var stdout = await stdoutTask.ConfigureAwait(false);
+            var stderr = await stderrTask.ConfigureAwait(false);
 
             return new ProcessResult(process.ExitCode, stdout.Trim(), stderr.Trim());
         }
@@ -566,6 +603,21 @@ public sealed class WindowsHzdbService : IHzdbService
             TryKill(process);
             throw;
         }
+    }
+
+    private static string FormatAdbArguments(IReadOnlyList<string> arguments)
+        => string.Join(" ", arguments.Select(FormatAdbArgument));
+
+    private static string FormatAdbArgument(string argument)
+    {
+        if (argument.Length == 0)
+        {
+            return "\"\"";
+        }
+
+        return argument.Any(char.IsWhiteSpace) || argument.Contains('"', StringComparison.Ordinal)
+            ? $"\"{argument.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
+            : argument;
     }
 
     private static async Task<OperationOutcome> CaptureScreenshotViaAdbAsync(

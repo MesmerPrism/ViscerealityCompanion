@@ -10,7 +10,11 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 {
     private static readonly TimeSpan WifiAdbTransportSettleDelay = TimeSpan.FromMilliseconds(1500);
     private static readonly TimeSpan AdbServerRestartProbeDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan AdbShellCommandTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan ControllerTrackingReadbackTimeout = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan InstalledPackageHashPullTimeout = TimeSpan.FromSeconds(15);
     private const int AdbServerRestartProbeAttempts = 3;
+    private const int AdbCommandTimeoutExitCode = -408;
     private const string ProfileBrightnessPercentKey = "viscereality.screen_brightness_percent";
     private const string ProfileMediaVolumeKey = "viscereality.media_volume_music";
     private const string ProfileHeadsetBatteryMinimumKey = "viscereality.minimum_headset_battery_percent";
@@ -144,12 +148,6 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
     public async Task<OperationOutcome> EnableWifiFromUsbAsync(CancellationToken cancellationToken = default)
     {
-        var restart = await RestartAdbServerAsync(cancellationToken).ConfigureAwait(false);
-        if (!restart.Succeeded)
-        {
-            return Failure("Wi-Fi ADB bootstrap failed.", restart.Detail);
-        }
-
         await ProbeUsbAsync(cancellationToken).ConfigureAwait(false);
         var selector = await EnsureUsbSelectorAsync(cancellationToken).ConfigureAwait(false);
         var ipAddress = await TryReadQuestWifiIpAddressAsync(selector, cancellationToken).ConfigureAwait(false);
@@ -177,7 +175,7 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             return new OperationOutcome(
                 OperationOutcomeKind.Warning,
                 "Quest switched to TCP/IP mode on port 5555.",
-                $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail} The headset Wi-Fi IP could not be read automatically, so run Connect Quest with the known IP:port or use Find Wi-Fi Quest before removing the cable.");
+                "Wi-Fi ADB bootstrap completed without restarting the local ADB server. The headset Wi-Fi IP could not be read automatically, so run Connect Quest with the known IP:port or use Find Wi-Fi Quest before removing the cable.");
         }
 
         await Task.Delay(WifiAdbTransportSettleDelay, cancellationToken).ConfigureAwait(false);
@@ -188,14 +186,14 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             return new OperationOutcome(
                 OperationOutcomeKind.Success,
                 $"Quest switched to TCP/IP mode on port 5555 and connected at {endpoint}.",
-                $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail} {connectResult.Detail}".Trim(),
+                $"Wi-Fi ADB bootstrap completed without restarting the local ADB server. {connectResult.Detail}".Trim(),
                 Endpoint: endpoint);
         }
 
         return new OperationOutcome(
             OperationOutcomeKind.Warning,
             $"Quest switched to TCP/IP mode on port 5555, but reconnect to {endpoint} did not complete.",
-            $"Wi-Fi ADB bootstrap completed after restarting the local ADB server. {restart.Detail} {connectResult.Detail}".Trim(),
+            $"Wi-Fi ADB bootstrap completed without restarting the local ADB server. {connectResult.Detail}".Trim(),
             Endpoint: endpoint);
     }
 
@@ -920,7 +918,10 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
                 try
                 {
-                    var pull = await RunAdbAsync(["-s", selector, "pull", packagePath, tempPath], cancellationToken).ConfigureAwait(false);
+                    var pull = await RunAdbAsync(
+                        ["-s", selector, "pull", packagePath, tempPath],
+                        cancellationToken,
+                        InstalledPackageHashPullTimeout).ConfigureAwait(false);
                     if (pull.ExitCode == 0 && File.Exists(tempPath))
                     {
                         await using var stream = new FileStream(
@@ -1098,7 +1099,11 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             var model = modelOutput.ExitCode == 0 ? modelOutput.StdOut.Trim() : string.Empty;
             var batteryOutput = await RunShellAsync(selector, "dumpsys battery", cancellationToken).ConfigureAwait(false);
             var batteryLevel = batteryOutput.ExitCode == 0 ? AdbShellSupport.ParseBatteryLevel(batteryOutput.StdOut) : null;
-            var trackingOutput = await RunShellAsync(selector, "dumpsys tracking", cancellationToken).ConfigureAwait(false);
+            var trackingOutput = await RunShellAsync(
+                selector,
+                "dumpsys tracking",
+                cancellationToken,
+                ControllerTrackingReadbackTimeout).ConfigureAwait(false);
             var controllerStatuses = trackingOutput.ExitCode == 0
                 ? ParseControllerStatuses(trackingOutput.StdOut)
                 : Array.Empty<QuestControllerStatus>();
@@ -1235,6 +1240,10 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             if (controllerStatuses.Count > 0)
             {
                 detailParts.Add($"controllers {string.Join(", ", controllerStatuses.Select(FormatControllerDetail))}");
+            }
+            else if (trackingOutput.ExitCode == AdbCommandTimeoutExitCode)
+            {
+                detailParts.Add("controller ADB tracking readback timed out");
             }
 
             if (!string.IsNullOrWhiteSpace(softwareVersion))
@@ -1456,7 +1465,11 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         if (string.Equals(key, ProfileRightControllerBatteryMinimumKey, StringComparison.OrdinalIgnoreCase))
         {
-            var trackingOutput = await RunShellAsync(selector, "dumpsys tracking", cancellationToken).ConfigureAwait(false);
+            var trackingOutput = await RunShellAsync(
+                selector,
+                "dumpsys tracking",
+                cancellationToken,
+                ControllerTrackingReadbackTimeout).ConfigureAwait(false);
             var controllerStatuses = trackingOutput.ExitCode == 0
                 ? ParseControllerStatuses(trackingOutput.StdOut)
                 : Array.Empty<QuestControllerStatus>();
@@ -2382,10 +2395,17 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
             $"Quest did not report a clean Home-side foreground after releasing task pinning across {KioskStableForegroundConfirmationCount} consecutive polls within {KioskVerificationPollCount} attempts. {DescribeKioskForegroundEvidence(lastEvidence)}".Trim());
     }
 
-    private async Task<AdbCommandResult> RunShellAsync(string selector, string command, CancellationToken cancellationToken)
-        => await RunAdbAsync(["-s", selector, "shell", command], cancellationToken).ConfigureAwait(false);
+    private async Task<AdbCommandResult> RunShellAsync(
+        string selector,
+        string command,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
+        => await RunAdbAsync(["-s", selector, "shell", command], cancellationToken, timeout ?? AdbShellCommandTimeout).ConfigureAwait(false);
 
-    private async Task<AdbCommandResult> RunAdbAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    private async Task<AdbCommandResult> RunAdbAsync(
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -2407,11 +2427,63 @@ public sealed class WindowsAdbQuestControlService : IQuestControlService
 
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        var waitTask = process.WaitForExitAsync(cancellationToken);
+        if (timeout.HasValue)
+        {
+            var timeoutTask = Task.Delay(timeout.Value, cancellationToken);
+            var completedTask = await Task.WhenAny(waitTask, timeoutTask).ConfigureAwait(false);
+            if (completedTask == timeoutTask)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
 
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                    // Best effort: the process may have exited while handling the timeout.
+                }
+
+                try
+                {
+                    await waitTask.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                    await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Timed-out process output is diagnostic only; do not block the UI while draining pipes.
+                }
+
+                return new AdbCommandResult(
+                    AdbCommandTimeoutExitCode,
+                    string.Empty,
+                    $"ADB command timed out after {timeout.Value.TotalSeconds:0.#} seconds: {FormatAdbArguments(arguments)}");
+            }
+        }
+
+        await waitTask.ConfigureAwait(false);
         var stdout = await stdoutTask.ConfigureAwait(false);
         var stderr = await stderrTask.ConfigureAwait(false);
         return new AdbCommandResult(process.ExitCode, stdout, stderr);
+    }
+
+    private static string FormatAdbArguments(IReadOnlyList<string> arguments)
+        => string.Join(" ", arguments.Select(FormatAdbArgument));
+
+    private static string FormatAdbArgument(string argument)
+    {
+        if (argument.Length == 0)
+        {
+            return "\"\"";
+        }
+
+        return argument.Any(char.IsWhiteSpace) || argument.Contains('"', StringComparison.Ordinal)
+            ? $"\"{argument.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
+            : argument;
     }
 
     private async Task<(bool Succeeded, string Detail)> RestartAdbServerAsync(CancellationToken cancellationToken)
