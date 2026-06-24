@@ -8,9 +8,9 @@
     "packageId": "com.Viscereality.ViscerealityPeriPersonal",
     "apkPath": "../quest-session-kit/APKs/PeripersonalRuntime.apk",
     "launchComponent": "com.Viscereality.ViscerealityPeriPersonal/com.unity3d.player.UnityPlayerGameActivity",
-    "sha256": "577319a4ab0f92a82392d9a2835fc1401c6a76c588ed8640745556e275a6b7d7",
-    "versionName": "2026.06.20-questionnaire-submit-proof",
-    "notes": "Fresh single runtime APK built from S:/Work/repos/active/peripersonal-space-experiment-2025-12-10 on 2026-06-20. Unity package com.Viscereality.ViscerealityPeriPersonal; default particles invisible; runtime condition selection enabled; operator-provided session folder names are honored; Unity publishes idempotent LSL command receipts, forwards MAIA questionnaire participant-command evidence scripts to the panel, and uses AKD-derived continuous LSL resolving with Android Wi-Fi multicast support.",
+    "sha256": "3cf14c777cf67648b829743d48eea21a4ee28da1ac8a0a7049f458bd4c1d95bd",
+    "versionName": "2026.06.24-foreground-status-proof",
+    "notes": "Fresh single runtime APK built from S:/Work/repos/active/peripersonal-space-experiment-2025-12-10 on 2026-06-24. Unity package com.Viscereality.ViscerealityPeriPersonal; default particles invisible; runtime condition selection enabled; operator-provided session folder names are honored; Unity publishes idempotent LSL command receipts, forwards MAIA questionnaire participant-command evidence scripts to the panel, uses AKD-derived continuous LSL resolving with Android Wi-Fi multicast support, and emits low-cadence foreground/input-owner UDP beacons for the WPF operator shell.",
     "allowManualSelection": true,
     "launchInKioskMode": false
   },

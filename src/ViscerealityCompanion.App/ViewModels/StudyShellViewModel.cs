@@ -108,6 +108,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer? _twinRefreshTimer;
     private readonly DispatcherTimer? _benchRefreshTimer;
     private readonly DispatcherTimer? _deviceSnapshotRefreshTimer;
+    private readonly DispatcherTimer? _peripersonalForegroundRefreshTimer;
     private readonly DispatcherTimer? _recordingSampleTimer;
     private CancellationTokenSource? _recordingSampleLoopCts;
     private Task? _recordingSampleLoopTask;
@@ -150,6 +151,10 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private string _headsetSoftwareVersionLabel = "Headset OS n/a";
     private string _headsetPerformanceLabel = "CPU n/a / GPU n/a";
     private string _headsetForegroundLabel = "Foreground n/a";
+    private OperationOutcomeKind _peripersonalForegroundLevel = OperationOutcomeKind.Preview;
+    private string _peripersonalForegroundSummary = "Waiting for Peripersonal foreground beacons.";
+    private string _peripersonalForegroundDetail = "Unity and the questionnaire panel report input ownership over Wi-Fi at low cadence. ADB foreground readback is validation evidence only.";
+    private string _peripersonalForegroundTimestampLabel = "No foreground beacon received yet.";
     private string _headsetAwakeSummary = "Awake status not checked yet.";
     private string _headsetAwakeDetail = "Quest vrpowermanager readback will appear here once the shell can query the active headset selector.";
     private OperationOutcomeKind _headsetAwakeLevel = OperationOutcomeKind.Preview;
@@ -322,6 +327,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private bool? _peripersonalParticlesVisible;
     private PeripersonalOperatorWorkflowService? _peripersonalWorkflow;
     private PeripersonalLslCommandTransport? _peripersonalLslCommandTransport;
+    private PeripersonalUdpForegroundStatusListener? _peripersonalForegroundListener;
+    private PeripersonalForegroundSituation? _peripersonalForegroundSituation;
     private OperationOutcomeKind _participantEntryLevel = OperationOutcomeKind.Preview;
     private string _participantEntrySummary = "Enter a participant number before starting recorded data collection.";
     private string _participantEntryDetail = "Duplicate participant ids will warn but will not block the run.";
@@ -505,6 +512,18 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         };
         _recordingSampleTimer.Tick += OnRecordingSampleTimerTick;
 
+        if (_isPeripersonalWorkflow)
+        {
+            _peripersonalForegroundListener = new PeripersonalUdpForegroundStatusListener();
+            _peripersonalForegroundListener.StatusChanged += OnPeripersonalForegroundStatusChanged;
+            _peripersonalForegroundSituation = _peripersonalForegroundListener.CurrentSituation;
+            _peripersonalForegroundRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _peripersonalForegroundRefreshTimer.Tick += OnPeripersonalForegroundRefreshTimerTick;
+        }
+
         if (_twinBridge is LslTwinModeBridge lslBridge)
         {
             lslBridge.ConfigureExpectedQuestStateSource(_study.App.PackageId);
@@ -580,6 +599,11 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         UpdateDeviceSnapshotTimerState();
         RefreshConditionSelectionState();
         UpdateParticipantSessionState();
+        if (_isPeripersonalWorkflow && _peripersonalForegroundSituation is not null)
+        {
+            ApplyPeripersonalForegroundSituation(_peripersonalForegroundSituation);
+        }
+
         UpdateWorkflowStatus();
     }
 
@@ -801,6 +825,30 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     {
         get => _headsetForegroundLabel;
         private set => SetProperty(ref _headsetForegroundLabel, value);
+    }
+
+    public OperationOutcomeKind PeripersonalForegroundLevel
+    {
+        get => _peripersonalForegroundLevel;
+        private set => SetProperty(ref _peripersonalForegroundLevel, value);
+    }
+
+    public string PeripersonalForegroundSummary
+    {
+        get => _peripersonalForegroundSummary;
+        private set => SetProperty(ref _peripersonalForegroundSummary, value);
+    }
+
+    public string PeripersonalForegroundDetail
+    {
+        get => _peripersonalForegroundDetail;
+        private set => SetProperty(ref _peripersonalForegroundDetail, value);
+    }
+
+    public string PeripersonalForegroundTimestampLabel
+    {
+        get => _peripersonalForegroundTimestampLabel;
+        private set => SetProperty(ref _peripersonalForegroundTimestampLabel, value);
     }
 
     public string HeadsetAwakeSummary
@@ -2737,6 +2785,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         await _controllerBreathingProfiles.InitializeAsync().ConfigureAwait(false);
         await _conditionProfiles.InitializeAsync().ConfigureAwait(false);
         EnsureTwinBridgeMonitoringStarted();
+        await DispatchAsync(StartPeripersonalForegroundListener).ConfigureAwait(false);
         await DispatchAsync(RefreshBenchToolsStatus).ConfigureAwait(false);
         var autoConnected = await ConnectQuestCoreAsync(warnWhenMissingEndpoint: false).ConfigureAwait(false);
         if (!autoConnected)
@@ -2783,6 +2832,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             _deviceSnapshotRefreshTimer.Stop();
         }
 
+        if (_peripersonalForegroundRefreshTimer is not null)
+        {
+            _peripersonalForegroundRefreshTimer.Tick -= OnPeripersonalForegroundRefreshTimerTick;
+            _peripersonalForegroundRefreshTimer.Stop();
+        }
+
         if (_recordingSampleTimer is not null)
         {
             _recordingSampleTimer.Tick -= OnRecordingSampleTimerTick;
@@ -2802,6 +2857,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         _machineLslStateRefreshGate.Dispose();
         _clockAlignmentService.Dispose();
         _peripersonalLslCommandTransport?.Dispose();
+        if (_peripersonalForegroundListener is not null)
+        {
+            _peripersonalForegroundListener.StatusChanged -= OnPeripersonalForegroundStatusChanged;
+            _peripersonalForegroundListener.Dispose();
+        }
+
         _testLslSignalService.Dispose();
     }
 
@@ -4894,8 +4955,16 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     }
 
     private bool IsStudyRuntimeForeground()
-        => _headsetStatus?.IsTargetForeground == true
-            || string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
+    {
+        if (_isPeripersonalWorkflow &&
+            _peripersonalForegroundSituation is { Owner: not PeripersonalForegroundOwner.Unknown })
+        {
+            return _peripersonalForegroundSituation.Owner == PeripersonalForegroundOwner.Unity;
+        }
+
+        return _headsetStatus?.IsTargetForeground == true
+               || string.Equals(_headsetStatus?.ForegroundPackageId, _study.App.PackageId, StringComparison.OrdinalIgnoreCase);
+    }
 
     private bool IsHeadsetWakeBlockedByLockScreen()
         => _headsetStatus?.IsConnected == true &&
@@ -7375,6 +7444,62 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             forceProximity: true,
             includeHostWifiStatus: false,
             forceInstalledAppStatusRefresh: false);
+    }
+
+    private void StartPeripersonalForegroundListener()
+    {
+        if (!_isPeripersonalWorkflow || _peripersonalForegroundListener is null)
+        {
+            return;
+        }
+
+        var outcome = _peripersonalForegroundListener.Start();
+        if (outcome.Kind == OperationOutcomeKind.Failure)
+        {
+            PeripersonalForegroundLevel = OperationOutcomeKind.Failure;
+            PeripersonalForegroundSummary = outcome.Summary;
+            PeripersonalForegroundDetail = outcome.Detail;
+            PeripersonalForegroundTimestampLabel = "Foreground listener is not running.";
+            return;
+        }
+
+        ApplyPeripersonalForegroundSituation(_peripersonalForegroundListener.CurrentSituation);
+        _peripersonalForegroundRefreshTimer?.Start();
+    }
+
+    private void OnPeripersonalForegroundStatusChanged(object? sender, PeripersonalForegroundStatusChangedEventArgs e)
+        => _ = DispatchAsync(() => ApplyPeripersonalForegroundSituation(e.Situation));
+
+    private void OnPeripersonalForegroundRefreshTimerTick(object? sender, EventArgs e)
+    {
+        if (_peripersonalForegroundListener is null)
+        {
+            return;
+        }
+
+        ApplyPeripersonalForegroundSituation(_peripersonalForegroundListener.RefreshStaleStatus());
+    }
+
+    private void ApplyPeripersonalForegroundSituation(PeripersonalForegroundSituation situation)
+    {
+        _peripersonalForegroundSituation = situation;
+        PeripersonalForegroundLevel = situation.Level;
+        PeripersonalForegroundSummary = situation.Summary;
+        PeripersonalForegroundDetail = situation.Detail;
+
+        var latest = new[] { situation.Unity?.ReceivedAtUtc, situation.Panel?.ReceivedAtUtc }
+            .Where(static timestamp => timestamp.HasValue)
+            .Select(static timestamp => timestamp!.Value)
+            .DefaultIfEmpty()
+            .Max();
+        PeripersonalForegroundTimestampLabel = latest == default
+            ? "No foreground beacon received yet."
+            : $"Last foreground beacon {latest.ToLocalTime():HH:mm:ss}.";
+
+        if (_isPeripersonalWorkflow)
+        {
+            UpdateWorkflowStatus();
+        }
     }
 
     private void OnRecordingSampleTimerTick(object? sender, EventArgs e)
@@ -11229,8 +11354,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             ready ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning,
             ready ? "Peripersonal XR runtime is foregrounded." : "Peripersonal XR runtime is not foregrounded yet.",
             ready
-                ? HeadsetForegroundLabel
-                : $"{HeadsetForegroundLabel} Launch the study runtime and refresh the snapshot until the Peripersonal package is foregrounded.",
+                ? $"{PeripersonalForegroundSummary} {PeripersonalForegroundTimestampLabel}"
+                : $"{PeripersonalForegroundSummary} {PeripersonalForegroundDetail} ADB fallback: {HeadsetForegroundLabel}",
             ready);
     }
 
@@ -12321,7 +12446,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             4 =>
             [
                 BuildHeadsetWakeAndProximityWorkflowGuideCheckItem(),
-                new WorkflowGuideCheckItem("Foreground runtime", IsStudyRuntimeForeground() ? "Peripersonal XR runtime is in the foreground." : "Peripersonal XR runtime is not foregrounded yet.", HeadsetForegroundLabel, IsStudyRuntimeForeground() ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)
+                new WorkflowGuideCheckItem("Input owner", PeripersonalForegroundSummary, PeripersonalForegroundDetail, PeripersonalForegroundLevel),
+                new WorkflowGuideCheckItem("ADB fallback", IsStudyRuntimeForeground() ? "Peripersonal XR runtime is in the foreground." : "Peripersonal XR runtime is not foregrounded yet.", HeadsetForegroundLabel, IsStudyRuntimeForeground() ? OperationOutcomeKind.Success : OperationOutcomeKind.Warning)
             ],
             5 =>
             [
@@ -13234,7 +13360,7 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         {
             WorkflowCurrentStepLevel = OperationOutcomeKind.Warning;
             WorkflowCurrentStepSummary = "2. Launch the Peripersonal XR runtime.";
-            WorkflowCurrentStepDetail = "The current questionnaire route uses Unity as the Quest-side caller, so the XR runtime must be foregrounded before Prepare Session.";
+            WorkflowCurrentStepDetail = $"The current questionnaire route uses Unity as the Quest-side caller, so the XR runtime must own input before Prepare Session. {PeripersonalForegroundSummary} {PeripersonalForegroundDetail}";
             UpdateWorkflowGuideState();
             return;
         }

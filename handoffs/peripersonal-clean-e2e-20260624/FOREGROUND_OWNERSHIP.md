@@ -1,93 +1,88 @@
 # Foreground And Input Ownership Notes
 
-## Current Implementation
+## Implemented Contract
 
-There are three foreground-related evidence surfaces today:
+The Peripersonal Unity runtime, the Quest questionnaire panel, and Companion
+now use low-cadence app-owned beacons as the primary foreground/input-owner
+signal. ADB and screenshots are validation evidence only.
 
-1. Companion WPF guide gates use the headset snapshot from ADB parsing.
-   The Peripersonal guide checks `IsStudyRuntimeForeground()` and presents
-   `HeadsetForegroundLabel` when deciding whether the XR runtime is foregrounded.
-   This is useful for launch readiness, but it is still an external validation
-   signal.
+Transport:
 
-2. Unity exposes `/v1/status` through the HTTP bridge over `adb forward
-   tcp:8787 tcp:8787`. The status response includes a `foreground` object, but
-   the current Unity implementation builds it as a static XR self-report:
+- UDP port: `47892`
+- Multicast group: `239.255.42.42`
+- Protocol id: `viscereality.foreground_status.v1`
+- Also sent to broadcast as a same-LAN fallback
 
-   ```json
-   {
-     "xr_app_foreground": true,
-     "panel_foreground": false,
-     "foreground_package": "com.Viscereality.ViscerealityPeriPersonal"
-   }
-   ```
+Unity source id: `unity`
 
-   This proves the Unity bridge is responsive, but it should not be treated as
-   authoritative proof that Unity owns input while the 2D panel is open.
+Unity reports:
 
-3. Unity session recording logs real lifecycle events while recording:
-   `OnApplicationFocus(bool)` writes `application_focus,focused/unfocused`, and
-   `OnApplicationPause(bool)` writes `application_pause,paused/resumed`.
-   In the completed run, these events showed the expected pattern around panel
-   submit:
-   - panel launch caused `application_focus,unfocused`
-   - participant submit produced `questionnaire_result`
-   - Unity then logged `application_pause,resumed` and
-     `application_focus,focused`
+- `unity_paused`
+- `unity_focused`
+- `has_input_focus`
+- `hmd_mounted`
+- package/session metadata when available
 
-## Recommended Rule
+Panel source id: `panel`
 
-For a Unity immersive app plus a 2D panel app, use input ownership as
-"foreground", not just "running".
+Panel reports:
 
-Unity 3D app should report:
+- `activity_started`
+- `activity_resumed`
+- `window_focused`
+- active request/session id
+- questionnaire block/stage metadata
+- submission lifecycle markers
 
-- `unityPaused`: from `OnApplicationPause(bool)`
-- `unityFocused`: from `OnApplicationFocus(bool)` or
-  `OVRManager.InputFocusAcquired/Lost`
-- `hasInputFocus`: poll `OVRManager.hasInputFocus`
-- optional: `hmdMounted`, `hmdUnmounted`
-- optional native/OpenXR mirror: `XR_SESSION_STATE_FOCUSED` vs `VISIBLE`
+Companion listens to these beacons in both WPF and CLI. The WPF Peripersonal
+study shell displays the current `Input owner`, and the CLI exposes the same
+classifier:
 
-2D panel app should report:
-
-- `activityStarted`: `onStart`
-- `activityResumed`: `onResume`
-- `activityPaused`: `onPause`
-- `activityStopped`: `onStop`
-- `windowFocused`: `onWindowFocusChanged(true/false)`
-- optional: panel open/close intent/session id
+```powershell
+dotnet $cli peripersonal foreground-status --wait-seconds 6 --json
+```
 
 ## Classification
 
-| State | Unity signal | 2D panel signal | Meaning |
+| State | Unity signal | Panel signal | Meaning |
 |---|---|---|---|
-| Unity foreground | `paused=false`, `hasInputFocus=true` | panel not focused/resumed | 3D app owns input |
-| Panel foreground over Unity | `paused=false`, `hasInputFocus=false` or OpenXR `VISIBLE` | `resumed=true`, `windowFocused=true` | Panel owns input; Unity still visible/running behind |
-| Unity background/hidden | `OnApplicationPause(true)` | panel may or may not be focused | Unity should stop interaction/rendering/simulation |
-| System UI foreground | Unity `hasInputFocus=false`; panel `windowFocused=false` | neither app owns input | Universal Menu/Home/system overlay owns focus |
+| Unity foreground | `unity_paused=false`, `has_input_focus=true` | panel not resumed/focused | 3D app owns input |
+| Panel foreground | Unity running with input not owned | `activity_resumed=true`, `window_focused=true` | 2D panel owns input; Unity is visible/running behind |
+| Panel open, not focused | any Unity non-focused state | `activity_resumed=true`, `window_focused=false` | panel opened but Quest/system focus is not on the panel window |
+| Unity background/hidden | `unity_paused=true` | panel may or may not be focused | Unity should not be considered the active operator target |
+| System UI foreground | Unity lacks input focus | panel not window-focused | Universal Menu/Home/system overlay or unknown owner |
 
 Core rule:
 
 ```text
 foreground_owner =
-  panel if panel.activityResumed && panel.windowFocused
-  else unity if !unityPaused && unity.hasInputFocus
+  panel if panel.activity_resumed && panel.window_focused
+  panel_open_without_focus if panel.activity_resumed && !panel.window_focused
+  else unity if !unity_paused && unity.has_input_focus
   else system_or_unknown
 ```
 
-## Implementation Recommendation
+## Live Validation Result
 
-For Rusty/Manifold-style reporting, have both apps emit timestamped low-rate
-state snapshots to the same broker. Use ADB or Meta MCP foreground readback as
-validation evidence only, not as the runtime source of truth.
+The 2026-06-24 foreground run proved the intended states:
 
-For the current Unity plus panel path, the next refinement should:
+- After `study launch`, Companion CLI reported
+  `Peripersonal XR runtime owns input`.
+- During a normal MAIA Block 1 open/submit flow, raw panel events included
+  `window_focus_acquired`, `submission_completed`, and `activity_stopped`.
+- After participant submit, raw Unity events included resume/focus and the
+  classifier returned to Unity.
+- WPF readback showed the Peripersonal shell `Input owner` card.
+- In the real Quest state where the panel had opened but was not
+  window-focused, WPF reported
+  `Questionnaire panel is open but not input-focused`.
+- After submit settled, WPF reported
+  `Peripersonal XR runtime owns input`.
 
-1. Extend Unity status/runtime-state samples with `unityPaused`,
-   `unityFocused`, and `hasInputFocus`.
-2. Extend the panel app with a low-rate lifecycle snapshot or result callback
-   payload containing `activityResumed` and `windowFocused`.
-3. Add a Companion-side foreground-owner classifier using the rule above.
-4. Keep ADB `dumpsys window` and screenshots as evidence probes, not as the
-   primary source for runtime control decisions.
+Evidence files are listed in `FOREGROUND_STATUS_LIVE_VALIDATION.md`.
+
+## Important Boundary
+
+Do not use ADB foreground readback as the runtime authority for this workflow.
+ADB, Meta tooling, and screenshots are useful for validation and debugging, but
+the operator app should trust app-owned beacons for the live UI state.

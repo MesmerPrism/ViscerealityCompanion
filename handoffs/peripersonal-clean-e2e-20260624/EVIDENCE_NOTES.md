@@ -24,3 +24,13 @@ The evidence files to inspect first are:
 - `run-evidence/24-clock-alignment-roundtrip.csv`
 - `run-evidence/25-clock_alignment_samples.csv`
 - `run-evidence/40-cleanup-summary.json`
+
+For the 2026-06-24 foreground-status update, inspect:
+
+- `foreground-status-evidence/foreground-status-live-summary.md`
+- `foreground-status-evidence/04-companion-foreground-status-after-launch.out.txt`
+- `foreground-status-evidence/15-monitor-during-normal-open.out.json`
+- `foreground-status-evidence/17-companion-foreground-status-after-normal-submit.out.txt`
+- `foreground-status-evidence/23-wpf-uia-readback-after-fix.txt`
+- `foreground-status-evidence/36-wpf-uia-final-during-panel.txt`
+- `foreground-status-evidence/38-wpf-uia-final-settled-after-submit.txt`

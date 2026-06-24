@@ -35,6 +35,7 @@ public static partial class Program
         command.AddCommand(BuildPeripersonalMarkXrBlockEndCommand(studyOption, rootOption, statePathOption, receiptTimeoutOption));
         command.AddCommand(BuildPeripersonalStopRecordingCommand(studyOption, rootOption, statePathOption, receiptTimeoutOption));
         command.AddCommand(BuildPeripersonalStatusCommand(statePathOption));
+        command.AddCommand(BuildPeripersonalForegroundStatusCommand());
         command.AddCommand(BuildPeripersonalRunWorkflowCommand(studyOption, rootOption, statePathOption, receiptTimeoutOption));
         return command;
     }
@@ -402,6 +403,127 @@ public static partial class Program
         });
         return cliCommand;
     }
+
+    private static Command BuildPeripersonalForegroundStatusCommand()
+    {
+        var waitOption = new Option<int>("--wait-seconds", () => 5, "How long to listen for Unity/panel foreground beacons.");
+        var jsonOption = new Option<bool>("--json", "Print machine-readable JSON.");
+        var cliCommand = new Command("foreground-status", "Show the Peripersonal foreground owner using the same UDP beacons as the WPF operator shell")
+        {
+            waitOption,
+            jsonOption
+        };
+
+        cliCommand.Handler = CommandHandler.Create(async (int waitSeconds, bool json) =>
+        {
+            var events = new List<object>();
+            using var listener = new PeripersonalUdpForegroundStatusListener();
+            listener.StatusChanged += (_, args) =>
+            {
+                events.Add(new
+                {
+                    receivedAtUtc = args.Snapshot.ReceivedAtUtc,
+                    sourceApp = args.Snapshot.SourceApp,
+                    packageName = args.Snapshot.PackageName,
+                    sequence = args.Snapshot.Sequence,
+                    reason = args.Snapshot.Reason,
+                    owner = args.Situation.Owner.ToString(),
+                    summary = args.Situation.Summary
+                });
+            };
+
+            var start = listener.Start();
+            if (start.Kind == OperationOutcomeKind.Failure)
+            {
+                PrintOutcome(start);
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            var effectiveWaitSeconds = Math.Clamp(waitSeconds, 0, 60);
+            if (effectiveWaitSeconds > 0)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(effectiveWaitSeconds)).ConfigureAwait(false);
+            }
+
+            var situation = listener.RefreshStaleStatus();
+            if (json)
+            {
+                Console.WriteLine(JsonSerializer.Serialize(new
+                {
+                    protocolVersion = PeripersonalForegroundStatusContract.ProtocolVersion,
+                    udpPort = PeripersonalForegroundStatusContract.UdpPort,
+                    multicastGroup = PeripersonalForegroundStatusContract.MulticastGroup,
+                    listenedSeconds = effectiveWaitSeconds,
+                    listener = new
+                    {
+                        kind = start.Kind.ToString(),
+                        summary = start.Summary,
+                        detail = start.Detail
+                    },
+                    situation = ToForegroundSituationDto(situation),
+                    eventCount = events.Count,
+                    events
+                }, PeripersonalForegroundStatusJsonOptions));
+                return;
+            }
+
+            Console.WriteLine($"Owner:       {situation.Owner}");
+            Console.WriteLine($"Level:       {situation.Level}");
+            Console.WriteLine($"Summary:     {situation.Summary}");
+            Console.WriteLine($"Detail:      {situation.Detail}");
+            Console.WriteLine($"Evaluated:   {situation.EvaluatedAtUtc:O}");
+            Console.WriteLine($"Events:      {events.Count}");
+        });
+
+        return cliCommand;
+    }
+
+    private static readonly JsonSerializerOptions PeripersonalForegroundStatusJsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    private static object ToForegroundSituationDto(PeripersonalForegroundSituation situation)
+        => new
+        {
+            owner = situation.Owner.ToString(),
+            level = situation.Level.ToString(),
+            summary = situation.Summary,
+            detail = situation.Detail,
+            evaluatedAtUtc = situation.EvaluatedAtUtc,
+            unity = ToForegroundSnapshotDto(situation.Unity),
+            panel = ToForegroundSnapshotDto(situation.Panel)
+        };
+
+    private static object? ToForegroundSnapshotDto(PeripersonalForegroundStatusSnapshot? snapshot)
+        => snapshot is null
+            ? null
+            : new
+            {
+                snapshot.SourceApp,
+                snapshot.PackageName,
+                snapshot.ActivityName,
+                snapshot.Sequence,
+                snapshot.EmittedAtUtc,
+                snapshot.ReceivedAtUtc,
+                RemoteEndpoint = snapshot.RemoteEndpoint?.ToString() ?? string.Empty,
+                snapshot.SessionId,
+                snapshot.ParticipantRef,
+                snapshot.UnityPaused,
+                snapshot.UnityFocused,
+                snapshot.UnityHasInputFocus,
+                snapshot.HmdMounted,
+                snapshot.PanelActivityStarted,
+                snapshot.PanelActivityResumed,
+                snapshot.PanelWindowFocused,
+                snapshot.RequestId,
+                snapshot.QuestionnaireId,
+                snapshot.OpenStage,
+                snapshot.Reason
+            };
 
     private static Command BuildPeripersonalRunWorkflowCommand(
         Option<string> studyOption,

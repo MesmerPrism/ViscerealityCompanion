@@ -55,6 +55,41 @@ The run used Companion CLI commands that mirror the operator UI actions:
 - Stop Recording pulled 11 files from the Quest session folder and closed both Quest apps.
 - Final cleanup removed `adb forward tcp:8787`, released Agent Board leases, and left no `dotnet` or `testhost` processes running.
 
+## Latest Foreground-Status Validation
+
+Additional live validation was run on 2026-06-24 after adding foreground/input
+ownership beacons to Unity, the questionnaire panel, and the WPF/CLI classifier.
+
+Run artifact source on Till's machine:
+
+`artifacts/foreground-status-live-20260624-101827`
+
+Latest foreground proof:
+
+- Unity runtime APK installed and used:
+  `viscereality-peri-personal-runtime.apk`
+  SHA-256 `3cf14c777cf67648b829743d48eea21a4ee28da1ac8a0a7049f458bd4c1d95bd`.
+- Panel APK installed and used:
+  `app-minimal-debug.apk`
+  SHA-256 `2768660e9af269f12dc8a39a6c98ce03d0890b4cf459602717983473a8920c3f`.
+- Companion CLI `peripersonal foreground-status --wait-seconds 6 --json`
+  proved that the Windows classifier receives Quest UDP beacons without ADB.
+- After launch, the classifier reported:
+  `Peripersonal XR runtime owns input.`
+- During a normal MAIA Block 1 open/submit flow, the monitor recorded:
+  `window_focus_acquired` from the panel, then `submission_completed`,
+  `activity_stopped`, Unity resume/focus events, and final owner `Unity`.
+- WPF initially failed to load the Peripersonal shell because the foreground
+  status was applied before Peripersonal guide commands were initialized. That
+  constructor-order bug is fixed by deferring the initial foreground-status
+  apply until after command construction.
+- WPF readback after the fix showed the Peripersonal shell `Input owner` card.
+- In the real headset state where the panel was resumed but not window-focused,
+  WPF now reports:
+  `Questionnaire panel is open but not input-focused.`
+- After participant submit settles, WPF reports:
+  `Peripersonal XR runtime owns input.`
+
 ## Known Run Notes
 
 - The first wrapper attempt used a PowerShell helper parameter named `$args`,

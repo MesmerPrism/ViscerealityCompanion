@@ -22,7 +22,7 @@
       "apkFile": "PeripersonalRuntime.apk",
       "launchComponent": "com.Viscereality.ViscerealityPeriPersonal/com.unity3d.player.UnityPlayerGameActivity",
       "browserPackageId": "",
-      "description": "Bundled peripersonal-space single Unity runtime APK. It launches with particles invisible, accepts runtime condition and visibility commands, publishes participant-scoped LSL state, and participates in the continuous global recording workflow.",
+      "description": "Bundled peripersonal-space single Unity runtime APK. It launches with particles invisible, accepts runtime condition and visibility commands, publishes participant-scoped LSL state, participates in the continuous global recording workflow, and emits low-cadence foreground/input-owner beacons for the WPF operator shell.",
       "tags": [
         "viscereality",
         "peripersonal",

@@ -18,11 +18,14 @@ From GitHub:
 - Unity runtime repository:
   `GeorgeFejer91/peripersonal-space-experiment-2025-12-10`
 - Unity runtime branch:
-  `codex/peripersonal-wpf-unity-runtime-20260620` at `b8e853f`
+  `codex/peripersonal-wpf-unity-runtime-20260620`
 - Questionnaire panel repository:
   `MesmerPrism/quest-questionnaire-panel`
 - Questionnaire panel branch:
-  `codex/peripersonal-operator-runtime-20260618` at `1538fb5`
+  `codex/peripersonal-operator-runtime-20260618`
+
+Use `PACKAGE_MANIFEST.json` in the ZIP for the exact branch-head commits that
+were current when the bundle was created.
 
 ## Machine Prerequisites
 
@@ -58,6 +61,17 @@ Use it through:
 $cli = Resolve-Path .\src\ViscerealityCompanion.Cli\bin\Debug\net10.0\viscereality.dll
 ```
 
+The WPF app can be launched from the same build output:
+
+```powershell
+.\src\ViscerealityCompanion.App\bin\Debug\net10.0-windows\ViscerealityCompanion.App.exe
+```
+
+In the WPF app, open the Peripersonal study shell. The base app still owns
+general device status, battery/tooling, APK installation, and fallback actions.
+The Peripersonal shell adds the sequential operator guide and the live
+`Input owner` card.
+
 ## Install APKs
 
 Connect the Quest over USB, confirm authorization inside the headset, then run:
@@ -67,6 +81,13 @@ adb devices
 adb install -r .\apks\PeripersonalRuntime.apk
 adb install -r .\apks\QuestQuestionnairePanel.apk
 ```
+
+Expected APK hashes for this bundle:
+
+- `PeripersonalRuntime.apk`:
+  `3cf14c777cf67648b829743d48eea21a4ee28da1ac8a0a7049f458bd4c1d95bd`
+- `QuestQuestionnairePanel.apk`:
+  `2768660e9af269f12dc8a39a6c98ce03d0890b4cf459602717983473a8920c3f`
 
 If running from the repo instead of the ZIP copy, the runtime APK is also
 mirrored at:
@@ -110,6 +131,10 @@ dotnet $cli study stop peripersonal-space --root $root --device $device
 
 dotnet $cli study launch peripersonal-space --root $root --device $device
 
+dotnet $cli peripersonal foreground-status `
+  --wait-seconds 6 `
+  --json
+
 dotnet $cli peripersonal prepare `
   --participant $participant `
   --session $session `
@@ -132,6 +157,10 @@ dotnet $cli peripersonal open-questionnaire `
   --state $state `
   --receipt-timeout-seconds 45 `
   --device $device
+
+dotnet $cli peripersonal foreground-status `
+  --wait-seconds 6 `
+  --json
 
 dotnet $cli peripersonal mark-block1-submitted `
   --study peripersonal-space `
@@ -182,6 +211,10 @@ dotnet $cli peripersonal open-questionnaire `
   --receipt-timeout-seconds 45 `
   --device $device
 
+dotnet $cli peripersonal foreground-status `
+  --wait-seconds 6 `
+  --json
+
 dotnet $cli peripersonal particles particles-off `
   --study peripersonal-space `
   --root $root `
@@ -208,6 +241,10 @@ dotnet $cli peripersonal open-questionnaire `
   --state $state `
   --receipt-timeout-seconds 45 `
   --device $device
+
+dotnet $cli peripersonal foreground-status `
+  --wait-seconds 6 `
+  --json
 
 dotnet $cli peripersonal stop-recording `
   --study peripersonal-space `
@@ -238,6 +275,16 @@ The pulled backup should include:
 - `timing_markers.csv`
 - `clock_alignment_samples.csv`
 - `clock_alignment_roundtrip.csv` in the Windows session folder
+
+Foreground-status pass criteria:
+
+- after `study launch`, the CLI/WPF classifier reports
+  `Peripersonal XR runtime owns input`
+- after opening a questionnaire block, the classifier reports either
+  `Questionnaire panel owns input` or
+  `Questionnaire panel is open but not input-focused`
+- after participant submit settles, the classifier returns to
+  `Peripersonal XR runtime owns input`
 
 Minimal pass criteria:
 
