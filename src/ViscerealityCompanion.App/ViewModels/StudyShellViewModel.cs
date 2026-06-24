@@ -59,6 +59,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private static readonly TimeSpan WorkflowUpstreamMonitorStopTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan ControllerCalibrationModeConfirmationTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan ControllerCalibrationModeConfirmationPollInterval = TimeSpan.FromMilliseconds(150);
+    private static readonly TimeSpan TwinCommandAcknowledgementTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TwinCommandAcknowledgementPollInterval = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan WorkflowValidationPdfTimeout = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan WorkflowHzdbListTimeout = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan WorkflowHzdbPullTimeout = TimeSpan.FromSeconds(20);
@@ -6395,22 +6397,75 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         await TryWakeHeadsetBeforeStudyActionAsync(label).ConfigureAwait(false);
         var previousConfirmation = await DispatchAsync(() => CaptureCommandConfirmation(actionId)).ConfigureAwait(false);
         var outcome = await _twinBridge.SendCommandAsync(new TwinModeCommand(actionId, label)).ConfigureAwait(false);
-        await ApplyOutcomeAsync(label, outcome).ConfigureAwait(false);
-
-        if (outcome.Kind != OperationOutcomeKind.Failure)
+        if (outcome.Kind == OperationOutcomeKind.Failure)
         {
-            var request = CreateCommandRequest(actionId, label, previousConfirmation, outcome);
-            await DispatchAsync(() =>
-            {
-                RememberCommandRequest(request);
-                TryRecordCommandRequestEvent(request, outcome);
-                UpdateRecenterCard();
-                UpdateParticlesCard();
-                RefreshFocusRows(forceRebuild: true);
-            }).ConfigureAwait(false);
+            await ApplyOutcomeAsync(label, outcome).ConfigureAwait(false);
+            return outcome;
         }
 
+        var publishedSequence = _twinBridge is LslTwinModeBridge lslBridge
+            ? lslBridge.LastPublishedCommandSequence
+            : (int?)null;
+        var request = await DispatchAsync(() =>
+        {
+            var commandRequest = CreateCommandRequest(actionId, label, previousConfirmation, outcome, publishedSequence);
+            RememberCommandRequest(commandRequest);
+            TryRecordCommandRequestEvent(commandRequest, outcome);
+            UpdateRecenterCard();
+            UpdateParticlesCard();
+            RefreshFocusRows(forceRebuild: true);
+            return commandRequest;
+        }).ConfigureAwait(false);
+
+        if (outcome.Kind == OperationOutcomeKind.Success && _twinBridge is LslTwinModeBridge acknowledgementBridge)
+        {
+            var acknowledgementOutcome = await WaitForStudyTwinCommandAcknowledgementAsync(
+                    acknowledgementBridge,
+                    request)
+                .ConfigureAwait(false);
+            await ApplyOutcomeAsync(label, acknowledgementOutcome).ConfigureAwait(false);
+            return acknowledgementOutcome;
+        }
+
+        await ApplyOutcomeAsync(label, outcome).ConfigureAwait(false);
         return outcome;
+    }
+
+    private async Task<OperationOutcome> WaitForStudyTwinCommandAcknowledgementAsync(
+        LslTwinModeBridge bridge,
+        StudyTwinCommandRequest request)
+    {
+        var timeoutAtUtc = DateTimeOffset.UtcNow + TwinCommandAcknowledgementTimeout;
+        TwinCommandAcknowledgementResult? lastResult = null;
+
+        while (DateTimeOffset.UtcNow < timeoutAtUtc)
+        {
+            lastResult = TwinCommandAcknowledgementContract.Evaluate(
+                CreateTwinCommandAcknowledgementExpectation(request),
+                bridge.ReportedSettings);
+            if (lastResult.Acknowledged)
+            {
+                await DispatchAsync(() =>
+                {
+                    RefreshFocusRows(forceRebuild: true);
+                    UpdateWorkflowGuideState();
+                }).ConfigureAwait(false);
+                return new OperationOutcome(
+                    OperationOutcomeKind.Success,
+                    $"{request.Label} acknowledged by headset.",
+                    lastResult.Detail);
+            }
+
+            await Task.Delay(TwinCommandAcknowledgementPollInterval).ConfigureAwait(false);
+        }
+
+        lastResult ??= TwinCommandAcknowledgementContract.Evaluate(
+            CreateTwinCommandAcknowledgementExpectation(request),
+            bridge.ReportedSettings);
+        return new OperationOutcome(
+            OperationOutcomeKind.Failure,
+            $"{request.Label} was sent but not acknowledged by the headset.",
+            $"{lastResult.Detail} No follow-up study command was sent because the PC shell requires a fresh headset acknowledgement before continuing.");
     }
 
     private async Task<OperationOutcome?> TryWakeHeadsetBeforeStudyActionAsync(string actionLabel)
@@ -14207,7 +14262,8 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         string actionId,
         string label,
         StudyTwinCommandConfirmation previousConfirmation,
-        OperationOutcome outcome)
+        OperationOutcome outcome,
+        int? publishedSequenceOverride = null)
     {
         bool? requestedVisible = string.Equals(actionId, _study.Controls.ParticleVisibleOnActionId, StringComparison.OrdinalIgnoreCase)
             ? true
@@ -14228,7 +14284,9 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             actionId,
             label,
             requestedVisible,
-            ParsePublishedCommandSequence(outcome.Detail),
+            publishedSequenceOverride.GetValueOrDefault() > 0
+                ? publishedSequenceOverride
+                : ParsePublishedCommandSequence(outcome.Detail),
             DateTimeOffset.UtcNow,
             previousConfirmation.Sequence,
             previousConfirmation.TimestampRaw,
@@ -14236,6 +14294,16 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             previousRecenterDistance,
             previousObservedVisible);
     }
+
+    private static TwinCommandAcknowledgementExpectation CreateTwinCommandAcknowledgementExpectation(
+        StudyTwinCommandRequest request)
+        => new(
+            request.ActionId,
+            request.Label,
+            request.Sequence,
+            request.PreviousConfirmedSequence,
+            request.PreviousConfirmedTimestampRaw,
+            request.SentAtUtc);
 
     private bool? GetCurrentReportedParticleVisibility()
     {

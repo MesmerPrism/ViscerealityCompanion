@@ -944,6 +944,7 @@
                     </Button>
 
                     <Button Content="Open Experiment Session Window"
+                            AutomationProperties.AutomationId="GuideOpenExperimentSessionButton"
                             Command="{Binding OpenExperimentSessionWindowCommand}">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource GuideActionButtonStyle}">

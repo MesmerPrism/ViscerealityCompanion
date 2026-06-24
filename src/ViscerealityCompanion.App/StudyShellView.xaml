@@ -163,10 +163,12 @@
             </Border>
 
             <TabControl x:Name="StudyPhaseTabs"
+                        AutomationProperties.AutomationId="StudyPhaseTabs"
                         Grid.Row="2"
                         SelectedIndex="{Binding SelectedPhaseTabIndex}"
                         SelectionChanged="OnStudyPhaseTabsSelectionChanged">
-                <TabItem Header="Home">
+                <TabItem Header="Home"
+                         AutomationProperties.AutomationId="HomeTab">
                     <StackPanel Margin="0,8,0,0">
 
                         <!-- Hero orientation -->
@@ -293,8 +295,10 @@
                                                Margin="0,8,0,0" />
                                     <WrapPanel Margin="0,8,0,0">
                                         <Button Content="Open Sequential Guide"
+                                                AutomationProperties.AutomationId="OpenWorkflowGuideButton"
                                                 Command="{Binding OpenWorkflowGuideWindowCommand}" />
                                         <Button Content="Open Experiment Session"
+                                                AutomationProperties.AutomationId="OpenExperimentSessionButton"
                                                 Command="{Binding OpenExperimentSessionWindowCommand}" />
                                     </WrapPanel>
                                 </StackPanel>

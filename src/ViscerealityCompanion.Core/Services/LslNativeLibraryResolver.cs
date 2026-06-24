@@ -5,10 +5,12 @@ namespace ViscerealityCompanion.Core.Services;
 
 internal static class LslNativeLibraryResolver
 {
+    private const string LslApiConfigEnvironmentVariable = "LSLAPICFG";
     private static readonly object Sync = new();
     private static readonly string[] CandidateLibraryPaths = BuildCandidateLibraryPaths();
     private static nint _libraryHandle;
     private static bool _resolverInstalled;
+    private static bool _defaultApiConfigPrepared;
 
     public static void EnsureInstalled(Assembly assembly)
     {
@@ -28,6 +30,8 @@ internal static class LslNativeLibraryResolver
     {
         lock (Sync)
         {
+            EnsureDefaultApiConfig();
+
             if (_libraryHandle != IntPtr.Zero)
             {
                 libraryHandle = _libraryHandle;
@@ -95,6 +99,64 @@ internal static class LslNativeLibraryResolver
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
+
+    private static void EnsureDefaultApiConfig()
+    {
+        if (_defaultApiConfigPrepared)
+        {
+            return;
+        }
+
+        _defaultApiConfigPrepared = true;
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(LslApiConfigEnvironmentVariable)))
+        {
+            return;
+        }
+
+        try
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData))
+            {
+                return;
+            }
+
+            var configDirectory = Path.Combine(localAppData, "ViscerealityCompanion", "lsl_api");
+            Directory.CreateDirectory(configDirectory);
+            var configPath = Path.Combine(configDirectory, "quiet-lsl-api.cfg");
+            File.WriteAllText(
+                configPath,
+                "[log]" + Environment.NewLine +
+                "level = -3" + Environment.NewLine);
+
+            SetProcessEnvironmentVariable(LslApiConfigEnvironmentVariable, configPath);
+        }
+        catch
+        {
+            // Best effort only. The LSL runtime still works without the quiet config.
+        }
+    }
+
+    private static void SetProcessEnvironmentVariable(string name, string value)
+    {
+        Environment.SetEnvironmentVariable(name, value);
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            _ = PutEnvironmentVariableForNativeRuntime(name, value);
+        }
+        catch
+        {
+            // The managed process environment remains set; native C runtime sync is best effort.
+        }
+    }
+
+    [DllImport("ucrtbase", EntryPoint = "_putenv_s", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int PutEnvironmentVariableForNativeRuntime(string name, string value);
 
     private static void AddUserToolsLiblslCandidates(ICollection<string> candidates, string userProfile)
     {

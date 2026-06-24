@@ -41,6 +41,9 @@ GUI surfaces:
 
 - CLI:
   - deterministic setup, install, launch, status, and profile operations
+  - GUI-equivalent named study actions for validation sessions, including
+    calibration, breathing mode, particle visibility, and recording controls
+  - bounded twin-state snapshots and TEST sender runs for agent-led diagnostics
   - machine-readable inspection with `--json`
 - `Sequential Guide` window:
   - one pre-session verification pass directly before a real participant
@@ -51,11 +54,15 @@ GUI surfaces:
     calibration start controls, and quick access to the session folder, pulled
     Quest backup, and session review PDF
 
-The CLI currently mirrors the setup and profile side of Sussex. It does not
-yet replace the participant-run `Start Recording` / `Stop Recording` flow in
-the `Experiment Session` window. After `Stop Recording`, the GUI now pulls the
-Quest backup into `device-session-pull` and generates `session_review_report.pdf`
-inside the same participant session folder.
+The GUI remains the primary participant-run surface, but the CLI now exposes
+the same underlying study action IDs for controlled validation sessions. Use
+named `study action` aliases instead of raw `twin send` whenever the command
+should map to a real GUI control's Quest-side action. These commands do not
+replace higher-level WPF workflows such as `Start Recording`, which also stage
+participant metadata, create the local recorder, wait for Quest-side metadata
+confirmation, and run clock-alignment steps. After `Stop Recording`, the GUI
+pulls the Quest backup into `device-session-pull` and generates
+`session_review_report.pdf` inside the same participant session folder.
 
 ## Running
 
@@ -155,10 +162,60 @@ Options:
 | `study launch <study>` | Launch the pinned study runtime using the study launch policy. The command now refuses to launch while the headset reports asleep; wake the headset first. |
 | `study stop <study>` | Stop the pinned study runtime and unwind any study task-pinning policy |
 | `study status <study>` | Compare current headset state against the pinned study baseline |
+| `study actions <study>` | List GUI-equivalent named study actions and their twin action IDs |
+| `study action <study> <action>` | Send a named study twin action and wait for `quest_twin_state` command acknowledgement |
+| `study snapshot <study>` | Capture a bounded `quest_twin_state` snapshot for the study-test telemetry keys |
+| `study test-sender run <study>` | Start the GUI-equivalent TEST sender route, publish synthetic `HRV_Biofeedback / HRV`, and restore routing when the run ends when a prior route snapshot is available |
 | `study probe-connection <study>` | Mirror the Step 9 `Probe Connection` check: inspect the pinned APK match, pinned device profile state, Quest Wi-Fi transport reachability, expected inlet, `quest_twin_state` return path, Wi-Fi snapshot context, and twin transport detail |
 | `study diagnostics-report <study>` | Run the Windows LSL, machine inventory, Quest setup, Quest Wi-Fi transport, twin return-path, and safe command-acceptance diagnostics and write a shareable JSON/LaTeX/PDF report folder |
 
 For Sussex, the study id is currently `sussex-university`.
+
+Named Sussex actions include:
+
+- `calibrate`
+- `reset-calibration`
+- `controller-volume`
+- `automatic-cycle`
+- `automatic-start`
+- `automatic-pause`
+- `start-recording`
+- `stop-recording`
+- `particles-on`
+- `particles-off`
+- `recenter`
+
+`study action` uses the same command-acknowledgement contract as the GUI study
+shell. A command is treated as complete only after `quest_twin_state` reports
+the expected `study.command.last_action_sequence` for the published LSL command
+or, when a sequence is unavailable, a fresh matching `study.command.last_action_id`.
+If acknowledgement is requested and does not arrive before the timeout, the CLI
+prints the last observed headset command state and returns exit code `2`. Use
+`--no-ack` only for transport previews where a live headset response is not
+expected.
+
+For participant-run parity, use the WPF Experiment Session UI or the
+verification harness in UI input parity mode. `study action start-recording`
+and `study action stop-recording` are low-level Quest twin-command diagnostics
+and are blocked by default so they cannot bypass the WPF participant metadata
+and local recording workflow.
+
+`study action` waits for command acknowledgement by default:
+
+- `--settle-ms <milliseconds>` controls the pre-send LSL outlet advertise delay
+- `--hold-ms <milliseconds>` controls how long the outlet remains alive after send
+- `--wait-ack-seconds <seconds>` controls the `quest_twin_state` acknowledgement window
+- `--no-ack` skips acknowledgement waiting for passive fire-and-forget checks
+- `--allow-recording-command-diagnostic` explicitly permits the low-level
+  `start-recording` / `stop-recording` Quest twin actions without the WPF
+  participant workflow
+- `--json` emits the sent action, sequence, and acknowledgement state
+
+`study test-sender run` is a long-running CLI equivalent of the GUI TEST sender
+toggle. Use `--duration-seconds <seconds>` for bounded runs, or omit it and stop
+with Ctrl+C. Add `--no-routing` only when you intentionally want to test the
+local Windows LSL outlet without temporarily switching the running Sussex
+session to LSL/direct-LSL routing.
 
 Remote headset wake/sleep is no longer part of the supported public GUI
 operator flow for Sussex. Use manual headset wake/sleep, and clear Guardian or
@@ -385,6 +442,18 @@ Quest Wi-Fi transport path, `quest_twin_state` publisher visibility, the Step
 probe.
 Use `--skip-command-check` for passive inspection only.
 
+For an agent-led validation pass, prefer the study-scoped commands over raw
+`twin send`:
+
+```powershell
+viscereality study actions sussex-university
+viscereality study test-sender run sussex-university --duration-seconds 180
+viscereality study action sussex-university controller-volume --json
+viscereality study action sussex-university calibrate --wait-ack-seconds 15 --json
+viscereality study snapshot sussex-university --json
+.\tools\app\Start-Sussex-VerificationHarness.ps1 -UiInputParity
+```
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -394,6 +463,7 @@ Use `--skip-command-check` for passive inspection only.
 | `VISCEREALITY_ADB_EXE` | Override the `adb.exe` path the app and CLI should use |
 | `VISCEREALITY_HZDB_EXE` | Override the `hzdb.exe` path the app and CLI should use |
 | `VISCEREALITY_LSL_DLL` | Path to `lsl.dll` for LSL features |
+| `LSLAPICFG` | Optional liblsl API configuration file. If unset, the app provides a quiet per-process config so JSON commands are not polluted by native liblsl logs. |
 
 ## Example
 
@@ -412,6 +482,7 @@ viscereality monitor --stream quest_monitor --type quest.telemetry
 
 ```powershell
 viscereality study status sussex-university
+viscereality study actions sussex-university
 viscereality windows-env analyze
 viscereality study probe-connection sussex-university
 viscereality study diagnostics-report sussex-university --wait-seconds 15

@@ -123,7 +123,9 @@
                             <TextBlock Text="Participant Id"
                                        Style="{StaticResource SessionMicroLabelStyle}"
                                        Margin="0,12,0,0" />
-                            <TextBox Text="{Binding ParticipantIdDraft, UpdateSourceTrigger=PropertyChanged}"
+                            <TextBox x:Name="ParticipantIdTextBox"
+                                     AutomationProperties.AutomationId="ExperimentParticipantIdTextBox"
+                                     Text="{Binding ParticipantIdDraft, UpdateSourceTrigger=PropertyChanged}"
                                      FontSize="18"
                                      Margin="0,6,0,0" />
                             <TextBlock Text="{Binding ParticipantEntrySummary}"
@@ -165,6 +167,7 @@
                                            Style="{StaticResource SessionCodeStyle}"
                                            Margin="0,4,0,0" />
                                 <Button x:Name="ApplySessionConditionButton"
+                                        AutomationProperties.AutomationId="ExperimentApplySessionConditionButton"
                                         Content="Apply Condition"
                                         Command="{Binding ApplySelectedConditionCommand}"
                                         IsEnabled="{Binding CanApplySelectedCondition}"
@@ -178,7 +181,9 @@
                             <TextBlock Text="Recording"
                                        Style="{StaticResource SessionMicroLabelStyle}"
                                        Margin="0,14,0,0" />
-                            <Button Content="{Binding RecordingToggleActionLabel}"
+                            <Button x:Name="RecordingToggleButton"
+                                    AutomationProperties.AutomationId="ExperimentRecordingToggleButton"
+                                    Content="{Binding RecordingToggleActionLabel}"
                                     Command="{Binding ToggleRecordingCommand}"
                                     IsEnabled="{Binding CanToggleRecording}"
                                     Style="{StaticResource StateActionButtonStyle}"
@@ -370,15 +375,18 @@
                                            Margin="0,8,0,0" />
                                 <WrapPanel Margin="0,12,0,0">
                                     <Button x:Name="StartDynamicAxisCalibrationButton"
+                                            AutomationProperties.AutomationId="StartDynamicAxisCalibrationButton"
                                             Content="Start Dynamic-Axis Calibration"
                                             Command="{Binding StartDynamicAxisCalibrationCommand}"
                                             IsEnabled="{Binding CanStartDynamicAxisCalibration}" />
                                     <Button x:Name="StartFixedAxisCalibrationButton"
+                                            AutomationProperties.AutomationId="StartFixedAxisCalibrationButton"
                                             Content="Start Fixed-Axis Calibration"
                                             Command="{Binding StartFixedAxisCalibrationCommand}"
                                             IsEnabled="{Binding CanStartFixedAxisCalibration}"
                                             Margin="8,0,0,0" />
                                     <Button x:Name="ResetCalibrationButton"
+                                            AutomationProperties.AutomationId="ResetCalibrationButton"
                                             Content="Reset Calibration"
                                             Command="{Binding ResetBreathingCalibrationCommand}"
                                             IsEnabled="{Binding CanResetBreathingCalibration}"

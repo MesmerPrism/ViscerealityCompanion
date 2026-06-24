@@ -983,7 +983,10 @@ internal static class SussexCliSupport
     }
 
     internal static void WriteJson(object value)
-        => Console.WriteLine(JsonSerializer.Serialize(value, JsonOptions));
+    {
+        Console.WriteLine(JsonSerializer.Serialize(value, JsonOptions));
+        Console.Out.Flush();
+    }
 
     internal static void PrintVisualProfiles(IReadOnlyList<VisualResolvedProfile> profiles, string studyId)
     {

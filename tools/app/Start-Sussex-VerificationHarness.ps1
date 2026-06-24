@@ -12,6 +12,7 @@ param(
     [switch]$Refresh,
     [switch]$ConditionLibraryOnly,
     [switch]$CalibrationOnly,
+    [switch]$UiInputParity,
     [switch]$Wait
 )
 
@@ -91,6 +92,7 @@ if (-not (Test-Path $exePath)) {
 
 $previousConditionLibraryOnly = $env:VC_CONDITION_LIBRARY_ONLY
 $previousCalibrationOnly = $env:VC_CALIBRATION_ONLY
+$previousUiInputParity = $env:VC_UI_INPUT_PARITY
 try {
     if ($ConditionLibraryOnly) {
         $env:VC_CONDITION_LIBRARY_ONLY = '1'
@@ -104,6 +106,13 @@ try {
     }
     else {
         Remove-Item Env:VC_CALIBRATION_ONLY -ErrorAction SilentlyContinue
+    }
+
+    if ($UiInputParity) {
+        $env:VC_UI_INPUT_PARITY = '1'
+    }
+    else {
+        Remove-Item Env:VC_UI_INPUT_PARITY -ErrorAction SilentlyContinue
     }
 
     $process = Start-Process -FilePath $exePath -WorkingDirectory $repoRoot -PassThru
@@ -121,6 +130,13 @@ finally {
     }
     else {
         $env:VC_CALIBRATION_ONLY = $previousCalibrationOnly
+    }
+
+    if ($null -eq $previousUiInputParity) {
+        Remove-Item Env:VC_UI_INPUT_PARITY -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:VC_UI_INPUT_PARITY = $previousUiInputParity
     }
 
 }

@@ -6,7 +6,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ViscerealityCompanion.App;
@@ -62,6 +64,10 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-conditions-tab.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-calibration-workspace.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-experiment-session-calibration.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-experiment-session-ui-calibrated.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-experiment-session-ui-running.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-experiment-session-ui-ended.png"));
+        DeleteIfPresent(Path.Combine(outputRoot, "sussex-ui-input-parity-actions.txt"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-automatic.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "sussex-main-window-automatic-breathing-paused.png"));
         DeleteIfPresent(Path.Combine(outputRoot, "quest-kiosk-proof.png"));
@@ -78,7 +84,10 @@ public static class HarnessScenarioRunner
         DeleteIfPresent(Path.Combine(outputRoot, "quest-participant-ended-proof.png"));
         DeleteDirectoryIfPresent(Path.Combine(outputRoot, "device-session-pull"));
 
-        using var outlet = new FloatLslTestOutlet();
+        var uiInputParity = ReadBoolEnvironmentVariable("VC_UI_INPUT_PARITY");
+        using IHarnessLslTestOutlet outlet = uiInputParity
+            ? new DisabledHarnessLslTestOutlet()
+            : new FloatLslTestOutlet();
         outlet.Open(
             HrvBiofeedbackStreamContract.StreamName,
             HrvBiofeedbackStreamContract.StreamType,
@@ -128,11 +137,12 @@ public static class HarnessScenarioRunner
         File.WriteAllText(Path.Combine(outputRoot, "sussex-study-mode-error.txt"), ex.ToString());
     }
 
-    private static async Task ExecuteScenarioAsync(Window window, string repoRoot, string outputRoot, FloatLslTestOutlet outlet)
+    private static async Task ExecuteScenarioAsync(Window window, string repoRoot, string outputRoot, IHarnessLslTestOutlet outlet)
     {
         var useValidationCapture = ReadBoolEnvironmentVariable("VC_USE_VALIDATION_CAPTURE");
         var conditionLibraryOnly = ReadBoolEnvironmentVariable("VC_CONDITION_LIBRARY_ONLY");
         var calibrationOnly = ReadBoolEnvironmentVariable("VC_CALIBRATION_ONLY");
+        var uiInputParity = ReadBoolEnvironmentVariable("VC_UI_INPUT_PARITY");
 
         if (window.DataContext is not MainWindowViewModel mainViewModel)
         {
@@ -271,14 +281,24 @@ public static class HarnessScenarioRunner
                 particlesSummaryBefore,
                 particlesDetailBefore,
                 expectedVisible: true));
-        var controllerBreathingProfileResult = await RunControllerBreathingProfilePhaseAsync(
-            studyViewModel,
-            window,
-            outputRoot);
-        var automaticBreathingResult = await RunAutomaticBreathingPhaseAsync(
-            studyViewModel,
-            window,
-            outputRoot);
+        var controllerBreathingProfileResult = uiInputParity
+            ? new ObservationResult(
+                "Controller-breathing profile apply",
+                true,
+                "Skipped in UI input parity mode; this run keeps focus on the rendered Experiment Session operator path.")
+            : await RunControllerBreathingProfilePhaseAsync(
+                studyViewModel,
+                window,
+                outputRoot);
+        var automaticBreathingResult = uiInputParity
+            ? new ObservationResult(
+                "Automatic-breathing bench toggle",
+                true,
+                "Skipped in UI input parity mode; this run keeps the headset on controller-volume breathing for calibration and recording.")
+            : await RunAutomaticBreathingPhaseAsync(
+                studyViewModel,
+                window,
+                outputRoot);
 
         ParticipantRunResult? participantRunResult = null;
         ValidationCaptureHarnessResult? validationCaptureResult = null;
@@ -370,7 +390,7 @@ public static class HarnessScenarioRunner
         StudyShellViewModel studyViewModel,
         Window window,
         string outputRoot,
-        FloatLslTestOutlet outlet)
+        IHarnessLslTestOutlet outlet)
     {
         var participantId = $"validation-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
         await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.ParticipantIdDraft = participantId);
@@ -464,7 +484,7 @@ public static class HarnessScenarioRunner
             InspectFile(pdfPath));
     }
 
-    private static async Task PumpValidationCaptureLslAsync(FloatLslTestOutlet outlet, CancellationToken cancellationToken)
+    private static async Task PumpValidationCaptureLslAsync(IHarnessLslTestOutlet outlet, CancellationToken cancellationToken)
     {
         var index = 0;
         while (!cancellationToken.IsCancellationRequested)
@@ -512,8 +532,13 @@ public static class HarnessScenarioRunner
         }
     }
 
-    private static async Task WarmUpLslAsync(FloatLslTestOutlet outlet, StudyShellViewModel studyViewModel)
+    private static async Task WarmUpLslAsync(IHarnessLslTestOutlet outlet, StudyShellViewModel studyViewModel)
     {
+        if (!outlet.IsEnabled)
+        {
+            return;
+        }
+
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
         while (DateTimeOffset.UtcNow < deadline)
         {
@@ -528,9 +553,14 @@ public static class HarnessScenarioRunner
     }
 
     private static async Task<IReadOnlyList<LatencyResult>> MeasureLslRoundTripAsync(
-        FloatLslTestOutlet outlet,
+        IHarnessLslTestOutlet outlet,
         StudyShellViewModel studyViewModel)
     {
+        if (!outlet.IsEnabled)
+        {
+            return [];
+        }
+
         var results = new List<LatencyResult>();
         var stepValues = new[] { 0.14f, 0.63f, 0.29f, 0.82f, 0.47f };
 
@@ -553,9 +583,17 @@ public static class HarnessScenarioRunner
     }
 
     private static async Task<ObservationResult> VerifyLslSenderRestartRecoveryAsync(
-        FloatLslTestOutlet outlet,
+        IHarnessLslTestOutlet outlet,
         StudyShellViewModel studyViewModel)
     {
+        if (!outlet.IsEnabled)
+        {
+            return new ObservationResult(
+                "Sender restart recovery",
+                true,
+                "Skipped in UI input parity mode; a normal Experiment Session operator run does not start the hidden harness-owned Windows TEST sender.");
+        }
+
         const float expectedValue = 0.71f;
         outlet.Dispose();
         await Task.Delay(TimeSpan.FromSeconds(2));
@@ -766,13 +804,41 @@ public static class HarnessScenarioRunner
         StudyShellViewModel studyViewModel,
         Window window,
         string outputRoot,
-        FloatLslTestOutlet outlet)
+        IHarnessLslTestOutlet outlet)
     {
         var participantId = $"harness-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
-        await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.ParticipantIdDraft = participantId);
-        await Task.Delay(TimeSpan.FromMilliseconds(250));
+        var uiInputParity = ReadBoolEnvironmentVariable("VC_UI_INPUT_PARITY");
+        var uiInputActions = new List<string>();
+        StudyExperimentSessionWindow? experimentWindow = null;
+        if (!uiInputParity)
+        {
+            await Application.Current.Dispatcher.InvokeAsync(() => studyViewModel.ParticipantIdDraft = participantId);
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+        }
 
         await EnsureStudyRuntimeReadyForParticipantAsync(studyViewModel);
+
+        ObservationResult? uiInputCalibrationResult = null;
+        if (uiInputParity)
+        {
+            experimentWindow = await OpenExperimentSessionWindowViaUiAutomationAsync(window, outputRoot, uiInputActions);
+            await SetAutomationValueAsync(
+                experimentWindow,
+                "ExperimentParticipantIdTextBox",
+                participantId,
+                "Experiment Session participant id",
+                outputRoot,
+                uiInputActions);
+            await WaitForConditionAsync(
+                () => string.Equals(studyViewModel.ParticipantIdDraft, participantId, StringComparison.Ordinal),
+                TimeSpan.FromSeconds(5),
+                "UI Automation set the participant id text box, but the study shell did not receive the participant id.");
+            uiInputCalibrationResult = await RunUiCalibrationViaAutomationAsync(
+                studyViewModel,
+                experimentWindow,
+                outputRoot,
+                uiInputActions);
+        }
 
         var readyQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
             studyViewModel,
@@ -783,7 +849,20 @@ public static class HarnessScenarioRunner
 
         var lslCountBefore = GetTwinLongValue(studyViewModel, "study.lsl.received_sample_count");
 
-        await studyViewModel.StartExperimentAsync();
+        if (uiInputParity && experimentWindow is not null)
+        {
+            await InvokeAutomationButtonAsync(
+                experimentWindow,
+                "ExperimentRecordingToggleButton",
+                "Experiment Session Start Recording",
+                outputRoot,
+                uiInputActions);
+        }
+        else
+        {
+            await studyViewModel.StartExperimentAsync();
+        }
+
         if (!studyViewModel.IsRecordingToggleState &&
             string.Equals(studyViewModel.LastActionLabel, "Start Participant Run", StringComparison.Ordinal) &&
             studyViewModel.LastActionLevel == OperationOutcomeKind.Failure)
@@ -805,6 +884,10 @@ public static class HarnessScenarioRunner
             },
             TimeSpan.FromSeconds(15),
             "Participant run never reached the active local+Quest recording state.");
+        if (uiInputParity && experimentWindow is not null)
+        {
+            CaptureWindow(experimentWindow, Path.Combine(outputRoot, "sussex-experiment-session-ui-running.png"));
+        }
 
         var snapshotAfterStart = studyViewModel.ReportedTwinStateSnapshot;
         var sessionId = snapshotAfterStart.TryGetValue("study.session.id", out var startedSessionId)
@@ -849,6 +932,7 @@ public static class HarnessScenarioRunner
             "quest-participant-running-proof.png",
             "sussex-main-window-participant-running-proof.png");
 
+        var breathingFlowResult = await VerifyControllerBreathingDuringRecordingAsync(studyViewModel);
         var lslFlowResult = await DriveParticipantRunLslAsync(outlet, studyViewModel, lslCountBefore);
 
         var clockAlignmentPath = Path.Combine(localSessionFolderPath, "clock_alignment_roundtrip.csv");
@@ -872,7 +956,19 @@ public static class HarnessScenarioRunner
             TimeSpan.FromSeconds(12),
             "The Windows participant recorder did not flush enough data rows for inspection.");
 
-        await studyViewModel.EndExperimentAsync();
+        if (uiInputParity && experimentWindow is not null)
+        {
+            await InvokeAutomationButtonAsync(
+                experimentWindow,
+                "ExperimentRecordingToggleButton",
+                "Experiment Session Stop Recording",
+                outputRoot,
+                uiInputActions);
+        }
+        else
+        {
+            await studyViewModel.EndExperimentAsync();
+        }
 
         await WaitForConditionAsync(
             () => File.Exists(Path.Combine(localSessionFolderPath, "session_settings.json"))
@@ -881,6 +977,10 @@ public static class HarnessScenarioRunner
                   && ContainsTextWithSharedRead(Path.Combine(localSessionFolderPath, "session_events.csv"), "recording.stopped"),
             TimeSpan.FromSeconds(10),
             "The Windows participant recorder did not finish flushing the completed session.");
+        if (uiInputParity && experimentWindow is not null)
+        {
+            CaptureWindow(experimentWindow, Path.Combine(outputRoot, "sussex-experiment-session-ui-ended.png"));
+        }
 
         var endedQuestScreenshotPath = await CaptureQuestScreenshotProofAsync(
             studyViewModel,
@@ -940,6 +1040,9 @@ public static class HarnessScenarioRunner
             readyQuestScreenshotPath,
             runningQuestScreenshotPath,
             endedQuestScreenshotPath,
+            uiInputCalibrationResult,
+            breathingFlowResult,
+            uiInputActions,
             lslFlowResult,
             localMetadata,
             deviceMetadata,
@@ -947,11 +1050,129 @@ public static class HarnessScenarioRunner
             deviceFiles);
     }
 
+    private static async Task<StudyExperimentSessionWindow> OpenExperimentSessionWindowViaUiAutomationAsync(
+        Window mainWindow,
+        string outputRoot,
+        List<string> uiInputActions)
+    {
+        var existingWindow = await TryGetExperimentSessionWindowAsync();
+        if (existingWindow is not null)
+        {
+            await RecordUiInputActionAsync(
+                outputRoot,
+                uiInputActions,
+                "Reused already-open Experiment Session window",
+                "StudyExperimentSessionWindow");
+            return existingWindow;
+        }
+
+        await SelectAutomationItemAsync(
+            mainWindow,
+            "HomeTab",
+            "Main window Home tab",
+            outputRoot,
+            uiInputActions);
+
+        await InvokeAutomationButtonAsync(
+            mainWindow,
+            "OpenExperimentSessionButton",
+            "Main window Open Experiment Session",
+            outputRoot,
+            uiInputActions);
+
+        return await WaitForExperimentSessionWindowAsync();
+    }
+
+    private static async Task<ObservationResult> RunUiCalibrationViaAutomationAsync(
+        StudyShellViewModel studyViewModel,
+        StudyExperimentSessionWindow experimentWindow,
+        string outputRoot,
+        List<string> uiInputActions)
+    {
+        await InvokeAutomationButtonAsync(
+            experimentWindow,
+            "ResetCalibrationButton",
+            "Experiment Session Reset Calibration",
+            outputRoot,
+            uiInputActions);
+        await Task.Delay(TimeSpan.FromMilliseconds(750));
+
+        await WaitForConditionAsync(
+            () => studyViewModel.CanStartFixedAxisCalibration,
+            TimeSpan.FromSeconds(10),
+            "The Experiment Session fixed-axis calibration button did not become available.");
+
+        await InvokeAutomationButtonAsync(
+            experimentWindow,
+            "StartFixedAxisCalibrationButton",
+            "Experiment Session Start Fixed-Axis Calibration",
+            outputRoot,
+            uiInputActions);
+
+        await WaitForConditionAsync(
+            () => IsControllerCalibrationAccepted(studyViewModel),
+            TimeSpan.FromSeconds(75),
+            "Controller breathing calibration did not reach the accepted state after the UI-driven calibration click.");
+
+        CaptureWindow(experimentWindow, Path.Combine(outputRoot, "sussex-experiment-session-ui-calibrated.png"));
+        var state = CaptureControllerBreathingRuntimeState(studyViewModel);
+        return new ObservationResult(
+            "UI input calibration",
+            true,
+            $"UI Automation invoked Reset Calibration and Start Fixed-Axis Calibration in the Experiment Session window; calibration reached accepted state with route {FormatNullable(state.RouteLabel)} ({FormatNullable(state.RouteMode)}), active {FormatNullable(state.Active)}, and fresh readback {FormatNullable(state.TimestampLabel)}.");
+    }
+
+    private static async Task<ObservationResult> VerifyControllerBreathingDuringRecordingAsync(
+        StudyShellViewModel studyViewModel)
+    {
+        var samples = new List<ControllerBreathingRuntimeSnapshot>();
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(18);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var sample = CaptureControllerBreathingRuntimeState(studyViewModel);
+            samples.Add(sample);
+
+            var healthyFreshFrames = samples
+                .Where(item =>
+                    item.Active == true &&
+                    item.Calibrated == true &&
+                    item.HasControllerValue &&
+                    !item.TimestampLabel.Contains("(stale)", StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.TimestampLabel)
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+
+            if (healthyFreshFrames >= 2)
+            {
+                return new ObservationResult(
+                    "Participant-run controller breathing",
+                    true,
+                    $"Controller breathing stayed calibrated and active during recording with {healthyFreshFrames} fresh readback frame(s); route {FormatNullable(sample.RouteLabel)} ({FormatNullable(sample.RouteMode)}).");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+        }
+
+        var finalState = samples.LastOrDefault() ?? CaptureControllerBreathingRuntimeState(studyViewModel);
+        return new ObservationResult(
+            "Participant-run controller breathing",
+            false,
+            $"Controller breathing did not produce two fresh calibrated/active readback frames during recording. Last state: calibrated {FormatNullable(finalState.Calibrated)}, active {FormatNullable(finalState.Active)}, value present {finalState.HasControllerValue}, route {FormatNullable(finalState.RouteLabel)} ({FormatNullable(finalState.RouteMode)}), timestamp {FormatNullable(finalState.TimestampLabel)}.");
+    }
+
     private static async Task<ObservationResult> DriveParticipantRunLslAsync(
-        FloatLslTestOutlet outlet,
+        IHarnessLslTestOutlet outlet,
         StudyShellViewModel studyViewModel,
         long? initialCount)
     {
+        if (!outlet.IsEnabled)
+        {
+            return new ObservationResult(
+                "Participant-run LSL capture",
+                true,
+                "Skipped in UI input parity mode; this human-parity run uses live controller breathing and does not start the hidden harness-owned Windows TEST sender.");
+        }
+
         var runValues = new[] { 0.19f, 0.48f, 0.77f, 0.31f, 0.66f, 0.28f };
         foreach (var value in runValues)
         {
@@ -1339,7 +1560,21 @@ public static class HarnessScenarioRunner
         builder.AppendLine($"- {recenterResult.Label}: {recenterResult.Detail}");
         builder.AppendLine($"- {particlesOffResult.Label}: {particlesOffResult.Detail}");
         builder.AppendLine($"- {particlesOnResult.Label}: {particlesOnResult.Detail}");
+        if (participantRunResult.UiInputCalibrationResult is not null)
+        {
+            builder.AppendLine($"- {participantRunResult.UiInputCalibrationResult.Label}: {participantRunResult.UiInputCalibrationResult.Detail}");
+        }
+        builder.AppendLine($"- {participantRunResult.BreathingFlowResult.Label}: {participantRunResult.BreathingFlowResult.Detail}");
         builder.AppendLine($"- {participantRunResult.LslFlowResult.Label}: {participantRunResult.LslFlowResult.Detail}");
+        if (participantRunResult.UiInputActions.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("UI input parity actions:");
+            foreach (var action in participantRunResult.UiInputActions)
+            {
+                builder.AppendLine($"- {action}");
+            }
+        }
         builder.AppendLine();
         builder.AppendLine("Participant run:");
         builder.AppendLine($"- Participant id: {participantRunResult.ParticipantId}");
@@ -1375,6 +1610,10 @@ public static class HarnessScenarioRunner
             var latencies = latencyResults.Where(result => result.LatencyMs.HasValue).Select(result => result.LatencyMs!.Value).ToArray();
             builder.AppendLine($"Mean latency: {latencies.Average():0.0} ms");
             builder.AppendLine($"Max latency: {latencies.Max():0.0} ms");
+        }
+        else if (participantRunResult.LslFlowResult.Detail.Contains("Skipped in UI input parity mode", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.AppendLine("Round-trip latency samples were not collected because UI input parity mode does not start the hidden harness-owned Windows TEST sender.");
         }
         else
         {
@@ -2427,10 +2666,7 @@ public static class HarnessScenarioRunner
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var window = await Application.Current.Dispatcher.InvokeAsync(() =>
-                Application.Current.Windows
-                    .OfType<StudyExperimentSessionWindow>()
-                    .FirstOrDefault(candidate => candidate.IsLoaded));
+            var window = await TryGetExperimentSessionWindowAsync();
             if (window is not null)
             {
                 return window;
@@ -2441,6 +2677,214 @@ public static class HarnessScenarioRunner
 
         throw new InvalidOperationException("Experiment Session window did not open for the calibration harness.");
     }
+
+    private static async Task<StudyExperimentSessionWindow?> TryGetExperimentSessionWindowAsync()
+        => await Application.Current.Dispatcher.InvokeAsync(() =>
+            Application.Current.Windows
+                .OfType<StudyExperimentSessionWindow>()
+                .FirstOrDefault(candidate => candidate.IsLoaded));
+
+    private static async Task InvokeAutomationButtonAsync(
+        Window window,
+        string automationId,
+        string label,
+        string outputRoot,
+        List<string> uiInputActions)
+    {
+        await RunAutomationActionAsync(
+            window,
+            automationId,
+            label,
+            element =>
+            {
+                if (!element.Current.IsEnabled)
+                {
+                    throw new InvalidOperationException($"UI Automation element `{automationId}` was present but disabled.");
+                }
+
+                if (!element.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern))
+                {
+                    throw new InvalidOperationException($"UI Automation element `{automationId}` does not expose InvokePattern.");
+                }
+
+                ((InvokePattern)pattern).Invoke();
+            });
+
+        await RecordUiInputActionAsync(outputRoot, uiInputActions, label, automationId);
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+    }
+
+    private static async Task SetAutomationValueAsync(
+        Window window,
+        string automationId,
+        string value,
+        string label,
+        string outputRoot,
+        List<string> uiInputActions)
+    {
+        await RunAutomationActionAsync(
+            window,
+            automationId,
+            label,
+            element =>
+            {
+                if (!element.Current.IsEnabled)
+                {
+                    throw new InvalidOperationException($"UI Automation element `{automationId}` was present but disabled.");
+                }
+
+                if (!element.TryGetCurrentPattern(ValuePattern.Pattern, out var pattern))
+                {
+                    throw new InvalidOperationException($"UI Automation element `{automationId}` does not expose ValuePattern.");
+                }
+
+                ((ValuePattern)pattern).SetValue(value);
+            });
+
+        await RecordUiInputActionAsync(outputRoot, uiInputActions, label, automationId);
+        await Task.Delay(TimeSpan.FromMilliseconds(250));
+    }
+
+    private static async Task SelectAutomationItemAsync(
+        Window window,
+        string automationId,
+        string label,
+        string outputRoot,
+        List<string> uiInputActions)
+    {
+        await RunAutomationActionAsync(
+            window,
+            automationId,
+            label,
+            element =>
+            {
+                if (!element.Current.IsEnabled)
+                {
+                    throw new InvalidOperationException($"UI Automation element `{automationId}` was present but disabled.");
+                }
+
+                if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selectionPattern))
+                {
+                    ((SelectionItemPattern)selectionPattern).Select();
+                    return;
+                }
+
+                if (element.TryGetCurrentPattern(InvokePattern.Pattern, out var invokePattern))
+                {
+                    ((InvokePattern)invokePattern).Invoke();
+                    return;
+                }
+
+                throw new InvalidOperationException($"UI Automation element `{automationId}` exposes neither SelectionItemPattern nor InvokePattern.");
+            });
+
+        await RecordUiInputActionAsync(outputRoot, uiInputActions, label, automationId);
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+    }
+
+    private static async Task RunAutomationActionAsync(
+        Window window,
+        string automationId,
+        string label,
+        Action<AutomationElement> action)
+    {
+        var handle = await Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            var interop = new WindowInteropHelper(window);
+            return interop.Handle == IntPtr.Zero ? interop.EnsureHandle() : interop.Handle;
+        });
+
+        await Task.Run(() =>
+        {
+            var root = AutomationElement.FromHandle(handle)
+                       ?? throw new InvalidOperationException($"Could not create a UI Automation root for `{label}`.");
+            var element = WaitForAutomationElement(root, automationId, TimeSpan.FromSeconds(10));
+            action(element);
+        });
+    }
+
+    private static AutomationElement WaitForAutomationElement(
+        AutomationElement root,
+        string automationId,
+        TimeSpan timeout)
+    {
+        var condition = new PropertyCondition(AutomationElement.AutomationIdProperty, automationId);
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var element = root.FindFirst(TreeScope.Descendants, condition);
+            if (element is not null)
+            {
+                return element;
+            }
+
+            Thread.Sleep(100);
+        }
+
+        throw new InvalidOperationException($"UI Automation element `{automationId}` was not found within {timeout.TotalSeconds:0} seconds.");
+    }
+
+    private static async Task RecordUiInputActionAsync(
+        string outputRoot,
+        List<string> uiInputActions,
+        string label,
+        string automationId)
+    {
+        var entry = $"{DateTimeOffset.Now:O} UIA {label} [{automationId}]";
+        uiInputActions.Add(entry);
+        await File.AppendAllTextAsync(
+            Path.Combine(outputRoot, "sussex-ui-input-parity-actions.txt"),
+            entry + Environment.NewLine);
+    }
+
+    private static bool IsControllerCalibrationAccepted(StudyShellViewModel studyViewModel)
+    {
+        if (studyViewModel.ControllerCalibrationLabel.Contains("accepted", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return TryGetTwinValue(
+                   studyViewModel.ReportedTwinStateSnapshot,
+                   "tracker.breathing.controller.calibrated",
+                   out var calibratedRaw)
+               && ParseBool(calibratedRaw) == true;
+    }
+
+    private static ControllerBreathingRuntimeSnapshot CaptureControllerBreathingRuntimeState(
+        StudyShellViewModel studyViewModel)
+    {
+        var snapshot = studyViewModel.ReportedTwinStateSnapshot;
+        var hasControllerValue =
+            TryGetTwinValue(snapshot, "tracker.breathing.controller.volume01", out _) ||
+            TryGetTwinValue(snapshot, "signal01.breathing_controller", out _);
+        var active = TryGetTwinValue(snapshot, "tracker.breathing.controller.active", out var activeRaw)
+            ? ParseBool(activeRaw)
+            : null;
+        var calibrated = TryGetTwinValue(snapshot, "tracker.breathing.controller.calibrated", out var calibratedRaw)
+            ? ParseBool(calibratedRaw)
+            : null;
+        var routeLabel = TryGetTwinValue(snapshot, "routing.breathing.label", out var routeLabelRaw)
+            ? routeLabelRaw
+            : string.Empty;
+        var routeMode = TryGetTwinValue(snapshot, "routing.breathing.mode", out var routeModeRaw)
+            ? routeModeRaw
+            : string.Empty;
+
+        return new ControllerBreathingRuntimeSnapshot(
+            active,
+            calibrated,
+            hasControllerValue,
+            routeLabel,
+            routeMode,
+            studyViewModel.LastTwinStateTimestampLabel);
+    }
+
+    private static string FormatNullable(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "n/a" : value.Trim();
+
+    private static string FormatNullable(bool? value)
+        => value.HasValue ? (value.Value ? "true" : "false") : "n/a";
 
     private static void CaptureWindow(Window window, string path)
     {
@@ -2728,21 +3172,57 @@ public static class HarnessScenarioRunner
         string ReadyQuestScreenshotPath,
         string RunningQuestScreenshotPath,
         string EndedQuestScreenshotPath,
+        ObservationResult? UiInputCalibrationResult,
+        ObservationResult BreathingFlowResult,
+        IReadOnlyList<string> UiInputActions,
         ObservationResult LslFlowResult,
         SessionMetadataResult LocalMetadata,
         SessionMetadataResult DeviceMetadata,
         IReadOnlyList<FileInspectionResult> LocalFiles,
         IReadOnlyList<FileInspectionResult> DeviceFiles);
+    private sealed record ControllerBreathingRuntimeSnapshot(
+        bool? Active,
+        bool? Calibrated,
+        bool HasControllerValue,
+        string RouteLabel,
+        string RouteMode,
+        string TimestampLabel);
 
     private static bool ReadBoolEnvironmentVariable(string variableName)
         => string.Equals(Environment.GetEnvironmentVariable(variableName), "1", StringComparison.OrdinalIgnoreCase)
            || string.Equals(Environment.GetEnvironmentVariable(variableName), "true", StringComparison.OrdinalIgnoreCase);
 }
 
-internal sealed class FloatLslTestOutlet : IDisposable
+internal interface IHarnessLslTestOutlet : IDisposable
+{
+    bool IsEnabled { get; }
+    void Open(string streamName, string streamType, string sourceId);
+    void PushSample(float value);
+}
+
+internal sealed class DisabledHarnessLslTestOutlet : IHarnessLslTestOutlet
+{
+    public bool IsEnabled => false;
+
+    public void Open(string streamName, string streamType, string sourceId)
+    {
+    }
+
+    public void PushSample(float value)
+    {
+    }
+
+    public void Dispose()
+    {
+    }
+}
+
+internal sealed class FloatLslTestOutlet : IHarnessLslTestOutlet
 {
     private nint _streamInfo;
     private nint _outlet;
+
+    public bool IsEnabled => true;
 
     public void Open(string streamName, string streamType, string sourceId)
     {

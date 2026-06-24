@@ -11,6 +11,22 @@ public static class Program
     private static readonly Option<string?> DeviceOption = new(
         ["--device", "-d"],
         "ADB device selector (serial or IP:port). Overrides persisted session.");
+    private const string TestSenderHeartbeatMode = "3";
+    private const string TestSenderCoherenceMode = "2";
+    private static readonly string[] DefaultStudySnapshotPrefixes =
+    {
+        "study.command.",
+        "study.session.",
+        "study.csv.",
+        "study.lsl.",
+        "connection.lsl.",
+        "routing.breathing.",
+        "routing.heartbeat.",
+        "routing.coherence.",
+        "tracker.breathing.controller.",
+        "signal01.breathing_controller",
+        "signal01.coherence_lsl"
+    };
 
     public static async Task<int> Main(string[] args)
     {
@@ -79,13 +95,21 @@ public static class Program
 
     private static Command BuildProbeCommand()
     {
-        var command = new Command("probe", "Detect Quest devices connected via USB");
-        command.Handler = CommandHandler.Create(async (string? device) =>
+        var jsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+        var command = new Command("probe", "Detect Quest devices connected via USB") { jsonOption };
+        command.Handler = CommandHandler.Create(async (string? device, bool json) =>
         {
             var service = CreateQuestService(device);
             var result = await service.ProbeUsbAsync();
             SaveUsbSerial(result);
-            PrintOutcome(result);
+            if (json)
+            {
+                SussexCliSupport.WriteJson(result);
+            }
+            else
+            {
+                PrintOutcome(result);
+            }
         });
         return command;
     }
@@ -612,6 +636,169 @@ public static class Program
             }
         });
 
+        var actionsCommand = new Command("actions", "List named study actions that mirror study-shell GUI controls") { studyArg, rootOption };
+        actionsCommand.Handler = CommandHandler.Create(async (string study, string? root) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            Console.WriteLine($"Study: {definition.Label} ({definition.Id})");
+            Console.WriteLine();
+            Console.WriteLine("Named actions:");
+            foreach (var action in BuildStudyActionDefinitions(definition))
+            {
+                Console.WriteLine($"  {action.Name,-24} {action.ActionId,-8} {action.DisplayName}");
+                Console.WriteLine($"    UI:      {action.UiEquivalent}");
+                if (action.Aliases.Count > 0)
+                {
+                    Console.WriteLine($"    Aliases: {string.Join(", ", action.Aliases)}");
+                }
+            }
+        });
+
+        var studyActionArg = new Argument<string>("action", description: "Named study action or raw twin action ID. Use `study actions <study>` to list UI-equivalent aliases.");
+        var actionJsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+        var actionLabelOption = new Option<string?>("--label", "Override the display label sent with a raw action ID.");
+        var actionSettleMsOption = new Option<int>("--settle-ms", () => 3000, "Milliseconds to advertise the LSL command outlet before publishing the action.");
+        var actionHoldMsOption = new Option<int>("--hold-ms", () => 8000, "Milliseconds to keep the LSL command outlet alive after publishing the action.");
+        var actionWaitAckOption = new Option<int>("--wait-ack-seconds", () => 10, "Seconds to wait for quest_twin_state to echo the accepted command.");
+        var actionNoAckOption = new Option<bool>("--no-ack", "Do not wait for command acknowledgement from quest_twin_state.");
+        var actionAllowRecordingDiagnosticOption = new Option<bool>(
+            "--allow-recording-command-diagnostic",
+            "Allow the low-level start/stop recording twin action without the full WPF participant recording workflow.");
+        var actionCommand = new Command("action", "Send a named study action through the same twin command channel as the GUI controls")
+        {
+            studyArg,
+            studyActionArg,
+            rootOption,
+            actionJsonOption,
+            actionLabelOption,
+            actionSettleMsOption,
+            actionHoldMsOption,
+            actionWaitAckOption,
+            actionNoAckOption,
+            actionAllowRecordingDiagnosticOption
+        };
+        actionCommand.Handler = CommandHandler.Create(async (
+            string study,
+            string action,
+            string? root,
+            bool json,
+            string? label,
+            int settleMs,
+            int holdMs,
+            int waitAckSeconds,
+            bool noAck,
+            bool allowRecordingCommandDiagnostic) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var resolvedAction = ResolveStudyAction(definition, action, label);
+            var ackWait = noAck ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, waitAckSeconds));
+            var result = IsRecordingCommandDiagnosticBlocked(definition, resolvedAction, allowRecordingCommandDiagnostic)
+                ? BuildBlockedRecordingCommandDiagnosticResult(definition, resolvedAction)
+                : await ExecuteStudyActionAsync(
+                        definition,
+                        resolvedAction,
+                        TimeSpan.FromMilliseconds(Math.Max(0, Math.Min(settleMs, 30000))),
+                        TimeSpan.FromMilliseconds(Math.Max(0, Math.Min(holdMs, 30000))),
+                        ackWait)
+                    .ConfigureAwait(false);
+            var exitCode = GetStudyActionExitCode(result);
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(result);
+                return exitCode;
+            }
+
+            PrintStudyActionResult(result);
+            return exitCode;
+        });
+
+        var snapshotJsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
+        var snapshotWaitOption = new Option<int>("--wait-seconds", () => 8, "Seconds to wait for a quest_twin_state snapshot after opening the bridge.");
+        var snapshotAllOption = new Option<bool>("--all", "Print all reported twin-state settings instead of the study-test subset.");
+        var snapshotPrefixOption = new Option<string[]>(
+            "--prefix",
+            () => DefaultStudySnapshotPrefixes,
+            "Reported setting prefixes to include. Repeat for multiple prefixes.")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+        snapshotPrefixOption.AllowMultipleArgumentsPerToken = true;
+        var snapshotCommand = new Command("snapshot", "Read a bounded quest_twin_state snapshot for the study-shell test workflow")
+        {
+            studyArg,
+            rootOption,
+            snapshotJsonOption,
+            snapshotWaitOption,
+            snapshotAllOption,
+            snapshotPrefixOption
+        };
+        snapshotCommand.Handler = CommandHandler.Create(async (
+            string study,
+            string? root,
+            bool json,
+            int waitSeconds,
+            bool all,
+            string[] prefix) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var result = await CaptureStudySnapshotAsync(
+                    definition,
+                    TimeSpan.FromSeconds(Math.Max(0, waitSeconds)),
+                    all,
+                    prefix)
+                .ConfigureAwait(false);
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(result);
+                return;
+            }
+
+            PrintStudySnapshot(result);
+        });
+
+        var testSenderCommand = new Command("test-sender", "CLI mirror of the study shell Start TEST Sender toggle");
+        var testSenderJsonOption = new Option<bool>("--json", "Write machine-readable JSON output when the run completes.");
+        var testSenderDurationOption = new Option<int>("--duration-seconds", () => 0, "Seconds to run before stopping. Zero runs until Ctrl+C.");
+        var testSenderWaitOption = new Option<int>("--wait-state-seconds", () => 4, "Seconds to wait for a twin-state snapshot before applying temporary TEST sender routing.");
+        var testSenderNoRoutingOption = new Option<bool>("--no-routing", "Only publish the local LSL stream; skip the GUI-equivalent temporary heartbeat/coherence routing push.");
+        var testSenderRunCommand = new Command("run", "Start the GUI-equivalent TEST sender route and keep it alive until duration elapses or Ctrl+C")
+        {
+            studyArg,
+            rootOption,
+            testSenderJsonOption,
+            testSenderDurationOption,
+            testSenderWaitOption,
+            testSenderNoRoutingOption
+        };
+        testSenderRunCommand.Handler = CommandHandler.Create(async (
+            string study,
+            string? root,
+            bool json,
+            int durationSeconds,
+            int waitStateSeconds,
+            bool noRouting) =>
+        {
+            var definition = await ResolveStudyShellAsync(study, root);
+            var result = await RunStudyTestSenderAsync(
+                    definition,
+                    TimeSpan.FromSeconds(Math.Max(0, durationSeconds)),
+                    applyRouting: !noRouting,
+                    waitForStateDuration: TimeSpan.FromSeconds(Math.Max(0, waitStateSeconds)),
+                    progress: json ? null : Console.WriteLine)
+                .ConfigureAwait(false);
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(result);
+                return;
+            }
+
+            PrintStudyTestSenderResult(result);
+        });
+        testSenderCommand.AddCommand(testSenderRunCommand);
+
         var probeJsonOption = new Option<bool>("--json", "Write machine-readable JSON output.");
         var probeWaitOption = new Option<int>("--wait-seconds", () => 4, "How long to wait for fresh quest_twin_state after opening the local bridge.");
         var probeConnectionCommand = new Command("probe-connection", "Probe the Sussex LSL inlet and quest_twin_state return path, mirroring the Step 9 guide check") { studyArg, rootOption, probeJsonOption, probeWaitOption };
@@ -722,6 +909,10 @@ public static class Program
         studyCommand.AddCommand(launchCommand);
         studyCommand.AddCommand(stopCommand);
         studyCommand.AddCommand(statusCommand);
+        studyCommand.AddCommand(actionsCommand);
+        studyCommand.AddCommand(actionCommand);
+        studyCommand.AddCommand(snapshotCommand);
+        studyCommand.AddCommand(testSenderCommand);
         studyCommand.AddCommand(probeConnectionCommand);
         studyCommand.AddCommand(diagnosticsReportCommand);
         return studyCommand;
@@ -1941,6 +2132,866 @@ public static class Program
 
         windowsEnvCommand.AddCommand(analyzeCommand);
         return windowsEnvCommand;
+    }
+
+    private sealed record StudyActionDefinition(
+        string Name,
+        string ActionId,
+        string DisplayName,
+        string UiEquivalent,
+        IReadOnlyList<string> Aliases);
+
+    private sealed record ResolvedStudyAction(
+        string RequestedName,
+        string ActionId,
+        string DisplayName,
+        string UiEquivalent,
+        bool IsRawAction);
+
+    private sealed record StudyCommandAcknowledgement(
+        bool Waited,
+        bool Acknowledged,
+        string Summary,
+        string Detail,
+        string? ReportedActionId,
+        string? ReportedActionSequence,
+        string? ReportedActionLabel,
+        string? ReportedActionSource,
+        string? ReportedActionTimeUtc,
+        DateTimeOffset? LastStateReceivedAtUtc,
+        string? SnapshotRevision,
+        int SnapshotEntryCount);
+
+    private sealed record StudyActionResult(
+        string StudyId,
+        string StudyLabel,
+        string RequestedAction,
+        string ActionId,
+        string DisplayName,
+        string UiEquivalent,
+        bool IsRawAction,
+        int PublishedSequence,
+        OperationOutcome OpenOutcome,
+        OperationOutcome SendOutcome,
+        StudyCommandAcknowledgement Acknowledgement,
+        DateTimeOffset CompletedAtUtc);
+
+    private sealed record StudySnapshotResult(
+        string StudyId,
+        string StudyLabel,
+        OperationOutcome OpenOutcome,
+        bool WaitedForSnapshot,
+        DateTimeOffset? LastStateReceivedAtUtc,
+        string? SnapshotRevision,
+        int SnapshotEntryCount,
+        int ReportedSettingCount,
+        IReadOnlyDictionary<string, string> Settings,
+        DateTimeOffset CapturedAtUtc);
+
+    private sealed record StudyTestSenderRunResult(
+        string StudyId,
+        string StudyLabel,
+        string StreamName,
+        string StreamType,
+        string SourceId,
+        TimeSpan RequestedDuration,
+        bool Interrupted,
+        bool AppliedTemporaryRouting,
+        string? PreviousHeartbeatMode,
+        string? PreviousCoherenceMode,
+        OperationOutcome? OpenOutcome,
+        OperationOutcome? RouteOutcome,
+        OperationOutcome StartOutcome,
+        OperationOutcome StopOutcome,
+        OperationOutcome? RestoreOutcome,
+        double? LastValue,
+        DateTimeOffset? LastSentAtUtc,
+        DateTimeOffset StartedAtUtc,
+        DateTimeOffset CompletedAtUtc);
+
+    private static IReadOnlyList<StudyActionDefinition> BuildStudyActionDefinitions(StudyShellDefinition definition)
+    {
+        var controls = definition.Controls;
+        var actions = new List<StudyActionDefinition>
+        {
+            new(
+                "recenter",
+                controls.RecenterCommandActionId,
+                "Recenter",
+                "Recenter button",
+                ["reset-view"]),
+            new(
+                "particles-on",
+                controls.ParticleVisibleOnActionId,
+                "Particles On",
+                "Particles visible toggle: on",
+                ["particle-on", "show-particles"]),
+            new(
+                "particles-off",
+                controls.ParticleVisibleOffActionId,
+                "Particles Off",
+                "Particles visible toggle: off",
+                ["particle-off", "hide-particles"]),
+            new(
+                "calibrate",
+                controls.StartBreathingCalibrationActionId,
+                "Start Breathing Calibration",
+                "Start Breathing Calibration button",
+                ["start-calibration", "start-breathing-calibration"]),
+            new(
+                "reset-calibration",
+                controls.ResetBreathingCalibrationActionId,
+                "Reset Breathing Calibration",
+                "Reset Breathing Calibration button",
+                ["clear-calibration"]),
+            new(
+                "controller-volume",
+                controls.SetBreathingModeControllerVolumeActionId,
+                "Set Breathing Mode: Controller Volume",
+                "Breathing mode segmented control: Controller Volume",
+                ["breathing-controller-volume"]),
+            new(
+                "automatic-cycle",
+                controls.SetBreathingModeAutomaticCycleActionId,
+                "Set Breathing Mode: Automatic Cycle",
+                "Breathing mode segmented control: Automatic Cycle",
+                ["breathing-automatic-cycle"]),
+            new(
+                "automatic-start",
+                controls.StartAutomaticBreathingActionId,
+                "Start Automatic Breathing",
+                "Automatic breathing start button",
+                ["start-automatic-breathing"]),
+            new(
+                "automatic-pause",
+                controls.PauseAutomaticBreathingActionId,
+                "Pause Automatic Breathing",
+                "Automatic breathing pause button",
+                ["pause-automatic-breathing"]),
+            new(
+                "start-recording",
+                controls.StartExperimentActionId,
+                "Start Experiment",
+                "Start Experiment / Start Recording Quest twin action. Use the WPF Experiment Session or UI input parity harness for the full participant workflow.",
+                ["start-experiment", "recording-start"]),
+            new(
+                "stop-recording",
+                controls.EndExperimentActionId,
+                "End Experiment",
+                "End Experiment / Stop Recording Quest twin action. Use the WPF Experiment Session or UI input parity harness for the full participant workflow.",
+                ["end-recording", "end-experiment", "recording-stop"])
+        };
+
+        return actions
+            .Where(static action => !string.IsNullOrWhiteSpace(action.ActionId))
+            .ToArray();
+    }
+
+    private static ResolvedStudyAction ResolveStudyAction(
+        StudyShellDefinition definition,
+        string actionName,
+        string? labelOverride)
+    {
+        if (string.IsNullOrWhiteSpace(actionName))
+        {
+            throw new InvalidOperationException("A study action name or raw action ID is required.");
+        }
+
+        var trimmed = actionName.Trim();
+        var action = BuildStudyActionDefinitions(definition).FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, trimmed, StringComparison.OrdinalIgnoreCase) ||
+            candidate.Aliases.Any(alias => string.Equals(alias, trimmed, StringComparison.OrdinalIgnoreCase)));
+
+        if (action is not null)
+        {
+            return new ResolvedStudyAction(
+                trimmed,
+                action.ActionId,
+                string.IsNullOrWhiteSpace(labelOverride) ? action.DisplayName : labelOverride.Trim(),
+                action.UiEquivalent,
+                IsRawAction: false);
+        }
+
+        return new ResolvedStudyAction(
+            trimmed,
+            trimmed,
+            string.IsNullOrWhiteSpace(labelOverride) ? trimmed : labelOverride.Trim(),
+            "Raw twin command token; no named GUI action binding matched.",
+            IsRawAction: true);
+    }
+
+    private static bool IsRecordingCommandDiagnosticBlocked(
+        StudyShellDefinition definition,
+        ResolvedStudyAction action,
+        bool allowRecordingCommandDiagnostic)
+        => !allowRecordingCommandDiagnostic &&
+           (string.Equals(action.ActionId, definition.Controls.StartExperimentActionId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(action.ActionId, definition.Controls.EndExperimentActionId, StringComparison.OrdinalIgnoreCase));
+
+    private static StudyActionResult BuildBlockedRecordingCommandDiagnosticResult(
+        StudyShellDefinition definition,
+        ResolvedStudyAction action)
+    {
+        var sendOutcome = new OperationOutcome(
+            OperationOutcomeKind.Failure,
+            "Recording command requires the Experiment Session workflow.",
+            "The named action maps to the Quest-side start/stop recording twin command, but sending it directly would bypass participant metadata staging, local Windows recording, Quest-side metadata confirmation, and clock-alignment steps. Use the WPF Experiment Session UI or `tools\\app\\Start-Sussex-VerificationHarness.ps1 -UiInputParity`. Add `--allow-recording-command-diagnostic` only for an explicit low-level command-channel diagnostic.");
+        return new StudyActionResult(
+            definition.Id,
+            definition.Label,
+            action.RequestedName,
+            action.ActionId,
+            action.DisplayName,
+            action.UiEquivalent,
+            action.IsRawAction,
+            PublishedSequence: 0,
+            new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "Twin bridge not opened.",
+                "The recording command was blocked before opening the LSL bridge."),
+            sendOutcome,
+            BuildNoAcknowledgement(null, waited: false, "Command acknowledgement was not attempted because the low-level recording command was blocked before publishing."),
+            DateTimeOffset.UtcNow);
+    }
+
+    private static async Task<StudyActionResult> ExecuteStudyActionAsync(
+        StudyShellDefinition definition,
+        ResolvedStudyAction action,
+        TimeSpan settleDuration,
+        TimeSpan holdDuration,
+        TimeSpan ackWaitDuration)
+    {
+        var bridge = TwinModeBridgeFactory.CreateDefault();
+        try
+        {
+            var openOutcome = OpenStudyBridge(definition, bridge);
+            if (openOutcome.Kind == OperationOutcomeKind.Failure)
+            {
+                return new StudyActionResult(
+                    definition.Id,
+                    definition.Label,
+                    action.RequestedName,
+                    action.ActionId,
+                    action.DisplayName,
+                    action.UiEquivalent,
+                    action.IsRawAction,
+                    PublishedSequence: 0,
+                    openOutcome,
+                    new OperationOutcome(OperationOutcomeKind.Failure, "Study action not sent.", "The twin bridge did not open."),
+                    BuildNoAcknowledgement(bridge as LslTwinModeBridge, waited: false, "Command acknowledgement was not attempted because the bridge did not open."),
+                    DateTimeOffset.UtcNow);
+            }
+
+            if (settleDuration > TimeSpan.Zero)
+            {
+                await Task.Delay(settleDuration).ConfigureAwait(false);
+            }
+
+            var command = new TwinModeCommand(action.ActionId, action.DisplayName);
+            var sendOutcome = await bridge.SendCommandAsync(command).ConfigureAwait(false);
+            var sequence = bridge is LslTwinModeBridge lslBridge ? lslBridge.LastPublishedCommandSequence : 0;
+            var acknowledgement = sendOutcome.Kind == OperationOutcomeKind.Failure
+                ? BuildNoAcknowledgement(bridge as LslTwinModeBridge, waited: false, "Command acknowledgement was not attempted because publishing failed.")
+                : await WaitForStudyCommandAcknowledgementAsync(
+                        bridge as LslTwinModeBridge,
+                        action.ActionId,
+                        sequence,
+                        ackWaitDuration)
+                    .ConfigureAwait(false);
+
+            if (holdDuration > TimeSpan.Zero)
+            {
+                await Task.Delay(holdDuration).ConfigureAwait(false);
+            }
+
+            return new StudyActionResult(
+                definition.Id,
+                definition.Label,
+                action.RequestedName,
+                action.ActionId,
+                action.DisplayName,
+                action.UiEquivalent,
+                action.IsRawAction,
+                sequence,
+                openOutcome,
+                sendOutcome,
+                acknowledgement,
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            (bridge as IDisposable)?.Dispose();
+        }
+    }
+
+    private static async Task<StudySnapshotResult> CaptureStudySnapshotAsync(
+        StudyShellDefinition definition,
+        TimeSpan waitDuration,
+        bool includeAll,
+        IReadOnlyList<string> prefixes)
+    {
+        var bridge = TwinModeBridgeFactory.CreateDefault();
+        try
+        {
+            var openOutcome = OpenStudyBridge(definition, bridge);
+            if (bridge is LslTwinModeBridge lslBridge)
+            {
+                await WaitForStudySnapshotAsync(lslBridge, waitDuration).ConfigureAwait(false);
+                var settings = FilterSnapshotSettings(lslBridge.ReportedSettings, includeAll, prefixes);
+                return new StudySnapshotResult(
+                    definition.Id,
+                    definition.Label,
+                    openOutcome,
+                    waitDuration > TimeSpan.Zero,
+                    lslBridge.LastStateReceivedAt,
+                    lslBridge.LastCommittedSnapshotRevision,
+                    lslBridge.LastCommittedSnapshotEntryCount,
+                    lslBridge.ReportedSettings.Count,
+                    settings,
+                    DateTimeOffset.UtcNow);
+            }
+
+            return new StudySnapshotResult(
+                definition.Id,
+                definition.Label,
+                openOutcome,
+                waitDuration > TimeSpan.Zero,
+                null,
+                null,
+                0,
+                0,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            (bridge as IDisposable)?.Dispose();
+        }
+    }
+
+    private static async Task<StudyTestSenderRunResult> RunStudyTestSenderAsync(
+        StudyShellDefinition definition,
+        TimeSpan requestedDuration,
+        bool applyRouting,
+        TimeSpan waitForStateDuration,
+        Action<string>? progress)
+    {
+        using var testSender = TestLslSignalServiceFactory.CreateDefault();
+        var streamName = string.IsNullOrWhiteSpace(definition.Monitoring.ExpectedLslStreamName)
+            ? HrvBiofeedbackStreamContract.StreamName
+            : definition.Monitoring.ExpectedLslStreamName;
+        var streamType = string.IsNullOrWhiteSpace(definition.Monitoring.ExpectedLslStreamType)
+            ? HrvBiofeedbackStreamContract.StreamType
+            : definition.Monitoring.ExpectedLslStreamType;
+        var sourceId = BuildStudyTestSenderSourceId(definition);
+        var startedAtUtc = DateTimeOffset.UtcNow;
+        OperationOutcome? openOutcome = null;
+        OperationOutcome? routeOutcome = null;
+        OperationOutcome? restoreOutcome = null;
+        string? previousHeartbeatMode = null;
+        string? previousCoherenceMode = null;
+        var interrupted = false;
+
+        var bridge = applyRouting ? TwinModeBridgeFactory.CreateDefault() : null;
+        try
+        {
+            if (bridge is not null)
+            {
+                openOutcome = OpenStudyBridge(definition, bridge);
+                if (openOutcome.Kind == OperationOutcomeKind.Failure)
+                {
+                    var skippedStart = new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        "TEST sender not started.",
+                        "The GUI-equivalent temporary routing push could not open the twin bridge.");
+                    return new StudyTestSenderRunResult(
+                        definition.Id,
+                        definition.Label,
+                        streamName,
+                        streamType,
+                        sourceId,
+                        requestedDuration,
+                        Interrupted: false,
+                        AppliedTemporaryRouting: true,
+                        previousHeartbeatMode,
+                        previousCoherenceMode,
+                        openOutcome,
+                        routeOutcome,
+                        skippedStart,
+                        skippedStart,
+                        restoreOutcome,
+                        null,
+                        null,
+                        startedAtUtc,
+                        DateTimeOffset.UtcNow);
+                }
+
+                if (bridge is LslTwinModeBridge lslBridge)
+                {
+                    await WaitForStudySnapshotAsync(lslBridge, waitForStateDuration).ConfigureAwait(false);
+                    var settings = lslBridge.ReportedSettings;
+                    previousHeartbeatMode = GetFirstSetting(
+                        settings,
+                        "showcase_heartbeat_mode",
+                        "hotload.showcase_heartbeat_mode",
+                        "routing.heartbeat.mode");
+                    previousCoherenceMode = GetFirstSetting(
+                        settings,
+                        "showcase_coherence_mode",
+                        "hotload.showcase_coherence_mode",
+                        "routing.coherence.mode");
+                }
+
+                routeOutcome = await PublishTestSenderRoutingAsync(
+                        bridge,
+                        definition,
+                        TestSenderHeartbeatMode,
+                        TestSenderCoherenceMode,
+                        "test-sender-coherence-route",
+                        "Bench route for TEST sender-driven coherence checks.",
+                        "TEST sender routing enabled.",
+                        "Heartbeat mode switched to LSL and coherence mode switched to direct LSL for bench checks.")
+                    .ConfigureAwait(false);
+                if (routeOutcome.Kind == OperationOutcomeKind.Failure)
+                {
+                    var skippedStart = new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        "TEST sender not started.",
+                        routeOutcome.Detail);
+                    return new StudyTestSenderRunResult(
+                        definition.Id,
+                        definition.Label,
+                        streamName,
+                        streamType,
+                        sourceId,
+                        requestedDuration,
+                        Interrupted: false,
+                        AppliedTemporaryRouting: true,
+                        previousHeartbeatMode,
+                        previousCoherenceMode,
+                        openOutcome,
+                        routeOutcome,
+                        skippedStart,
+                        skippedStart,
+                        restoreOutcome,
+                        null,
+                        null,
+                        startedAtUtc,
+                        DateTimeOffset.UtcNow);
+                }
+            }
+
+            var startOutcome = testSender.Start(streamName, streamType, sourceId);
+            progress?.Invoke($"[{RenderOutcomeKind(startOutcome.Kind)}] {startOutcome.Summary}");
+            if (!string.IsNullOrWhiteSpace(startOutcome.Detail))
+            {
+                progress?.Invoke($"       {startOutcome.Detail}");
+            }
+
+            if (startOutcome.Kind == OperationOutcomeKind.Failure)
+            {
+                restoreOutcome = await TryRestoreTestSenderRoutingAsync(
+                        bridge,
+                        definition,
+                        previousHeartbeatMode,
+                        previousCoherenceMode)
+                    .ConfigureAwait(false);
+                return new StudyTestSenderRunResult(
+                    definition.Id,
+                    definition.Label,
+                    streamName,
+                    streamType,
+                    sourceId,
+                    requestedDuration,
+                    Interrupted: false,
+                    AppliedTemporaryRouting: applyRouting,
+                    previousHeartbeatMode,
+                    previousCoherenceMode,
+                    openOutcome,
+                    routeOutcome,
+                    startOutcome,
+                    new OperationOutcome(OperationOutcomeKind.Preview, "TEST sender stop skipped.", "The sender never started."),
+                    restoreOutcome,
+                    testSender.LastValue,
+                    testSender.LastSentAtUtc,
+                    startedAtUtc,
+                    DateTimeOffset.UtcNow);
+            }
+
+            progress?.Invoke(requestedDuration > TimeSpan.Zero
+                ? $"TEST sender running for {requestedDuration.TotalSeconds:0} second(s) on {streamName} / {streamType}."
+                : $"TEST sender running on {streamName} / {streamType}. Press Ctrl+C to stop.");
+
+            using var cts = new CancellationTokenSource();
+            ConsoleCancelEventHandler cancelHandler = (_, e) =>
+            {
+                e.Cancel = true;
+                interrupted = true;
+                cts.Cancel();
+            };
+            Console.CancelKeyPress += cancelHandler;
+            try
+            {
+                await Task.Delay(
+                        requestedDuration > TimeSpan.Zero ? requestedDuration : Timeout.InfiniteTimeSpan,
+                        cts.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                interrupted = true;
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancelHandler;
+            }
+
+            var stopOutcome = testSender.Stop();
+            restoreOutcome = await TryRestoreTestSenderRoutingAsync(
+                    bridge,
+                    definition,
+                    previousHeartbeatMode,
+                    previousCoherenceMode)
+                .ConfigureAwait(false);
+
+            return new StudyTestSenderRunResult(
+                definition.Id,
+                definition.Label,
+                streamName,
+                streamType,
+                sourceId,
+                requestedDuration,
+                interrupted,
+                applyRouting,
+                previousHeartbeatMode,
+                previousCoherenceMode,
+                openOutcome,
+                routeOutcome,
+                startOutcome,
+                stopOutcome,
+                restoreOutcome,
+                testSender.LastValue,
+                testSender.LastSentAtUtc,
+                startedAtUtc,
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            (bridge as IDisposable)?.Dispose();
+        }
+    }
+
+    private static OperationOutcome OpenStudyBridge(StudyShellDefinition definition, ITwinModeBridge bridge)
+    {
+        if (bridge is LslTwinModeBridge lslBridge)
+        {
+            lslBridge.ConfigureExpectedQuestStateSource(definition.App.PackageId);
+            return lslBridge.Open();
+        }
+
+        return bridge.Status.IsAvailable
+            ? new OperationOutcome(OperationOutcomeKind.Success, bridge.Status.Summary, bridge.Status.Detail)
+            : new OperationOutcome(OperationOutcomeKind.Failure, bridge.Status.Summary, bridge.Status.Detail);
+    }
+
+    private static async Task<StudyCommandAcknowledgement> WaitForStudyCommandAcknowledgementAsync(
+        LslTwinModeBridge? bridge,
+        string actionId,
+        int sequence,
+        TimeSpan waitDuration)
+    {
+        if (bridge is null)
+        {
+            return BuildNoAcknowledgement(null, waited: false, "Command acknowledgement is only available with the LSL twin bridge.");
+        }
+
+        if (waitDuration <= TimeSpan.Zero)
+        {
+            return BuildNoAcknowledgement(bridge, waited: false, "Command acknowledgement wait was skipped.");
+        }
+
+        var timeoutAtUtc = DateTimeOffset.UtcNow + waitDuration;
+        while (DateTimeOffset.UtcNow < timeoutAtUtc)
+        {
+            var acknowledgement = InspectStudyCommandAcknowledgement(bridge, actionId, sequence);
+            if (acknowledgement.Acknowledged)
+            {
+                return acknowledgement;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250)).ConfigureAwait(false);
+        }
+
+        return InspectStudyCommandAcknowledgement(bridge, actionId, sequence) with
+        {
+            Summary = "No matching command acknowledgement arrived before the timeout."
+        };
+    }
+
+    private static StudyCommandAcknowledgement InspectStudyCommandAcknowledgement(
+        LslTwinModeBridge bridge,
+        string actionId,
+        int sequence)
+    {
+        var settings = bridge.ReportedSettings;
+        var contractResult = TwinCommandAcknowledgementContract.Evaluate(
+            new TwinCommandAcknowledgementExpectation(
+                actionId,
+                actionId,
+                sequence > 0 ? sequence : null,
+                PreviousAcknowledgedSequence: null,
+                PreviousAcknowledgedTimestampRaw: null,
+                IssuedAtUtc: null),
+            settings);
+
+        return new StudyCommandAcknowledgement(
+            Waited: true,
+            contractResult.Acknowledged,
+            contractResult.Summary,
+            contractResult.Detail,
+            contractResult.ReportedActionId,
+            contractResult.ReportedActionSequence,
+            contractResult.ReportedActionLabel,
+            contractResult.ReportedActionSource,
+            contractResult.ReportedActionTimeUtc,
+            bridge.LastStateReceivedAt,
+            bridge.LastCommittedSnapshotRevision,
+            bridge.LastCommittedSnapshotEntryCount);
+    }
+
+    private static StudyCommandAcknowledgement BuildNoAcknowledgement(
+        LslTwinModeBridge? bridge,
+        bool waited,
+        string detail)
+        => new(
+            waited,
+            Acknowledged: false,
+            "No command acknowledgement.",
+            detail,
+            ReportedActionId: null,
+            ReportedActionSequence: null,
+            ReportedActionLabel: null,
+            ReportedActionSource: null,
+            ReportedActionTimeUtc: null,
+            LastStateReceivedAtUtc: bridge?.LastStateReceivedAt,
+            SnapshotRevision: bridge?.LastCommittedSnapshotRevision,
+            SnapshotEntryCount: bridge?.LastCommittedSnapshotEntryCount ?? 0);
+
+    private static async Task WaitForStudySnapshotAsync(
+        LslTwinModeBridge bridge,
+        TimeSpan waitDuration)
+    {
+        if (waitDuration <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var timeoutAtUtc = DateTimeOffset.UtcNow + waitDuration;
+        while (DateTimeOffset.UtcNow < timeoutAtUtc)
+        {
+            if (bridge.ReportedSettings.Count > 0 || bridge.LastStateReceivedAt.HasValue)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250)).ConfigureAwait(false);
+        }
+    }
+
+    private static IReadOnlyDictionary<string, string> FilterSnapshotSettings(
+        IReadOnlyDictionary<string, string> settings,
+        bool includeAll,
+        IReadOnlyList<string> prefixes)
+    {
+        if (includeAll)
+        {
+            return settings
+                .OrderBy(static entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(static entry => entry.Key, static entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+        }
+
+        var effectivePrefixes = prefixes.Count == 0 ? DefaultStudySnapshotPrefixes : prefixes;
+        return settings
+            .Where(entry => effectivePrefixes.Any(prefix =>
+                !string.IsNullOrWhiteSpace(prefix) &&
+                entry.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(static entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(static entry => entry.Key, static entry => entry.Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task<OperationOutcome> PublishTestSenderRoutingAsync(
+        ITwinModeBridge bridge,
+        StudyShellDefinition definition,
+        string heartbeatMode,
+        string coherenceMode,
+        string profileId,
+        string description,
+        string summary,
+        string detail)
+    {
+        var profile = new RuntimeConfigProfile(
+            profileId,
+            "Study Shell TEST Sender Route",
+            string.Empty,
+            DateTime.UtcNow.ToString("yyyy.MM.dd.HHmmss", System.Globalization.CultureInfo.InvariantCulture),
+            "bench",
+            false,
+            description,
+            [definition.App.PackageId],
+            [
+                new RuntimeConfigEntry("showcase_heartbeat_mode", heartbeatMode),
+                new RuntimeConfigEntry("showcase_coherence_mode", coherenceMode)
+            ]);
+
+        var outcome = await bridge.PublishRuntimeConfigAsync(profile, CreateStudyTarget(definition)).ConfigureAwait(false);
+        return outcome.Kind == OperationOutcomeKind.Failure
+            ? outcome
+            : new OperationOutcome(outcome.Kind, summary, detail);
+    }
+
+    private static async Task<OperationOutcome?> TryRestoreTestSenderRoutingAsync(
+        ITwinModeBridge? bridge,
+        StudyShellDefinition definition,
+        string? previousHeartbeatMode,
+        string? previousCoherenceMode)
+    {
+        if (bridge is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(previousHeartbeatMode) || string.IsNullOrWhiteSpace(previousCoherenceMode))
+        {
+            return new OperationOutcome(
+                OperationOutcomeKind.Preview,
+                "TEST sender route restore skipped.",
+                "No prior heartbeat/coherence routing snapshot was available to restore.");
+        }
+
+        return await PublishTestSenderRoutingAsync(
+                bridge,
+                definition,
+                previousHeartbeatMode,
+                previousCoherenceMode,
+                "test-sender-route-restore",
+                "Restore heartbeat/coherence routing after TEST sender stop.",
+                "TEST sender routing restored.",
+                $"Heartbeat mode restored to {previousHeartbeatMode} and coherence mode restored to {previousCoherenceMode}.")
+            .ConfigureAwait(false);
+    }
+
+    private static QuestAppTarget CreateStudyTarget(StudyShellDefinition definition)
+        => new(
+            definition.Id,
+            definition.App.Label,
+            definition.App.PackageId,
+            definition.App.ApkPath,
+            definition.App.LaunchComponent,
+            string.Empty,
+            definition.Description,
+            []);
+
+    private static string BuildStudyTestSenderSourceId(StudyShellDefinition definition)
+        => $"viscereality.companion.study-shell.test.{definition.Id}";
+
+    private static string? GetFirstSetting(IReadOnlyDictionary<string, string> settings, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (settings.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private static string FormatOptionalValue(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "n/a" : value.Trim();
+
+    private static string FormatTimestamp(DateTimeOffset? value)
+        => value.HasValue ? value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz") : "n/a";
+
+    private static string RenderOutcomeKind(OperationOutcomeKind kind)
+        => kind switch
+        {
+            OperationOutcomeKind.Success => "OK",
+            OperationOutcomeKind.Warning => "WARN",
+            OperationOutcomeKind.Failure => "FAIL",
+            OperationOutcomeKind.Preview => "PREVIEW",
+            _ => "INFO"
+        };
+
+    private static void PrintStudyActionResult(StudyActionResult result)
+    {
+        Console.WriteLine($"Study:       {result.StudyLabel} ({result.StudyId})");
+        Console.WriteLine($"Action:      {result.RequestedAction} -> {result.ActionId} ({result.DisplayName})");
+        Console.WriteLine($"UI surface:  {result.UiEquivalent}");
+        Console.WriteLine($"Sequence:    {(result.PublishedSequence > 0 ? result.PublishedSequence.ToString() : "n/a")}");
+        Console.WriteLine();
+        PrintOutcome(result.OpenOutcome);
+        PrintOutcome(result.SendOutcome);
+        Console.WriteLine($"[{(result.Acknowledgement.Acknowledged ? "OK" : result.Acknowledgement.Waited ? "FAIL" : "PREVIEW")}] {result.Acknowledgement.Summary}");
+        Console.WriteLine($"       {result.Acknowledgement.Detail}");
+        Console.WriteLine($"       Last twin state: {FormatTimestamp(result.Acknowledgement.LastStateReceivedAtUtc)}; snapshot entries {result.Acknowledgement.SnapshotEntryCount}");
+    }
+
+    private static int GetStudyActionExitCode(StudyActionResult result)
+        => result.OpenOutcome.Kind == OperationOutcomeKind.Failure ||
+           result.SendOutcome.Kind == OperationOutcomeKind.Failure ||
+           result.Acknowledgement.Waited && !result.Acknowledgement.Acknowledged
+            ? 2
+            : 0;
+
+    private static void PrintStudySnapshot(StudySnapshotResult result)
+    {
+        Console.WriteLine($"Study:                  {result.StudyLabel} ({result.StudyId})");
+        Console.WriteLine($"Twin state received:    {FormatTimestamp(result.LastStateReceivedAtUtc)}");
+        Console.WriteLine($"Snapshot revision:      {FormatOptionalValue(result.SnapshotRevision)}");
+        Console.WriteLine($"Snapshot entries:       {result.SnapshotEntryCount}");
+        Console.WriteLine($"Reported setting count: {result.ReportedSettingCount}");
+        Console.WriteLine();
+        PrintOutcome(result.OpenOutcome);
+        Console.WriteLine();
+        if (result.Settings.Count == 0)
+        {
+            Console.WriteLine("No matching reported settings were captured.");
+            return;
+        }
+
+        foreach (var entry in result.Settings)
+        {
+            Console.WriteLine($"{entry.Key}={entry.Value}");
+        }
+    }
+
+    private static void PrintStudyTestSenderResult(StudyTestSenderRunResult result)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"Study:       {result.StudyLabel} ({result.StudyId})");
+        Console.WriteLine($"Stream:      {result.StreamName} / {result.StreamType}");
+        Console.WriteLine($"Source ID:   {result.SourceId}");
+        Console.WriteLine($"Interrupted: {result.Interrupted}");
+        Console.WriteLine($"Last value:  {(result.LastValue.HasValue ? result.LastValue.Value.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture) : "n/a")}");
+        Console.WriteLine($"Last sent:   {FormatTimestamp(result.LastSentAtUtc)}");
+        Console.WriteLine();
+        if (result.OpenOutcome is not null)
+        {
+            PrintOutcome(result.OpenOutcome);
+        }
+
+        if (result.RouteOutcome is not null)
+        {
+            PrintOutcome(result.RouteOutcome);
+        }
+
+        PrintOutcome(result.StartOutcome);
+        PrintOutcome(result.StopOutcome);
+        if (result.RestoreOutcome is not null)
+        {
+            PrintOutcome(result.RestoreOutcome);
+        }
     }
 
     private static async Task<OperationOutcome> GenerateSussexDiagnosticsPdfAsync(
