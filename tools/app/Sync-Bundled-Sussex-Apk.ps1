@@ -29,6 +29,47 @@ function Get-Sha256Hex {
     }
 }
 
+function Set-JsonStringPropertyInPlace {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PropertyName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $hasUtf8Bom = $bytes.Length -ge 3 -and
+        $bytes[0] -eq 0xEF -and
+        $bytes[1] -eq 0xBB -and
+        $bytes[2] -eq 0xBF
+
+    $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+    if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) {
+        $text = $text.Substring(1)
+    }
+
+    $pattern = '("' + [System.Text.RegularExpressions.Regex]::Escape($PropertyName) + '"\s*:\s*")[^"]*(")'
+    $updated = [System.Text.RegularExpressions.Regex]::Replace(
+        $text,
+        $pattern,
+        [System.Text.RegularExpressions.MatchEvaluator]{
+            param($match)
+            return $match.Groups[1].Value + $Value + $match.Groups[2].Value
+        },
+        1)
+
+    if ($updated -eq $text) {
+        throw "Property '$PropertyName' was not found in $Path"
+    }
+
+    $encoding = [System.Text.UTF8Encoding]::new($hasUtf8Bom)
+    [System.IO.File]::WriteAllText($Path, $updated, $encoding)
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $defaultAstralRepoRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot '..\AstralKarateDojo'))
 $resolvedSourceApkPath = if ([string]::IsNullOrWhiteSpace($SourceApkPath)) {
@@ -53,16 +94,11 @@ if ($null -eq $compatibility.apps -or @($compatibility.apps).Count -lt 1) {
     throw "No compatibility app entries were found in $compatibilityPath"
 }
 
-$compatibility.apps[0].sha256 = $sha256
-$compatibility | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $compatibilityPath -Encoding utf8
-
-$studyShell = Get-Content -LiteralPath $studyShellPath -Raw | ConvertFrom-Json
-$studyShell.app.sha256 = $sha256
+Set-JsonStringPropertyInPlace -Path $compatibilityPath -PropertyName 'sha256' -Value $sha256
+Set-JsonStringPropertyInPlace -Path $studyShellPath -PropertyName 'sha256' -Value $sha256
 if (-not [string]::IsNullOrWhiteSpace($VersionName)) {
-    $studyShell.app.versionName = $VersionName
+    Set-JsonStringPropertyInPlace -Path $studyShellPath -PropertyName 'versionName' -Value $VersionName
 }
-
-$studyShell | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $studyShellPath -Encoding utf8
 
 Write-Host "Bundled Sussex APK refreshed from $resolvedSourceApkPath" -ForegroundColor Green
 Write-Host "Updated SHA256 to $sha256" -ForegroundColor Green
