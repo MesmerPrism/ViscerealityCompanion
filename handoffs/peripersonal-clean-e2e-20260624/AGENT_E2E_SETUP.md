@@ -15,6 +15,14 @@ From GitHub:
 
 - Repository: `MesmerPrism/ViscerealityCompanion`
 - Branch: `codex/peripersonal-wpf-unity-operator-20260620`
+- Unity runtime repository:
+  `GeorgeFejer91/peripersonal-space-experiment-2025-12-10`
+- Unity runtime branch:
+  `codex/peripersonal-wpf-unity-runtime-20260620` at `b8e853f`
+- Questionnaire panel repository:
+  `MesmerPrism/quest-questionnaire-panel`
+- Questionnaire panel branch:
+  `codex/peripersonal-operator-runtime-20260618` at `1538fb5`
 
 ## Machine Prerequisites
 
@@ -66,6 +74,9 @@ mirrored at:
 ```powershell
 .\samples\quest-session-kit\APKs\PeripersonalRuntime.apk
 ```
+
+To rebuild the APKs instead of using the bundled binaries, check out the Unity
+and questionnaire panel branches listed above.
 
 ## Optional Wi-Fi ADB
 

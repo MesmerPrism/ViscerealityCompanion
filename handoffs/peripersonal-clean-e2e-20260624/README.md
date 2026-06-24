@@ -10,6 +10,8 @@ same setup on another Windows machine plus Quest headset.
 ## Scope
 
 - Companion branch: `codex/peripersonal-wpf-unity-operator-20260620`
+- Unity branch: `codex/peripersonal-wpf-unity-runtime-20260620` at `b8e853f`
+- Questionnaire panel branch: `codex/peripersonal-operator-runtime-20260618` at `1538fb5`
 - Study shell: `peripersonal-space`
 - Runtime APK package: `com.Viscereality.ViscerealityPeriPersonal`
 - Questionnaire panel APK package: `io.github.mesmerprism.questquestionnaire.panel`
@@ -21,6 +23,7 @@ same setup on another Windows machine plus Quest headset.
 - `RUN_SUMMARY.md`: what was tested and what passed in the completed run.
 - `AGENT_E2E_SETUP.md`: machine-independent setup and E2E run instructions for another agent.
 - `FOREGROUND_OWNERSHIP.md`: current foreground/focus signaling and recommended refinement.
+- `EVIDENCE_NOTES.md`: how to read raw run evidence without reusing local paths.
 - `GITHUB_PUSH_NOTES.md`: what should be pushed and how to verify the pushed branch.
 
 The shareable ZIP generated from this handoff adds:
