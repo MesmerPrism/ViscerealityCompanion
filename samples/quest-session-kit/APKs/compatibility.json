@@ -45,6 +45,29 @@
                                           "verifiedAtUtc":  "2026-06-24T08:38:40Z",
                                           "verifiedBy":  "Companion foreground-status live validation run"
                                       }
+                 },
+                 {
+                     "sha256":  "2768660E9AF269F12DC8A39A6C98CE03D0890B4CF459602717983473A8920C3F",
+                     "status":  "compatible",
+                     "label":  "Peripersonal questionnaire panel build",
+                     "notes":  "Minimal Quest questionnaire panel APK rebuilt and validated on 2026-06-24 for the MAIA Spatial three-stage flow. It preserves caller-owned questionnaire results, supports participant automation used by the operator-equivalent CLI tests, returns control to the Unity runtime after participant submit, and emits low-cadence foreground/input-owner UDP beacons for the WPF operator shell.",
+                     "tags":  [
+                                  "viscereality",
+                                  "peripersonal",
+                                  "questionnaire",
+                                  "panel",
+                                  "maia-spatial"
+                              ],
+                     "verification":  {
+                                          "apkSha256":  "2768660E9AF269F12DC8A39A6C98CE03D0890B4CF459602717983473A8920C3F",
+                                          "softwareVersion":  "14",
+                                          "buildId":  "3451870041600610",
+                                          "displayId":  "UP1A.231005.007.A1",
+                                          "deviceProfileId":  "peripersonal-study-profile",
+                                          "environmentHash":  "",
+                                          "verifiedAtUtc":  "2026-06-24T08:38:40Z",
+                                          "verifiedBy":  "Companion foreground-status live validation run"
+                                      }
                  }
              ]
 }

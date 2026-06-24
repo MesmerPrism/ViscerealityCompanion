@@ -23,8 +23,8 @@ The Companion push includes:
   study data recording, keep-awake launch policy, and foreground status
   classification.
 - This tracked handoff folder.
-- The refreshed Unity runtime APK mirrored in
-  `samples/quest-session-kit/APKs/PeripersonalRuntime.apk`.
+- The refreshed Unity runtime APK and questionnaire panel APK mirrored in
+  `samples/quest-session-kit/APKs/`.
 
 Validation before Companion push:
 
@@ -87,6 +87,9 @@ Results:
 - `:examples:native-caller:assembleDebug` passed.
 - The minimal panel APK in the ZIP has SHA-256
   `2768660e9af269f12dc8a39a6c98ce03d0890b4cf459602717983473a8920c3f`.
+- The same panel APK is mirrored in the Companion sample kit for clone-and-run
+  setup; the panel repo itself intentionally remains source-only for APK
+  binaries.
 
 ## Binary Evidence Bundle
 

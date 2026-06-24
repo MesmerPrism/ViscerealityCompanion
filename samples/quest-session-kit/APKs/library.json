@@ -30,6 +30,22 @@
         "lsl",
         "single-apk"
       ]
+    },
+    {
+      "id": "peripersonal-questionnaire-panel",
+      "label": "Peripersonal Questionnaire Panel APK",
+      "packageId": "io.github.mesmerprism.questquestionnaire.panel",
+      "apkFile": "QuestQuestionnairePanel.apk",
+      "launchComponent": "io.github.mesmerprism.questquestionnaire.panel/.QuestionnaireActivity",
+      "browserPackageId": "",
+      "description": "Bundled Quest questionnaire panel APK for the Peripersonal MAIA Spatial three-stage flow. It is opened by the Unity runtime during the current study route, returns participant submissions to Windows, and emits low-cadence foreground/input-owner beacons for the WPF operator shell.",
+      "tags": [
+        "viscereality",
+        "peripersonal",
+        "questionnaire",
+        "panel",
+        "maia-spatial"
+      ]
     }
   ],
   "bundles": []

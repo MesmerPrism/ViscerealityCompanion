@@ -89,11 +89,12 @@ Expected APK hashes for this bundle:
 - `QuestQuestionnairePanel.apk`:
   `2768660e9af269f12dc8a39a6c98ce03d0890b4cf459602717983473a8920c3f`
 
-If running from the repo instead of the ZIP copy, the runtime APK is also
-mirrored at:
+If running from the repo instead of the ZIP copy, both APKs are also mirrored
+in the Companion sample kit:
 
 ```powershell
 .\samples\quest-session-kit\APKs\PeripersonalRuntime.apk
+.\samples\quest-session-kit\APKs\QuestQuestionnairePanel.apk
 ```
 
 To rebuild the APKs instead of using the bundled binaries, check out the Unity

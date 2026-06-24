@@ -51,6 +51,9 @@ beacons from both Quest apps:
   `viscereality peripersonal foreground-status --wait-seconds 6 --json`.
 - The bundled `PeripersonalRuntime.apk` has been refreshed to SHA-256
   `3cf14c777cf67648b829743d48eea21a4ee28da1ac8a0a7049f458bd4c1d95bd`.
+- The bundled `QuestQuestionnairePanel.apk` has been refreshed to SHA-256
+  `2768660e9af269f12dc8a39a6c98ce03d0890b4cf459602717983473a8920c3f` and
+  is mirrored in the Companion sample APK kit.
 
 ## Important Caveat
 
