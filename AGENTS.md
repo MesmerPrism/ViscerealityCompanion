@@ -17,6 +17,14 @@ cross-project patterns, or central-bureau maintenance, use
 - Build docs site: `npm run pages:build`
 - Serve docs locally: `npm run pages:serve`
 
+PowerShell wrapper note: when generating CLI/e2e harness snippets in this repo,
+do not name helper arrays or parameters `$args`, `$matches`, or `$pid`. Use
+specific names such as `$cliArgs`, `$dotnetArgs`, `$argumentList`, `$hitRows`,
+or `$processIdText`. Keep `dotnet run -- <app-args>` arguments as separate
+array items and run
+`S:\Work\agent-bureau\scripts\Test-AgentPowerShell.ps1 -Path <script.ps1>`
+before executing generated wrappers.
+
 ## GUI Validation Guardrails
 
 - For live Quest GUI testing, establish an active ADB selector first. Use

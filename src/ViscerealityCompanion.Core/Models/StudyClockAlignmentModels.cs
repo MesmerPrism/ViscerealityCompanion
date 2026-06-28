@@ -6,6 +6,12 @@ public static class StudyClockAlignmentStreamContract
     public const string ProbeStreamType = "peripersonal.clock.probe";
     public const string EchoStreamName = "PeripersonalClockEcho";
     public const string EchoStreamType = "peripersonal.clock.echo";
+    public const string ProbeSourceId = "viscereality.companion.peripersonal.clockprobe";
+    public const string SussexProbeStreamName = "SussexClockProbe";
+    public const string SussexProbeStreamType = "sussex.clock.probe";
+    public const string SussexEchoStreamName = "SussexClockEcho";
+    public const string SussexEchoStreamType = "sussex.clock.echo";
+    public const string SussexProbeSourceId = "viscereality.companion.sussex.clockprobe";
     public const string EchoChannelLabel = "clock_alignment_echo";
     public const int DefaultDurationSeconds = 10;
     public const int DefaultProbeIntervalMilliseconds = 250;
@@ -27,7 +33,13 @@ public sealed record StudyClockAlignmentRunRequest(
     TimeSpan Duration,
     TimeSpan ProbeInterval,
     TimeSpan EchoGracePeriod,
-    int FirstProbeSequence = 1);
+    int FirstProbeSequence = 1,
+    string ProbeStreamName = StudyClockAlignmentStreamContract.ProbeStreamName,
+    string ProbeStreamType = StudyClockAlignmentStreamContract.ProbeStreamType,
+    string EchoStreamName = StudyClockAlignmentStreamContract.EchoStreamName,
+    string EchoStreamType = StudyClockAlignmentStreamContract.EchoStreamType,
+    string ProbeSourceId = StudyClockAlignmentStreamContract.ProbeSourceId,
+    bool RequireSessionMatch = true);
 
 public sealed record StudyClockAlignmentSample(
     StudyClockAlignmentWindowKind WindowKind,

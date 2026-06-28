@@ -33,6 +33,8 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
     private readonly Lock _sync = new();
     private nint _streamInfo;
     private nint _outlet;
+    private string? _probeStreamName;
+    private string? _probeStreamType;
     private CancellationTokenSource? _warmPulseCts;
     private Task? _warmPulseTask;
     private int _nextWarmPulseSequence;
@@ -72,7 +74,13 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         EchoMonitorState monitorState;
         try
         {
-            monitorState = await _echoMonitor.EnsureRunningAsync(MonitorReadyTimeout, cancellationToken).ConfigureAwait(false);
+            monitorState = await _echoMonitor
+                .EnsureRunningAsync(
+                    StudyClockAlignmentStreamContract.EchoStreamName,
+                    StudyClockAlignmentStreamContract.EchoStreamType,
+                    MonitorReadyTimeout,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -136,7 +144,8 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 []);
         }
 
-        if (string.IsNullOrWhiteSpace(request.SessionId) || string.IsNullOrWhiteSpace(request.DatasetHash))
+        if (request.RequireSessionMatch &&
+            (string.IsNullOrWhiteSpace(request.SessionId) || string.IsNullOrWhiteSpace(request.DatasetHash)))
         {
             return new StudyClockAlignmentRunResult(
                 new OperationOutcome(
@@ -158,7 +167,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         {
             var sessionMatches = string.Equals(reading.Payload.SessionId, request.SessionId, StringComparison.Ordinal);
             var datasetMatches = string.Equals(reading.Payload.DatasetHash, request.DatasetHash, StringComparison.OrdinalIgnoreCase);
-            if (!sessionMatches || !datasetMatches)
+            if (request.RequireSessionMatch && (!sessionMatches || !datasetMatches))
             {
                 mismatchedEchoes.Enqueue(new EchoSessionMismatch(
                     reading.Payload.Sequence,
@@ -212,7 +221,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 $"Echo {reading.Payload.Sequence} received. RTT {roundTripSeconds * 1000d:0.0} ms, quest-minus-Windows offset {questMinusWindowsClockSeconds * 1000d:0.0} ms."));
         });
 
-        if (!TryEnsureProbeOutlet(out var openOutcome))
+        if (!TryEnsureProbeOutlet(request, out var openOutcome))
         {
             return new StudyClockAlignmentRunResult(openOutcome, BuildSummary([], probesSent: 0), []);
         }
@@ -222,11 +231,17 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             probesSent,
             echoesReceived,
             "Clock alignment is starting.",
-            $"Opening {StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType} and waiting for Quest echoes."));
+            $"Opening {request.ProbeStreamName} / {request.ProbeStreamType} and waiting for Quest echoes."));
 
         try
         {
-            var monitorState = await _echoMonitor.EnsureRunningAsync(MonitorReadyTimeout, cancellationToken).ConfigureAwait(false);
+            var monitorState = await _echoMonitor
+                .EnsureRunningAsync(
+                    request.EchoStreamName,
+                    request.EchoStreamType,
+                    MonitorReadyTimeout,
+                    cancellationToken)
+                .ConfigureAwait(false);
             monitorConnected = monitorState.Connected;
             monitorReadyTimedOut = monitorState.ReadyTimedOut;
         }
@@ -249,7 +264,7 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 ? "Clock alignment echo monitor connected."
                 : "Clock alignment is still waiting for the echo monitor.",
             monitorConnected
-                ? $"Echo inlet for {StudyClockAlignmentStreamContract.EchoStreamName} is ready. Sending probes now."
+                ? $"Echo inlet for {request.EchoStreamName} is ready. Sending probes now."
                 : $"Echo inlet did not report ready within {MonitorReadyTimeout.TotalSeconds:0.#} seconds. Sending probes anyway so the study flow can continue."));
 
         var probeScheduleOffsets = BuildProbeScheduleOffsets(request.Duration, request.ProbeInterval);
@@ -435,6 +450,9 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         return detail.ToString();
     }
 
+    private static string NormalizeContractValue(string value, string fallback)
+        => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+
     private static StudyClockAlignmentProgress BuildProgress(
         StudyClockAlignmentRunRequest request,
         int probesSent,
@@ -523,25 +541,60 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
     }
 
     private bool TryEnsureProbeOutlet(out OperationOutcome outcome)
+        => TryEnsureProbeOutlet(
+            StudyClockAlignmentStreamContract.ProbeStreamName,
+            StudyClockAlignmentStreamContract.ProbeStreamType,
+            StudyClockAlignmentStreamContract.ProbeSourceId,
+            out outcome);
+
+    private bool TryEnsureProbeOutlet(StudyClockAlignmentRunRequest request, out OperationOutcome outcome)
+        => TryEnsureProbeOutlet(
+            request.ProbeStreamName,
+            request.ProbeStreamType,
+            request.ProbeSourceId,
+            out outcome);
+
+    private bool TryEnsureProbeOutlet(string streamName, string streamType, string sourceId, out OperationOutcome outcome)
     {
+        streamName = NormalizeContractValue(streamName, StudyClockAlignmentStreamContract.ProbeStreamName);
+        streamType = NormalizeContractValue(streamType, StudyClockAlignmentStreamContract.ProbeStreamType);
+        sourceId = NormalizeContractValue(sourceId, StudyClockAlignmentStreamContract.ProbeSourceId);
+
         lock (_sync)
         {
+            if (_outlet != nint.Zero && _streamInfo != nint.Zero)
+            {
+                if (!string.Equals(_probeStreamName, streamName, StringComparison.Ordinal) ||
+                    !string.Equals(_probeStreamType, streamType, StringComparison.Ordinal))
+                {
+                    CloseProbeOutlet_NoLock();
+                }
+                else
+                {
+                    outcome = new OperationOutcome(
+                        OperationOutcomeKind.Success,
+                        "Clock alignment probe stream active.",
+                        $"Reusing {streamName} / {streamType}.");
+                    return true;
+                }
+            }
+
             if (_outlet != nint.Zero && _streamInfo != nint.Zero)
             {
                 outcome = new OperationOutcome(
                     OperationOutcomeKind.Success,
                     "Clock alignment probe stream active.",
-                    $"Reusing {StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType}.");
+                    $"Reusing {streamName} / {streamType}.");
                 return true;
             }
 
             _streamInfo = NativeMethods.CreateStreamInfo(
-                StudyClockAlignmentStreamContract.ProbeStreamName,
-                StudyClockAlignmentStreamContract.ProbeStreamType,
+                streamName,
+                streamType,
                 ProbeChannelCount,
                 0d,
                 NativeMethods.FloatChannelFormat,
-                "viscereality.companion.peripersonal.clockprobe");
+                sourceId);
             if (_streamInfo == nint.Zero)
             {
                 outcome = new OperationOutcome(
@@ -568,10 +621,12 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 return false;
             }
 
+            _probeStreamName = streamName;
+            _probeStreamType = streamType;
             outcome = new OperationOutcome(
                 OperationOutcomeKind.Success,
                 "Clock alignment probe stream active.",
-                $"Publishing {StudyClockAlignmentStreamContract.ProbeStreamName} / {StudyClockAlignmentStreamContract.ProbeStreamType}.");
+                $"Publishing {streamName} / {streamType}.");
             return true;
         }
     }
@@ -580,18 +635,26 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
     {
         lock (_sync)
         {
-            if (_outlet != nint.Zero)
-            {
-                NativeMethods.DestroyOutlet(_outlet);
-                _outlet = nint.Zero;
-            }
-
-            if (_streamInfo != nint.Zero)
-            {
-                NativeMethods.DestroyStreamInfo(_streamInfo);
-                _streamInfo = nint.Zero;
-            }
+            CloseProbeOutlet_NoLock();
         }
+    }
+
+    private void CloseProbeOutlet_NoLock()
+    {
+        if (_outlet != nint.Zero)
+        {
+            NativeMethods.DestroyOutlet(_outlet);
+            _outlet = nint.Zero;
+        }
+
+        if (_streamInfo != nint.Zero)
+        {
+            NativeMethods.DestroyStreamInfo(_streamInfo);
+            _streamInfo = nint.Zero;
+        }
+
+        _probeStreamName = null;
+        _probeStreamType = null;
     }
 
     private void EnsureWarmPulseRunning()
@@ -779,6 +842,8 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
         private Task? _monitorTask;
         private TaskCompletionSource<bool>? _monitorReady;
         private Action<EchoMonitorReading>? _echoReceived;
+        private string? _streamName;
+        private string? _streamType;
         private bool _monitorConnected;
 
         public EchoMonitorSession(ILslMonitorService monitorService)
@@ -786,12 +851,19 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             _monitorService = monitorService;
         }
 
-        public async Task<EchoMonitorState> EnsureRunningAsync(TimeSpan readyTimeout, CancellationToken cancellationToken)
+        public async Task<EchoMonitorState> EnsureRunningAsync(
+            string streamName,
+            string streamType,
+            TimeSpan readyTimeout,
+            CancellationToken cancellationToken)
         {
+            streamName = NormalizeContractValue(streamName, StudyClockAlignmentStreamContract.EchoStreamName);
+            streamType = NormalizeContractValue(streamType, StudyClockAlignmentStreamContract.EchoStreamType);
+
             Task<bool> readyTask;
             lock (_sync)
             {
-                EnsureMonitorStarted_NoLock();
+                EnsureMonitorStarted_NoLock(streamName, streamType);
                 if (_monitorConnected)
                 {
                     return new EchoMonitorState(Connected: true, ReadyTimedOut: false);
@@ -838,6 +910,8 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 _monitorCts = null;
                 _monitorTask = null;
                 _monitorReady = null;
+                _streamName = null;
+                _streamType = null;
                 _monitorConnected = false;
             }
 
@@ -888,9 +962,12 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             }
         }
 
-        private void EnsureMonitorStarted_NoLock()
+        private void EnsureMonitorStarted_NoLock(string streamName, string streamType)
         {
-            if (_monitorTask is not null && !_monitorTask.IsCompleted)
+            if (_monitorTask is not null &&
+                !_monitorTask.IsCompleted &&
+                string.Equals(_streamName, streamName, StringComparison.Ordinal) &&
+                string.Equals(_streamType, streamType, StringComparison.Ordinal))
             {
                 return;
             }
@@ -899,10 +976,12 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
             _monitorCts?.Dispose();
             _monitorCts = new CancellationTokenSource();
             _monitorReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _streamName = streamName;
+            _streamType = streamType;
             _monitorConnected = false;
 
             var token = _monitorCts.Token;
-            _monitorTask = Task.Run(() => MonitorAsync(token), CancellationToken.None);
+            _monitorTask = Task.Run(() => MonitorAsync(streamName, streamType, token), CancellationToken.None);
             _ = _monitorTask.ContinueWith(
                 static task => _ = task.Exception,
                 CancellationToken.None,
@@ -910,11 +989,11 @@ public sealed class WindowsStudyClockAlignmentService : IStudyClockAlignmentServ
                 TaskScheduler.Default);
         }
 
-        private async Task MonitorAsync(CancellationToken cancellationToken)
+        private async Task MonitorAsync(string streamName, string streamType, CancellationToken cancellationToken)
         {
             var subscription = new LslMonitorSubscription(
-                StudyClockAlignmentStreamContract.EchoStreamName,
-                StudyClockAlignmentStreamContract.EchoStreamType,
+                streamName,
+                streamType,
                 0);
 
             try

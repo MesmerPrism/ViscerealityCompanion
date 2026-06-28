@@ -37,6 +37,7 @@ public static partial class Program
         rootCommand.AddCommand(BuildHzdbCommand());
         rootCommand.AddCommand(BuildToolingCommand());
         rootCommand.AddCommand(BuildWindowsEnvironmentCommand());
+        rootCommand.AddCommand(BuildLslClockProbeCommand());
         rootCommand.AddCommand(BuildUtilityCommand());
 
         var exitCode = await rootCommand.InvokeAsync(args);
@@ -1731,6 +1732,159 @@ public static partial class Program
         });
         return command;
     }
+
+    private static Command BuildLslClockProbeCommand()
+    {
+        var contractOption = new Option<string>("--contract", () => "sussex-akd", "Clock probe stream contract: sussex-akd, peripersonal, or custom.");
+        var probeNameOption = new Option<string?>("--probe-name", "Override the probe stream name.");
+        var probeTypeOption = new Option<string?>("--probe-type", "Override the probe stream type.");
+        var echoNameOption = new Option<string?>("--echo-name", "Override the Quest echo stream name.");
+        var echoTypeOption = new Option<string?>("--echo-type", "Override the Quest echo stream type.");
+        var sourceIdOption = new Option<string?>("--source-id", "Override the probe stream source id.");
+        var durationOption = new Option<double>("--duration-seconds", () => StudyClockAlignmentStreamContract.DefaultDurationSeconds, "Clock probe duration in seconds.");
+        var intervalOption = new Option<int>("--probe-interval-ms", () => StudyClockAlignmentStreamContract.DefaultProbeIntervalMilliseconds, "Probe interval in milliseconds.");
+        var echoGraceOption = new Option<int>("--echo-grace-ms", () => StudyClockAlignmentStreamContract.DefaultEchoGraceMilliseconds, "Extra wait after the probe window for delayed Quest echoes.");
+        var firstSequenceOption = new Option<int>("--first-sequence", () => 1, "First probe sequence number.");
+        var sessionIdOption = new Option<string>("--session-id", () => string.Empty, "Expected study session id. Leave empty for protocol diagnostics.");
+        var datasetHashOption = new Option<string>("--dataset-hash", () => string.Empty, "Expected dataset hash. Leave empty for protocol diagnostics.");
+        var requireSessionOption = new Option<bool>("--require-session-match", () => false, "Require echoed session id and dataset hash to match the supplied values.");
+        var jsonOption = new Option<bool>("--json", "Write machine-readable JSON to stdout.");
+        var outOption = new Option<string?>("--out", "Optional JSON artifact path.");
+        var verboseOption = new Option<bool>("--verbose", "Print progress while probing.");
+
+        var command = new Command("lsl-clock-probe", "Run a reusable LSL clock-alignment round-trip probe against a Quest/Unity echo stream")
+        {
+            contractOption,
+            probeNameOption,
+            probeTypeOption,
+            echoNameOption,
+            echoTypeOption,
+            sourceIdOption,
+            durationOption,
+            intervalOption,
+            echoGraceOption,
+            firstSequenceOption,
+            sessionIdOption,
+            datasetHashOption,
+            requireSessionOption,
+            jsonOption,
+            outOption,
+            verboseOption
+        };
+
+        command.Handler = CommandHandler.Create(async (
+            string contract,
+            string? probeName,
+            string? probeType,
+            string? echoName,
+            string? echoType,
+            string? sourceId,
+            double durationSeconds,
+            int probeIntervalMs,
+            int echoGraceMs,
+            int firstSequence,
+            string sessionId,
+            string datasetHash,
+            bool requireSessionMatch,
+            bool json,
+            string? @out,
+            bool verbose) =>
+        {
+            var resolved = ResolveClockProbeContract(contract);
+            var request = new StudyClockAlignmentRunRequest(
+                sessionId,
+                datasetHash,
+                StudyClockAlignmentWindowKind.BackgroundSparse,
+                TimeSpan.FromSeconds(Math.Max(0.5d, durationSeconds)),
+                TimeSpan.FromMilliseconds(Math.Max(50, probeIntervalMs)),
+                TimeSpan.FromMilliseconds(Math.Max(0, echoGraceMs)),
+                Math.Max(1, firstSequence),
+                string.IsNullOrWhiteSpace(probeName) ? resolved.ProbeName : probeName,
+                string.IsNullOrWhiteSpace(probeType) ? resolved.ProbeType : probeType,
+                string.IsNullOrWhiteSpace(echoName) ? resolved.EchoName : echoName,
+                string.IsNullOrWhiteSpace(echoType) ? resolved.EchoType : echoType,
+                string.IsNullOrWhiteSpace(sourceId) ? resolved.SourceId : sourceId,
+                requireSessionMatch);
+
+            using var clockAlignment = StudyClockAlignmentServiceFactory.CreateDefault();
+            var progress = verbose
+                ? new Progress<StudyClockAlignmentProgress>(update =>
+                    Console.Error.WriteLine($"{update.ProbesSent} sent / {update.EchoesReceived} echoed - {update.Detail}"))
+                : null;
+            var result = await clockAlignment.RunAsync(request, progress).ConfigureAwait(false);
+            var report = new
+            {
+                schema = "viscereality.companion.lsl_clock_probe.v1",
+                generated_utc = DateTimeOffset.UtcNow,
+                contract = resolved.Name,
+                streams = new
+                {
+                    probe_name = request.ProbeStreamName,
+                    probe_type = request.ProbeStreamType,
+                    echo_name = request.EchoStreamName,
+                    echo_type = request.EchoStreamType,
+                    source_id = request.ProbeSourceId,
+                    require_session_match = request.RequireSessionMatch
+                },
+                result
+            };
+
+            if (!string.IsNullOrWhiteSpace(@out))
+            {
+                var fullPath = Path.GetFullPath(@out);
+                Directory.CreateDirectory(Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory());
+                await File.WriteAllTextAsync(fullPath, System.Text.Json.JsonSerializer.Serialize(report, SussexCliSupport.JsonOptions)).ConfigureAwait(false);
+                Console.Error.WriteLine($"Wrote {fullPath}");
+            }
+
+            if (json)
+            {
+                SussexCliSupport.WriteJson(report);
+            }
+            else
+            {
+                PrintOutcome(result.Outcome);
+                Console.WriteLine($"Echoes: {result.Summary.EchoesReceived}/{result.Summary.ProbesSent}");
+            }
+        });
+
+        return command;
+    }
+
+    private static ClockProbeContract ResolveClockProbeContract(string contract)
+        => contract.Trim().ToLowerInvariant() switch
+        {
+            "sussex" or "sussex-akd" or "akd" or "astral-karate-dojo" => new ClockProbeContract(
+                "sussex-akd",
+                StudyClockAlignmentStreamContract.SussexProbeStreamName,
+                StudyClockAlignmentStreamContract.SussexProbeStreamType,
+                StudyClockAlignmentStreamContract.SussexEchoStreamName,
+                StudyClockAlignmentStreamContract.SussexEchoStreamType,
+                StudyClockAlignmentStreamContract.SussexProbeSourceId),
+            "peripersonal" or "peri" => new ClockProbeContract(
+                "peripersonal",
+                StudyClockAlignmentStreamContract.ProbeStreamName,
+                StudyClockAlignmentStreamContract.ProbeStreamType,
+                StudyClockAlignmentStreamContract.EchoStreamName,
+                StudyClockAlignmentStreamContract.EchoStreamType,
+                StudyClockAlignmentStreamContract.ProbeSourceId),
+            "custom" => new ClockProbeContract(
+                "custom",
+                StudyClockAlignmentStreamContract.SussexProbeStreamName,
+                StudyClockAlignmentStreamContract.SussexProbeStreamType,
+                StudyClockAlignmentStreamContract.SussexEchoStreamName,
+                StudyClockAlignmentStreamContract.SussexEchoStreamType,
+                StudyClockAlignmentStreamContract.SussexProbeSourceId),
+            _ => throw new ArgumentException($"Unknown LSL clock probe contract '{contract}'. Use sussex-akd, peripersonal, or custom.")
+        };
+
+    private sealed record ClockProbeContract(
+        string Name,
+        string ProbeName,
+        string ProbeType,
+        string EchoName,
+        string EchoType,
+        string SourceId);
 
     private static Command BuildHzdbCommand()
     {
