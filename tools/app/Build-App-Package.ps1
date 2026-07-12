@@ -8,7 +8,7 @@ param(
     [string]$Configuration = 'Release',
     [ValidateSet('x64')]
     [string]$Platform = 'x64',
-    [ValidateSet('Release', 'Dev')]
+    [ValidateSet('Release', 'Dev', 'Pilot')]
     [string]$IdentityFlavor = 'Release',
     [string]$Version = '0.1.75.0',
     [string]$PackageId,
@@ -59,6 +59,15 @@ function Get-IdentityDefaults {
                 PackageFileName = 'ViscerealityCompanion-Dev.msix'
                 AppInstallerFileName = 'ViscerealityCompanion-Dev.appinstaller'
                 CertificateFileName = 'ViscerealityCompanion-Dev.cer'
+            }
+        }
+        'Pilot' {
+            return @{
+                PackageId = 'MesmerPrism.ViscerealityCompanionSussexFixPilot'
+                DisplayName = 'Viscereality Companion Sussex Fix Pilot'
+                PackageFileName = 'ViscerealityCompanion-SussexFixPilot.msix'
+                AppInstallerFileName = 'ViscerealityCompanion-SussexFixPilot.appinstaller'
+                CertificateFileName = 'ViscerealityCompanion-SussexFixPilot.cer'
             }
         }
         default {

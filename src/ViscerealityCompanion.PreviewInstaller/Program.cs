@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Windows.Forms;
@@ -14,14 +15,44 @@ internal readonly record struct InstallerCompletionResult(
     string Detail,
     string? ToolingWarning);
 
+internal sealed record SetupReleaseConfiguration(
+    string ProductName,
+    string AppInstallerDownloadUri,
+    string CertificateDownloadUri,
+    string ReleasePageUri,
+    string ExpectedPackageId,
+    string DownloadDirectoryName,
+    string AppInstallerFileName,
+    string CertificateFileName)
+{
+    private const string MetadataPrefix = "ViscerealityCompanion.Setup.";
+
+    public static SetupReleaseConfiguration Load()
+    {
+        var metadata = typeof(SetupReleaseConfiguration).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .ToDictionary(attribute => attribute.Key, attribute => attribute.Value, StringComparer.Ordinal);
+
+        return new SetupReleaseConfiguration(
+            Read(metadata, "ProductName", "Viscereality Companion"),
+            Read(metadata, "AppInstallerDownloadUri", "https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller"),
+            Read(metadata, "CertificateDownloadUri", "https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer"),
+            Read(metadata, "ReleasePageUri", "https://github.com/MesmerPrism/ViscerealityCompanion/releases"),
+            Read(metadata, "ExpectedPackageId", PackagedAppIdentity.ReleasePackageName),
+            Read(metadata, "DownloadDirectoryName", "ViscerealityCompanionSetup"),
+            Read(metadata, "AppInstallerFileName", "ViscerealityCompanion.appinstaller"),
+            Read(metadata, "CertificateFileName", "ViscerealityCompanion.cer"));
+    }
+
+    private static string Read(IReadOnlyDictionary<string, string?> metadata, string name, string fallback)
+        => metadata.TryGetValue(MetadataPrefix + name, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : fallback;
+}
+
 internal static class Program
 {
-    private const string AppInstallerDownloadUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller";
-    private const string CertificateDownloadUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer";
-    private const string ReleasePageUri = "https://github.com/MesmerPrism/ViscerealityCompanion/releases";
-    private const string DownloadDirectoryName = "ViscerealityCompanionSetup";
-    private const string AppInstallerFileName = "ViscerealityCompanion.appinstaller";
-    private const string CertificateFileName = "ViscerealityCompanion.cer";
+    private static readonly SetupReleaseConfiguration ReleaseConfiguration = SetupReleaseConfiguration.Load();
 
     [STAThread]
     private static int Main()
@@ -36,7 +67,8 @@ internal static class Program
             using var installerForm = new InstallerStatusForm(
                 (progress, cancellationToken) => InstallPublishedPackageAsync(progress, cancellationToken),
                 (progress, cancellationToken) => InstallPublishedPackageAsync(progress, cancellationToken, removeLegacyPackagesBeforeInstall: true),
-                ReleasePageUri);
+                ReleaseConfiguration.ReleasePageUri,
+                ReleaseConfiguration.ProductName);
             Application.Run(installerForm);
             return 0;
         }
@@ -57,25 +89,25 @@ internal static class Program
             "Creating a temporary staging folder for the packaged Viscereality Companion installer.",
             5));
 
-        var downloadDirectory = Path.Combine(Path.GetTempPath(), DownloadDirectoryName);
+        var downloadDirectory = Path.Combine(Path.GetTempPath(), ReleaseConfiguration.DownloadDirectoryName);
         Directory.CreateDirectory(downloadDirectory);
 
-        var certificatePath = Path.Combine(downloadDirectory, CertificateFileName);
-        var appInstallerPath = Path.Combine(downloadDirectory, AppInstallerFileName);
+        var certificatePath = Path.Combine(downloadDirectory, ReleaseConfiguration.CertificateFileName);
+        var appInstallerPath = Path.Combine(downloadDirectory, ReleaseConfiguration.AppInstallerFileName);
 
         using var httpClient = new HttpClient();
 
         progress.Report(new InstallerProgressUpdate(
             "Downloading trust certificate",
-            "Pulling the package signing certificate from the latest public GitHub release.",
+            $"Pulling the package signing certificate for {ReleaseConfiguration.ProductName}.",
             25));
-        await DownloadFileAsync(httpClient, CertificateDownloadUri, certificatePath, cancellationToken);
+        await DownloadFileAsync(httpClient, ReleaseConfiguration.CertificateDownloadUri, certificatePath, cancellationToken);
 
         progress.Report(new InstallerProgressUpdate(
             "Downloading App Installer metadata",
-            "Fetching the current .appinstaller feed that points at the latest published Windows package.",
+            $"Fetching the .appinstaller feed pinned for {ReleaseConfiguration.ProductName}.",
             50));
-        await DownloadFileAsync(httpClient, AppInstallerDownloadUri, appInstallerPath, cancellationToken);
+        await DownloadFileAsync(httpClient, ReleaseConfiguration.AppInstallerDownloadUri, appInstallerPath, cancellationToken);
 
         string? toolingWarning = null;
         try
@@ -108,7 +140,7 @@ internal static class Program
             87));
         var packageInstaller = new PreviewPackageInstaller();
         var packageIdentity = PreviewPackageInstaller.ParseAppInstallerManifest(appInstallerPath);
-        ValidatePublishedPackageIdentity(packageIdentity);
+        ValidatePublishedPackageIdentity(packageIdentity, ReleaseConfiguration.ExpectedPackageId);
         var existingPackage = PreviewPackageInstaller.FindExistingPackage(packageIdentity);
         var legacyPackages = PreviewPackageInstaller.FindLegacyPackagesToRetire(packageIdentity);
         var installResult = await packageInstaller
@@ -135,19 +167,25 @@ internal static class Program
 
     internal static string GetDownloadedAppInstallerPath()
     {
-        return Path.Combine(Path.GetTempPath(), DownloadDirectoryName, AppInstallerFileName);
+        return Path.Combine(
+            Path.GetTempPath(),
+            ReleaseConfiguration.DownloadDirectoryName,
+            ReleaseConfiguration.AppInstallerFileName);
     }
 
-    internal static void ValidatePublishedPackageIdentity(PreviewPackageIdentity packageIdentity)
+    internal static void ValidatePublishedPackageIdentity(PreviewPackageIdentity packageIdentity, string? expectedPackageId = null)
     {
-        if (PackagedAppIdentity.IsReleasePackageName(packageIdentity.Name))
+        var expected = string.IsNullOrWhiteSpace(expectedPackageId)
+            ? ReleaseConfiguration.ExpectedPackageId
+            : expectedPackageId.Trim();
+        if (string.Equals(packageIdentity.Name, expected, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
         throw new InvalidOperationException(
-            $"The downloaded App Installer feed currently targets package {packageIdentity.Name}, not the public release family {PackagedAppIdentity.ReleasePackageName}. " +
-            "The public release assets are inconsistent. Open the GitHub release page and refresh the published .appinstaller, MSIX, and guided setup helper together.");
+            $"The downloaded App Installer feed currently targets package {packageIdentity.Name}, not the expected package family {expected}. " +
+            "The release assets are inconsistent. Open the release page and refresh the published .appinstaller, MSIX, and guided setup helper together.");
     }
 
     private static void EnsureAdministrator()
@@ -193,14 +231,14 @@ internal static class Program
     private static void ShowError(Exception exception)
     {
         var message =
-            "Viscereality Companion Setup could not finish.\n\n" +
+            $"{ReleaseConfiguration.ProductName} Setup could not finish.\n\n" +
             $"{exception.Message}\n\n" +
-            "If the public Windows release is not available yet, open the release page or use the source-build path instead.\n" +
-            $"{ReleasePageUri}";
+            "If the Windows release is not available yet, open the release page or use the source-build path instead.\n" +
+            ReleaseConfiguration.ReleasePageUri;
 
         MessageBox.Show(
             message,
-            "Viscereality Companion Setup",
+            $"{ReleaseConfiguration.ProductName} Setup",
             MessageBoxButtons.OK,
             MessageBoxIcon.Error);
     }
@@ -209,22 +247,22 @@ internal static class Program
     {
         if (installResult.RemovedPreviousInstall)
         {
-            return $"Viscereality Companion {installResult.InstalledVersion} replaced the previous install.";
+            return $"{ReleaseConfiguration.ProductName} {installResult.InstalledVersion} replaced the previous install.";
         }
 
         if (installResult.RemovedLegacyInstall)
         {
-            return $"Viscereality Companion {installResult.InstalledVersion} installed and retired the previous preview-family entry.";
+            return $"{ReleaseConfiguration.ProductName} {installResult.InstalledVersion} installed and retired the previous preview-family entry.";
         }
 
         if (installResult.UpdatedExistingInstall)
         {
             return string.Equals(installResult.PreviousVersion, installResult.InstalledVersion, StringComparison.OrdinalIgnoreCase)
-                ? $"Viscereality Companion {installResult.InstalledVersion} is installed."
-                : $"Viscereality Companion updated to {installResult.InstalledVersion}.";
+                ? $"{ReleaseConfiguration.ProductName} {installResult.InstalledVersion} is installed."
+                : $"{ReleaseConfiguration.ProductName} updated to {installResult.InstalledVersion}.";
         }
 
-        return $"Viscereality Companion {installResult.InstalledVersion} installed.";
+        return $"{ReleaseConfiguration.ProductName} {installResult.InstalledVersion} installed.";
     }
 
     private static string BuildCompletionDetail(PreviewPackageInstallResult installResult, string? launchDetail)
@@ -232,11 +270,11 @@ internal static class Program
         var installDetail = installResult switch
         {
             { RemovedPreviousInstall: true } => $"The existing packaged install {installResult.PreviousVersion ?? "n/a"} blocked the in-place update, so the helper removed it and installed {installResult.InstalledVersion} cleanly.",
-            { RemovedLegacyInstall: true } => $"Windows installed Viscereality Companion {installResult.InstalledVersion} and removed the older preview-family packaged install {installResult.PreviousVersion ?? "n/a"} so the stable public Start-menu entry stays in place.",
+            { RemovedLegacyInstall: true } => $"Windows installed {ReleaseConfiguration.ProductName} {installResult.InstalledVersion} and removed the older preview-family packaged install {installResult.PreviousVersion ?? "n/a"}.",
             { UpdatedExistingInstall: true } when string.Equals(installResult.PreviousVersion, installResult.InstalledVersion, StringComparison.OrdinalIgnoreCase)
                 => "The packaged install already matched the published release. The helper refreshed that install cleanly.",
             { UpdatedExistingInstall: true } => $"Windows updated the packaged install from {installResult.PreviousVersion ?? "n/a"} to {installResult.InstalledVersion} and closed the running app first if needed.",
-            _ => $"The packaged app was installed directly from the published App Installer feed and is ready to launch from the Start menu as Viscereality Companion {installResult.InstalledVersion}."
+            _ => $"The packaged app was installed directly from the published App Installer feed and is ready to launch from the Start menu as {ReleaseConfiguration.ProductName} {installResult.InstalledVersion}."
         };
 
         return string.IsNullOrWhiteSpace(launchDetail)

@@ -11,6 +11,14 @@ param(
     [string]$Version = '0.1.75.0',
     [string]$OutputRelativePath = 'artifacts\windows-installer',
     [string]$FileName = 'ViscerealityCompanion-Setup.exe',
+    [string]$SetupProductName,
+    [string]$SetupAppInstallerDownloadUri,
+    [string]$SetupCertificateDownloadUri,
+    [string]$SetupReleasePageUri,
+    [string]$SetupExpectedPackageId,
+    [string]$SetupDownloadDirectoryName,
+    [string]$SetupAppInstallerFileName,
+    [string]$SetupCertificateFileName,
     [string]$PackageCertificatePath,
     [string]$PackageCertificatePassword,
     [string]$PackageCertificateTimestampUrl
@@ -98,6 +106,23 @@ $publishArgs = @(
     "/p:InformationalVersion=$Version",
     '--output', $publishPath
 )
+
+$setupBuildProperties = [ordered]@{
+    SetupProductName = $SetupProductName
+    SetupAppInstallerDownloadUri = $SetupAppInstallerDownloadUri
+    SetupCertificateDownloadUri = $SetupCertificateDownloadUri
+    SetupReleasePageUri = $SetupReleasePageUri
+    SetupExpectedPackageId = $SetupExpectedPackageId
+    SetupDownloadDirectoryName = $SetupDownloadDirectoryName
+    SetupAppInstallerFileName = $SetupAppInstallerFileName
+    SetupCertificateFileName = $SetupCertificateFileName
+}
+
+foreach ($setupProperty in $setupBuildProperties.GetEnumerator()) {
+    if (-not [string]::IsNullOrWhiteSpace($setupProperty.Value)) {
+        $publishArgs += "/p:$($setupProperty.Key)=$($setupProperty.Value)"
+    }
+}
 
 Write-Host 'Publishing guided setup bootstrapper...' -ForegroundColor Cyan
 dotnet @publishArgs | Out-Host

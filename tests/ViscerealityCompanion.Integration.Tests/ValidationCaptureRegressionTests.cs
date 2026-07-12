@@ -256,6 +256,35 @@ public sealed class ValidationCaptureRegressionTests
     }
 
     [Fact]
+    public void ControllerCard_UsesAggregateBreathingReadbackWhenRecordingFrameOmitsControllerVolumeKey()
+    {
+        var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
+        SetPrivateField(viewModel, "_study", CreateMinimalStudyDefinition());
+        SetPrivateField(
+            viewModel,
+            "_reportedTwinState",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["routing.breathing.mode"] = "1",
+                ["routing.breathing.label"] = "Controller Volume",
+                ["study.breathing.value01"] = "0.456",
+                ["study.session.calibration_completed"] = "true",
+                ["study.pose.controller.hand"] = "right",
+                ["study.pose.controller.connected"] = "true",
+                ["study.pose.controller.tracked"] = "true",
+                ["study.pose.controller.tracking_status"] = "tracked"
+            });
+
+        GetPrivateMethod("UpdateControllerCard").Invoke(viewModel, []);
+
+        var formattedValue = $"{0.456d:0.000}";
+        Assert.Equal("Breath tracking ready.", viewModel.ControllerSummary);
+        Assert.Equal($"Current controller volume {formattedValue}", viewModel.BreathingDriverValueText);
+        Assert.Equal("Calibration accepted", viewModel.ControllerCalibrationLabel);
+        Assert.Contains($"Controller value {formattedValue}", viewModel.ControllerDetail, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ControllerCalibrationModeReadback_UsesHotloadFallbackKey()
     {
         var viewModel = (StudyShellViewModel)RuntimeHelpers.GetUninitializedObject(typeof(StudyShellViewModel));
@@ -271,6 +300,25 @@ public sealed class ValidationCaptureRegressionTests
         var actual = (bool?)method.Invoke(viewModel, []);
 
         Assert.False(actual);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(null, false, true)]
+    [InlineData(null, true, true)]
+    public void ControllerCalibrationModeProfileApply_IsSkippedOnlyWhenRequestedModeAlreadyMatches(
+        bool? currentMode,
+        bool requestedMode,
+        bool expectedApply)
+    {
+        var method = GetPrivateMethod("ShouldApplyControllerCalibrationProfile");
+
+        var actual = (bool)method.Invoke(null, [currentMode, requestedMode])!;
+
+        Assert.Equal(expectedApply, actual);
     }
 
     [Fact]
@@ -672,7 +720,7 @@ public sealed class ValidationCaptureRegressionTests
     }
 
     private static MethodInfo GetPrivateMethod(string name)
-        => typeof(StudyShellViewModel).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)
+        => typeof(StudyShellViewModel).GetMethod(name, BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic)
            ?? throw new InvalidOperationException($"Could not find {name} on {nameof(StudyShellViewModel)}.");
 
     private static void SetPrivateField(object target, string fieldName, object value)

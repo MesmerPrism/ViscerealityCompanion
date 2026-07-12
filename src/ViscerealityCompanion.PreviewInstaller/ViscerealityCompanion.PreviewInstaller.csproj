@@ -13,11 +13,53 @@
     <Company>Mesmer Prism</Company>
     <ApplicationIcon>..\ViscerealityCompanion.App\Assets\viscereality-companion.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SetupProductName Condition="'$(SetupProductName)' == ''">Viscereality Companion</SetupProductName>
+    <SetupAppInstallerDownloadUri Condition="'$(SetupAppInstallerDownloadUri)' == ''">https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.appinstaller</SetupAppInstallerDownloadUri>
+    <SetupCertificateDownloadUri Condition="'$(SetupCertificateDownloadUri)' == ''">https://github.com/MesmerPrism/ViscerealityCompanion/releases/latest/download/ViscerealityCompanion.cer</SetupCertificateDownloadUri>
+    <SetupReleasePageUri Condition="'$(SetupReleasePageUri)' == ''">https://github.com/MesmerPrism/ViscerealityCompanion/releases</SetupReleasePageUri>
+    <SetupExpectedPackageId Condition="'$(SetupExpectedPackageId)' == ''">MesmerPrism.ViscerealityCompanion</SetupExpectedPackageId>
+    <SetupDownloadDirectoryName Condition="'$(SetupDownloadDirectoryName)' == ''">ViscerealityCompanionSetup</SetupDownloadDirectoryName>
+    <SetupAppInstallerFileName Condition="'$(SetupAppInstallerFileName)' == ''">ViscerealityCompanion.appinstaller</SetupAppInstallerFileName>
+    <SetupCertificateFileName Condition="'$(SetupCertificateFileName)' == ''">ViscerealityCompanion.cer</SetupCertificateFileName>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\ViscerealityCompanion.App\Assets\viscereality-wordmark.png" Link="Assets\viscereality-wordmark.png" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ViscerealityCompanion.Core\ViscerealityCompanion.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ViscerealityCompanion.Setup.ProductName</_Parameter1>
+      <_Parameter2>$(SetupProductName)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ViscerealityCompanion.Setup.AppInstallerDownloadUri</_Parameter1>
+      <_Parameter2>$(SetupAppInstallerDownloadUri)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ViscerealityCompanion.Setup.CertificateDownloadUri</_Parameter1>
+      <_Parameter2>$(SetupCertificateDownloadUri)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ViscerealityCompanion.Setup.ReleasePageUri</_Parameter1>
+      <_Parameter2>$(SetupReleasePageUri)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ViscerealityCompanion.Setup.ExpectedPackageId</_Parameter1>
+      <_Parameter2>$(SetupExpectedPackageId)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ViscerealityCompanion.Setup.DownloadDirectoryName</_Parameter1>
+      <_Parameter2>$(SetupDownloadDirectoryName)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ViscerealityCompanion.Setup.AppInstallerFileName</_Parameter1>
+      <_Parameter2>$(SetupAppInstallerFileName)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>ViscerealityCompanion.Setup.CertificateFileName</_Parameter1>
+      <_Parameter2>$(SetupCertificateFileName)</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>

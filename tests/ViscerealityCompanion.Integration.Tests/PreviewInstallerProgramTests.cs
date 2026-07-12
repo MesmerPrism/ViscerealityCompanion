@@ -29,4 +29,17 @@ public sealed class PreviewInstallerProgramTests
         Assert.Contains("MesmerPrism.ViscerealityCompanionPreview", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("MesmerPrism.ViscerealityCompanion", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void ValidatePublishedPackageIdentity_accepts_explicit_pilot_family()
+    {
+        const string pilotPackageName = "MesmerPrism.ViscerealityCompanionSussexFixPilot";
+        var packageIdentity = new PreviewPackageIdentity(
+            pilotPackageName,
+            "CN=MesmerPrism",
+            "0.1.80.0",
+            new Uri("file:///C:/Temp/ViscerealityCompanion-SussexFixPilot.appinstaller"));
+
+        Program.ValidatePublishedPackageIdentity(packageIdentity, pilotPackageName);
+    }
 }

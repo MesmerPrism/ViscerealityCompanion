@@ -4802,37 +4802,41 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (useDynamicMotionAxis)
+        var currentMode = await DispatchAsync(TryGetCurrentControllerCalibrationModeSelection).ConfigureAwait(false);
+        if (ShouldApplyControllerCalibrationProfile(currentMode, useDynamicMotionAxis))
         {
-            await _controllerBreathingProfiles.UseDynamicAxisCalibrationAsync().ConfigureAwait(false);
-        }
-        else
-        {
-            await _controllerBreathingProfiles.UseFixedOrientationCalibrationAsync().ConfigureAwait(false);
-        }
+            if (useDynamicMotionAxis)
+            {
+                await _controllerBreathingProfiles.UseDynamicAxisCalibrationAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                await _controllerBreathingProfiles.UseFixedOrientationCalibrationAsync().ConfigureAwait(false);
+            }
 
-        var applyLevel = await DispatchAsync(() => _controllerBreathingProfiles.ApplyLevel).ConfigureAwait(false);
-        if (applyLevel == OperationOutcomeKind.Failure)
-        {
-            var applySummary = await DispatchAsync(() => _controllerBreathingProfiles.ApplySummary).ConfigureAwait(false);
-            var applyDetail = await DispatchAsync(() => _controllerBreathingProfiles.ApplyDetail).ConfigureAwait(false);
-            await ApplyOutcomeAsync(
-                actionLabel,
-                new OperationOutcome(
-                    OperationOutcomeKind.Failure,
-                    string.IsNullOrWhiteSpace(applySummary) ? $"{actionLabel} failed." : applySummary,
-                    applyDetail)).ConfigureAwait(false);
-            return;
-        }
+            var applyLevel = await DispatchAsync(() => _controllerBreathingProfiles.ApplyLevel).ConfigureAwait(false);
+            if (applyLevel == OperationOutcomeKind.Failure)
+            {
+                var applySummary = await DispatchAsync(() => _controllerBreathingProfiles.ApplySummary).ConfigureAwait(false);
+                var applyDetail = await DispatchAsync(() => _controllerBreathingProfiles.ApplyDetail).ConfigureAwait(false);
+                await ApplyOutcomeAsync(
+                    actionLabel,
+                    new OperationOutcome(
+                        OperationOutcomeKind.Failure,
+                        string.IsNullOrWhiteSpace(applySummary) ? $"{actionLabel} failed." : applySummary,
+                        applyDetail)).ConfigureAwait(false);
+                return;
+            }
 
-        var modeConfirmationOutcome = await WaitForControllerCalibrationModeConfirmationAsync(
-                useDynamicMotionAxis,
-                actionLabel)
-            .ConfigureAwait(false);
-        if (modeConfirmationOutcome is not null)
-        {
-            await ApplyOutcomeAsync(actionLabel, modeConfirmationOutcome).ConfigureAwait(false);
-            return;
+            var modeConfirmationOutcome = await WaitForControllerCalibrationModeConfirmationAsync(
+                    useDynamicMotionAxis,
+                    actionLabel)
+                .ConfigureAwait(false);
+            if (modeConfirmationOutcome is not null)
+            {
+                await ApplyOutcomeAsync(actionLabel, modeConfirmationOutcome).ConfigureAwait(false);
+                return;
+            }
         }
 
         await SendStudyTwinCommandCoreAsync(_study.Controls.StartBreathingCalibrationActionId, actionLabel).ConfigureAwait(false);
@@ -12365,10 +12369,19 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
     private void UpdateControllerCard()
     {
         var automaticTelemetry = CaptureAutomaticBreathingTelemetry();
-        var volume = ParseUnitInterval(GetFirstValue(_study.Monitoring.ControllerValueKeys));
+        var routingLabel = GetFirstValue("routing.breathing.label");
+        var routingMode = GetFirstValue("routing.breathing.mode");
+        var controllerVolume = ParseUnitInterval(GetFirstValue(_study.Monitoring.ControllerValueKeys));
+        var aggregateBreathingVolume = ParseUnitInterval(GetFirstValue("study.breathing.value01"));
+        var usesAggregateBreathingFallback = !controllerVolume.HasValue &&
+                                             aggregateBreathingVolume.HasValue &&
+                                             !automaticTelemetry.AutomaticRoute;
+        var volume = controllerVolume ?? (usesAggregateBreathingFallback ? aggregateBreathingVolume : null);
         var state = GetFirstValue("tracker.breathing.controller.state");
         var active = ParseBool(GetFirstValue("tracker.breathing.controller.active"));
-        var calibrated = ParseBool(GetFirstValue("tracker.breathing.controller.calibrated"));
+        var calibrated = ParseBool(GetFirstValue(
+            "tracker.breathing.controller.calibrated",
+            "study.session.calibration_completed"));
         var validating = ParseBool(GetFirstValue("tracker.breathing.controller.validating"));
         var validationProgress = ParseUnitInterval(GetFirstValue("tracker.breathing.controller.validation_progress01"));
         var validationAxisMode = GetFirstValue("tracker.breathing.controller.validation_axis_mode");
@@ -12391,8 +12404,11 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         var trackingStatus = GetFirstValue(
             "tracker.breathing.controller.tracking_status",
             "study.pose.controller.tracking_status");
-        var routingLabel = GetFirstValue("routing.breathing.label");
-        var routingMode = GetFirstValue("routing.breathing.mode");
+        var controllerBreathingVisible = active == true ||
+                                         (usesAggregateBreathingFallback &&
+                                          calibrated == true &&
+                                          (IsControllerVolumeBreathingActiveFromTwinState() ||
+                                           string.IsNullOrWhiteSpace(routingMode)));
 
         ControllerValuePercent = volume.HasValue ? volume.Value * 100d : 0d;
         ControllerValueLabel = volume.HasValue ? $"{volume.Value:0.000}" : "n/a";
@@ -12494,12 +12510,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
 
         if (calibrationQuality.Visible && calibrationQuality.Accepted)
         {
-            ControllerLevel = active == true
+            ControllerLevel = controllerBreathingVisible
                 ? calibrationQuality.Level
                 : OperationOutcomeKind.Warning;
             ControllerSummary = calibrationQuality.Level == OperationOutcomeKind.Warning
                 ? "Breath tracking should work, but calibration quality is degraded."
-                : active == true
+                : controllerBreathingVisible
                     ? "Breath tracking ready."
                     : "Calibration accepted, but controller breathing is not active yet.";
             ControllerDetail = $"{calibrationQuality.Expectation} {controllerStateDetail}".Trim();
@@ -12524,12 +12540,12 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
             return;
         }
 
-        ControllerLevel = active == true
+        ControllerLevel = controllerBreathingVisible
             ? OperationOutcomeKind.Warning
             : state is null && routingMode is null
                 ? OperationOutcomeKind.Preview
                 : OperationOutcomeKind.Warning;
-        ControllerSummary = active == true
+        ControllerSummary = controllerBreathingVisible
             ? "Controller breathing is visible, but calibration has not started yet."
             : "Controller breathing is not active yet.";
         ControllerDetail = $"{controllerStateDetail} Start calibration before relying on controller breath tracking.".Trim();
@@ -14096,6 +14112,9 @@ public sealed partial class StudyShellViewModel : ObservableObject, IDisposable
         => ParseBool(GetFirstValue(
             ControllerCalibrationModeHotloadKey,
             "hotload." + ControllerCalibrationModeHotloadKey));
+
+    private static bool ShouldApplyControllerCalibrationProfile(bool? currentMode, bool requestedMode)
+        => currentMode != requestedMode;
 
     private bool TryGetConfiguredUnitIntervalValue(IReadOnlyList<string> keys, out double value, out string sourceKey)
     {

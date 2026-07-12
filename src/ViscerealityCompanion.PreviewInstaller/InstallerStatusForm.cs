@@ -28,6 +28,7 @@ internal sealed class InstallerStatusForm : Form
     private readonly Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> _installAsync;
     private readonly Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> _installAfterLegacyCleanupAsync;
     private readonly string _releasePageUri;
+    private readonly string _productName;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Panel _shellPanel;
     private readonly Panel _statusPanel;
@@ -58,11 +59,13 @@ internal sealed class InstallerStatusForm : Form
     public InstallerStatusForm(
         Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> installAsync,
         Func<IProgress<InstallerProgressUpdate>, CancellationToken, Task<InstallerCompletionResult>> installAfterLegacyCleanupAsync,
-        string releasePageUri)
+        string releasePageUri,
+        string productName)
     {
         _installAsync = installAsync ?? throw new ArgumentNullException(nameof(installAsync));
         _installAfterLegacyCleanupAsync = installAfterLegacyCleanupAsync ?? throw new ArgumentNullException(nameof(installAfterLegacyCleanupAsync));
         _releasePageUri = releasePageUri ?? throw new ArgumentNullException(nameof(releasePageUri));
+        _productName = string.IsNullOrWhiteSpace(productName) ? "Viscereality Companion" : productName;
 
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = LineColor;
@@ -74,7 +77,7 @@ internal sealed class InstallerStatusForm : Form
         MinimumSize = new Size(900, 560);
         Padding = new Padding(1);
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "Viscereality Companion Setup";
+        Text = $"{_productName} Setup";
         var framePanel = new Panel
         {
             BackColor = AppBackgroundColor,
@@ -319,7 +322,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = MutedColor,
             Margin = new Padding(0),
             MaximumSize = new Size(800, 0),
-            Text = "This installer stages the latest public Windows package, refreshes the official Quest tooling cache, and then installs or updates the packaged app directly.",
+            Text = "This installer stages the pinned Windows package, refreshes the official Quest tooling cache, and then installs or updates the packaged app directly.",
             TextAlign = ContentAlignment.TopLeft
         };
 
@@ -331,7 +334,7 @@ internal sealed class InstallerStatusForm : Form
             ForeColor = InkColor,
             Margin = new Padding(0, 8, 0, 8),
             MaximumSize = new Size(800, 0),
-            Text = "Install Or Update Viscereality Companion",
+            Text = $"Install Or Update {_productName}",
             TextAlign = ContentAlignment.MiddleLeft
         };
         headerLayout.Controls.Add(_logoBox, 0, 0);
