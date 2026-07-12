@@ -18,8 +18,8 @@ on the `Sussex University experiment mode` workflow, but the packaged public
 line now uses the stable release package family instead of the older preview
 family.
 
-The current packaged public release line tracked by this repo is
-`0.1.75.0`.
+The current packaged public release line is `0.1.79`. It remains the normal
+path for the active legacy cohort.
 
 The recommended path is the installed Windows package, not the portable
 zip. That gives operators one branded launcher entry, a cleaner update story,
@@ -55,6 +55,30 @@ installs usually `%LOCALAPPDATA%\Packages\<package-family>\LocalCache\Local\Visc
 from Meta's published Windows `hzdb` package and Google's published Android
 platform-tools package. Those developer tools remain under their own upstream
 terms; this repo does not relicense them under MIT.
+
+## Sussex Fix Pilot
+
+The **Sussex Fix Pilot 0.1.80** is a separate, operator-assigned package for
+validating the participant-session fix. It does not update, replace, or move
+the public release feed. Use it only when the study owner has assigned the
+pilot workflow to you.
+
+<div class="download-start">
+  <section class="download-path download-path-primary">
+    <h2>Download the Sussex Fix Pilot</h2>
+    <p>This installs a second Start-menu entry named <strong>Viscereality Companion Sussex Fix Pilot</strong>. It bundles Sussex Experiment APK 0.1.3 (SHA-256 <code>4F684541719C1925F987EE93B4BBB036209D23AE1BDE276854A3463B699B396A</code>).</p>
+    <div class="action-row">
+      <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/download/sussex-fixed-pilot-v0.1.80/ViscerealityCompanion-SussexFixPilot-Setup.exe">Download Sussex Fix Pilot setup</a>
+      <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/tag/sussex-fixed-pilot-v0.1.80">Open immutable pilot release</a>
+    </div>
+    <ol class="step-list">
+      <li>Close any running public Companion app, then run the downloaded pilot setup EXE.</li>
+      <li>Use the new <strong>Viscereality Companion Sussex Fix Pilot</strong> Start-menu entry.</li>
+      <li>Use only a dedicated pilot Quest. The pilot APK shares the Sussex Android and LSL identities with the legacy APK, so do not operate both workflows on one headset at the same time.</li>
+    </ol>
+    <p><a href="sussex-fix-pilot.md">Read the full Sussex Fix Pilot workflow.</a></p>
+  </section>
+</div>
 
 <div class="download-start">
   <section class="download-path download-path-primary">
@@ -187,7 +211,7 @@ expecting the companion to install or launch anything.
 3. Plug the Quest in once over USB and approve the USB debugging prompt in-headset.
 4. Use the sequential guide for the full Sussex setup path.
 5. Check the top app header for the opened-build badge. The installed package
-   should identify itself as `Published install 0.1.75.0`; unpackaged local
+  should identify itself as `Published install 0.1.79.0`; unpackaged local
    builds explicitly say `Unpackaged build`.
 
 If you see the full app instead of Sussex mode, you are probably running an

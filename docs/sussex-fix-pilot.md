@@ -14,6 +14,11 @@ This is an operator-only release channel for the validated participant-session
 fix. It is intentionally separate from the public **Viscereality Companion**
 release so an active legacy cohort can remain on its existing workflow.
 
+<div class="action-row">
+  <a class="button primary" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/download/sussex-fixed-pilot-v0.1.80/ViscerealityCompanion-SussexFixPilot-Setup.exe">Download Sussex Fix Pilot setup</a>
+  <a class="button" href="https://github.com/MesmerPrism/ViscerealityCompanion/releases/tag/sussex-fixed-pilot-v0.1.80">Open immutable pilot release</a>
+</div>
+
 ## What stays unchanged
 
 - The current public release remains the normal operator path. Do not replace
@@ -28,9 +33,10 @@ release so an active legacy cohort can remain on its existing workflow.
 1. Receive the exact pilot release tag from the study owner, for example
    `sussex-fixed-pilot-v0.1.80`.
 2. Download and run only that tag's
-   `ViscerealityCompanion-SussexFixPilot-Setup.exe` asset. It installs a second
-   Start-menu entry named **Viscereality Companion Sussex Fix Pilot**; it does
-   not replace the public Companion app or its operator-data folder.
+   [`ViscerealityCompanion-SussexFixPilot-Setup.exe`](https://github.com/MesmerPrism/ViscerealityCompanion/releases/download/sussex-fixed-pilot-v0.1.80/ViscerealityCompanion-SussexFixPilot-Setup.exe)
+   asset. It installs a second Start-menu entry named **Viscereality Companion
+   Sussex Fix Pilot**; it does not replace the public Companion app or its
+   operator-data folder.
 3. Before starting either Companion app, verify that the other is closed. This
    is an operator rule for the pilot period, not an in-app interlock.
 4. Use a dedicated pilot Quest. The pilot and legacy APK currently share the
