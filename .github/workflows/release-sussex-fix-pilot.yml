@@ -62,14 +62,20 @@ jobs:
           PILOT_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
           gh release view $env:PILOT_TAG *> $null
-          if ($LASTEXITCODE -eq 0) {
+          $releaseExists = $LASTEXITCODE -eq 0
+          if ($releaseExists) {
             throw "Pilot release $env:PILOT_TAG already exists. Pilot assets are immutable; choose a new version."
           }
 
           git ls-remote --exit-code --tags origin "refs/tags/$env:PILOT_TAG" *> $null
-          if ($LASTEXITCODE -eq 0) {
+          $tagExists = $LASTEXITCODE -eq 0
+          if ($tagExists) {
             throw "Pilot tag $env:PILOT_TAG already exists. Refusing to replace or retarget it."
           }
+
+          # Both probes normally return non-zero for an available pilot tag.
+          # Clear that expected native exit state so the pwsh workflow step passes.
+          $global:LASTEXITCODE = 0
 
       - name: Validate signing configuration
         shell: pwsh
@@ -272,5 +278,8 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Remove-Item -Force '${{ steps.certificate.outputs.path }}' -ErrorAction SilentlyContinue
-          Remove-Item -Force '${{ steps.setup_certificate.outputs.path }}' -ErrorAction SilentlyContinue
+          @(
+            '${{ steps.certificate.outputs.path }}',
+            '${{ steps.setup_certificate.outputs.path }}'
+          ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            ForEach-Object { Remove-Item -Force $_ -ErrorAction SilentlyContinue }
