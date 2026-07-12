@@ -17,6 +17,7 @@ workflow, and keep operator control on Windows.
 
 <div class="action-row">
   <a class="button primary" href="download.md">Install The App</a>
+  <a class="button" href="sussex-fix-pilot.md">Sussex Fix Pilot</a>
   <a class="button" href="first-session.md">Run A Sussex Session</a>
   <a class="button" href="https://mesmerprism.com/projects/viscereality-companion.html">Companion Overview</a>
   <a class="button" href="https://viscereality.org/">Viscereality Project Site</a>
@@ -70,6 +71,10 @@ Use these three pages in order:
   <a class="path-card" href="download.md">
     <h3>Install The Launcher</h3>
     <p>Preferred path for researchers and operators. The current public installer is a Sussex-focused packaged release that already bundles the study build and opens in the dedicated study shell.</p>
+  </a>
+  <a class="path-card" href="sussex-fix-pilot.md">
+    <h3>Sussex Fix Pilot</h3>
+    <p>Assigned operators can install the isolated pilot package and follow the participant-session validation workflow without changing the public release.</p>
   </a>
   <a class="path-card" href="first-session.md">
     <h3>First Sussex Session</h3>
